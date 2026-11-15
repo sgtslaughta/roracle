@@ -17,32 +17,32 @@ Who = Annotated[Principal, Depends(current_principal)]
 
 class Share(BaseModel):
     kind: Literal["user", "group"]
-    principal: str = Field(min_length=1)
+    principal: str = Field(min_length=1, max_length=200)
 
 
 class CreateBody(BaseModel):
     kind: Literal["chat", "collection", "search", "document", "agent"]
     source_id: str | None = None
-    title: str = ""
-    goal: str = ""
-    brief: str = ""
-    doc_ids: list[str] = []
+    title: str = Field(default="", max_length=200)
+    goal: str = Field(default="", max_length=2000)
+    brief: str = Field(default="", max_length=20000)
+    doc_ids: list[str] = Field(default=[], max_length=500)
     audience: Literal["creator", "shared", "authenticated"] = "creator"
-    shares: list[Share] = []
+    shares: list[Share] = Field(default=[], max_length=100)
     expires_in_days: int = 7
 
 
 class PatchBody(BaseModel):
-    title: str | None = None
-    goal: str | None = None
-    brief: str | None = None
+    title: str | None = Field(default=None, max_length=200)
+    goal: str | None = Field(default=None, max_length=2000)
+    brief: str | None = Field(default=None, max_length=20000)
     audience: Literal["creator", "shared", "authenticated"] | None = None
-    shares: list[Share] | None = None
+    shares: list[Share] | None = Field(default=None, max_length=100)
     expires_in_days: int | None = None
 
 
 class NoteBody(BaseModel):
-    text: str
+    text: str = Field(max_length=10000)
 
 
 @router.post("/handoffs", status_code=201)
@@ -51,7 +51,7 @@ def create(body: CreateBody, p: Who, session: Session_) -> dict:
         session, p, body.kind, source_id=body.source_id, title=body.title, goal=body.goal,
         brief=body.brief, doc_ids=body.doc_ids, audience=body.audience,
         shares=[s.model_dump() for s in body.shares], expires_in_days=body.expires_in_days,
-        via="mcp" if p.client.startswith("pat:") else "ui",
+        via="ui",
     )  # fmt: skip
     session.commit()
     return handoff.view(session, p, h)

@@ -1,5 +1,6 @@
 """Handoffs: frozen, shareable context bundles. Redacted per loader at read time (no hidden id/title/passage)."""
 
+import json
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -8,6 +9,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,7 @@ from roracle.models import ChatMessage, Collection, CollectionItem, Document, Ha
 
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 PAGE = 20
+MAX_NOTES = 200
 KINDS = ("chat", "collection", "search", "document", "agent")
 _CODE = re.compile(f"[{ALPHABET}]{{8}}")
 NF = HTTPException(404, "not found")
@@ -30,11 +33,11 @@ def new_code() -> str:
 
 def normalize(s: str) -> str:
     """Any accepted form -> canonical code. Invalid -> 404 (never 422: no oracle)."""
-    t = s.strip().rstrip("/").rsplit("/", 1)[-1]
-    t = re.sub(r"[\s-]", "", t).upper()
-    if not _CODE.fullmatch(t):
+    t = re.split(r"[?#]", s, maxsplit=1)[0].strip().rstrip("/").rsplit("/", 1)[-1]
+    t = re.sub(r"[\s-]", "", t)
+    if not t.isascii() or not _CODE.fullmatch(t.upper()):
         raise HTTPException(404, "not found")
-    return t
+    return t.upper()
 
 
 def display(code: str) -> str:
@@ -62,6 +65,8 @@ def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
 
 def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
     chat = readable_chat(session, p, chat_id)
+    if chat.owner_id != p.user_id:  # owner only: share recipients get 404, not 403
+        raise NF
     msgs = list(
         session.scalars(
             select(ChatMessage)
@@ -164,12 +169,14 @@ def create(
             with session.begin_nested():
                 session.add(h)
                 session.flush()
-        except IntegrityError:
+        except IntegrityError as e:
+            if getattr(e.orig.diag, "constraint_name", None) != "handoffs_pkey":
+                raise
             continue
         break
     else:
         raise HTTPException(500, "could not allocate handoff code")
-    _put_shares(session, h.code, audience, shares)
+    _put_shares(session, h.code, audience, shares if audience == "shared" else [])
     audit(session, p, "handoff.create", h.code, {"kind": kind})
     session.flush()
     return h
@@ -218,13 +225,20 @@ def _manifest(session: Session, p: Principal, h: Handoff) -> dict:
     ok = visible_versions(session, p, h.passages)
     passages = recheck(h.passages, ok, drop=True)
     every = set(map(str, h.doc_ids)) | {str(x.get("doc_id")) for x in h.passages}
+    mine = h.creator_id == p.user_id
+    src = h.source
+    if h.kind == "document":
+        src = src if src.get("doc_id") in shown else {}
+    elif h.kind in ("chat", "collection") and not mine:
+        src = {}  # creator's private handles
     withheld = len(every - set(shown) - {x["doc_id"] for x in passages})
     author = session.get(User, h.creator_id)
     return {
         "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
         "uri": "roracle://handoff/" + h.code, "kind": h.kind, "title": h.title, "goal": h.goal,
-        "brief": h.brief, "source": h.source, "doc_ids": shown, "passages": passages,
-        "notes": h.notes, "withheld": withheld, "parts": {"transcript": ceil(len(h.transcript) / PAGE)},
+        "brief": h.brief, "source": src, "doc_ids": shown, "passages": passages,
+        "notes": h.notes[-PAGE:], "withheld": withheld,
+        "parts": {"transcript": ceil(len(h.transcript) / PAGE), "notes": ceil(len(h.notes) / PAGE)},
         "audience": h.audience, "expires_at": _iso(h.expires_at), "created_at": _iso(h.created_at),
         "created_by": author.username if author else "", "created_via": h.created_via,
     }  # fmt: skip
@@ -262,13 +276,18 @@ def append_note(session: Session, p: Principal, code: str, text: str, via: str =
         raise HTTPException(403, "insufficient scope")
     if not 1 <= len(text) <= 10000:
         raise HTTPException(422, "note must be 1-10000 characters")
-    note = {
-        "at": datetime.now(UTC).isoformat(), "by": p.username, "text": text,
-        "via": "mcp" if p.client.startswith("pat:") else via,
-    }  # fmt: skip
-    h.notes = [*h.notes, note]
+    note = {"at": datetime.now(UTC).isoformat(), "by": p.username, "text": text, "via": via}
+    n = session.execute(
+        sql_text(
+            "UPDATE handoffs SET notes = notes || CAST(:note AS jsonb) "
+            "WHERE code = :code AND jsonb_array_length(notes) < :cap"
+        ),
+        {"note": json.dumps([note]), "code": h.code, "cap": MAX_NOTES},
+    ).rowcount
+    if not n:
+        raise HTTPException(409, "note limit reached")
+    session.expire(h, ["notes"])
     audit(session, p, "handoff.note", h.code)
-    session.flush()
     return note
 
 
@@ -306,11 +325,11 @@ def update(session: Session, p: Principal, code: str, **f) -> Handoff:
         shares = f.get("shares", existing)
         if audience == "shared" and not shares:
             raise HTTPException(422, "shared audience needs at least one share")
-        if "shares" in f:
+        if "shares" in f or audience != "shared":
             for s in session.scalars(select(HandoffShare).where(HandoffShare.handoff_code == h.code)):
                 session.delete(s)
             session.flush()
-            _put_shares(session, h.code, audience, shares)
+            _put_shares(session, h.code, audience, shares if audience == "shared" else [])
         h.audience = audience
     if "expires_in_days" in f:
         h.expires_at = datetime.now(UTC) + timedelta(days=f["expires_in_days"])
