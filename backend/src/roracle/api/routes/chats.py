@@ -1,30 +1,36 @@
 """Chats: create, and stream cited answers over SSE (history/sharing/export land in Task 4)."""
 
+import contextlib
 from collections.abc import AsyncIterator, Iterator
 from typing import Annotated
 from uuid import UUID
 
 import anyio
-from elasticsearch import Elasticsearch
+import httpx
+import openai
+from elasticsearch import ConnectionError as EsConnectionError
+from elasticsearch import Elasticsearch, TransportError
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.answer import build_messages, stream_answer
-from roracle.chat.retrieve import Viewer, retrieve_for_chat
+from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import Chat, ChatMessage
+from roracle.models import Chat, ChatMessage, DocumentVersion
 
 router = APIRouter(prefix="/chats")
 Who = Annotated[Principal, Depends(current_principal)]
 Db = Annotated[Session, Depends(get_session)]
 Cfg = Annotated[Settings, Depends(get_app_settings)]
+HISTORY = 6
+NO_OPEN_DOCS = "No open documents to answer from. Open a document or switch scope."
 SCOPE = r"^(all|open|collection:[0-9a-fA-F-]{36})$"
 
 
@@ -83,8 +89,19 @@ def _get_chat(session: Session, p: Principal, chat_id: UUID) -> Chat:
     return chat
 
 
+class ClosingStreamingResponse(StreamingResponse):
+    """Always aclose() the body iterator, so a disconnect reliably runs `_frames`' finally."""
+
+    async def stream_response(self, send) -> None:
+        async with contextlib.aclosing(self.body_iterator):
+            await super().stream_response(send)
+
+
 async def _frames(gen: Iterator[str]) -> AsyncIterator[str]:
-    """Pull the sync generator off the event loop; on disconnect/cancel close it (-> `interrupted`)."""
+    """Pull the sync generator off the event loop; on disconnect/cancel close it (-> `interrupted`).
+
+    Pulls must keep the default abandon_on_cancel=False: close() must never race a running next().
+    """
     try:
         while (f := await anyio.to_thread.run_sync(next, gen, None)) is not None:
             yield f
@@ -105,30 +122,47 @@ def post_message(
 ) -> StreamingResponse:
     chat = _get_chat(session, p, chat_id)
     _check_model(settings, body.model)
-    model = body.model or chat.model or settings.chat_model_list[0]
-    history = list(
-        session.scalars(
-            select(ChatMessage)
-            .where(ChatMessage.chat_id == chat.id)
-            .order_by(ChatMessage.created_at, ChatMessage.id)
-        )
+    allowed = settings.chat_model_list
+    model = body.model or (chat.model if chat.model in allowed else allowed[0])
+    recent = session.scalars(
+        select(ChatMessage)
+        .where(ChatMessage.chat_id == chat.id)
+        .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+        .limit(2 * HISTORY)
     )
-    try:
-        passages = retrieve_for_chat(
-            session, es, llm, settings, p, body.content, body.viewer, chat.scope,
-            list(chat.pins), list(chat.excludes),
-        )  # fmt: skip
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from None
+    history = list(reversed(list(recent)))
+    canned = None
+    passages = []
+    if chat.scope == "open" and not has_open_context(session, p, body.viewer):
+        canned, model = NO_OPEN_DOCS, None
+    else:
+        try:
+            passages = retrieve_for_chat(
+                session, es, llm, settings, p, body.content, body.viewer, chat.scope,
+                list(chat.pins), list(chat.excludes),
+            )  # fmt: skip
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        except (openai.APIError, httpx.HTTPError):
+            raise HTTPException(503, "inference unavailable") from None
+        except (EsConnectionError, TransportError):
+            raise HTTPException(503, "search unavailable") from None
     session.add(
         ChatMessage(chat_id=chat.id, role="user", content=body.content, viewer=body.viewer.model_dump())
     )
     if not chat.title:
         chat.title = body.content[:80]
     session.commit()
-    messages = build_messages(body.content, passages, history)
-    gen = stream_answer(session, llm, chat.id, model, messages, passages)
-    return StreamingResponse(
+    messages = build_messages(body.content, passages, history, HISTORY)
+    vids = [UUID(x.version_id) for x in passages]
+    versions = {
+        str(i): n
+        for i, n in session.execute(
+            select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+        )
+    }
+    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned)
+    return ClosingStreamingResponse(
         _frames(gen),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

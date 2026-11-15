@@ -88,6 +88,14 @@ def _live(session: Session, p: Principal, doc_ids: set[str]) -> dict[str, Docume
     return {str(v.document_id): v for v in rows}
 
 
+def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
+    """True if the caller can see at least one open tab or the selected doc (scope=open needs this)."""
+    ids = {_uid(t.doc_id) for t in viewer.tabs} | (
+        {_uid(viewer.selection.doc_id)} if viewer.selection else set()
+    )
+    return bool(_live(session, p, {i for i in ids if i}))
+
+
 def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int):
     try:
         return search_chunks(
