@@ -86,3 +86,27 @@ def test_filters_shape():
         {"terms": {"year": [2020, 2021]}},
         {"terms": {"doc_id": ["d1"]}},
     ]
+
+
+@pytest.mark.parametrize(
+    "resp",
+    [
+        {"results": [{"index": 0, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.8}]},
+        {"results": [{"index": 0.0, "relevance_score": 0.9}, {"index": 1, "relevance_score": 0.8}]},
+        {"results": [{"index": 0, "relevance_score": 0.9}, {"index": 5, "relevance_score": 0.8}]},
+        {"results": [{"index": 0, "relevance_score": 0.9}]},
+    ],
+)
+def test_rerank_malformed_keeps_order(resp):
+    ps = [P("a", "d", 0.5), P("b", "d", 0.4)]
+    assert _rerank(_settings(), "q", ps, _http(lambda r: httpx.Response(200, json=resp))) is ps
+
+
+def test_rerank_timeout_and_non_json():
+    ps = [P("a", "d", 0.5), P("b", "d", 0.4)]
+
+    def boom(req):
+        raise httpx.ReadTimeout("t")
+
+    assert _rerank(_settings(), "q", ps, _http(boom)) is ps
+    assert _rerank(_settings(), "q", ps, _http(lambda r: httpx.Response(200, content=b"nope"))) is ps

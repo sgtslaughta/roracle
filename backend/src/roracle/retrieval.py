@@ -4,6 +4,7 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 `filter` param (pre-filter). Never post_filter: ACL must hold before ranking.
 """
 
+import html
 import logging
 import math
 from dataclasses import dataclass, field
@@ -81,7 +82,9 @@ def vote_multiplier(up: int, down: int) -> float:
 def _filters(p: Principal, filters: dict, doc_ids: list[str] | None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = [acl_filter(p), {"term": {"is_latest": True}}]
     for key, values in filters.items():
-        if key in FACET_FIELDS and values:
+        if key not in FACET_FIELDS:
+            raise ValueError(f"unknown filter: {key}")
+        if values:
             out.append({"terms": {FACET_FIELDS[key]: list(values)}})
     if doc_ids is not None:
         out.append({"terms": {"doc_id": list(doc_ids)}})
@@ -96,7 +99,7 @@ def _passage(hit: dict, score: float = 0.0) -> Passage:
         doc_id=s["doc_id"],
         version_id=s["version_id"],
         text=s["text"],
-        highlight=frags[0] if frags else s["text"][:240],
+        highlight=frags[0] if frags else html.escape(s["text"][:240]),
         pages=s.get("pages") or [],
         bboxes=s.get("bboxes") or [],
         score=score,
@@ -113,23 +116,26 @@ def _rerank(
     if not head:
         return passages
     try:
-        client = http or httpx.Client(timeout=30)
-        r = client.post(
-            settings.rerank_url,
-            json={"model": settings.rerank_model, "query": query, "documents": [x.text for x in head]},
-        )
+        payload = {"model": settings.rerank_model, "query": query, "documents": [x.text for x in head]}
+        if http is not None:
+            r = http.post(settings.rerank_url, json=payload)
+        else:
+            with httpx.Client(timeout=5.0) as client:
+                r = client.post(settings.rerank_url, json=payload)
         r.raise_for_status()
         order = sorted(r.json()["results"], key=lambda x: -x["relevance_score"])
-        idx = [o["index"] for o in order if 0 <= o["index"] < len(head)]
-        if len(set(idx)) != len(head):
+        idx = [o["index"] for o in order]
+        if not all(type(i) is int and 0 <= i < len(head) for i in idx) or len(set(idx)) != len(head):
+            raise ValueError("malformed rerank result")
+        if len(idx) != len(head):
             raise ValueError("incomplete rerank result")
+        scores = sorted((x.score for x in head), reverse=True)  # keep order under later score sorts
+        reranked = [head[i] for i in idx]
+        for x, sc in zip(reranked, scores, strict=True):
+            x.score = sc
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
         log.warning("rerank failed, keeping fused order: %s", e)
         return passages
-    scores = sorted((x.score for x in head), reverse=True)  # keep order under later score sorts
-    reranked = [head[i] for i in idx]
-    for x, s in zip(reranked, scores, strict=True):
-        x.score = s
     return reranked + passages[RERANK_TOP:]
 
 
@@ -160,7 +166,7 @@ def search_chunks(
                 "must": [{"multi_match": {"query": query, "fields": ["text^1", "title^2", "headings"]}}],
             }
         },
-        highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}},
+        highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
     )["hits"]["hits"]
     [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
     knn = es.search(

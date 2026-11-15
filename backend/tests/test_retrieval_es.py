@@ -16,7 +16,7 @@ DIMS = 4
 
 def _vec(text: str) -> list[float]:
     t = text.lower()
-    return [float("alpha" in t), float("beta" in t), float("gamma" in t), 0.1]
+    return [float("alpha" in t or "automobile" in t), float("beta" in t), float("gamma" in t), 0.1]
 
 
 class FakeLLM:
@@ -91,17 +91,28 @@ def test_bm25_and_knn_find_visible(es, cfg, db_session, blob, user):
     p = _p(uuid.uuid4())
     hits = _search(cfg, es, p, "quokka")  # BM25 match
     assert hits[0].text.startswith("quokka") and "<em>quokka</em>" in hits[0].highlight
-    knn = _search(cfg, es, p, "alpha")  # kNN ranks it first
+    knn = _search(cfg, es, p, "automobile")  # no lexical overlap: kNN-only recall
     assert knn[0].title == "Doc A"
-    only_knn = _search(cfg, es, p, "beta")
-    assert only_knn[0].title == "Doc B"
+    assert knn[0].highlight == knn[0].text[:240]  # fallback highlight
 
 
-def test_knn_only_hit_has_fallback_highlight(es, cfg, db_session, blob, user):
-    _add(es, cfg, db_session, blob, user, "K", "gamma " + "x" * 500)
-    # query word 'gamma' embeds to the same vector but is lexically absent when searched as 'GAMMAS?'
-    hits = _search(cfg, es, _p(uuid.uuid4()), "gamma")
-    assert hits and hits[0].highlight
+def test_highlight_escaped(es, cfg, db_session, blob, user):
+    _add(es, cfg, db_session, blob, user, "X", "<script>alert(1)</script> quokka gamma")
+    _add(es, cfg, db_session, blob, user, "Y", "<script>alert(1)</script> delta")
+    p = _p(uuid.uuid4())
+    import re
+
+    for q in ("quokka", "automobile gamma"):
+        for h in _search(cfg, es, p, q):
+            assert "<script>" not in h.highlight
+            assert not re.findall(r"<(?!/?em>)", h.highlight)
+    y = next(h for h in _search(cfg, es, p, "alpha delta") if h.title == "Y")
+    assert "&lt;script&gt;" in y.highlight
+
+
+def test_unknown_filter_raises(es, cfg):
+    with pytest.raises(ValueError):
+        _search(cfg, es, _p(uuid.uuid4()), "q", filters={"bogus": ["x"]})
 
 
 def test_filters_and_or(es, cfg, db_session, blob, user):

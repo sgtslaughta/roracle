@@ -71,7 +71,7 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
     missing = {
         f: t for f, t in _mapping(dims)["properties"].items() if f not in props and t == {"type": "keyword"}
     }
-    if missing:  # fields added after the index was created (R9)
+    if missing:  # backfill handles keyword fields only (R9); fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
     if props.get("embedding", {}).get("dims") != dims:
         raise NonRetryable("search index dimension mismatch: reindex required")
