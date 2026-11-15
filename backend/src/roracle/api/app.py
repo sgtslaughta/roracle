@@ -17,6 +17,7 @@ from roracle.api.routes import (
     me,
     near_dup,
     search,
+    tokens,
 )
 from roracle.auth import JwksCache
 from roracle.config import Settings, get_settings
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(me.router)
+    app.include_router(tokens.router)
     app.include_router(documents.router)
     app.include_router(near_dup.router)
     app.include_router(library.router)

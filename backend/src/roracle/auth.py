@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
@@ -33,6 +33,9 @@ class Principal:
     username: str
     groups: tuple[str, ...]
     is_admin: bool
+    scopes: frozenset[str] = frozenset({"read", "write"})
+    client: str = ""
+    via: Literal["jwt", "pat"] = "jwt"
 
 
 def httpx_fetch(url: str) -> dict:
@@ -150,17 +153,46 @@ def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
     return claims
 
 
+def resolve_principal(
+    session: Session, jwks: JwksCache, settings: Settings, authorization: str | None
+) -> Principal:
+    """Bearer PAT (`ror_pat_`) or Keycloak JWT -> Principal. Every failure is the same 401."""
+    scheme, _, token = (authorization or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        raise _unauthorized()
+    from roracle import pats  # lazy: pats imports this module
+
+    if token.startswith(pats.PREFIX):
+        try:
+            return pats.principal_from_pat(session, settings, token)
+        except Exception:  # noqa: BLE001 - uniform 401
+            raise _unauthorized() from None
+    return _jwt_principal(session, jwks, settings, token)
+
+
 def current_principal(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     jwks: Annotated[JwksCache, Depends(get_jwks)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise _unauthorized()
+    p = resolve_principal(session, jwks, settings, authorization)
+    if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(403, "insufficient scope")
+    return p
+
+
+def require_jwt(p: Annotated[Principal, Depends(current_principal)]) -> Principal:
+    if p.via != "jwt":
+        raise HTTPException(403, "personal access tokens cannot manage tokens")
+    return p
+
+
+def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token: str) -> Principal:
     try:
-        claims = _verify(token.strip(), jwks, settings)
+        claims = _verify(token, jwks, settings)
         sub = claims["sub"]
         if not isinstance(sub, str) or not sub:
             raise ValueError("bad sub")
@@ -185,7 +217,7 @@ def current_principal(
         },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()
-    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles)
+    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=str(claims.get("azp", "")))
 
 
 def principal_for_user(session: Session, user_id: UUID) -> Principal:
