@@ -10,7 +10,7 @@ import type { ReaderTab } from "./useReaderStore";
 
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 
-export function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
+export default function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(2); // index into ZOOMS: 1.0 = fit width
@@ -19,6 +19,7 @@ export function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
   const pdf = useQuery({
     queryKey: ["pdf", tab.docId, version],
     staleTime: Infinity,
+    gcTime: 60_000, // documents are destroyed when the query is garbage collected (see pdfCleanup)
     queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${seg(tab.docId)}/versions/${seg(version)}/file`)).arrayBuffer()),
   });
   const docling = useDocling(tab.docId, version).data;
@@ -52,7 +53,8 @@ export function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
     const sel = target ? `.pdfhl` : `[data-page="${tab.page}"]`;
     const id = requestAnimationFrame(() => box.current?.querySelector(sel)?.scrollIntoView({ block: target ? "center" : "start" }));
     return () => cancelAnimationFrame(id);
-  }, [pdf.data, tab.seq, tab.page, target, scale]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-scroll only when the tab is re-opened or the passage changes, never on zoom/resize
+  }, [pdf.data, tab.seq, tab.page, target?.chunkId]);
 
   useEffect(() => {
     const el = box.current;

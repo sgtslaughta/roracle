@@ -36,6 +36,15 @@ export function stringifySearch(s: Record<string, unknown>, extra: { size?: numb
   return str ? `?${str}` : "";
 }
 
+/** Route validation: keep only well-formed values so a hand-edited URL can't produce odd state. */
 export function validateLibrarySearch(s: Record<string, unknown>): LibrarySearch {
-  return s as LibrarySearch;
+  const out: LibrarySearch = {};
+  if (typeof s.q === "string" && s.q) out.q = s.q;
+  if (SORTS.includes(s.sort as Sort)) out.sort = s.sort as Sort;
+  if (Number.isInteger(s.page) && (s.page as number) > 1) out.page = s.page as number;
+  for (const k of ARRAY_KEYS) {
+    const v = s[k];
+    if (Array.isArray(v)) { const a = v.filter((x): x is string => typeof x === "string" && x !== ""); if (a.length) out[k] = a; }
+  }
+  return out;
 }

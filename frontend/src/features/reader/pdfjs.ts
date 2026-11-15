@@ -9,7 +9,7 @@ export interface PdfPageLike {
   getViewport(o: { scale: number }): PdfViewport;
   render(o: { canvas: HTMLCanvasElement; canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }): { promise: Promise<void> };
 }
-export interface PdfDocLike { numPages: number; getPage(n: number): Promise<PdfPageLike> }
+export interface PdfDocLike { numPages: number; getPage(n: number): Promise<PdfPageLike>; destroy?(): Promise<void> | void }
 
 export async function loadPdf(data: ArrayBuffer): Promise<PdfDocLike> {
   return (await pdfjs.getDocument({ data }).promise) as unknown as PdfDocLike;

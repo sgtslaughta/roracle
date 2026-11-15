@@ -32,3 +32,14 @@ describe("theme", () => {
     expect(getTheme()).toBe("system");
   });
 });
+
+describe("theme store", () => {
+  it("notifies subscribers so the top bar follows palette changes", async () => {
+    const { subscribeTheme } = await import("./theme");
+    const seen: string[] = [];
+    const off = subscribeTheme(() => seen.push(getTheme()));
+    cycleTheme(); cycleTheme();
+    off(); cycleTheme();
+    expect(seen).toEqual(["light", "dark"]);
+  });
+});

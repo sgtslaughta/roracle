@@ -1,14 +1,13 @@
 import { Bell, Command, Moon, Search, Sun, SunMoon } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
-import { cycleTheme, getTheme, type Theme } from "@/lib/theme";
+import { cycleTheme, useTheme } from "@/lib/theme";
 import { openPalette } from "@/features/palette/usePalette";
 import { GlobalSearch } from "./GlobalSearch";
 
 const THEME_ICON = { system: SunMoon, light: Sun, dark: Moon } as const;
 
 export function TopBar() {
-  const [theme, setT] = useState<Theme>(getTheme());
+  const theme = useTheme();
   const ThemeIcon = THEME_ICON[theme];
   return (
     <header className="top">
@@ -27,7 +26,6 @@ export function TopBar() {
           title={`Theme: ${theme}`}
           onClick={() => {
             const next = cycleTheme();
-            setT(next);
             toast(`Theme: ${next === "system" ? "match your system" : next}`);
           }}
         >

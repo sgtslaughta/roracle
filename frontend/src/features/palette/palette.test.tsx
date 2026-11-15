@@ -95,6 +95,16 @@ describe("palette search size", () => {
   });
 });
 
+describe("theme from the palette", () => {
+  it("updates the top-bar theme button", async () => {
+    await renderApp();
+    expect(screen.getByRole("button", { name: "Switch theme" })).toHaveAttribute("title", "Theme: system");
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(await screen.findByRole("combobox"), "theme{Enter}");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch theme" })).toHaveAttribute("title", "Theme: light"));
+  });
+});
+
 describe("keyboard", () => {
   it("/ focuses the search box", async () => {
     await renderApp();

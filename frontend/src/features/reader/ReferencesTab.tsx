@@ -2,13 +2,14 @@ import { ArrowUpRight, CornerDownRight, Globe, Link2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
+import { shortCite } from "@/lib/cite";
+import { useCitedBy, useReferences } from "./api";
+import { openDoc } from "./useReaderStore";
+
 const PAGE = 25;
 function MoreButton({ shown, total, onMore }: { shown: number; total: number; onMore: () => void }) {
   return shown < total ? <li className="more-row"><Button onClick={onMore}>Show {Math.min(PAGE, total - shown)} more ({total - shown} left)</Button></li> : null;
 }
-import { shortCite } from "@/lib/cite";
-import { useCitedBy, useReferences } from "./api";
-import { openDoc } from "./useReaderStore";
 
 export function ReferencesTab({ docId }: { docId: string }) {
   const { data, isLoading } = useReferences(docId);

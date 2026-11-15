@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 export type Theme = "system" | "light" | "dark";
 export const THEME_KEY = "roracle-theme";
 const ORDER: Theme[] = ["system", "light", "dark"];
@@ -10,6 +12,9 @@ export function getTheme(): Theme {
     return "system";
   }
 }
+
+const subs = new Set<() => void>();
+export const subscribeTheme = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
 
 export function applyTheme(t: Theme) {
   const el = document.documentElement;
@@ -24,6 +29,7 @@ export function setTheme(t: Theme) {
     /* storage unavailable: theme still applies for this session */
   }
   applyTheme(t);
+  subs.forEach((f) => f());
 }
 
 export function cycleTheme(): Theme {
@@ -31,3 +37,6 @@ export function cycleTheme(): Theme {
   setTheme(next);
   return next;
 }
+
+/** Reactive theme for components (top bar icon follows changes made from the command palette). */
+export const useTheme = () => useSyncExternalStore(subscribeTheme, getTheme, () => "system" as Theme);

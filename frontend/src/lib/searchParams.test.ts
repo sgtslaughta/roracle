@@ -15,3 +15,11 @@ describe("search params", () => {
     expect(parseSearch("?collection=Thesis")).toEqual({ collection: ["Thesis"] });
   });
 });
+
+import { validateLibrarySearch } from "./searchParams";
+describe("validateLibrarySearch", () => {
+  it("drops malformed values", () => {
+    expect(validateLibrarySearch({ q: "x", sort: "bogus", page: -3, tags: ["a", 5, ""], year: "2021" })).toEqual({ q: "x", tags: ["a"] });
+    expect(validateLibrarySearch({ sort: "newest", page: 4 })).toEqual({ sort: "newest", page: 4 });
+  });
+});

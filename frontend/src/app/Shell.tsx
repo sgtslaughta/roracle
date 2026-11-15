@@ -1,5 +1,4 @@
 import { Outlet } from "@tanstack/react-router";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -14,7 +13,7 @@ export function Shell() {
   const reading = tabs.length > 0;
   useGlobalKeys();
   return (
-    <TooltipProvider delayDuration={300}>
+    <>
       <div className={cn("app", reading && "reading")} id="app" data-focus={focus}>
         <TopBar />
         <Sidebar />
@@ -25,6 +24,6 @@ export function Shell() {
       </div>
       <CommandPalette />
       <Toaster />
-    </TooltipProvider>
+    </>
   );
 }

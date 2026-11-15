@@ -11,6 +11,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { applyTheme, getTheme } from "./lib/theme";
 import { createAppRouter } from "./app/router";
 import { AuthGate } from "./auth/AuthGate";
+import { attachPdfCleanup } from "./features/reader/pdfCleanup";
 import { createUserManager } from "./auth/oidc";
 import { useState } from "react";
 
@@ -27,6 +28,7 @@ async function boot() {
     await worker.start({ onUnhandledFrame: "bypass", quiet: true });
   }
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000 } } });
+  attachPdfCleanup(queryClient);
   // the router is created on first mount, i.e. after AuthGate has restored the original URL
   const App = () => {
     const [router] = useState(() => createAppRouter());

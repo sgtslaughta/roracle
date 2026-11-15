@@ -1,5 +1,5 @@
 import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquareQuote, Quote } from "lucide-react";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoteControl } from "@/features/library/VoteControl";
 import { addRecent } from "@/features/palette/recent";
 import { useCitedBy, useDoc, useReferences } from "./api";
-import { PdfView } from "./PdfView";
+const PdfView = lazy(() => import("./PdfView"));
 import { CitedByTab, NotesTab, ReferencesTab } from "./ReferencesTab";
 import { TagBar } from "./TagBar";
 import { setVersion, setView, type ReaderTab, type ReaderView } from "./useReaderStore";
@@ -61,7 +61,11 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           </TabsList>
         </Tabs>
       </div>
-      {view === "doc" && <PdfView key={`${d.id}:${version}`} tab={tab} version={version} />}
+      {view === "doc" && (
+        <Suspense fallback={<div className="pages"><p className="sub" role="status">Loading document…</p></div>}>
+          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} />
+        </Suspense>
+      )}
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab />}
