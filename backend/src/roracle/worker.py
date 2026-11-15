@@ -2,6 +2,7 @@ import logging
 from functools import partial
 
 from roracle import clients
+from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.db import make_session_factory
 from roracle.ingest import handle_ingest
@@ -21,7 +22,8 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             es=clients.es(settings),
             llm=clients.llm(settings),
             session_factory=session_factory,
-        )
+        ),
+        "citations": partial(handle_citations, session_factory=session_factory),
     }
 
 

@@ -14,6 +14,7 @@ from sqlalchemy import exists, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Document, DocumentVersion, Vote
+from roracle.queue import enqueue
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -118,4 +119,11 @@ def clear_outdated_reasons(
             .where(Vote.document_id == doc_id, Vote.reason == "outdated", Vote.created_at < made)
             .values(reason=None)
         )
+        s.commit()
+
+
+def enqueue_job(session_factory: sessionmaker[Session], kind: str, payload: dict) -> None:
+    """Enqueue a follow-up job from a short session of its own (never the handler's)."""
+    with session_factory() as s:
+        enqueue(s, kind, payload)
         s.commit()

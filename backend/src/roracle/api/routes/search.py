@@ -14,6 +14,7 @@ from roracle import clients
 from roracle.access import visible_documents
 from roracle.api.routes.library import get_es
 from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.citations import cited_by_counts
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
@@ -221,7 +222,7 @@ def _hit(r: Row) -> dict:
         "org_unit": r.doc.org_unit,
         "owner_id": str(r.doc.owner_id),
         "flag": None,  # outdated-flag lands later
-        "cited_by_count": 0,  # Task 5
+        "cited_by_count": 0,  # filled by search() in one batched query
     }
 
 
@@ -325,4 +326,8 @@ def search(
         universe = _load(session, p, None, None, MAX_DOCS) if filtered else rows
     seen = {r.doc.id for r in universe}
     universe = universe + [r for r in rows if r.doc.id not in seen]
-    return _response(rows, universe, wanted, sort, page, size)
+    out = _response(rows, universe, wanted, sort, page, size)
+    counts = cited_by_counts(session, p, [UUID(h["doc_id"]) for h in out["results"]])
+    for h in out["results"]:
+        h["cited_by_count"] = counts.get(h["doc_id"], 0)
+    return out

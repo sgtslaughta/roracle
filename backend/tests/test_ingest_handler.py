@@ -71,6 +71,8 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     assert src["owner_id"] == str(user.id) and src["visibility"] == "shared"
     assert src["share_users"] == [] and src["org_unit"] == "/" and src["is_latest"] is True
     assert src["title"] == "A Study of Retrieval" and src["pages"] == [1] and len(src["embedding"]) == DIMS
+    jobs = db_session.scalars(select(Job).where(Job.kind == "citations")).all()  # R6
+    assert [j.payload for j in jobs] == [{"version_id": str(v.id)}]
 
 
 @pytest.mark.integration

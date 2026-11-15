@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -166,3 +167,17 @@ class CollectionItem(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class DocCitation(Base):
+    __tablename__ = "doc_citations"
+
+    src_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    ref_no: Mapped[int] = mapped_column(Integer, primary_key=True)  # 1-based position in version.references
+    target_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    confidence: Mapped[float | None] = mapped_column(Float)
+    raw: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
