@@ -23,3 +23,12 @@ Element.prototype.scrollIntoView ??= function () {};
 
 // no canvas in jsdom
 HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+// jsdom's FormData/File are not understood by Node's fetch/undici (multipart parse asserts on the File class):
+// use Node's own implementations for uploads in tests.
+import { File as NodeFile } from "node:buffer";
+const NodeFormData = Object.getPrototypeOf(
+  await new Response("a=1", { headers: { "content-type": "application/x-www-form-urlencoded" } }).formData(),
+).constructor;
+globalThis.FormData = NodeFormData;
+globalThis.File = NodeFile as unknown as typeof File;

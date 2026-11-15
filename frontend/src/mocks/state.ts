@@ -6,6 +6,7 @@ export interface MockState {
   extraTags: Record<string, string[]>;
   versions: Record<string, number>;
   uploads: MockUpload[];
+  lastAdvance: number;
 }
 
 const fresh = (): MockState => ({
@@ -13,6 +14,7 @@ const fresh = (): MockState => ({
   extraTags: {},
   versions: Object.fromEntries(DOCS.map((d) => [d.id, d.ver])),
   uploads: seedUploads(),
+  lastAdvance: Date.now(),
 });
 
 export const state: MockState = fresh();

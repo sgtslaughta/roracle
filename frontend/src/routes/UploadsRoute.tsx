@@ -1,7 +1,3 @@
-export function UploadsRoute() {
-  return (
-    <section className="view">
-      <h1>My uploads</h1>
-    </section>
-  );
-}
+import { UploadsPage } from "@/features/uploads/UploadsPage";
+
+export const UploadsRoute = UploadsPage;

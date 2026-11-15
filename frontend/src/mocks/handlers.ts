@@ -68,7 +68,7 @@ export const handlers = [
   }),
   // ---- uploads ----
   http.get(url("/me/uploads"), () => {
-    advance(state.uploads);
+    if (Date.now() - state.lastAdvance >= 3000) { advance(state.uploads); state.lastAdvance = Date.now(); }
     return HttpResponse.json({ items: state.uploads, total: state.uploads.length });
   }),
   http.post(url("/documents"), async ({ request }) => {
