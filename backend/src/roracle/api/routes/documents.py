@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -49,6 +49,14 @@ def upload(
             413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
         ) from None
     try:
+        if settings.upload_quota_bytes > 0:
+            used = session.scalar(
+                select(func.coalesce(func.sum(DocumentVersion.size), 0))
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(Document.owner_id == p.user_id, Document.deleted_at.is_(None))
+            )
+            if used + staged.size > settings.upload_quota_bytes:
+                raise HTTPException(413, "upload quota exceeded")
         if not force:
             dup = session.scalar(
                 select(DocumentVersion.document_id)

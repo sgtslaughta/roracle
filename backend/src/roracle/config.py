@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6
+    rerank_depth: int = 50
+    upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
+    rate_limit_per_minute: int = 0  # stored only; enforced at ingress in P11
 
     @property
     def chat_model_list(self) -> list[str]:

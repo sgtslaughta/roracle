@@ -12,7 +12,7 @@ from elasticsearch import Elasticsearch
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle import notify, search_index
+from roracle import notify, runtime, search_index
 from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
@@ -101,6 +101,7 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
     """True if the version was parked for a near-dup decision."""
     update_version(sf, v.id, minhash=minhash(text))
     session.refresh(v)
+    settings = runtime.effective(session, settings)
     match = find_near_duplicate(
         session,
         principal_for_user(session, d.owner_id),

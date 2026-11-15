@@ -32,7 +32,12 @@ def current() -> Principal:
 def dep(app: FastAPI, fn: Callable):
     """Resolve a request-scoped FastAPI dependency (get_es, get_llm, get_jwks, ...) outside a request."""
     override = app.dependency_overrides.get(fn)
-    return override() if override else fn(SimpleNamespace(app=app))
+    if override:
+        return override()
+    if fn is get_app_settings:  # needs a session for runtime overrides
+        with open_session(app) as session:
+            return fn(SimpleNamespace(app=app), session)
+    return fn(SimpleNamespace(app=app))
 
 
 @contextmanager
