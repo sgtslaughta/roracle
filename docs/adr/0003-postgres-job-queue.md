@@ -16,3 +16,10 @@ Valkey is optional (cache/rate limits), never the queue.
 ## Consequences
 - No broker to run HA. Queue depth is a SQL query (metrics, admin dashboard).
 - Revisit (RabbitMQ) only if queue metrics show Postgres is the bottleneck.
+
+## Addendum (2026-11-15, P1 final review)
+
+- `run_once` claims, runs the handler inside a SAVEPOINT, and records `complete`/`fail` in one transaction. The claim's row lock is held for the whole job, so a crashed worker's transaction aborts and the job is `queued` again — no stale-job reaper.
+- Handlers must never commit the session they are given. Progress that must survive a crash (ingest `stage`) is written through a separate short session.
+- A process crash does not bump `jobs.attempts`; handlers that can crash the process bound retries themselves (ingest: `document_versions.ingest_attempts`).
+- Trade-off: a job's transaction stays open for its duration (minutes for large PDFs). Revisit with leases + heartbeat if vacuum lag or connection count becomes a problem.

@@ -1,0 +1,181 @@
+"""Keycloak JWT validation, principal resolution and user upsert."""
+
+import contextlib
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Annotated
+from uuid import UUID
+
+import httpx
+import jwt
+from fastapi import Depends, Header, HTTPException, Request
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+
+from roracle.config import Settings
+from roracle.db import get_session
+from roracle.models import User
+
+ADMIN_ROLE = "roracle-admin"
+LEEWAY_S = 30
+REFETCH_MIN_INTERVAL_S = 60
+KEYS_MAX_AGE_S = 600
+KEYS_HARD_MAX_AGE_S = 3600
+
+
+@dataclass(frozen=True)
+class Principal:
+    user_id: UUID
+    sub: str
+    username: str
+    groups: tuple[str, ...]
+    is_admin: bool
+
+
+def httpx_fetch(url: str) -> dict:
+    r = httpx.get(url, timeout=5.0)
+    r.raise_for_status()
+    return r.json()
+
+
+class JwksCache:
+    """JWKS keyed by kid.
+
+    Unknown kid or stale cache: reload, at most once per 60 s (failed loads count). Keys older than
+    10 min are reloaded; if reloading keeps failing the old keys serve until 1 h, then fail closed.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        fetch: Callable[[str], dict] = httpx_fetch,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        self._url = url
+        self._fetch = fetch
+        self._clock = clock
+        self._keys: dict[str, jwt.PyJWK] | None = None
+        self._loaded_at = 0.0
+        self._last_attempt: float | None = None
+        self._lock = threading.Lock()
+
+    def _load(self) -> None:
+        keys: dict[str, jwt.PyJWK] = {}
+        for jwk in self._fetch(self._url).get("keys", []):
+            if not isinstance(jwk, dict) or not jwk.get("kid") or jwk.get("kty") != "RSA":
+                continue
+            if jwk.get("use", "sig") != "sig" or jwk.get("alg", "RS256") != "RS256":
+                continue  # e.g. Keycloak's RSA-OAEP encryption key
+            try:
+                keys[jwk["kid"]] = jwt.PyJWK(jwk)
+            except (jwt.PyJWTError, ValueError, KeyError, TypeError):
+                continue
+        self._keys = keys
+        self._loaded_at = self._clock()
+
+    def _lookup(self, kid: str) -> jwt.PyJWK | None:
+        keys = self._keys  # dict is replaced atomically, never mutated
+        if keys is None or self._clock() - self._loaded_at >= KEYS_HARD_MAX_AGE_S:
+            return None
+        return keys.get(kid)
+
+    def key_for(self, kid: str) -> jwt.PyJWK:
+        fresh = self._clock() - self._loaded_at < KEYS_MAX_AGE_S
+        if fresh and (key := self._lookup(kid)):
+            return key
+        with self._lock:
+            now = self._clock()
+            fresh = now - self._loaded_at < KEYS_MAX_AGE_S
+            if fresh and (key := self._lookup(kid)):
+                return key
+            initial = self._keys is None
+            throttled = self._last_attempt is not None and now - self._last_attempt < REFETCH_MIN_INTERVAL_S
+            reload = (initial or not fresh or self._lookup(kid) is None) and not throttled
+            if reload:
+                if not initial:
+                    self._last_attempt = now
+                try:
+                    self._load()
+                except Exception:
+                    self._last_attempt = now
+                    if self._lookup(kid) is None:
+                        raise
+                else:
+                    if initial and self._lookup(kid) is None:  # initial load + one refetch
+                        self._last_attempt = now
+                        with contextlib.suppress(Exception):  # keep the keys just loaded
+                            self._load()
+            if (key := self._lookup(kid)) is None:
+                raise KeyError(kid)
+            return key
+
+
+def get_jwks(request: Request) -> JwksCache:
+    return request.app.state.jwks
+
+
+def get_app_settings(request: Request) -> Settings:
+    return request.app.state.settings
+
+
+def _unauthorized() -> HTTPException:
+    return HTTPException(401, "invalid token", headers={"WWW-Authenticate": "Bearer"})
+
+
+def _str_list(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ValueError("expected list of strings")
+    return tuple(value)
+
+
+def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
+    header = jwt.get_unverified_header(token)
+    if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
+        raise ValueError("bad header")
+    key = jwks.key_for(header["kid"])
+    claims = jwt.decode(
+        token,
+        key.key,
+        algorithms=["RS256"],
+        audience=settings.oidc_audience,
+        issuer=settings.oidc_issuer,
+        leeway=LEEWAY_S,
+        options={"require": ["exp", "iss", "aud", "sub"]},
+    )
+    if claims.get("typ") != "Bearer" or claims.get("azp") not in settings.oidc_allowed_clients:
+        raise ValueError("not an access token for an allowed client")
+    return claims
+
+
+def current_principal(
+    session: Annotated[Session, Depends(get_session)],
+    jwks: Annotated[JwksCache, Depends(get_jwks)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> Principal:
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise _unauthorized()
+    try:
+        claims = _verify(token.strip(), jwks, settings)
+        sub = claims["sub"]
+        if not isinstance(sub, str) or not sub:
+            raise ValueError("bad sub")
+        username = claims.get("preferred_username") or sub
+        email = claims.get("email")
+        if not isinstance(username, str) or not (email is None or isinstance(email, str)):
+            raise ValueError("bad claim")
+        groups = _str_list(claims.get("groups", []))
+        roles = _str_list((claims.get("realm_access") or {}).get("roles", []))
+    except Exception:  # noqa: BLE001 - any validation/fetch failure -> uniform 401, no detail leaked
+        raise _unauthorized() from None
+    stmt = insert(User).values(sub=sub, username=username, email=email)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[User.sub],
+        set_={"username": username, "email": func.coalesce(stmt.excluded.email, User.email)},
+    ).returning(User.id)
+    user_id = session.execute(stmt).scalar_one()
+    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles)

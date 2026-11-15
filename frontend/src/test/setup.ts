@@ -1,0 +1,35 @@
+import "@testing-library/jest-dom/vitest";
+import { afterAll, afterEach, beforeAll } from "vitest";
+import { server } from "@/mocks/server";
+import { resetMockState } from "@/mocks/state";
+import { cleanup } from "@testing-library/react";
+
+beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
+afterEach(() => { cleanup(); server.resetHandlers(); resetMockState(); });
+afterAll(() => server.close());
+
+// jsdom gaps
+if (!window.matchMedia) {
+  window.matchMedia = ((q: string) => ({
+    matches: false, media: q, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+class RO { observe() {} unobserve() {} disconnect() {} }
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= RO;
+class IO { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
+(globalThis as { IntersectionObserver?: unknown }).IntersectionObserver ??= IO;
+Element.prototype.scrollIntoView ??= function () {};
+window.scrollTo = (() => {}) as typeof window.scrollTo;
+
+// no canvas in jsdom
+HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+// jsdom's FormData/File are not understood by Node's fetch/undici (multipart parse asserts on the File class):
+// use Node's own implementations for uploads in tests.
+import { File as NodeFile } from "node:buffer";
+const NodeFormData = Object.getPrototypeOf(
+  await new Response("a=1", { headers: { "content-type": "application/x-www-form-urlencoded" } }).formData(),
+).constructor;
+globalThis.FormData = NodeFormData;
+globalThis.File = NodeFile as unknown as typeof File;

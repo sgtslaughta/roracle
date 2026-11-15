@@ -1,0 +1,36 @@
+/* rOracle design tokens (spec §11). Light = Peach skyline, dark = Wildflower meadow on warm slate. */
+:root {
+  --bg: #ffffff; --surface: #ffffff; --muted-bg: #eef3f8; --ink: #1f2e3d; --muted: #5a6b7d; --border: #dce5ee;
+  --primary: #496580; --primary-fg: #ffffff; --primary-soft: #e3ecf5; --apricot: #f2a86b;
+  --terra: #c0563b; --rose: #33485d; --sky: #baddff; --hl: #baddff; --hl-ink: #1c3550; --good: #1f7a6b;
+  --shadow: 0 1px 2px rgba(31,46,61,.06), 0 4px 16px rgba(31,46,61,.07);
+  --elev: 0 0 0 1px rgba(31,46,61,.03), 0 1px 2px rgba(31,46,61,.07), 0 12px 28px -12px rgba(31,46,61,.22);
+  --well: inset 0 1px 3px rgba(31,46,61,.11);
+  --sh-c: rgba(31,46,61,.14); --glow: rgba(255,219,187,.42); --glow2: rgba(186,221,255,.38); --tray: #eaf0f6;
+  --contour: rgba(73,101,128,.17); --chrome: #fff9f3;
+  --t-type: #e1efff; --t-cite: #d9fbf5; --t-tag: #ffe9d6; --t-tag-ink: #7a4517;
+  --f-ui: "Manrope Variable", "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-read: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --f-math: "STIX Two Text", "Cambria Math", Georgia, serif;
+  --side: 232px; --reader: 620px; --top: 56px; --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tray: #2d3239; --bg: #343a42; --surface: #434a54; --muted-bg: #383e46; --ink: #f4f2ea; --muted: #c9c6b8; --border: #535b67;
+    --elev: inset 0 1px 0 rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.3), 0 14px 30px -10px rgba(0,0,0,.5);
+    --well: inset 0 1px 3px rgba(0,0,0,.3); --sh-c: rgba(0,0,0,.45); --glow: rgba(253,184,19,.07); --glow2: rgba(130,200,229,.06);
+    --chrome: #2a2f36; --t-type: #3b5e70; --t-cite: #3f5a2a; --t-tag: #6b5a27; --t-tag-ink: #ffe6a3; --contour: rgba(130,200,229,.14);
+    --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5;
+    --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
+    --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --tray: #2d3239; --bg: #343a42; --surface: #434a54; --muted-bg: #383e46; --ink: #f4f2ea; --muted: #c9c6b8; --border: #535b67;
+  --elev: inset 0 1px 0 rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.3), 0 14px 30px -10px rgba(0,0,0,.5);
+  --well: inset 0 1px 3px rgba(0,0,0,.3); --sh-c: rgba(0,0,0,.45); --glow: rgba(253,184,19,.07); --glow2: rgba(130,200,229,.06);
+  --chrome: #2a2f36; --t-type: #3b5e70; --t-cite: #3f5a2a; --t-tag: #6b5a27; --t-tag-ink: #ffe6a3; --contour: rgba(130,200,229,.14);
+  --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5;
+  --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
+  --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
+}
