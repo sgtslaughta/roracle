@@ -171,3 +171,16 @@ def test_ensure_index_backfills_summary_embedding_and_checks_dims(es, model):
     assert got["type"] == "dense_vector" and got["dims"] == 4
     with pytest.raises(NonRetryable, match="dimension mismatch"):
         ensure_index(es, model, 8)
+
+
+def test_ensure_index_dims_mismatch_does_not_mutate_mapping(es, model):
+    from roracle.queue import NonRetryable
+    from roracle.search_index import _mapping
+
+    name = index_name(model)
+    props = {k: v for k, v in _mapping(4)["properties"].items() if k != "summary_embedding"}
+    es.indices.create(index=name, mappings={"properties": props})
+    with pytest.raises(NonRetryable, match="dimension mismatch"):
+        ensure_index(es, model, 8)
+    assert "summary_embedding" not in es.indices.get_mapping(index=name)[name]["mappings"]["properties"]
+    ensure_index(es, model, 4)

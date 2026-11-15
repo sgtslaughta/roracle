@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
@@ -163,21 +165,11 @@ def test_chat_settings():
     assert Settings().chat_min_similarity == 0.35 and Settings().chat_passages == 8
 
 
-def test_search_chunks_summary_knn_third_list():
+def _run_search(es):
     from types import SimpleNamespace
 
     from roracle.auth import Principal
     from roracle.retrieval import search_chunks
-
-    def hit(c):
-        return {"_source": {"chunk_id": c, "doc_id": "d" + c, "version_id": "v", "text": "t"}}
-
-    class ES:
-        def search(self, **kw):
-            knn = kw.get("knn")
-            if knn is None:
-                return {"hits": {"hits": [hit("a")]}}
-            return {"hits": {"hits": [hit("a")] if knn["field"] == "embedding" else [hit("s")]}}
 
     llm = SimpleNamespace(
         embeddings=SimpleNamespace(
@@ -186,6 +178,41 @@ def test_search_chunks_summary_knn_third_list():
     )
     s = _settings().model_copy(update={"rerank_url": "", "embed_dims": 4})
     p = Principal(user_id=None, sub="s", username="u", groups=(), is_admin=True)
-    out = search_chunks(ES(), llm, s, p, "q", filters={})
+    return search_chunks(es, llm, s, p, "q", filters={})
+
+
+def _hit(c):
+    return {"_source": {"chunk_id": c, "doc_id": "d" + c, "version_id": "v", "text": "t"}}
+
+
+class _ES:
+    def __init__(self, summary_error=False):
+        self.calls = []
+        self.summary_error = summary_error
+
+    def search(self, **kw):
+        from elasticsearch import BadRequestError
+
+        self.calls.append(kw)
+        knn = kw.get("knn")
+        if knn is None:
+            return {"hits": {"hits": [_hit("a")]}}
+        if knn["field"] == "summary_embedding":
+            if self.summary_error:
+                raise BadRequestError("x", SimpleNamespace(status=400), {})
+            return {"hits": {"hits": [_hit("s")]}}
+        return {"hits": {"hits": [_hit("a")]}}
+
+
+def test_search_chunks_summary_knn_third_list():
+    es = _ES()
+    out = _run_search(es)
     assert [x.chunk_id for x in out] == ["a", "s"]
     assert out[1].score == pytest.approx(1 / 61)
+    bm25, knn, sknn = es.calls
+    assert sknn["knn"]["filter"] == knn["knn"]["filter"] == bm25["query"]["bool"]["filter"]
+
+
+def test_search_chunks_tolerates_index_without_summary_field():
+    out = _run_search(_ES(summary_error=True))
+    assert [x.chunk_id for x in out] == ["a"]

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from elasticsearch import BadRequestError
 
 from roracle.auth import Principal
 from roracle.config import Settings
@@ -189,7 +190,10 @@ def search_chunks(
         return es.search(index=index, size=size, source=_SOURCE, knn=knn_q)["hits"]["hits"]
 
     knn = knn_search("embedding")
-    sknn = knn_search("summary_embedding") if summary_knn else []
+    try:
+        sknn = knn_search("summary_embedding") if summary_knn else []
+    except BadRequestError:  # index predates summary_embedding and ensure_index has not run yet
+        sknn = []
     by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn]}
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight
     fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25, knn, sknn)])

@@ -71,6 +71,11 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
             if e.error != "resource_already_exists_exception":
                 raise
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
+    if (
+        props.get("embedding", {}).get("dims") != dims
+        or props.get("summary_embedding", {}).get("dims", dims) != dims
+    ):
+        raise NonRetryable("search index dimension mismatch: reindex required")
     missing = {
         f: t
         for f, t in _mapping(dims)["properties"].items()
@@ -78,9 +83,6 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
-    props = {**props, **missing}
-    if any(props.get(f, {}).get("dims") != dims for f in ("embedding", "summary_embedding")):
-        raise NonRetryable("search index dimension mismatch: reindex required")
     if not es.indices.exists_alias(name=alias, index=name):
         es.indices.put_alias(index=name, name=alias)
     return name

@@ -150,9 +150,7 @@ def test_empty_query_raises(es, cfg):
 
 
 def test_summary_vector_finds_doc_and_respects_acl(es, cfg, db_session, blob, user):
-    sv = [0.0, 0.0, 1.0, 0.0]  # FakeLLM embeds "qq" as [0,0,0,.1]; craft summary vec nearest instead
-    q = [0.0, 0.0, 0.0, 1.0]
-    sv = q
+    q = sv = [0.0, 0.0, 0.0, 1.0]
 
     def add(title, vis):
         d = Document(owner_id=user.id, title=title, visibility=vis, org_unit="/")
