@@ -1,7 +1,6 @@
 """PATCH /documents/{id}: title, visibility, sharing, with immediate Elasticsearch ACL sync (P3 task 6)."""
 
 import logging
-import re
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -12,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from roracle import search_index
+from roracle.access import normalize_path
 from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
@@ -22,14 +22,6 @@ from roracle.queue import enqueue
 router = APIRouter()
 log = logging.getLogger(__name__)
 ACL_JOB_DELAY_S = 30
-
-
-def normalize_path(s: str) -> str:
-    """R7: leading "/", no "//", no trailing "/" (except root)."""
-    s = re.sub(r"/{2,}", "/", s.strip())
-    if not s.startswith("/"):
-        raise ValueError("path must start with '/'")
-    return s.rstrip("/") or "/"
 
 
 Path_ = Annotated[str, Field(min_length=1, max_length=500), AfterValidator(normalize_path)]

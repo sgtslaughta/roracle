@@ -282,3 +282,24 @@ def test_dissimilar_vectors_not_matched(db_session):
     _doc(db_session, bob, OTHER, summary_embedding=to_bytes([1.0, 0.0]))
     _, mine = _doc(db_session, ana, TEXT, summary_embedding=to_bytes([0.0, 1.0]))
     assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97) is None
+
+
+def test_new_version_repoints_superseded_votes(db_session, client, as_ana):
+    from roracle.models import Vote
+
+    md, _, ud, mine = _setup(db_session, client, as_ana)
+    bob = db_session.scalar(select(User).where(User.sub == "bob"))
+    other, _ = _doc(db_session, bob, "other text", sha="c" * 64)
+    db_session.add_all(
+        [
+            Vote(user_id=bob.id, document_id=other.id, value=-1, reason="superseded", superseded_by=ud.id),
+            Vote(user_id=bob.id, document_id=md.id, value=-1, reason="superseded", superseded_by=ud.id),
+        ]
+    )
+    db_session.flush()
+    assert _post(client, as_ana, ud, mine, "new_version").status_code == 200
+    db_session.expire_all()
+    moved = db_session.scalar(select(Vote).where(Vote.document_id == other.id))
+    assert (moved.superseded_by, moved.reason) == (md.id, "superseded")
+    selfref = db_session.scalar(select(Vote).where(Vote.document_id == md.id))
+    assert (selfref.superseded_by, selfref.reason) == (None, None)

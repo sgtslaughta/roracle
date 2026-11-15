@@ -94,3 +94,14 @@ def test_group_shared_doc_triggers_409_for_group_member(client, as_ana, as_bob, 
 
 def test_overlong_title_is_422(client, as_ana):
     assert _up(client, as_ana, title="x" * 501).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "group,want", [("/Math/", "/Math"), ("//Math//Sub/", "/Math/Sub"), ("bad", "/bad"), ("", "/")]
+)
+def test_upload_org_unit_normalized(client, make_token, db_session, group, want):
+    from conftest import bearer
+
+    hdr = bearer(make_token(sub="zed", username="zed", groups=(group,)))
+    assert _up(client, hdr).status_code == 201
+    assert db_session.scalar(select(Document.org_unit)) == want

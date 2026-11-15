@@ -1,5 +1,7 @@
 """Document visibility rule. P3 mirrors this for Elastic filters."""
 
+import re
+
 from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -15,6 +17,14 @@ def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
             DocumentShare.principal.in_(principals),
         )
     )
+
+
+def normalize_path(s: str) -> str:
+    """R7: leading "/", no "//", no trailing "/" (except root)."""
+    s = re.sub(r"/{2,}", "/", s.strip())
+    if not s.startswith("/"):
+        raise ValueError("path must start with '/'")
+    return s.rstrip("/") or "/"
 
 
 def org_ancestors(groups: list[str]) -> list[str]:

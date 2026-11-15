@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import normalize_path, visible_documents
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
@@ -24,6 +24,14 @@ def get_blob_store(request: Request) -> BlobStore:
     if not hasattr(app.state, "blob_store"):
         app.state.blob_store = blob_store_from(app.state.settings)
     return app.state.blob_store
+
+
+def _org_unit(p: Principal) -> str:
+    if not p.groups:
+        return "/"
+    # A malformed token group ("Math") is rooted ("/Math"), never widened to "/" (fail closed).
+    g = p.groups[0].strip()
+    return normalize_path(g if g.startswith("/") else f"/{g}")
 
 
 @router.post("/documents", status_code=201)
@@ -67,7 +75,7 @@ def upload(
         doc = Document(
             owner_id=p.user_id,
             title=title or None,
-            org_unit=p.groups[0] if p.groups else "/",
+            org_unit=_org_unit(p),
             visibility=visibility,
         )
         session.add(doc)
