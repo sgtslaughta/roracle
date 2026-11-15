@@ -24,7 +24,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             llm=clients.llm(settings),
             session_factory=session_factory,
         ),
-        "citations": partial(handle_citations, session_factory=session_factory),
+        "citations": handle_citations,
         "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
     }
 

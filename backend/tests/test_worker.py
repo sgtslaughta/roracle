@@ -17,3 +17,11 @@ def test_main_warns_when_scanning_disabled(settings, monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         worker.main()
     assert "malware scanning disabled" in caplog.text
+
+
+def test_handle_citations_takes_no_session_factory():
+    import inspect
+
+    from roracle.citations import handle_citations
+
+    assert list(inspect.signature(handle_citations).parameters) == ["session", "payload"]

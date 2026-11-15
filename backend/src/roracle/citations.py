@@ -7,7 +7,7 @@ from uuid import UUID
 
 from rapidfuzz import fuzz, utils
 from sqlalchemy import and_, delete, func, select
-from sqlalchemy.orm import Session, aliased, sessionmaker
+from sqlalchemy.orm import Session, aliased
 
 from roracle.access import visible_documents
 from roracle.auth import Principal
@@ -142,9 +142,7 @@ def backfill_for(session: Session, document: Document) -> int:
     return n
 
 
-def handle_citations(
-    session: Session, payload: dict, *, session_factory: sessionmaker[Session] | None = None
-) -> None:
+def handle_citations(session: Session, payload: dict) -> None:
     """Job `citations` {version_id}: runs inside run_once's SAVEPOINT; never commits (R6/R9)."""
     v = session.get(DocumentVersion, UUID(payload["version_id"]))
     if v is None or v.stage != "searchable":
