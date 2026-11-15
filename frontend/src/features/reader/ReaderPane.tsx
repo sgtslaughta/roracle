@@ -65,7 +65,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab />}
-      <TagBar docId={d.id} tags={d.tags} />
+      <TagBar docId={d.id} tags={d.tags} ownerId={d.owner.id} />
     </>
   );
 }

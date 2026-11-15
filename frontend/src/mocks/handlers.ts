@@ -3,7 +3,7 @@ import { API_BASE } from "@/api/client";
 import type { CitedByItem, Collection, DocumentDetail, NearDupAction, ReferenceItem, VoteRequest } from "@/api/types";
 import { DOCS } from "./docs";
 import { buildPdf, docById, docling } from "./pdf";
-import { citedBy, runSearch, tagsOf, votesOf } from "./search";
+import { citedBy, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { advance, newUpload } from "./uploads";
 
@@ -17,7 +17,7 @@ function detail(id: string): DocumentDetail | null {
   const ver = state.versions[id];
   return {
     id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: "everyone",
-    owner: { id: "u-owner", username: "k.ito" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
+    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : "k.ito" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
     votes: votesOf(d), file_type: d.type, page_count: d.pages.length, flag: d.flag ?? null,
     versions: Array.from({ length: ver }, (_, i) => ({ id: `${id}-v${ver - i}`, version: ver - i, filename: `${id}-v${ver - i}.pdf`, uploaded_at: "2026-10-01T10:00:00Z", is_latest: i === 0 })),
   };
@@ -45,6 +45,13 @@ export const handlers = [
     if (!d) return notFound();
     const tag = String(((await request.json()) as { tag: string }).tag).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
     if (tag && !tagsOf(d).includes(tag)) (state.extraTags[d.id] ??= []).push(tag);
+    return HttpResponse.json({ tags: tagsOf(d) });
+  }),
+  http.delete(url("/documents/:id/tags/:tag"), ({ params }) => {
+    const d = docById(String(params.id));
+    if (!d) return notFound();
+    if (ownerOf(d) !== "u-me") return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
+    (state.removedTags[d.id] ??= []).push(String(params.tag));
     return HttpResponse.json({ tags: tagsOf(d) });
   }),
   http.get(url("/documents/:id/references"), ({ params }) => {

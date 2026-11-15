@@ -1,10 +1,10 @@
 import { Clock, FileText, FileType2, History, Quote, TextQuote } from "lucide-react";
 import type { Bbox, SearchHit } from "@/api/types";
-import { toast } from "sonner";
-import { ChipMenu } from "@/components/ChipMenu";
 import { OverflowList } from "@/components/OverflowList";
 import { Badge } from "@/components/ui/badge";
 import { highlight } from "./highlight";
+import { TagChip } from "./TagChip";
+import { useCanRemoveTags } from "./useMe";
 import { VoteControl } from "./VoteControl";
 
 export interface ResultCardProps {
@@ -16,6 +16,7 @@ export interface ResultCardProps {
 }
 
 export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProps) {
+  const canRemove = useCanRemoveTags(hit.owner_id);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
@@ -42,14 +43,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}
           <OverflowList
             items={hit.tags} max={4} menuLabel="More tags" getLabel={(t) => t} className="ovl-tags"
-            renderItem={(t) => (
-              <ChipMenu key={t} label={`Actions for tag ${t}`} actions={[
-                { label: "Filter by this tag", onSelect: () => onTag(t) },
-                { label: "Copy tag", onSelect: () => { void navigator.clipboard?.writeText(t); toast(`Copied #${t}`); } },
-              ]}>
-                <button className="badge-o tag" title={`#${t}`} onClick={() => onTag(t)}><span className="t">#{t}</span></button>
-              </ChipMenu>
-            )}
+            renderItem={(t) => <TagChip key={t} docId={hit.doc_id} tag={t} canRemove={canRemove} onFilter={() => onTag(t)} />}
           />
         </div>
       </div>

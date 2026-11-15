@@ -33,6 +33,7 @@ export interface SearchHit {
   org_unit?: string; // ui
   flag?: string | null; // ui: e.g. "Marked outdated by 11 readers"
   cited_by_count?: number; // ui
+  owner_id?: string; // ui: lets the card offer "Remove tag" to the owner
 }
 
 export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author";

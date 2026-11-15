@@ -50,14 +50,21 @@
 .pager { display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
 .pager button { min-width: 34px; justify-content: center; }
 .pager button[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-/* the workspace narrows when the reader is open, so respond to its width, not the viewport */
+/* the workspace narrows when the reader opens, so respond to the pane width, not the viewport.
+   Facets stay beside the results (a narrower rail); only a very narrow pane collapses them into a "Filters (n)" popover. */
 .view { container-type: inline-size; }
+.filters-btn { display: none; }
+.result h3 button:focus-visible { outline: 2px solid var(--apricot); outline-offset: 2px; border-radius: 4px; }
+.pager .gap { color: var(--muted); padding: 0 2px; }
+.facets-pop { width: min(320px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
+.facets-pop .facets { position: static; }
 @container (max-width: 780px) {
-  .sbody { grid-template-columns: minmax(0, 1fr); }
-  .facets { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
-  .facets p.fnote { grid-column: 1 / -1; }
+  .sbody { grid-template-columns: 180px minmax(0, 1fr); gap: 16px; }
 }
-@container (max-width: 520px) {
+@container (max-width: 560px) {
+  .sbody { grid-template-columns: minmax(0, 1fr); }
+  .facet-rail { display: none; }
+  .filters-btn { display: inline-flex; }
   .result { grid-template-columns: minmax(0, 1fr); }
   .result .vote { flex-direction: row; order: 2; }
 }

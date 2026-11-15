@@ -3,6 +3,7 @@ import { openDoc } from "@/features/reader/useReaderStore";
 import { SORTS } from "@/lib/searchParams";
 import { ActiveFilters } from "./ActiveFilters";
 import { Facets } from "./Facets";
+import { FiltersButton } from "./FiltersButton";
 import { PAGE_SIZE, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
@@ -31,6 +32,7 @@ export function SearchPage() {
           </p>
         </div>
         <div className="sortrow">
+          <FiltersButton facets={data?.facets} selected={search} onToggle={nav.toggle} />
           <label className="vis" htmlFor="sort">Sort</label>
           <select id="sort" className="sel" value={search.sort ?? "relevance"} onChange={(e) => nav.setSort(e.target.value as (typeof SORTS)[number])}>
             {SORTS.map((s) => <option key={s} value={s}>{SORT_LABEL[s]}</option>)}
@@ -39,7 +41,7 @@ export function SearchPage() {
       </div>
       <ActiveFilters search={search} onRemove={nav.remove} onClear={nav.clear} />
       <div className="sbody">
-        <Facets facets={data?.facets} selected={search} onToggle={nav.toggle} />
+        <div className="facet-rail"><Facets facets={data?.facets} selected={search} onToggle={nav.toggle} /></div>
         <div>
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">

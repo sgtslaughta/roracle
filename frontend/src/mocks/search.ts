@@ -13,7 +13,9 @@ const values: Record<FacetName, (d: MockDoc) => string[]> = {
   author: (d) => d.authors,
 };
 
-export const tagsOf = (d: MockDoc) => [...d.tags, ...(state.extraTags[d.id] ?? [])];
+export const tagsOf = (d: MockDoc) => [...d.tags, ...(state.extraTags[d.id] ?? [])].filter((t) => !(state.removedTags[d.id] ?? []).includes(t));
+/** The first sample document belongs to the mock user; the rest to someone else. */
+export const ownerOf = (d: MockDoc) => (d === DOCS[0] ? "u-me" : "u-owner");
 export const votesOf = (d: MockDoc) => {
   const m = state.votes[d.id] ?? 0;
   return { up: d.up + (m > 0 ? 1 : 0), down: d.down + (m < 0 ? 1 : 0), mine: m };
@@ -81,7 +83,7 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
     doc_id: d.id, title: d.title, authors: d.authors, year: d.year, score: score * boost(d),
     passages: (hits.length ? hits : [{ p: 0, c: 0 }]).slice(0, 2).map((h) => ({ page: h.p + 1, chunk_id: chunkId(d, h.p, h.c), text: d.pages[h.p][h.c] })),
     tags: tagsOf(d), votes: votesOf(d), file_type: d.type, version: state.versions[d.id],
-    venue: d.venue, org_unit: d.org, flag: d.flag ?? null, cited_by_count: citedBy(d.id).length,
+    venue: d.venue, org_unit: d.org, owner_id: ownerOf(d), flag: d.flag ?? null, cited_by_count: citedBy(d.id).length,
   }));
   return { total: kept.length, page, results, facets };
 }

@@ -2,7 +2,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
+import { API_BASE } from "@/api/client";
+import { server } from "@/mocks/server";
 import { createAppRouter } from "@/app/router";
 import { getReaderState, resetReaderStore } from "@/features/reader/useReaderStore";
 import { isTyping } from "@/lib/keys";
@@ -78,6 +81,17 @@ describe("command palette", () => {
     await userEvent.keyboard("{Control>}k{/Control}");
     await userEvent.type(await screen.findByRole("combobox"), "preconditioning");
     expect(await screen.findByRole("option", { name: /Preconditioning sparse Laplacian/ })).toBeInTheDocument();
+  });
+});
+
+describe("palette search size", () => {
+  it("asks the API for 5 documents", async () => {
+    let size: string | null = null;
+    server.use(http.get(`${API_BASE}/search`, ({ request }) => { const u = new URL(request.url); if (u.searchParams.get("q") === "spectral") size = u.searchParams.get("size"); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } }); }));
+    await renderApp("/uploads");
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(await screen.findByRole("combobox"), "spectral");
+    await waitFor(() => expect(size).toBe("5"));
   });
 });
 
