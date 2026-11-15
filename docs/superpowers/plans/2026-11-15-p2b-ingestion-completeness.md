@@ -36,14 +36,14 @@
 
 ### Task 1: Gotenberg office → PDF in the parse stage
 
-**Files:** Create `backend/src/roracle/ingest/office.py`; Modify `config.py` (`gotenberg_url: str = ""`, `gotenberg_timeout_s: float = 300.0`), `ingest/pipeline.py` (`_parse` only), `deploy/dev/compose.yaml` (service `gotenberg`, image `${REGISTRY_MIRROR:-}gotenberg/gotenberg:8.20.1`, profile `full`, port `3000:3000`, healthcheck `curl -sf http://localhost:3000/health`), `docs/enterprise/airgap-mirror-manifest.md` (pin `8.20.1`), `docs/enterprise/deployment-guide.md` (env vars, sizing line, behaviour); Test `tests/test_office.py`, extend `tests/test_ingest_handler.py`.
+**Files:** Create `backend/src/roracle/ingest/office.py`; Modify `config.py` (`gotenberg_url: str = ""`, `gotenberg_timeout_s: float = 300.0`), `ingest/pipeline.py` (`_parse` only), `deploy/dev/compose.yaml` (service `gotenberg`, image `${REGISTRY_MIRROR:-}gotenberg/gotenberg:8.20.1`, profile `full`, port `${ROR_GOTENBERG_PORT:-3300}:3000` (host 3000 is taken on dev boxes), healthcheck `curl -sf http://localhost:3000/health`), `docs/enterprise/airgap-mirror-manifest.md` (pin `8.20.1`), `docs/enterprise/deployment-guide.md` (env vars, sizing line, behaviour); Test `tests/test_office.py`, extend `tests/test_ingest_handler.py`.
 **Interfaces:**
 - `OFFICE_EXTS: frozenset[str]`; `is_office(filename: str) -> bool`; `rendition_key(version_id) -> str` (`derived/{id}/rendition.pdf`).
 - `to_pdf(data: bytes, filename: str, url: str, timeout: float = 300.0, client: httpx.Client | None = None) -> bytes` (contract in Global Constraints; non-PDF 200 body → `ValueError`, retryable).
 - `_parse`: if `settings.gotenberg_url and is_office(v.filename)`: `pdf = to_pdf(...)`, `store.put_bytes(rendition_key(v.id), pdf, "application/pdf")`, then Docling/GROBID get `pdf` and filename `<stem>.pdf`; `is_pdf` true for GROBID.
 - [ ] Unit (httpx.MockTransport): docx → PDF bytes; 422 → NonRetryable; 503 → `httpx.HTTPStatusError`; non-PDF body → ValueError; `is_office` cases incl. uppercase `.DOCX` and `.pdf` false.
 - [ ] Handler (integration, monkeypatched `to_pdf` + fake convert): docx version stores rendition, convert receives PDF bytes + `.pdf` name; gotenberg_url empty → no rendition, original sent.
-- [ ] Integration `test_office.py::test_real_gotenberg` (`@pytest.mark.integration`, skip unless `GET {ROR_GOTENBERG_URL or http://localhost:3000}/health` is 200): convert a tiny docx built with `zipfile` (minimal WordprocessingML) → `%PDF-`.
+- [ ] Integration `test_office.py::test_real_gotenberg` (`@pytest.mark.integration`, skip unless `GET {ROR_GOTENBERG_URL or http://localhost:3300}/health` is 200): convert a tiny docx built with `zipfile` (minimal WordprocessingML) → `%PDF-`.
 - [ ] **Commit** `feat(ingest): convert office files to PDF with gotenberg`
 
 ### Task 2: Reader PDF endpoint
