@@ -21,11 +21,14 @@ export interface PendingTurn {
 
 /** In-flight turns by chat id. They live outside React so a turn survives the /ask -> /ask/:id navigation. */
 const turns = createStore<Record<string, PendingTurn>>({});
+/** Chats the server said no longer exist (404 on send). */
+const gone = createStore<Record<string, true>>({});
+export const useChatGone = (chatId: string | undefined) => gone.use((s) => !!chatId && !!s[chatId]);
 const ctrls = new Map<string, AbortController>();
 const viewers = new Map<string, number>();
 
 export const usePendingTurn = (chatId: string | undefined) => turns.use((s) => (chatId ? s[chatId] : undefined));
-export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); turns.reset(); };
+export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); turns.reset(); gone.reset(); };
 
 const put = (id: string, p: PendingTurn | null) =>
   turns.set((s) => {
@@ -92,9 +95,11 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
   }, ctrl.signal).catch((e: unknown) => {
     if (stale()) return;
     if (ctrl.signal.aborted) return finish({ status: "interrupted" });
-    if (e instanceof ApiError) { // rejected before streaming (e.g. 422 unknown model): nothing was saved
+    if (e instanceof ApiError) { // rejected before streaming: nothing was saved
       put(chatId, null);
-      toast(e.message);
+      if (e.status === 404) gone.set((s) => ({ ...s, [chatId]: true }));
+      else if (e.status === 403) { toast("This chat is read-only."); void qc.invalidateQueries({ queryKey: ["chat", chatId] }); }
+      else toast(e.status === 503 ? "Answering is unavailable right now. Try again shortly." : e.message);
       setDraft(question);
       setQuote(viewer.selection);
       return;

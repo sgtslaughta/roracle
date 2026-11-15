@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Folder, MessageCircle, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { useChats } from "@/features/ask/api";
 import { useCollections } from "@/features/library/api";
@@ -8,7 +9,7 @@ import { NAV } from "./nav";
 
 export function Sidebar() {
   const { data: collections } = useCollections();
-  const { data: chats } = useChats();
+  const { data: chats, hasNextPage, isFetchingNextPage, fetchNextPage } = useChats();
   const attention = useUploadAttention();
   return (
     <aside className="side">
@@ -25,7 +26,9 @@ export function Sidebar() {
         <h5>Recent chats</h5>
         <nav className="nav" aria-label="Recent chats">
           <OverflowList
-            items={chats ?? []} max={5} layout="stack" menuLabel="More chats" getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
+            items={chats ?? []} max={5} layout="stack" menuLabel="More chats"
+            footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
+            getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
             renderItem={(c) => (
               <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} title={c.title} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
                 <MessageCircle aria-hidden />

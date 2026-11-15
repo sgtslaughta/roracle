@@ -7,7 +7,7 @@ import { ApiError } from "@/api/client";
 import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
-import { attachChat, startTurn, stopTurn, usePendingTurn } from "./askStore";
+import { attachChat, startTurn, stopTurn, useChatGone, usePendingTurn } from "./askStore";
 import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
 import { ChatMenu } from "./ChatMenu";
 import { Composer } from "./Composer";
@@ -33,6 +33,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
   const models = useModels().data;
   const me = useMe().data;
   const pending = usePendingTurn(chatId);
+  const unavailable = useChatGone(chatId);
   const create = useCreateChat();
   const patch = usePatchChat(chatId ?? "");
   const [newScope, setNewScope] = useState<ChatScope>("all");
@@ -45,6 +46,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
   const creating = useRef(false);
   const scope = chat?.scope ?? newScope;
   const model = pickedModel ?? chat?.model ?? models?.default ?? "";
+  const pickModel = (m: string) => { setModel(m); if (chatId && chat?.is_owner) patch.mutate({ model: m }); };
 
   const send = async (question: string) => {
     if (creating.current) return;
@@ -80,8 +82,8 @@ export function AskPage({ chatId }: { chatId?: string }) {
   );
 
   // an error with data on screen keeps the thread; only a chat that never loaded gets an error page
-  if (chatId && chatQ.isError && !chat) {
-    const gone = chatQ.error instanceof ApiError && (chatQ.error.status === 404 || chatQ.error.status === 403);
+  if (chatId && (unavailable || (chatQ.isError && !chat))) {
+    const gone = unavailable || chatQ.error instanceof ApiError && (chatQ.error.status === 404 || chatQ.error.status === 403);
     return (
       <section className="view ask">
         <div className="turn">
@@ -117,7 +119,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
       {chat && !chat.is_owner ? <p className="ask-ro" role="status">Shared with you. Read-only.</p> : (
         <Composer
         scope={scope} onScope={(s) => (chatId ? patch.mutate({ scope: s }) : setNewScope(s))}
-        model={model} models={models?.models ?? []} onModel={setModel}
+        model={model} models={models?.models ?? []} onModel={pickModel}
         streaming={!!streaming} busy={create.isPending} onSend={(q) => void send(q)} onStop={() => chatId && stopTurn(chatId)}
       />)}
     </section>

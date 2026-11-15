@@ -8,7 +8,7 @@ import { citeNumbers } from "./citeMarkers";
 import { getReaderState } from "@/features/reader/useReaderStore";
 
 const ok = (n: number, extra: object = {}): Citation => ({
-  n, doc_id: `d${n}`, version_id: `v${n}`, version: 2, chunk_id: `c${n}`, title: `Doc ${n}`, page: 4, bbox: null, quote: "q ".repeat(120), ...extra,
+  n, available: true, authors: ["A"], year: 2020, doc_id: `d${n}`, version_id: `v${n}`, version: 2, chunk_id: `c${n}`, title: `Doc ${n}`, page: 4, bbox: null, quote: "q ".repeat(120), ...extra,
 });
 const cites = [ok(1), ok(2), ok(3)];
 afterEach(() => { vi.restoreAllMocks(); });

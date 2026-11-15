@@ -41,9 +41,9 @@ export function PassagesDrawer({ id, chatId, retrieved, pins, excludes, owner }:
         {shown.map((p) => {
           const pinned = pins.includes(p.doc_id), left = excludes.includes(p.doc_id);
           return (
-            <li key={`${p.chunk_id}-${p.n ?? ""}`}>
+            <li key={`${p.chunk_id}-${p.n}`}>
               <div>
-                <button type="button" className="ps" onClick={() => openDoc(p.doc_id, { page: p.page, chunkId: p.chunk_id })}>{clip(p.text, 220)}</button>
+                <button type="button" className="ps" onClick={() => openDoc(p.doc_id, { page: p.page, chunkId: p.chunk_id ?? undefined, version: p.version, bbox: p.bbox })}>{clip(p.text, 220)}</button>
                 <div className="pm">{p.title}, page {p.page}. Relevance {p.score.toFixed(2)}{pinned ? ". Pinned" : left ? ". Left out of next answers" : ""}</div>
               </div>
               {owner && (

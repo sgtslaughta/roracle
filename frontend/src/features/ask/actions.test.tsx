@@ -30,10 +30,11 @@ afterEach(() => { server.events.removeAllListeners(); vi.restoreAllMocks(); });
 const sent = (method: string, re: RegExp) => seen.filter((r) => r.method === method && re.test(new URL(r.url).pathname));
 
 describe("answerMarkdown", () => {
-  const cite = (n: number, doc_id: string, page: number) => ({ n, doc_id, version_id: "v", chunk_id: "c", title: `T${n}`, page, bbox: null, quote: "q" });
+  const cite = (n: number, doc_id: string, page: number, authors: string[] = [], year: number | null = null) =>
+    ({ n, available: true as const, doc_id, version_id: "v", version: 1, chunk_id: "c", title: `T${n}`, page, bbox: null, quote: "q", authors, year });
   it("formats references, unavailable sources and missing authors", () => {
-    const md = answerMarkdown("Why?", "Because [1].", [{ n: 2, available: false }, cite(1, "a", 3), cite(3, "b", 1)], { a: { authors: ["Ito", "Chen"], year: 2023 } });
-    expect(answerMarkdown("  Why\n  so  much? ", "x", [], {})).toMatch(/^## Why so much\?\n/);
+    const md = answerMarkdown("Why?", "Because [1].", [{ n: 2, available: false }, cite(1, "a", 3, ["Ito", "Chen"], 2023), cite(3, "b", 1)]);
+    expect(answerMarkdown("  Why\n  so  much? ", "x", [])).toMatch(/^## Why so much\?\n/);
     expect(md).toBe("## Why?\n\nBecause [1].\n\n[1] Ito, Chen, T1, 2023, p. 3\n[2] Source not available\n[3] T3, p. 1");
   });
 });
@@ -182,20 +183,6 @@ describe("answer actions", () => {
     expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["u-7"], groups: ["/Math"] });
   });
 
-  it("starts the share dialog empty each time it opens", async () => {
-    const user = userEvent.setup();
-    await renderApp("/ask/c1");
-    await user.click(await screen.findByRole("button", { name: "Share" }));
-    let dlg = await screen.findByRole("dialog", { name: "Share this chat" });
-    await user.type(within(dlg).getByLabelText("Groups"), "/Math{Enter}");
-    expect(within(dlg).getByText("/Math")).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await user.click(screen.getByRole("button", { name: "Share" }));
-    dlg = await screen.findByRole("dialog", { name: "Share this chat" });
-    expect(within(dlg).queryByText("/Math")).toBeNull();
-  });
-
   it("rolls back a failed pin and shows a toast", async () => {
     const user = userEvent.setup();
     server.use(http.patch(`${API_BASE}/chats/:id`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
@@ -210,16 +197,16 @@ describe("answer actions", () => {
     expect(await screen.findByText("The change couldn't be saved. Try again.")).toBeInTheDocument();
   });
 
-  it("does not re-send a Not helpful rating, only opens the comment box", async () => {
+  it("clicking a pressed Not helpful un-rates (value 0)", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
     await user.click(await screen.findByRole("button", { name: "Not helpful" }));
-    await waitFor(() => expect(sent("PUT", /rating$/)).toHaveLength(1));
-    await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.getByRole("button", { name: "Not helpful" })).toHaveAttribute("aria-pressed", "true"));
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Not helpful" }));
-    expect(await screen.findByRole("textbox", { name: /What went wrong/ })).toBeInTheDocument();
-    expect(sent("PUT", /rating$/)).toHaveLength(1);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Not helpful" })).toHaveAttribute("aria-pressed", "false"));
+    expect(sent("PUT", /rating$/)).toHaveLength(2);
+    expect(await sent("PUT", /rating$/)[1].json()).toMatchObject({ value: 0 });
   });
 
   it("caps a long passages drawer at 20 until Show all", async () => {

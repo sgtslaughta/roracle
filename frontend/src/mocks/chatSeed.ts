@@ -12,8 +12,8 @@ export function passageOf(d: MockDoc, p: number, c: number, n: number) {
   const text = d.pages[p][c];
   const version_id = `${d.id}-v${d.ver}`;
   const bbox = docling(d).chunks.find((x) => x.chunk_id === chunk_id)?.bbox ?? null;
-  const cite: CitationOk = { n, doc_id: d.id, version_id, version: d.ver, chunk_id, title: d.title, page: p + 1, bbox, quote: text };
-  const retrieved: RetrievedPassage = { n, doc_id: d.id, version_id, chunk_id, title: d.title, page: p + 1, score: 0, text };
+  const cite: CitationOk = { n, doc_id: d.id, version_id, version: d.ver, chunk_id, title: d.title, page: p + 1, bbox, quote: text, available: true, authors: d.authors, year: d.year };
+  const retrieved: RetrievedPassage = { n, doc_id: d.id, version_id, version: d.ver, chunk_id, title: d.title, page: p + 1, bbox, score: 0, text };
   return { cite, retrieved };
 }
 
@@ -36,7 +36,7 @@ export function seedChats(): ChatDetail[] {
   const citations = all.slice(0, 5).map((x) => x.cite);
   const viewer = { tabs: [], ignored: [], selection: null };
   const mk = (id: string, title: string, is_owner: boolean): ChatDetail => ({
-    id, title, scope: "all", model: "frontier-large", pins: [], excludes: [], created_at: T0, updated_at: T1, is_owner,
+    id, title, scope: is_owner ? "all" : "collection", model: "frontier-large", pins: [], excludes: [], created_at: T0, updated_at: T1, is_owner,
     messages: [
       { id: `${id}-m1`, role: "user", content: "Does the spectral-gap lower bound for random regular graphs extend to hypergraphs?", viewer, citations: [], retrieved: [], status: "complete", model: null, created_at: T0 },
       { id: `${id}-m2`, role: "assistant", content: ANSWER, citations: [...citations, { n: 6, available: false }], retrieved, status: "complete", model: "frontier-large", created_at: T1, rating: null },

@@ -1,9 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
-import type { Chat, ChatDetail, ChatScope, ChatSummary, ModelsResponse } from "@/api/chat";
+import type { Chat, ChatDetail, ChatPage, ChatScope, ModelsResponse, Rating, Shares } from "@/api/chat";
 
-export const useChats = () => useQuery({ queryKey: ["chats"], queryFn: () => apiFetch<ChatSummary[]>("/chats") });
+/** Recent chats, 20 per page, newest first; `fetchNextPage` follows the opaque `next` cursor. */
+export const useChats = () =>
+  useInfiniteQuery({
+    queryKey: ["chats"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => apiFetch<ChatPage>(`/chats?limit=20${pageParam ? `&before=${encodeURIComponent(pageParam)}` : ""}`),
+    getNextPageParam: (last) => last.next,
+    select: (d) => d.pages.flatMap((p) => p.items),
+  });
 
 export const useChat = (id: string | undefined) =>
   useQuery({ queryKey: ["chat", id], queryFn: () => apiFetch<ChatDetail>(`/chats/${seg(id!)}`), enabled: !!id });
@@ -19,7 +27,7 @@ export function useCreateChat() {
 export function usePatchChat(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (patch: { title?: string; scope?: ChatScope; pins?: string[]; excludes?: string[] }) =>
+    mutationFn: (patch: { title?: string; scope?: ChatScope; pins?: string[]; excludes?: string[]; model?: string }) =>
       apiFetch<Chat>(`/chats/${seg(id)}`, { method: "PATCH", json: patch }),
     // optimistic: pins/excludes/title show at once and roll back if the PATCH fails
     onMutate: async (p) => {
@@ -41,14 +49,22 @@ export function usePatchChat(id: string) {
   });
 }
 
-export const useShareChat = (id: string) =>
-  useMutation({ mutationFn: (b: { users: string[]; groups: string[] }) => apiFetch<void>(`/chats/${seg(id)}/shares`, { method: "PUT", json: b }) });
+export const useShares = (id: string, enabled: boolean) =>
+  useQuery({ queryKey: ["shares", id], queryFn: () => apiFetch<Shares>(`/chats/${seg(id)}/shares`), enabled, gcTime: 0 });
+
+export function useShareChat(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: Shares) => apiFetch<Shares>(`/chats/${seg(id)}/shares`, { method: "PUT", json: b }),
+    onSuccess: (s) => qc.setQueryData(["shares", id], s),
+  });
+}
 
 export function useRateMessage(chatId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ messageId, value, comment }: { messageId: string; value: 1 | -1; comment?: string }) =>
-      apiFetch<{ value: 1 | -1; comment: string | null }>(`/messages/${seg(messageId)}/rating`, { method: "PUT", json: { value, comment } }),
+    mutationFn: ({ messageId, value, comment }: { messageId: string; value: 1 | -1 | 0; comment?: string }) =>
+      apiFetch<Rating>(`/messages/${seg(messageId)}/rating`, { method: "PUT", json: { value, comment } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", chatId] }),
   });
 }

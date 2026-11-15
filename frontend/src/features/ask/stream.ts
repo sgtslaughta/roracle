@@ -53,7 +53,7 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     if (event === "token") h.onToken(String(p.text ?? ""));
     else if (event === "citations") { if (Array.isArray(p.items)) h.onCitations(p.items as Citation[]); }
     else if (event === "done") { if (typeof p.message_id === "string") { finished = true; h.onDone(p.message_id); } }
-    else if (event === "error") { finished = true; h.onError(String(p.detail ?? "Something went wrong.")); }
+    else if (event === "error") { finished = true; h.onError(p.detail === "inference failed" ? "The model couldn't finish this answer." : String(p.detail ?? "Something went wrong.")); }
   });
   const reader = res.body.getReader();
   const dec = new TextDecoder(); // also strips a leading BOM from the first chunk

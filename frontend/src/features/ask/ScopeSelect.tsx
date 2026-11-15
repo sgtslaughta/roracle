@@ -8,7 +8,7 @@ const CAP = 20;
 const MORE = "__more";
 
 /** "Search in" select. Lists at most 20 collections (plus the current one); the rest are behind a filterable popover. */
-export function ScopeSelect({ scope, onScope }: { scope: ChatScope; onScope: (s: ChatScope) => void }) {
+export function ScopeSelect({ scope, onScope, readOnly }: { scope: ChatScope; onScope: (s: ChatScope) => void; readOnly?: boolean }) {
   const { tabs } = useReaderStore();
   const collections = useCollections().data ?? [];
   const [more, setMore] = useState(false);
@@ -19,6 +19,9 @@ export function ScopeSelect({ scope, onScope }: { scope: ChatScope; onScope: (s:
   const rest = collections.slice(CAP).filter((c) => c.id !== current);
   const hits = rest.filter((c) => c.name.toLowerCase().includes(q.trim().toLowerCase()));
   const pick = (s: ChatScope) => { setMore(false); setQ(""); onScope(s); };
+
+  // a non-owner sees scope "collection" with the id hidden
+  if (readOnly) return <span className="sel" aria-label="Search in">{scope === "all" ? "All documents you can see" : scope === "open" ? "Open documents only" : "A collection"}</span>;
 
   return (
     <Popover open={more} onOpenChange={(o) => { setMore(o); if (!o) setQ(""); }}>

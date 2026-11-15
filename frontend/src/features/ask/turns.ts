@@ -1,11 +1,11 @@
-import type { ChatMessage, Citation, MessageStatus, RetrievedPassage } from "@/api/chat";
+import type { ChatMessage, Citation, MessageStatus, Rating, RetrievedPassage } from "@/api/chat";
 import type { Quote } from "./useAskContext";
 import type { PendingTurn } from "./askStore";
 
 export interface AnswerData {
   text: string; citations: Citation[]; status: MessageStatus | "streaming"; detail?: string;
   /** server message id, set once the answer is saved */
-  id?: string; retrieved: RetrievedPassage[]; rating?: 1 | -1 | null;
+  id?: string; retrieved: RetrievedPassage[]; rating?: Rating | null;
 }
 /** `key` is positional so a pending turn keeps its identity when the saved messages replace it. */
 export interface TurnData { key: string; question: string; quote: string | null; answer: AnswerData | null }

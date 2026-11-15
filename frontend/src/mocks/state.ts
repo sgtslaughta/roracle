@@ -13,6 +13,8 @@ export interface MockState {
   /** seeded lazily by mocks/chat.ts (the seed needs pdf/search, which import this module) */
   chats: ChatDetail[] | null;
   chatSeq: number;
+  /** chat id -> shares (mocks/chat.ts) */
+  shares: Record<string, { users: string[]; groups: string[] }>;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -27,6 +29,7 @@ const fresh = (): MockState => ({
   admin: false,
   chats: null,
   chatSeq: 1,
+  shares: {},
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

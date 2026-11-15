@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { API_BASE } from "@/api/client";
-import type { Chat, ChatDetail, ChatMessage, ChatSummary, Citation, SendMessageBody, Viewer } from "@/api/chat";
+import type { Chat, ChatDetail, ChatMessage, Citation, SendMessageBody, Viewer } from "@/api/chat";
 import { DOCS } from "./docs";
 import { passageOf, seedChats } from "./chatSeed";
 import { state } from "./state";
@@ -13,6 +13,17 @@ const now = () => new Date().toISOString();
 const tick = () => new Promise<void>((r) => setTimeout(r, import.meta.env.MODE === "test" ? 0 : 30));
 const plain = (c: ChatDetail): Chat => ({ id: c.id, title: c.title, scope: c.scope, model: c.model, pins: c.pins, excludes: c.excludes, created_at: c.created_at, updated_at: c.updated_at });
 const chats = () => (state.chats ??= seedChats());
+const unprocessable = (detail: string) => HttpResponse.json({ detail }, { status: 422 });
+const MAX_CHARS = 4000;
+const PAGE = 50;
+/** Opaque cursor = position in the (updated_at desc, id) order. */
+const cursorOf = (c: Chat) => btoa(`${c.updated_at}|${c.id}`);
+const afterCursor = (cur: string): ((c: Chat) => boolean) | null => {
+  try {
+    const [t, id] = atob(cur).split("|");
+    return t && id ? (c) => c.updated_at < t || (c.updated_at === t && c.id < id) : null;
+  } catch { return null; }
+};
 const find = (id: unknown) => chats().find((c) => c.id === id);
 
 /** Pick up to 3 paragraphs sharing words with the question (viewer tabs preferred) and write a cited answer. */
@@ -53,7 +64,7 @@ function exportMd(c: ChatDetail): string {
 function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): Response {
   const enc = new TextEncoder();
   const ev = (e: string, d: unknown) => enc.encode(`event: ${e}\ndata: ${JSON.stringify(d)}\n\n`);
-  const model = body.model ?? chat.model;
+  const model = body.model ?? chat.model ?? MODELS[0];
   const { text, citations } = buildAnswer(body.content, body.viewer);
   const stamp = now();
   const base = chat.messages.length;
@@ -65,7 +76,7 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
     if (saved) return;
     saved = true;
     const done = status === "complete";
-    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, chunk_id: c.chunk_id, title: c.title, page: c.page, score: 0.9 - c.n * 0.1, text: c.quote }]));
+    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, version: c.version, chunk_id: c.chunk_id, title: c.title, page: c.page, bbox: c.bbox, score: 0.9 - c.n * 0.1, text: c.quote, available: true as const }]));
     chat.messages.push({ id: aid, role: "assistant", content: done ? text : sent, citations: done ? citations : [], retrieved: done ? retrieved : [], status, model, created_at: now(), rating: null });
     chat.updated_at = now();
   };
@@ -91,12 +102,22 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
 
 export const chatHandlers = [
   http.get(url("/chats/models"), () => HttpResponse.json({ models: MODELS, default: MODELS[0] })),
-  http.get(url("/chats"), () =>
-    HttpResponse.json(chats().filter((c) => c.is_owner).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).map((c): ChatSummary => ({ id: c.id, title: c.title, updated_at: c.updated_at })))),
+  http.get(url("/chats"), ({ request }) => {
+    const q = new URL(request.url).searchParams;
+    const limit = Number(q.get("limit") ?? PAGE);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) return unprocessable("invalid limit");
+    const before = q.get("before");
+    const keep = before === null ? () => true : afterCursor(before);
+    if (!keep) return unprocessable("invalid cursor");
+    const rows = chats().filter((c) => c.is_owner).map(plain).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id)).filter(keep);
+    const items = rows.slice(0, limit);
+    return HttpResponse.json({ items, next: rows.length > limit ? cursorOf(items[items.length - 1]) : null });
+  }),
   http.post(url("/chats"), async ({ request }) => {
     const b = ((await request.json().catch(() => ({}))) ?? {}) as Partial<Chat>;
+    if (b.model && !MODELS.includes(b.model)) return unprocessable("unknown model");
     const t = now();
-    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "New chat", scope: b.scope ?? "all", model: b.model ?? MODELS[0], pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
+    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "New chat", scope: b.scope ?? "all", model: b.model ?? null, pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
     chats().push(c);
     return HttpResponse.json(plain(c), { status: 201 });
   }),
@@ -104,12 +125,26 @@ export const chatHandlers = [
   http.patch(url("/chats/:id"), async ({ params, request }) => {
     const c = find(params.id);
     if (!c) return notFound();
-    if (!c.is_owner) return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
-    const { title, scope, pins, excludes } = (await request.json()) as Partial<Chat>;
-    Object.assign(c, { ...(title !== undefined && { title }), ...(scope && { scope }), ...(pins && { pins }), ...(excludes && { excludes }), updated_at: now() });
+    if (!c.is_owner) return HttpResponse.json({ detail: "read-only" }, { status: 403 });
+    const { title, scope, pins, excludes, model } = (await request.json()) as Partial<Chat>;
+    if (model && !MODELS.includes(model)) return unprocessable("unknown model");
+    Object.assign(c, { ...(title !== undefined && { title }), ...(model && { model }), ...(scope && { scope }), ...(pins && { pins }), ...(excludes && { excludes }), updated_at: now() });
     return HttpResponse.json(plain(c));
   }),
-  http.put(url("/chats/:id/shares"), ({ params }) => (find(params.id) ? new HttpResponse(null, { status: 204 }) : notFound())),
+  http.get(url("/chats/:id/shares"), ({ params }) => {
+    const c = find(params.id);
+    if (!c) return notFound();
+    return c.is_owner ? HttpResponse.json(state.shares[c.id] ?? { users: [], groups: [] }) : HttpResponse.json({ detail: "read-only" }, { status: 403 });
+  }),
+  http.put(url("/chats/:id/shares"), async ({ params, request }) => {
+    const c = find(params.id);
+    if (!c) return notFound();
+    if (!c.is_owner) return HttpResponse.json({ detail: "read-only" }, { status: 403 });
+    const b = (await request.json()) as { users?: string[]; groups?: string[] };
+    const bad = (b.groups ?? []).find((g) => !g.startsWith("/"));
+    if (bad) return unprocessable(`unknown group ${bad}`);
+    return HttpResponse.json((state.shares[c.id] = { users: b.users ?? [], groups: b.groups ?? [] }));
+  }),
   http.get(url("/chats/:id/export.md"), ({ params }) => {
     const c = find(params.id);
     return c ? new HttpResponse(exportMd(c), { headers: { "Content-Type": "text/markdown; charset=utf-8" } }) : notFound();
@@ -117,16 +152,21 @@ export const chatHandlers = [
   http.put(url("/messages/:id/rating"), async ({ params, request }) => {
     const m = chats().flatMap((c) => c.messages).find((x) => x.id === params.id);
     if (!m) return notFound();
-    const { value, comment } = (await request.json()) as { value: 1 | -1; comment?: string };
-    m.rating = value;
-    return HttpResponse.json({ value, comment: comment ?? null });
+    if (m.role !== "assistant") return unprocessable("only answers can be rated");
+    const { value, comment } = (await request.json()) as { value: 1 | -1 | 0; comment?: string };
+    const out = { value, comment: value ? (comment ?? null) : null };
+    m.rating = value ? { value, comment: out.comment } : null;
+    return HttpResponse.json(out);
   }),
   http.post(url("/chats/:id/messages"), async ({ params, request }) => {
     const c = find(params.id);
     if (!c) return notFound();
-    if (!c.is_owner) return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
+    if (!c.is_owner) return HttpResponse.json({ detail: "read-only" }, { status: 403 });
     const body = (await request.json()) as SendMessageBody;
-    if (body.model && !MODELS.includes(body.model)) return HttpResponse.json({ detail: "unknown model" }, { status: 422 });
+    if (!body.content || body.content.length > MAX_CHARS) return unprocessable("content must be 1 to 4000 characters");
+    if ((body.viewer?.selection?.text.length ?? 0) > MAX_CHARS) return unprocessable("selection too long");
+    if (/trigger 503/i.test(body.content)) return HttpResponse.json({ detail: "inference unavailable" }, { status: 503 });
+    if (body.model && !MODELS.includes(body.model)) return unprocessable("unknown model");
     return stream(c, body, request.signal);
   }),
 ];

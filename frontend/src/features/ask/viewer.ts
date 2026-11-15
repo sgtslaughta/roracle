@@ -7,6 +7,9 @@ import { getReaderState, type ReaderState } from "@/features/reader/useReaderSto
 const MAX = 3;
 
 /** Reader state -> the `viewer` body of POST /chats/{id}/messages. Ignored docs are listed only in `ignored`. */
+/** P4 caps a quoted selection at 4000 characters. */
+const MAX_TEXT = 4000;
+
 export function buildViewer(
   reader: Pick<ReaderState, "tabs" | "active">,
   ignored: string[],
@@ -18,7 +21,7 @@ export function buildViewer(
   return {
     tabs: ordered.slice(0, MAX).map((t) => ({ doc_id: t.docId, version_id: versionIdOf(t.docId, t.version), page: t.page })),
     ignored,
-    selection,
+    selection: selection && { ...selection, text: selection.text.slice(0, MAX_TEXT) },
   };
 }
 

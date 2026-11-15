@@ -6,6 +6,8 @@ import { ContextChips } from "./ContextChips";
 import { ScopeSelect } from "./ScopeSelect";
 import { registerComposer, setDraft, useDraft } from "./useAskContext";
 
+export const MAX_Q = 4000;
+
 interface Props {
   scope: ChatScope;
   onScope: (s: ChatScope) => void;
@@ -48,7 +50,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
       <div className="cwrap">
         <ContextChips />
         <textarea
-          ref={area} rows={1} aria-label="Question" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey}
+          ref={area} rows={1} aria-label="Question" maxLength={MAX_Q} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey}
           placeholder="Ask about your documents, or about what you're reading"
         />
         <div className="crow">

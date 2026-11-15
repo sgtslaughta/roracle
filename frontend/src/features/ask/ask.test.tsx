@@ -349,8 +349,8 @@ describe("recent chats", () => {
   });
 
   it("collapses more than five chats into +K more", async () => {
-    const list = Array.from({ length: 8 }, (_, i) => ({ id: `x${i}`, title: `Chat ${i}`, updated_at: "2026-11-10T09:00:00Z" }));
-    server.use(http.get(`${API_BASE}/chats`, () => HttpResponse.json(list)));
+    const items = Array.from({ length: 8 }, (_, i) => ({ id: `x${i}`, title: `Chat ${i}`, updated_at: "2026-11-10T09:00:00Z" }));
+    server.use(http.get(`${API_BASE}/chats`, () => HttpResponse.json({ items, next: null })));
     await renderApp("/ask");
     const nav = await screen.findByRole("navigation", { name: "Recent chats" });
     await within(nav).findByRole("link", { name: "Chat 0" });
