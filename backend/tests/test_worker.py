@@ -3,7 +3,14 @@ from roracle.worker import HANDLERS, build_handlers
 
 def test_build_handlers_registers_ingest(settings, session_factory):
     h = build_handlers(settings, session_factory)
-    assert set(h) == {"ingest", "citations", "acl_sync", "evidence_scan"} and callable(h["ingest"])
+    assert set(h) == {
+        "ingest",
+        "citations",
+        "acl_sync",
+        "evidence_scan",
+        "connector_run",
+        "connector_tick",
+    } and callable(h["ingest"])
     assert isinstance(HANDLERS, dict)
 
 
@@ -14,6 +21,7 @@ def test_main_warns_when_scanning_disabled(settings, monkeypatch, caplog):
     monkeypatch.setattr(worker, "make_session_factory", lambda url: None)
     monkeypatch.setattr(worker, "build_handlers", lambda s, sf: {})
     monkeypatch.setattr(worker, "run_forever", lambda sf, h: None)
+    monkeypatch.setattr(worker, "ensure_tick", lambda sf: None)
     with caplog.at_level("WARNING"):
         worker.main()
     assert "malware scanning disabled" in caplog.text

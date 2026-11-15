@@ -5,6 +5,7 @@ from roracle import clients
 from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
+from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
 from roracle.db import make_session_factory
 from roracle.ingest import handle_ingest
 from roracle.notes.evidence import handle_evidence_scan
@@ -25,6 +26,13 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             llm=clients.llm(settings),
             session_factory=session_factory,
         ),
+        "connector_run": partial(
+            handle_connector_run,
+            settings=settings,
+            store=blob_store_from(settings),
+            session_factory=session_factory,
+        ),
+        "connector_tick": partial(handle_connector_tick, settings=settings),
         "citations": handle_citations,
         "evidence_scan": partial(handle_evidence_scan, settings=settings, store=blob_store_from(settings)),
         "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
@@ -37,4 +45,5 @@ def main() -> None:
         log.warning("clamav_host is empty: malware scanning disabled")
     sf = make_session_factory(settings.database_url)
     HANDLERS.update(build_handlers(settings, sf))
+    ensure_tick(sf)
     run_forever(sf, HANDLERS)

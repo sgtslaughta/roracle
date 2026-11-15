@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     rerank_depth: int = 50
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     rate_limit_per_minute: int = 0  # stored only; enforced at ingress in P11
+    connector_fs_roots: Annotated[list[str], NoDecode] = []  # fs connectors may only read under these
+    connector_max_items: int = 1000  # per run
+    connector_max_run_s: int = 3600
+    connector_tick_s: int = 60
 
     @property
     def chat_model_list(self) -> list[str]:
@@ -64,7 +68,7 @@ class Settings(BaseSettings):
             raise ValueError("chat_models must list at least one model")
         return v
 
-    @field_validator("oidc_allowed_clients", mode="before")
+    @field_validator("oidc_allowed_clients", "connector_fs_roots", mode="before")
     @classmethod
     def _parse_clients(cls, v):
         if isinstance(v, str):

@@ -107,7 +107,26 @@ Handoff loads are audited. Planned: per-user rate limits on search, chat, upload
 rate-limited handoff loads (P11); PAT misuse alerts, i.e. use from a new client or burst rate (P11);
 max 50 pending agent proposals per session (P8).
 
-## 9. Residual risks / review items
+## 9. Connectors
+
+Admins (never PATs) configure connectors that ingest from S3-compatible buckets and mounted filesystems.
+
+- **Filesystem allowlist.** Paths are accepted only if their `realpath` equals or is under a root in
+  `ROR_CONNECTOR_FS_ROOTS` (empty = disabled); checked at create/update and again at every run, so a
+  config changed in the database cannot widen access. The walk never follows symlinks (`..`, symlinked
+  directories and symlinked files are skipped); files are opened relative to their directory descriptor with
+  `O_NOFOLLOW` and must be regular files (no FIFOs or devices), dot-files and dot-directories are skipped.
+  Mount sources read-only; a writer who can swap a parent directory of the root during a run is outside the
+  guarantee.
+- **S3 credentials** are stored in the connector's database row and are write-only through the API
+  (`secret_key` reads back as `***`; sending `***` on update keeps the stored value; audit entries are
+  redacted). S3 endpoints are admin-chosen and not SSRF-filtered. Without keys the client is unsigned (public buckets).
+- **Ownership.** Connector documents are owned by the admin who created the connector, with the connector's
+  visibility. Versions that look like near-duplicates park in review and surface in the admin review queue
+  (`GET /admin/review`).
+- Failed or partial runs notify every admin (`ops.connector_run`); run logs keep only the last 500 lines.
+
+## 10. Residual risks / review items
 
 - LLM answers can be wrong despite citations; UI always shows sources and passages read.
 - Near-duplicate prompts compare only against documents the user can see; cross-tenant near-dup
