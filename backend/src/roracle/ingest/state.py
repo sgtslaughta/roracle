@@ -80,6 +80,20 @@ def bump_attempts(
         return n
 
 
+def _demote(s: Session, doc_id: UUID, version_id: UUID) -> None:
+    number = s.scalar(select(DocumentVersion.version).where(DocumentVersion.id == version_id))
+    if number is None:
+        raise LookupError(f"document version {version_id} not found")
+    s.execute(
+        update(DocumentVersion)
+        .where(DocumentVersion.document_id == doc_id, DocumentVersion.version < number)
+        .values(is_latest=False)
+    )
+    # A newer version may have moved in meanwhile: it keeps the flag, this one then is not latest.
+    newer = exists().where(DocumentVersion.document_id == doc_id, DocumentVersion.version > number)
+    s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
+
+
 def demote_older_versions(
     session_factory: sessionmaker[Session],
     doc_id: UUID,
@@ -89,17 +103,7 @@ def demote_older_versions(
 ) -> None:
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
-        number = s.scalar(select(DocumentVersion.version).where(DocumentVersion.id == version_id))
-        if number is None:
-            raise LookupError(f"document version {version_id} not found")
-        s.execute(
-            update(DocumentVersion)
-            .where(DocumentVersion.document_id == doc_id, DocumentVersion.version < number)
-            .values(is_latest=False)
-        )
-        # A newer version may have moved in meanwhile: it keeps the flag, this one then is not latest.
-        newer = exists().where(DocumentVersion.document_id == doc_id, DocumentVersion.version > number)
-        s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
+        _demote(s, doc_id, version_id)
         s.commit()
 
 
@@ -123,11 +127,19 @@ def clear_outdated_reasons(
 
 
 def mark_searchable_and_enqueue(
-    session_factory: sessionmaker[Session], version_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+    session_factory: sessionmaker[Session],
+    version_id: UUID,
+    *,
+    demote_doc: UUID | None = None,
+    lock_timeout_s: float = LOCK_TIMEOUT_S,
 ) -> None:
-    """stage=searchable and its `citations` job (R6) in ONE transaction: no searchable version without a job."""
+    """stage=searchable and its `citations` job (R6) in ONE transaction: no searchable version without a job.
+    `demote_doc`: also demote that document's older versions in the same transaction (no window where
+    the document has no live version)."""
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        if demote_doc is not None:
+            _demote(s, demote_doc, version_id)
         res = s.execute(
             update(DocumentVersion).where(DocumentVersion.id == version_id).values(stage="searchable")
         )

@@ -24,7 +24,6 @@ from roracle.ingest.scan import scan
 from roracle.ingest.state import (
     bump_attempts,
     clear_outdated_reasons,
-    demote_older_versions,
     mark_searchable_and_enqueue,
     set_stage,
     update_document,
@@ -131,10 +130,10 @@ def _index(
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
         search_index.mark_previous_versions(es, d.id, v.version)
-        demote_older_versions(sf, d.id, v.id)
         if v.version > 1:
             clear_outdated_reasons(sf, d.id, v.id)
-    mark_searchable_and_enqueue(sf, v.id)  # R6: stage + citations job atomically
+    # R6 + demotion: stage, citations job and the is_latest flip commit atomically
+    mark_searchable_and_enqueue(sf, v.id, demote_doc=d.id if latest else None)
 
 
 def handle_ingest(
