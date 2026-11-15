@@ -36,4 +36,7 @@ line-length = 110
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: needs the dev stack (Keycloak)"]
+markers = [
+  "integration: needs the dev stack (Keycloak)",
+  "e2e: real MinIO/Docling/ES/model endpoint; runs only with ROR_E2E=1",
+]

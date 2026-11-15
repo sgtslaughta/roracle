@@ -76,6 +76,9 @@ services:
   clamav:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}clamav/clamav:1.4
+    environment:
+      CLAMD_CONF_StreamMaxLength: 500M
+      CLAMD_CONF_MaxFileSize: 500M
     ports: ["3310:3310"]
 volumes:
   esdata:

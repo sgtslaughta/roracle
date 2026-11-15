@@ -52,7 +52,7 @@ test:
     ROR_OIDC_ISSUER: http://keycloak.invalid/realms/roracle
     ROR_OIDC_JWKS_URL: http://keycloak.invalid/realms/roracle/protocol/openid-connect/certs
   script:
-    - pytest -q -m "not integration" --junitxml=report.xml
+    - pytest -q -m "not integration and not e2e" --junitxml=report.xml
   artifacts:
     when: always
     reports:
