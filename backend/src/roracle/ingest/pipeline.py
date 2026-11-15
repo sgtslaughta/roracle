@@ -17,7 +17,7 @@ from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
-from roracle.ingest.embed import doc_prompt, embed
+from roracle.ingest.embed import doc_prompt, embed, to_bytes
 from roracle.ingest.neardup import find_near_duplicate, minhash
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
@@ -102,7 +102,11 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
     update_version(sf, v.id, minhash=minhash(text))
     session.refresh(v)
     match = find_near_duplicate(
-        session, principal_for_user(session, d.owner_id), v, settings.near_dup_threshold
+        session,
+        principal_for_user(session, d.owner_id),
+        v,
+        settings.near_dup_threshold,
+        settings.near_dup_summary_threshold,
     )
     if match is not None:
         update_version(sf, v.id, near_dup_of=match.id, stage="review")
@@ -189,8 +193,14 @@ def handle_ingest(
             update_document(sf, d.id, title=title)
             session.refresh(d)
         text = document_text(doc)
+        summary = summarize(llm, settings.summary_model, title, text)
+        vec = (
+            embed(llm, settings.embed_model, [doc_prompt(title, summary)], settings.embed_dims)[0]
+            if summary.strip()
+            else None
+        )
         update_version(
-            sf, vid, summary=summarize(llm, settings.summary_model, title, text), stage="summarized"
+            sf, vid, summary=summary, summary_embedding=to_bytes(vec) if vec else None, stage="summarized"
         )
         session.refresh(v)
     if v.stage == "summarized":

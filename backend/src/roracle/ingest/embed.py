@@ -1,5 +1,7 @@
 """OpenAI-spec embeddings (EmbeddingGemma prompt format)."""
 
+import numpy as np
+
 from roracle.queue import NonRetryable
 
 
@@ -26,3 +28,11 @@ def embed(client, model: str, texts: list[str], dims: int, batch: int = 32) -> l
                 raise NonRetryable("embedding dimension mismatch")
             out.append(list(d.embedding))
     return out
+
+
+def to_bytes(vec) -> bytes:
+    return np.asarray(vec, dtype="<f4").tobytes()
+
+
+def from_bytes(b: bytes) -> np.ndarray:
+    return np.frombuffer(b, dtype="<f4")

@@ -6,6 +6,7 @@ import uuid
 from functools import partial
 from types import SimpleNamespace
 
+import numpy as np
 from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem
 from docling_core.types.doc.base import CoordOrigin, Size
 
@@ -42,10 +43,11 @@ class FakeLLM:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat))
 
     def _embed(self, model, input):
-        data = [
-            SimpleNamespace(index=i, embedding=[0.1 + (i % 7) / 10] * self.dims) for i in range(len(input))
-        ]
-        return SimpleNamespace(data=data)
+        def vec(t):  # deterministic per text, so different docs never look like summary near-dups
+            rng = np.random.default_rng(int.from_bytes(hashlib.sha256(t.encode()).digest()[:8], "little"))
+            return (rng.random(self.dims) + 0.01).tolist()
+
+        return SimpleNamespace(data=[SimpleNamespace(index=i, embedding=vec(t)) for i, t in enumerate(input)])
 
     def _chat(self, **kw):
         msg = SimpleNamespace(content="A fixed summary.")

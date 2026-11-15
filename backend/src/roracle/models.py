@@ -90,6 +90,7 @@ class DocumentVersion(Base):
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default="[]")
     minhash: Mapped[bytes | None] = mapped_column(LargeBinary)
+    summary_embedding: Mapped[bytes | None] = mapped_column(LargeBinary)
     near_dup_of: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document_versions.id"))
     is_latest: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     ingest_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

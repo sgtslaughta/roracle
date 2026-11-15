@@ -5,7 +5,8 @@ import pytest
 from sqlalchemy import select
 
 from roracle.auth import Principal
-from roracle.ingest.neardup import find_near_duplicate, minhash, similarity
+from roracle.ingest.embed import to_bytes
+from roracle.ingest.neardup import cosine, find_near_duplicate, minhash, similarity
 from roracle.models import Blob, Document, DocumentVersion, Job, User
 
 TEXT = " ".join(f"word{i}" for i in range(200))
@@ -62,24 +63,24 @@ def test_finds_best_visible_match(db_session):
     _, existing = _doc(db_session, bob, TEXT)
     _doc(db_session, bob, OTHER)
     _, mine = _doc(db_session, ana, TEXT, stage="deduped")
-    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85).id == existing.id
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97).id == existing.id
 
 
 def test_private_doc_of_other_user_never_matched(db_session):
     ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
     _doc(db_session, bob, TEXT, visibility="private")
     _, mine = _doc(db_session, ana, TEXT)
-    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85) is None
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97) is None
 
 
 def test_excludes_same_document_old_versions_and_empty(db_session):
     ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
     _, mine = _doc(db_session, ana, TEXT)
     _doc(db_session, bob, TEXT, is_latest=False)
-    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85) is None
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97) is None
     _doc(db_session, bob, "")
     _, e2 = _doc(db_session, ana, "")
-    assert find_near_duplicate(db_session, _principal(ana), e2, 0.85) is None
+    assert find_near_duplicate(db_session, _principal(ana), e2, 0.85, 0.97) is None
 
 
 def _setup(db_session, client, as_ana, owner_of_match="ana"):
@@ -238,3 +239,46 @@ def test_merge_caps_tags_at_max(db_session, client, as_ana):
     tags = sorted(db_session.scalars(select(Tag.tag).where(Tag.document_id == md.id)))
     assert len(tags) == MAX_TAGS and tags[:40] == [f"a{i:02}" for i in range(40)]
     assert tags[40:] == [f"b{i:02}" for i in range(10)]
+
+
+def test_cosine():
+    a, b = to_bytes([1.0, 0.0]), to_bytes([0.0, 1.0])
+    assert cosine(a, a) == pytest.approx(1.0)
+    assert cosine(a, b) == 0.0
+    assert cosine(a, to_bytes([1.0, 0.0, 0.0])) == 0.0
+    assert cosine(None, a) == cosine(b"", a) == cosine(to_bytes([0.0, 0.0]), a) == 0.0
+
+
+def test_summary_vector_matches_despite_different_text(db_session):
+    ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
+    vec = to_bytes([0.3, 0.4, 0.5])
+    _, existing = _doc(db_session, bob, OTHER, summary_embedding=vec)
+    _, mine = _doc(db_session, ana, TEXT, summary_embedding=vec)
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97).id == existing.id
+
+
+def test_summary_only_candidate_and_version(db_session):
+    ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
+    vec = to_bytes([1.0, 2.0])
+    _, existing = _doc(db_session, bob, "", summary_embedding=vec)
+    _, mine = _doc(db_session, ana, TEXT, summary_embedding=vec)
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97).id == existing.id
+    _, no_min = _doc(db_session, ana, "", summary_embedding=vec)
+    assert find_near_duplicate(db_session, _principal(ana), no_min, 0.85, 0.97).id == existing.id
+    _, neither = _doc(db_session, ana, "")
+    assert find_near_duplicate(db_session, _principal(ana), neither, 0.85, 0.97) is None
+
+
+def test_invisible_doc_with_identical_vector_not_matched(db_session):
+    ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
+    vec = to_bytes([0.3, 0.4])
+    _doc(db_session, bob, OTHER, visibility="private", summary_embedding=vec)
+    _, mine = _doc(db_session, ana, TEXT, summary_embedding=vec)
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97) is None
+
+
+def test_dissimilar_vectors_not_matched(db_session):
+    ana, bob = _user(db_session, "ana"), _user(db_session, "bob")
+    _doc(db_session, bob, OTHER, summary_embedding=to_bytes([1.0, 0.0]))
+    _, mine = _doc(db_session, ana, TEXT, summary_embedding=to_bytes([0.0, 1.0]))
+    assert find_near_duplicate(db_session, _principal(ana), mine, 0.85, 0.97) is None

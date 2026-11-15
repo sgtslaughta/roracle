@@ -9,6 +9,7 @@ from ingest_helpers import FakeLLM, docling_doc, fake_convert, handler, make_ver
 from sqlalchemy import select
 
 from roracle.ingest import pipeline
+from roracle.ingest.embed import from_bytes
 from roracle.ingest.neardup import minhash
 from roracle.models import Document, DocumentShare, DocumentVersion, Job
 from roracle.queue import enqueue, run_once
@@ -323,7 +324,7 @@ def test_llm_down_is_retryable_and_stage_unchanged(
     db_session.expire_all()
     job = db_session.scalars(select(Job)).first()
     assert job.status == "queued" and not job.last_error.startswith("user:")
-    assert _stage(db_session, v) == "chunked"
+    assert _stage(db_session, v) == "parsed"  # summary embedding fails in the summarize block
 
 
 @pytest.mark.integration
@@ -453,3 +454,36 @@ def test_office_without_gotenberg_goes_to_docling(
     v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "")
     assert seen["convert"][1] == "Report.DOCX" and seen["convert"][0] != b"%PDF-1.7 rendition"
     assert not s3.exists(f"derived/{v.id}/rendition.pdf")
+
+
+def test_summary_embedding_persisted(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    db_session.expire_all()
+    b = db_session.get(DocumentVersion, v.id).summary_embedding
+    assert b is not None and len(from_bytes(b)) == DIMS
+
+
+def test_empty_summary_has_no_embedding(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "summarize", lambda *a, **k: "  ")
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, v.id).summary_embedding is None
+
+
+def test_different_docs_not_summary_near_dup(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    stages = []
+    for title, topic in (("Alpha Paper", "alpha"), ("Beta Study", "beta")):
+        monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(title=title, topic=topic)))
+        v = make_version(db_session, store, user)
+        _run(db_session, session_factory, cfg, store, MagicMock(), v)
+        db_session.query(DocumentVersion).filter_by(id=v.id).update({"stage": "searchable"})
+        db_session.commit()
+        stages.append(db_session.get(DocumentVersion, v.id).near_dup_of)
+    assert stages == [None, None]

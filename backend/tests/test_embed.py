@@ -5,7 +5,7 @@ import httpx
 import openai
 import pytest
 
-from roracle.ingest.embed import doc_prompt, embed, query_prompt
+from roracle.ingest.embed import doc_prompt, embed, from_bytes, query_prompt, to_bytes
 from roracle.queue import NonRetryable
 
 
@@ -77,3 +77,9 @@ def test_real_endpoint():
     except openai.APIConnectionError:
         pytest.skip("embedding endpoint unreachable")
     assert len(out) == 2 and all(len(v) == 768 for v in out)
+
+
+def test_bytes_round_trip():
+    v = [0.5, -1.25, 3.0]
+    assert list(from_bytes(to_bytes(v))) == v
+    assert len(to_bytes(v)) == 12

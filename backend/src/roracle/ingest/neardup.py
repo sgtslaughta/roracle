@@ -9,11 +9,12 @@ import re
 
 import numpy as np
 from datasketch import MinHash
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
 from roracle.auth import Principal
+from roracle.ingest.embed import from_bytes
 from roracle.models import Document, DocumentVersion
 
 NUM_PERM = 128
@@ -57,10 +58,24 @@ def similarity(a: bytes | None, b: bytes | None) -> float:
     return float(_load(a).jaccard(_load(b)))
 
 
+def cosine(a: bytes | None, b: bytes | None) -> float:
+    if not a or not b:
+        return 0.0
+    x, y = from_bytes(a), from_bytes(b)
+    if x.shape != y.shape:
+        return 0.0
+    n = float(np.linalg.norm(x) * np.linalg.norm(y))
+    return float(np.dot(x, y)) / n if n else 0.0
+
+
 def find_near_duplicate(
-    session: Session, principal: Principal, version: DocumentVersion, threshold: float
+    session: Session,
+    principal: Principal,
+    version: DocumentVersion,
+    threshold: float,
+    summary_threshold: float,
 ) -> DocumentVersion | None:
-    if not version.minhash:
+    if not version.minhash and not version.summary_embedding:
         return None
     # ponytail: linear scan over visible versions; move to LSH buckets in Elastic when > ~50k docs per user scope.
     candidates = session.scalars(
@@ -69,14 +84,22 @@ def find_near_duplicate(
         .where(
             visible_documents(principal),
             DocumentVersion.is_latest.is_(True),
-            DocumentVersion.minhash.is_not(None),
+            or_(DocumentVersion.minhash.is_not(None), DocumentVersion.summary_embedding.is_not(None)),
             DocumentVersion.document_id != version.document_id,
             DocumentVersion.stage.not_in(["review", "rejected", "cancelled"]),
         )
     )
     best, best_sim = None, 0.0
     for c in candidates:
-        s = similarity(version.minhash, c.minhash)
-        if s >= threshold and s > best_sim:
-            best, best_sim = c, s
+        sims = []
+        if version.minhash and c.minhash:
+            s = similarity(version.minhash, c.minhash)
+            if s >= threshold:
+                sims.append(s)
+        if version.summary_embedding and c.summary_embedding:
+            s = cosine(version.summary_embedding, c.summary_embedding)
+            if s >= summary_threshold:
+                sims.append(s)
+        if sims and max(sims) > best_sim:
+            best, best_sim = c, max(sims)
     return best
