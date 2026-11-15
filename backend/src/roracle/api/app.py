@@ -9,6 +9,7 @@ from roracle.api.routes import (
     citations,
     documents,
     documents_read,
+    documents_write,
     health,
     library,
     me,
@@ -38,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(near_dup.router)
     app.include_router(library.router)
     app.include_router(documents_read.router)
+    app.include_router(documents_write.router)
     app.include_router(citations.router)
     app.include_router(search.router)
     return app
