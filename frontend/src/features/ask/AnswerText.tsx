@@ -26,11 +26,13 @@ export function safeHref(href: string | undefined): { href: string; external: bo
   if (!href) return null;
   const ok = (href.startsWith("/") && !href.startsWith("//")) || href.startsWith("#") || /^https?:\/\//i.test(href);
   if (!ok) return null;
+  if (href.startsWith("#")) return { href, external: false }; // in-page fragment: cannot change host
   try {
     const u = new URL(href, location.origin);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    const external = u.origin !== location.origin;
-    return { href: external ? u.href : u.pathname + u.search + u.hash, external };
+    if (!/^https?:\/\//i.test(href) && u.origin !== location.origin) return null; // relative must stay relative (e.g. "/\\evil.com")
+    // always emit the absolute validated URL: a same-origin pathname like "//evil.com" would be protocol-relative
+    return { href: u.href, external: u.origin !== location.origin };
   } catch { return null; }
 }
 

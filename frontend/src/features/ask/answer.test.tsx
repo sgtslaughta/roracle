@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { Citation } from "@/api/chat";
-import { AnswerText } from "./AnswerText";
+import { AnswerText, safeHref } from "./AnswerText";
 import { Sidenotes, trimQuote } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
 import { getReaderState } from "@/features/reader/useReaderStore";
@@ -73,6 +73,15 @@ describe("AnswerText", () => {
     }
     expect(links.find((a) => a.textContent === "b")!.getAttribute("href")).toBe("https://example.org/p?q=1#h");
   });
+  it("never links a relative or same-origin URL to another host", () => {
+    for (const h of ["//evil.com", "/\\evil.com", `${location.origin}//evil.com`, "/\t/evil.com"]) {
+      const res = safeHref(h);
+      if (res) expect(new URL(res.href).host).toBe(location.host);
+    }
+    expect(safeHref("#sec-2")).toEqual({ href: "#sec-2", external: false });
+    const { container } = r(`[a](//evil.com) [b](/\\evil.com) [c](${location.origin}//evil.com)`);
+    for (const a of container.querySelectorAll("a")) expect(new URL(a.getAttribute("href")!).host).toBe(location.host);
+  });
   it("renders no image for reference-style images or KaTeX \\href", () => {
     const a = r("![a][r]\n\n[r]: https://evil/x");
     expect(a.container.querySelector("img")).toBeNull();
@@ -85,7 +94,7 @@ describe("AnswerText", () => {
     const [a, b] = [...container.querySelectorAll("a")];
     expect(a.getAttribute("rel")).toBe("noopener noreferrer");
     expect(a.getAttribute("target")).toBe("_blank");
-    expect(b.getAttribute("href")).toBe("/d/abc");
+    expect(b.getAttribute("href")).toBe(`${location.origin}/d/abc`);
     expect(b.getAttribute("target")).toBeNull();
   });
   it("preserves surrounding text; markers in links and math stay literal", () => {

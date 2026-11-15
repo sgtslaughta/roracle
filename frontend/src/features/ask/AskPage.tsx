@@ -42,7 +42,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
 
   const turns = useMemo(() => buildTurns(chat?.messages ?? [], pending), [chat?.messages, pending]);
   const streaming = pending?.status === "streaming";
-    const creating = useRef(false);
+  const creating = useRef(false);
   const scope = chat?.scope ?? newScope;
   const model = pickedModel ?? chat?.model ?? models?.default ?? "";
 
