@@ -1,7 +1,3 @@
-export function LibraryRoute() {
-  return (
-    <section className="view">
-      <h1>Library</h1>
-    </section>
-  );
-}
+import { SearchPage } from "@/features/library/SearchPage";
+
+export const LibraryRoute = SearchPage;
