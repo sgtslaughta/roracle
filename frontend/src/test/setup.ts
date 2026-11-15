@@ -20,3 +20,6 @@ class RO { observe() {} unobserve() {} disconnect() {} }
 class IO { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
 (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver ??= IO;
 Element.prototype.scrollIntoView ??= function () {};
+
+// no canvas in jsdom
+HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;

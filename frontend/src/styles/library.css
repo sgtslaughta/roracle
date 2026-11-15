@@ -49,12 +49,14 @@
 .pager { display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
 .pager button { min-width: 34px; justify-content: center; }
 .pager button[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-@media (max-width: 860px) {
+/* the workspace narrows when the reader is open, so respond to its width, not the viewport */
+.view { container-type: inline-size; }
+@container (max-width: 780px) {
   .sbody { grid-template-columns: minmax(0, 1fr); }
   .facets { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   .facets p.fnote { grid-column: 1 / -1; }
 }
-@media (max-width: 640px) {
+@container (max-width: 520px) {
   .result { grid-template-columns: minmax(0, 1fr); }
   .result .vote { flex-direction: row; order: 2; }
 }

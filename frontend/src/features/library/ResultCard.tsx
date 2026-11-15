@@ -1,5 +1,5 @@
 import { Clock, FileText, FileType2, History, Quote, TextQuote } from "lucide-react";
-import type { SearchHit } from "@/api/types";
+import type { Bbox, SearchHit } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { highlight } from "./highlight";
 import { VoteControl } from "./VoteControl";
@@ -8,7 +8,7 @@ export interface ResultCardProps {
   hit: SearchHit;
   terms: string[];
   others: { id: string; title: string }[];
-  onOpen: (docId: string, opts?: { page?: number; chunkId?: string }) => void;
+  onOpen: (docId: string, opts?: { page?: number; chunkId?: string; bbox?: Bbox | null }) => void;
   onTag: (tag: string) => void;
 }
 
@@ -27,7 +27,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
         </div>
         <div className="hits">
           {hit.passages.map((p) => (
-            <button key={p.chunk_id} className="hit" onClick={() => onOpen(hit.doc_id, { page: p.page, chunkId: p.chunk_id })}>
+            <button key={p.chunk_id} className="hit" onClick={() => onOpen(hit.doc_id, { page: p.page, chunkId: p.chunk_id, bbox: p.bbox })}>
               <small><TextQuote aria-hidden />Page {p.page}</small>
               {highlight(p.text, terms)}
             </button>
