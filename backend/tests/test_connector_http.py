@@ -398,6 +398,31 @@ def test_allow_cidrs_setting_parsing(monkeypatch):
     assert Settings.model_fields["connector_http_timeout_s"].default == 60 and base
 
 
+@pytest.mark.parametrize(
+    "cidr",
+    [
+        "2002::/16",
+        "64:ff9b:1::/48",
+        "::/0",
+        "::/64",
+        "2001::/32",
+        "::ffff:10.0.0.0/104",
+        "2002:a9fe:a9fe::/96",
+        "2001:0:1::/96",
+    ],
+)
+def test_wrapper_overlapping_cidr_must_be_slash96(cidr, monkeypatch):
+    monkeypatch.setenv("ROR_CONNECTOR_HTTP_ALLOW_CIDRS", cidr)
+    with pytest.raises(ValidationError, match="/96|cannot be allowlisted"):
+        Settings()
+
+
+@pytest.mark.parametrize("cidr", ["64:ff9b::/96", "64:ff9b:1:2::/96", "fd12:3456::/32", "10.0.0.0/8"])
+def test_translator_prefix_and_plain_cidrs_accepted(cidr, monkeypatch):
+    monkeypatch.setenv("ROR_CONNECTOR_HTTP_ALLOW_CIDRS", cidr)
+    assert Settings().connector_http_allow_cidrs == [cidr]
+
+
 def http_body(**cfg):
     return {
         "name": "web",

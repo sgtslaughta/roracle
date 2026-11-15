@@ -19,7 +19,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import httpcore
 
-from roracle.config import Settings
+from roracle.config import UNALLOWABLE, WRAPPERS, Settings
 
 MAX_REDIRECTS = 5
 REDIRECTS = (301, 302, 303, 307, 308)
@@ -68,26 +68,40 @@ def _always(a: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return a.is_link_local or a.is_multicast or a.is_unspecified or any(a in n for n in NEVER)
 
 
+def _listed(a: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> bool:
+    return any(a in ipaddress.ip_network(c, strict=False) for c in allow_cidrs)
+
+
+def _v4_ok(a: ipaddress.IPv4Address, allow_cidrs: list[str]) -> bool:
+    return not _always(a) and (a.is_global or _listed(a, allow_cidrs))
+
+
 def check_ip(ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> None:
-    """Raise Blocked unless `ip` may be dialled (fail closed, no decoding of embedded IPv4 except the
-    kernel-dialled IPv4-mapped form). Never allowed, allowlist or not (R10): link-local, multicast,
-    unspecified, known metadata addresses, and the IPv4 inside a mapped address. Otherwise: globally
-    routable (IPv6 additionally outside BLOCKED6: mapped, NAT64, 6to4, Teredo, ULA, ...) or inside an
-    allowlisted CIDR. Translator/tunnel prefixes therefore need an explicit allowlist entry."""
+    """Raise Blocked unless `ip` may be dialled (fail closed). Never allowed, allowlist or not (R10):
+    link-local, multicast, unspecified and the known metadata addresses, also as the IPv4 inside a mapped
+    address. IPv4: globally routable or allowlisted. IPv6 mapped (::ffff:a.b.c.d): judged by its IPv4.
+    6to4 and Teredo: always blocked. Other IPv6 wrappers (WRAPPERS: NAT64, ::/96): blocked unless inside an allowlisted /96
+    translator prefix (enforced at config load), and then the low 32 bits are judged as an IPv4. Remaining
+    BLOCKED6 ranges need an allowlist CIDR; everything else must be globally routable or allowlisted."""
     addr = ipaddress.ip_address(ip.split("%")[0] if isinstance(ip, str) else ip)  # drop IPv6 zone id
     mapped = addr.ipv4_mapped if isinstance(addr, ipaddress.IPv6Address) else None
     if _always(addr) or (mapped is not None and _always(mapped)):
         raise Blocked(f"address {addr} is never allowed")
-    if isinstance(addr, ipaddress.IPv6Address):
-        ok = (addr.is_global and not any(addr in n for n in BLOCKED6)) or _listed(addr, allow_cidrs)
+    hint = "is not publicly routable and not in ROR_CONNECTOR_HTTP_ALLOW_CIDRS"
+    if isinstance(addr, ipaddress.IPv4Address):
+        ok = _v4_ok(addr, allow_cidrs)
+    elif mapped is not None:
+        ok = _v4_ok(mapped, allow_cidrs)
+    elif any(addr in u for u in UNALLOWABLE):
+        ok, hint = False, "is a 6to4/Teredo address (never allowed)"
+    elif any(addr in w for w in WRAPPERS):
+        inner = ipaddress.IPv4Address(addr.packed[12:])
+        ok = _listed(addr, allow_cidrs) and _v4_ok(inner, allow_cidrs)
+        hint = "is a translator/tunnel form: needs an allowlisted /96 prefix and an acceptable inner IPv4"
     else:
-        ok = addr.is_global or _listed(addr, allow_cidrs)
+        ok = (addr.is_global and not any(addr in n for n in BLOCKED6)) or _listed(addr, allow_cidrs)
     if not ok:
-        raise Blocked(f"address {addr} is not publicly routable and not in ROR_CONNECTOR_HTTP_ALLOW_CIDRS")
-
-
-def _listed(a: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> bool:
-    return any(a in ipaddress.ip_network(c, strict=False) for c in allow_cidrs)
+        raise Blocked(f"address {addr} {hint}")
 
 
 def _clamp(timeout: float | None, exc: type[Exception]) -> float | None:
