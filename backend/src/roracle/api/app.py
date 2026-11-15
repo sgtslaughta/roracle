@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from roracle import __version__
-from roracle.api.routes import documents, health, me
+from roracle.api.routes import documents, health, me, near_dup
 from roracle.auth import JwksCache
 from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
@@ -24,4 +24,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(me.router)
     app.include_router(documents.router)
+    app.include_router(near_dup.router)
     return app
