@@ -86,6 +86,7 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
 | `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down or 5xx = retryable (fails after retries are exhausted); invalid file = permanent failure |
+| `ROR_MAX_RENDITION_BYTES`, `ROR_MAX_PDF_PAGES` | `524288000`, `2000` | Caps on the Gotenberg PDF rendition (streamed, aborted when exceeded) and on pages of any PDF sent to Docling; over either = permanent failure. Deploy Gotenberg isolated: own namespace, deny-all egress NetworkPolicy (ingress from worker only), no secrets, read-only root FS, command `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes` |
 
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
 Postgres, not env.

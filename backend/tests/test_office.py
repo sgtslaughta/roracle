@@ -4,8 +4,9 @@ import zipfile
 
 import httpx
 import pytest
+from pypdf import PdfWriter
 
-from roracle.ingest.office import is_office, rendition_key, to_pdf
+from roracle.ingest.office import is_office, pdf_page_count, rendition_key, to_pdf
 from roracle.queue import NonRetryable
 
 GOT = os.environ.get("ROR_GOTENBERG_URL") or "http://localhost:3300"
@@ -21,23 +22,47 @@ def _client(status=200, body=b"%PDF-1.7 x"):
 
 
 def test_to_pdf_returns_pdf():
-    assert to_pdf(b"x", "a.docx", "http://g/", client=_client()).startswith(b"%PDF-")
+    assert to_pdf(b"x", "a.docx", "http://g/", client=_client(), max_bytes=1000).startswith(b"%PDF-")
 
 
 @pytest.mark.parametrize("status", [400, 413, 415, 422])
 def test_to_pdf_4xx_nonretryable(status):
     with pytest.raises(NonRetryable, match="could not be converted"):
-        to_pdf(b"x", "a.docx", "http://g", client=_client(status))
+        to_pdf(b"x", "a.docx", "http://g", client=_client(status), max_bytes=1000)
 
 
 def test_to_pdf_5xx_retryable():
     with pytest.raises(httpx.HTTPStatusError):
-        to_pdf(b"x", "a.docx", "http://g", client=_client(503))
+        to_pdf(b"x", "a.docx", "http://g", client=_client(503), max_bytes=1000)
 
 
 def test_to_pdf_non_pdf_body():
     with pytest.raises(ValueError):
-        to_pdf(b"x", "a.docx", "http://g", client=_client(body=b"<html>"))
+        to_pdf(b"x", "a.docx", "http://g", client=_client(body=b"<html>"), max_bytes=1000)
+
+
+def test_to_pdf_stream_over_cap():
+    big = b"%PDF-" + b"x" * 5000
+    with pytest.raises(NonRetryable, match="size limit"):
+        to_pdf(b"x", "a.docx", "http://g", client=_client(body=big), max_bytes=1000)
+
+
+def test_to_pdf_stream_under_cap():
+    body = b"%PDF-" + b"x" * 500
+    assert to_pdf(b"x", "a.docx", "http://g", client=_client(body=body), max_bytes=1000) == body
+
+
+def _pdf(pages: int) -> bytes:
+    w, buf = PdfWriter(), io.BytesIO()
+    for _ in range(pages):
+        w.add_blank_page(72, 72)
+    w.write(buf)
+    return buf.getvalue()
+
+
+def test_pdf_page_count():
+    assert pdf_page_count(_pdf(3)) == 3
+    assert pdf_page_count(b"not a pdf") is None
 
 
 @pytest.mark.parametrize(
@@ -86,4 +111,4 @@ def _up() -> bool:
 def test_real_gotenberg():
     if not _up():
         pytest.skip("gotenberg not reachable")
-    assert to_pdf(_docx(), "t.docx", GOT, timeout=120).startswith(b"%PDF-")
+    assert to_pdf(_docx(), "t.docx", GOT, timeout=120, max_bytes=50_000_000).startswith(b"%PDF-")
