@@ -211,7 +211,7 @@ def test_selection_prepended_not_counted(db_session, settings, me, other):
     out = run(db_session, es, settings, me, Viewer(selection=sel), k=4)
     assert len(out) == 5
     s = out[0]
-    assert (s.chunk_id, s.title, s.pages, s.version_id) == ("selection", "Selected passage", [7], str(v0.id))
+    assert (s.chunk_id, s.title, s.pages, s.version_id) == ("selection", d0.title, [7], str(v0.id))
     assert len(s.text) == 1200 and s.authors == ["Zed"] and s.year == 1999
 
 

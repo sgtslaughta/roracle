@@ -105,9 +105,10 @@ def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str
         return []
 
 
-def _selection(sel: Selection, doc_id: str, live: dict[str, DocumentVersion]) -> Passage:
+def _selection(session: Session, sel: Selection, doc_id: str, live: dict[str, DocumentVersion]) -> Passage:
     v = live[doc_id]
     meta = v.meta or {}
+    doc = session.get(Document, v.document_id)
     return Passage(
         chunk_id="selection",
         doc_id=doc_id,
@@ -117,7 +118,7 @@ def _selection(sel: Selection, doc_id: str, live: dict[str, DocumentVersion]) ->
         pages=[sel.page],
         bboxes=[],
         score=SELECTION_SCORE,
-        title="Selected passage",
+        title=doc.title or meta.get("title") or v.filename,
         authors=list(meta.get("authors") or []),
         year=meta.get("year"),
     )
@@ -193,5 +194,5 @@ def retrieve_for_chat(
 
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
     if sel and sel_id in live and sel_id not in dropped:
-        out.insert(0, _selection(sel, sel_id, live))
+        out.insert(0, _selection(session, sel, sel_id, live))
     return out
