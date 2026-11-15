@@ -83,8 +83,10 @@ container image digest, inputs, parameters + seed, agent client + model, start/e
 rOracle stores and displays evidence; it never executes it. Evidence is scanned by ClamAV
 (`evidence_scan` job) and only `clean` (or `unscanned` when no scanner is configured) files download.
 A proposal is only visible to its creator until a human approves it in the UI (the note then becomes a
-normal note; default visibility for agent proposals is `private`). Search results and `ask`
-citations include community notes (`notes` on each search hit; `note:<id>` citations).
+normal note). Agent proposals default to `private`; a requested visibility applies only after human
+approval. MCP `search` hits carry `notes` and `ask` may use them as context, but only notes that pass the
+quality gate (own, or well-upvoted: `ROR_CHAT_NOTE_MIN_UPVOTES`/`ROR_CHAT_NOTE_MIN_RATIO`). Notes are
+commentary, never citations.
 
 ## Writing papers
 
