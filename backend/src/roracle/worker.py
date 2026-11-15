@@ -2,6 +2,7 @@ import logging
 from functools import partial
 
 from roracle import clients
+from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.db import make_session_factory
@@ -24,6 +25,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             session_factory=session_factory,
         ),
         "citations": partial(handle_citations, session_factory=session_factory),
+        "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
     }
 
 

@@ -1,27 +1,25 @@
 """PATCH /documents/{id}: title, visibility, sharing, with immediate Elasticsearch ACL sync (P3 task 6)."""
 
+import logging
 import re
 from typing import Annotated, Literal
 from uuid import UUID
 
-from elasticsearch import Elasticsearch, NotFoundError
-from fastapi import APIRouter, Depends, HTTPException
+from elasticsearch import Elasticsearch
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from roracle import search_index
+from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
 from roracle.api.routes.library import get_es
 from roracle.models import Document, DocumentShare, DocumentVersion, User
-from roracle.search_index import ALIAS, acl_fields
+from roracle.queue import enqueue
 
 router = APIRouter()
-_SCRIPT = (
-    "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
-    "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
-    "ctx._source.share_groups = params.share_groups; "
-    "if (params.title != null) { ctx._source.title = params.title; }"
-)
+log = logging.getLogger(__name__)
 
 
 def normalize_path(s: str) -> str:
@@ -38,9 +36,9 @@ Path_ = Annotated[str, Field(min_length=1, max_length=500), AfterValidator(norma
 class PatchBody(BaseModel):
     title: Annotated[str, Field(min_length=1, max_length=500)] | None = None
     visibility: Literal["private", "shared", "org_unit", "everyone"] | None = None
-    org_unit: Path_ | None = None
-    share_users: list[UUID] | None = None
-    share_groups: list[Path_] | None = None
+    org_unit: Path_ | None = None  # R20: any normalized path, no membership check (same as share_groups)
+    share_users: Annotated[list[UUID], Field(max_length=500)] | None = None
+    share_groups: Annotated[list[Path_], Field(max_length=500)] | None = None
     model_config = {"str_strip_whitespace": True}
 
     @model_validator(mode="after")
@@ -50,21 +48,8 @@ class PatchBody(BaseModel):
         return self
 
 
-def _sync_es(session: Session, es: Elasticsearch, doc: Document, title: str | None) -> None:
-    try:
-        es.update_by_query(
-            index=ALIAS,
-            query={"term": {"doc_id": str(doc.id)}},
-            script={
-                "source": _SCRIPT,
-                "lang": "painless",
-                "params": {**acl_fields(session, doc), "title": title},
-            },
-            refresh=True,
-            conflicts="proceed",
-        )
-    except NotFoundError:  # no index yet: nothing ingested, ingest reads ACL from PG
-        pass
+def get_session_factory(request: Request):
+    return request.app.state.session_factory
 
 
 def _set_shares(session: Session, doc: Document, kind: str, principals: list[str]) -> None:
@@ -76,9 +61,26 @@ def _set_shares(session: Session, doc: Document, kind: str, principals: list[str
     )
 
 
+def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
+    """After a rollback/failed commit: re-sync ES from committed Postgres; if that fails too, leave a
+    durable acl_sync job (fresh session) so the index converges. Never silent."""
+    try:
+        search_index.sync_acl(es, doc_id, lambda: read_acl(sf, doc_id))
+    except Exception:
+        log.exception("ES re-sync failed for document %s; queueing acl_sync", doc_id)
+        with sf() as s:
+            enqueue(s, "acl_sync", {"doc_id": str(doc_id)})
+            s.commit()
+
+
 @router.patch("/documents/{doc_id}")
 def patch_document(
-    doc_id: UUID, body: PatchBody, p: Who, session: Session_, es: Annotated[Elasticsearch, Depends(get_es)]
+    doc_id: UUID,
+    body: PatchBody,
+    p: Who,
+    session: Session_,
+    es: Annotated[Elasticsearch, Depends(get_es)],
+    sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
     doc = _doc(session, p, doc_id)
     if not _privileged(doc, p):
@@ -89,6 +91,8 @@ def patch_document(
         ):
             raise HTTPException(404, "not found")  # R16
         raise HTTPException(403, "only the document owner can change this document")
+    # Serialize concurrent PATCHes per document: flush -> ES -> commit runs under this row lock.
+    session.refresh(doc, with_for_update=True)
     users: list[str] | None = None
     if body.share_users is not None:
         ids = {u for u in body.share_users if u != doc.owner_id}
@@ -107,17 +111,16 @@ def patch_document(
     if body.share_groups is not None:
         _set_shares(session, doc, "group", body.share_groups)
     session.flush()
-    # Ordering: ES first, then commit. If ES fails we roll back and best-effort re-sync ES from the
-    # old committed state (a partial update_by_query must not leave ES more permissive than PG).
-    # If the commit fails after ES succeeded, the same re-sync restores ES to the committed state.
+    # Ordering: ES first, then commit. The acl_sync job is enqueued in the same transaction, so even
+    # a crash after commit converges. If ES or the commit fails we roll back and re-sync ES from the
+    # committed state (a partial update_by_query must not leave ES out of step with Postgres).
     try:
-        _sync_es(session, es, doc, body.title)
+        search_index.sync_acl(es, doc_id, lambda: (search_index.acl_fields(session, doc), body.title))
+        enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
         session.commit()
     except Exception:
+        log.exception("document %s update failed; rolling back", doc_id)
         session.rollback()
-        try:
-            _sync_es(session, es, doc, doc.title)
-        except Exception:  # noqa: BLE001, S110 - original error is what matters
-            pass
-        raise
+        _recover(es, sf, doc_id)
+        raise HTTPException(503, "search index unavailable") from None
     return detail(doc_id, p, session)

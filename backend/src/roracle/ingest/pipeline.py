@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import search_index
+from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
@@ -122,6 +123,11 @@ def _index(
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
     )
+    # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
+    # update_by_query may have run before these chunks existed. Re-read via a fresh session, converge.
+    fresh = read_acl(sf, d.id)
+    if fresh is not None and fresh[0] != acl:
+        search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
         search_index.mark_previous_versions(es, d.id, v.version)

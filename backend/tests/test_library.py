@@ -257,3 +257,25 @@ def test_remove_item_after_losing_access(client, as_ana, as_bob, up, db_session)
     assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).status_code == 404
     r = client.delete(f"/collections/{c}/items/{d}", headers=as_bob)
     assert r.status_code == 200 and r.json()["count"] == 0
+
+
+def test_tag_sync_retries_conflicts_and_raises_on_failures(app, client, as_ana, up):
+    d = up(as_ana)
+
+    class Seq(FakeES):
+        def __init__(self, *r):
+            super().__init__()
+            self.r = list(r)
+
+        def update_by_query(self, **kw):
+            self.calls.append(kw)
+            return self.r.pop(0) if self.r else {}
+
+    f = Seq({"version_conflicts": 1}, {})
+    app.dependency_overrides[get_es] = lambda: f
+    assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "ml"}).status_code == 200
+    assert len(f.calls) == 2
+    bad = Seq({"failures": [{"x": 1}]})
+    app.dependency_overrides[get_es] = lambda: bad
+    with pytest.raises(RuntimeError):
+        client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "dl"})

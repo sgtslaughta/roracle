@@ -6,7 +6,7 @@ from conftest import bearer
 from sqlalchemy import select
 
 from roracle.api.routes.library import get_es
-from roracle.models import Document, DocumentShare
+from roracle.models import Document, DocumentShare, Job
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -125,17 +125,98 @@ def test_missing_index_skipped(client, as_ana, ana, db_session, app):
     assert patch(client, as_ana, d, title="T").status_code == 200
 
 
-def test_es_failure_5xx_and_db_unchanged(app, client, as_ana, ana, bob, db_session):
+class SeqES(FakeES):
+    """Returns the queued responses in order (then {}), like update_by_query would."""
+
+    def __init__(self, *responses):
+        super().__init__()
+        self.responses = list(responses)
+
+    def update_by_query(self, **kw):
+        self.calls.append(kw)
+        return self.responses.pop(0) if self.responses else {}
+
+
+def test_es_failure_503_db_unchanged_and_job_queued(app, client, as_ana, ana, bob, db_session):
     f = FakeES(fail=True)
     app.dependency_overrides[get_es] = lambda: f
     d, _ = seed(db_session, ana, title="Keep", visibility="everyone")
     db_session.commit()
-    r = patch(client.__class__(app, raise_server_exceptions=False), as_ana, d, title="X", visibility="private",
-              share_users=[str(bob)])  # fmt: skip
-    assert r.status_code == 500
+    r = patch(client, as_ana, d, title="X", visibility="private", share_users=[str(bob)])
+    assert r.status_code == 503 and r.json()["detail"] == "search index unavailable"
     db_session.expire_all()
     assert db_session.get(Document, d.id).title == "Keep"
     assert db_session.get(Document, d.id).visibility == "everyone"
     assert db_session.scalars(select(DocumentShare)).all() == []
-    assert len(f.calls) == 2  # failed update, then best-effort re-sync of the committed state
+    assert len(f.calls) == 2  # failed update, then re-sync of the committed state (also fails)
     assert f.calls[1]["script"]["params"]["visibility"] == "everyone"
+    jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
+    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}]  # durable convergence, not silent
+
+
+def test_success_enqueues_acl_sync_in_same_commit(client, as_ana, ana, db_session, fes):
+    d, _ = seed(db_session, ana)
+    patch(client, as_ana, d, title="T")
+    jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
+    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}]
+
+
+def test_version_conflicts_retry_then_succeed(app, client, as_ana, ana, db_session):
+    f = SeqES({"version_conflicts": 2}, {"version_conflicts": 1}, {"version_conflicts": 0})
+    app.dependency_overrides[get_es] = lambda: f
+    d, _ = seed(db_session, ana)
+    assert patch(client, as_ana, d, title="T").status_code == 200
+    assert len(f.calls) == 3
+
+
+@pytest.mark.parametrize("resp", [{"failures": [{"cause": "x"}]}, {"version_conflicts": 1}])
+def test_persistent_failures_or_conflicts_503(app, client, as_ana, ana, db_session, resp):
+    f = SeqES(*[resp] * (1 if "failures" in resp else 3))  # recovery sync then succeeds
+    app.dependency_overrides[get_es] = lambda: f
+    d, _ = seed(db_session, ana, title="Keep")
+    db_session.commit()
+    assert patch(client, as_ana, d, title="X").status_code == 503
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).title == "Keep"
+    assert len(f.calls) == (2 if "failures" in resp else 4)  # failures raise at once; conflicts retry 3x
+    assert db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all() == []
+
+
+def test_commit_fails_after_es_success_resyncs(app, client, as_ana, ana, db_session, monkeypatch):
+    f = FakeES()
+    app.dependency_overrides[get_es] = lambda: f
+    d, _ = seed(db_session, ana, title="Keep", visibility="everyone")
+    db_session.commit()
+    real = db_session.commit
+    n = {"c": 0}
+
+    def flaky():
+        n["c"] += 1
+        if n["c"] == 1:
+            raise RuntimeError("commit failed")
+        real()
+
+    monkeypatch.setattr(db_session, "commit", flaky)
+    assert patch(client, as_ana, d, visibility="private").status_code == 503
+    assert [c["script"]["params"]["visibility"] for c in f.calls] == ["private", "everyone"]
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).visibility == "everyone"
+
+
+def test_acl_sync_handler_recomputes_from_pg(session_factory, ana, db_session):
+    from roracle.acl_sync import handle_acl_sync
+
+    d, _ = seed(db_session, ana, title="Real", visibility="private")
+    db_session.commit()
+    f = FakeES()
+    handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f, session_factory=session_factory)
+    (c,) = f.calls
+    assert c["query"] == {"term": {"doc_id": str(d.id)}}
+    assert c["script"]["params"]["visibility"] == "private" and c["script"]["params"]["title"] == "Real"
+    d2, _ = seed(db_session, ana, title=None)
+    db_session.commit()
+    handle_acl_sync(db_session, {"doc_id": str(d2.id)}, es=f, session_factory=session_factory)
+    assert f.calls[-1]["script"]["params"]["title"] == "none"
+    f2 = FakeES(fail=True)
+    with pytest.raises(RuntimeError):
+        handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f2, session_factory=session_factory)

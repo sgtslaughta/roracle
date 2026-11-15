@@ -1,9 +1,10 @@
 """Elasticsearch chunk index: `chunks-<model-slug>-1` behind alias `chunks` (ADR-0002 ACL fields)."""
 
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from elasticsearch import Elasticsearch, helpers
+from elasticsearch import Elasticsearch, NotFoundError, helpers
 from elasticsearch.exceptions import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -180,3 +181,50 @@ def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str =
         refresh=True,
         conflicts="proceed",
     )
+
+
+MAX_SYNC_TRIES = 3
+
+
+def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]") -> None:
+    """update_by_query with response checks. `build` recomputes the kwargs from Postgres on each try:
+    non-empty `failures` raise; `version_conflicts` retry (concurrent writer), then raise.
+    A missing index is a no-op (nothing ingested yet)."""
+    for _ in range(MAX_SYNC_TRIES):
+        try:
+            r = es.update_by_query(**build(), refresh=True, conflicts="proceed") or {}
+        except NotFoundError:
+            return
+        if r.get("failures"):
+            raise RuntimeError(f"update_by_query failures: {r['failures'][:1]}")
+        if not r.get("version_conflicts"):
+            return
+    raise RuntimeError("update_by_query version conflicts persisted")
+
+
+_ACL_SCRIPT = (
+    "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
+    "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
+    "ctx._source.share_groups = params.share_groups; "
+    "if (params.title != null) { ctx._source.title = params.title; }"
+)
+
+
+def sync_acl(
+    es: Elasticsearch, doc_id, compute: "Callable[[], tuple[dict[str, Any], str | None] | None]"
+) -> None:
+    """Push ACL fields (and title when not None) to every chunk of the document; `compute` re-reads PG
+    each try and returns (acl, title), or None when the document is gone."""
+
+    def build() -> dict[str, Any]:
+        got = compute()
+        if got is None:
+            return {"index": ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
+        acl, title = got
+        return {
+            "index": ALIAS,
+            "query": {"term": {"doc_id": str(doc_id)}},
+            "script": {"source": _ACL_SCRIPT, "lang": "painless", "params": {**acl, "title": title}},
+        }
+
+    run_update_by_query(es, build)

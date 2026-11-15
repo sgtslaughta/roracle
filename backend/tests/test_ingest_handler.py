@@ -378,3 +378,23 @@ def test_reingest_keeps_votes_cast_after_new_version(
     _run(db_session, session_factory, cfg, store, es, v2)
     db_session.expire_all()
     assert db_session.get(Vote, (user.id, doc.id)).reason == "outdated"
+
+
+@pytest.mark.integration
+def test_acl_changed_between_read_and_index_converges(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="everyone")
+    real = pipeline.search_index.index_chunks
+
+    def patch_lands_first(*a, **k):  # PATCH commits after ingest read the ACL but before the bulk index
+        with session_factory() as s:
+            s.query(Document).filter_by(id=v.document_id).update({"visibility": "private"})
+            s.commit()
+        return real(*a, **k)
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", patch_lands_first)
+    _run(db_session, session_factory, cfg, store, es, v)
+    hits = _chunks(es, cfg, v)
+    assert hits and {h["_source"]["visibility"] for h in hits} == {"private"}

@@ -5,7 +5,7 @@ import unicodedata
 from typing import Annotated, Literal
 from uuid import UUID
 
-from elasticsearch import Elasticsearch, NotFoundError
+from elasticsearch import Elasticsearch
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import delete, func, select
@@ -17,7 +17,7 @@ from roracle.access import visible_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
-from roracle.search_index import ALIAS
+from roracle.search_index import ALIAS, run_update_by_query
 
 router = APIRouter()
 MAX_TAGS = 50  # R14
@@ -110,17 +110,21 @@ def tags_of(session: Session, doc_id: UUID) -> list[str]:
 
 
 def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
-    tags = tags_of(session, doc_id)  # re-read right before the update to shrink the stale window
-    try:
-        es.update_by_query(
-            index=ALIAS,
-            query={"term": {"doc_id": str(doc_id)}},
-            script={"source": "ctx._source.tags = params.tags", "lang": "painless", "params": {"tags": tags}},
-            refresh=True,
-            conflicts="proceed",
-        )
-    except NotFoundError:  # no index yet (nothing ingested); P2 _index reads tags from PG
-        pass
+    tags: list[str] = []
+
+    def build() -> dict:
+        tags[:] = tags_of(session, doc_id)  # re-read on every try to shrink the stale window
+        return {
+            "index": ALIAS,
+            "query": {"term": {"doc_id": str(doc_id)}},
+            "script": {
+                "source": "ctx._source.tags = params.tags",
+                "lang": "painless",
+                "params": {"tags": list(tags)},
+            },
+        }
+
+    run_update_by_query(es, build)  # missing index: no-op; P2 _index reads tags from PG
     return tags
 
 
