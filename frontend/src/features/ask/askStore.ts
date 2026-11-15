@@ -4,7 +4,7 @@ import { ApiError } from "@/api/client";
 import type { ChatDetail, Citation, Viewer } from "@/api/chat";
 import { createStore } from "@/lib/store";
 import { streamMessage } from "./stream";
-import { setDraft } from "./useAskContext";
+import { setDraft, setQuote } from "./useAskContext";
 import { isSettled } from "./turns";
 
 export interface PendingTurn {
@@ -65,7 +65,9 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     patch(chatId, (p) => ({ ...p, text: p.text + t }));
   };
   const schedule = () => { if (!timer) timer = typeof requestAnimationFrame === "function" ? requestAnimationFrame(flush) : setTimeout(flush, 16); };
+  const stale = () => ctrls.get(chatId) !== ctrl; // a newer turn took over this chat
   const finish = (fields: Partial<PendingTurn>) => {
+    if (stale()) return;
     flush();
     patch(chatId, (p) => ({ ...p, ...fields }));
     void Promise.all([qc.invalidateQueries({ queryKey: ["chat", chatId] }), qc.invalidateQueries({ queryKey: ["chats"] })]).then(() => {
@@ -81,11 +83,13 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     onDone: (messageId) => finish({ status: "done", messageId }),
     onError: (detail) => finish({ status: "failed", detail }),
   }, ctrl.signal).catch((e: unknown) => {
+    if (stale()) return;
     if (ctrl.signal.aborted) return finish({ status: "interrupted" });
     if (e instanceof ApiError) { // rejected before streaming (e.g. 422 unknown model): nothing was saved
       put(chatId, null);
       toast(e.message);
       setDraft(question);
+      setQuote(viewer.selection);
       return;
     }
     finish({ status: "failed", detail: "The connection was lost." });

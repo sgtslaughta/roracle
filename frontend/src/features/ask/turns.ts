@@ -7,6 +7,7 @@ export interface AnswerData {
   /** server message id, set once the answer is saved */
   id?: string; retrieved: RetrievedPassage[]; rating?: 1 | -1 | null;
 }
+/** `key` is positional so a pending turn keeps its identity when the saved messages replace it. */
 export interface TurnData { key: string; question: string; quote: string | null; answer: AnswerData | null }
 
 const quoteOf = (m: ChatMessage): string | null => m.viewer?.selection?.text ?? null;
@@ -22,14 +23,14 @@ export function buildTurns(all: ChatMessage[], pending: PendingTurn | undefined)
   const messages = pending && !isSettled(pending, all) ? all.slice(0, pending.base) : all;
   const turns: TurnData[] = [];
   for (const m of messages) {
-    if (m.role === "user") turns.push({ key: m.id, question: m.content, quote: quoteOf(m), answer: null });
+    if (m.role === "user") turns.push({ key: `t${turns.length}`, question: m.content, quote: quoteOf(m), answer: null });
     else if (turns.length && !turns[turns.length - 1].answer)
       turns[turns.length - 1].answer = { text: m.content, citations: m.citations, status: m.status, id: m.id, retrieved: m.retrieved, rating: m.rating };
   }
   if (pending && !isSettled(pending, all)) {
     const q: Quote | null = pending.selection;
     turns.push({
-      key: "pending", question: pending.question, quote: q?.text ?? null,
+      key: `t${turns.length}`, question: pending.question, quote: q?.text ?? null,
       answer: { text: pending.text, citations: pending.citations, retrieved: [], status: pending.status === "done" ? "complete" : pending.status, detail: pending.detail },
     });
   }

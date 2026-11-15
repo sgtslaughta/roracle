@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageCircleOff } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
+import { useReaderStore } from "@/features/reader/useReaderStore";
 import { useMe } from "@/features/library/useMe";
 import { attachChat, startTurn, stopTurn, usePendingTurn } from "./askStore";
 import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
@@ -41,27 +42,39 @@ export function AskPage({ chatId }: { chatId?: string }) {
 
   const turns = useMemo(() => buildTurns(chat?.messages ?? [], pending), [chat?.messages, pending]);
   const streaming = pending?.status === "streaming";
-  const scope = chat?.scope ?? newScope;
+  const { tabs } = useReaderStore();
+  const creating = useRef(false);
+  const wanted = chat?.scope ?? newScope;
+  const scope = wanted === "open" && !tabs.length ? "all" : wanted; // "open" has nothing to search without reader tabs
   const model = pickedModel ?? chat?.model ?? models?.default ?? "";
 
   const send = async (question: string) => {
+    if (creating.current) return;
     const { ignored, quote } = getAskContext();
     const viewer = getViewer(ignored, quote);
     setQuote(null);
     let id = chatId;
     if (!id) {
+      creating.current = true;
       try {
-        id = (await create.mutateAsync({ title: titleOf(question), scope: newScope, model: model || undefined })).id;
+        id = (await create.mutateAsync({ title: titleOf(question), scope, model: model || undefined })).id;
       } catch {
         toast("The chat couldn't be started. Try again.");
         setDraft(question);
+        setQuote(quote);
         return;
+      } finally {
+        creating.current = false;
       }
     }
     startTurn(qc, id, { question, viewer, model: model || undefined });
     if (!chatId) void navigate({ to: "/ask/$chatId", params: { chatId: id }, replace: true });
     focusComposer();
   };
+
+  const sendRef = useRef(send);
+  useEffect(() => { sendRef.current = send; });
+  const onRetry = useCallback((q: string) => void sendRef.current(q), []);
 
   if (chatId && chatQ.isError)
     return (
@@ -85,13 +98,13 @@ export function AskPage({ chatId }: { chatId?: string }) {
         <div className="ask-actions">{chat && <ChatMenu chat={chat} />}</div>
       </header>
       {chatId && chatQ.isPending && !pending ? <p className="sub ask-load" role="status">Loading…</p> : (
-        <Thread turns={turns} who={initials(me?.username)} chat={chatCtx} onRetry={(q) => void send(q)} scrollKey={chatId} />
+        <Thread turns={turns} who={initials(me?.username)} chat={chatCtx} onRetry={onRetry} scrollKey={chatId} />
       )}
       {chat && !chat.is_owner ? <p className="ask-ro" role="status">Shared with you. Read-only.</p> : (
         <Composer
         scope={scope} onScope={(s) => (chatId ? patch.mutate({ scope: s }) : setNewScope(s))}
         model={model} models={models?.models ?? []} onModel={setModel}
-        streaming={!!streaming} onSend={(q) => void send(q)} onStop={() => chatId && stopTurn(chatId)}
+        streaming={!!streaming} busy={create.isPending} onSend={(q) => void send(q)} onStop={() => chatId && stopTurn(chatId)}
       />)}
     </section>
   );

@@ -10,7 +10,7 @@ import { server } from "@/mocks/server";
 import { openDoc, resetReaderStore } from "@/features/reader/useReaderStore";
 import { resetAskTurns } from "./askStore";
 import { openPalette } from "@/features/palette/usePalette";
-import { resetAskContext } from "./useAskContext";
+import { resetAskContext, setQuote } from "./useAskContext";
 import { titleOf } from "./AskPage";
 import { buildTurns } from "./turns";
 
@@ -139,6 +139,50 @@ describe("ask view", () => {
     expect(await screen.findByRole("button", { name: "Ask" })).toBeInTheDocument();
   });
 
+  it("sends the quoted passage as viewer.selection and clears the quote chip", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const quote = { doc_id: D1, page: 3, text: "a quoted passage" };
+    act(() => setQuote(quote));
+    expect(await screen.findByRole("button", { name: "Remove quote" })).toBeInTheDocument();
+    await user.type(await box(), `${Q}{Enter}`);
+    await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(1));
+    expect((await sent("POST", /\/messages$/)[0].json()).viewer.selection).toEqual(quote);
+    expect(screen.queryByRole("button", { name: "Remove quote" })).toBeNull();
+  });
+
+  it("stops an in-flight answer when the user starts a new chat", async () => {
+    const user = userEvent.setup();
+    hold();
+    const router = await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(1));
+    await user.click(within(await screen.findByRole("navigation", { name: "Recent chats" })).getByRole("link", { name: "New chat" }));
+    await screen.findByText(/Ask a question about the library/);
+    await act(async () => { await router.navigate({ to: "/ask/$chatId", params: { chatId: "c2" } }); });
+    expect(await screen.findByText("Stopped before the answer finished.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "Ask" })).toBeInTheDocument();
+  });
+
+  it("keeps the log silent and announces the outcome once", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    expect(await screen.findByRole("log")).toHaveAttribute("aria-live", "off");
+    expect(screen.getByRole("region", { name: "Conversation" })).toHaveAttribute("tabindex", "0");
+    await waitFor(() => expect(screen.getByText("Answer ready", { selector: "[role=status]" })).toBeInTheDocument());
+  });
+
+  it("shows the question exactly once after the answer completes", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    await screen.findByText(/From the documents you can see/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask" })).toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("log")).getAllByText(Q)).toHaveLength(1));
+  });
+
   it("shows a failed answer with Try again that re-sends the question", async () => {
     const user = userEvent.setup();
     const s = hold();
@@ -251,8 +295,8 @@ describe("helpers", () => {
     const m = (id: string, role: "user" | "assistant") => ({ id, role, content: id, citations: [], retrieved: [], status: "complete" as const, model: null, created_at: "" });
     const msgs = [m("u1", "user"), m("a1", "assistant"), m("u2", "user")];
     const p = { question: "q2", selection: null, base: 2, text: "t", citations: [], status: "streaming" as const };
-    expect(buildTurns(msgs, p).map((t) => t.key)).toEqual(["u1", "pending"]);
+    expect(buildTurns(msgs, p).map((t) => t.key)).toEqual(["t0", "t1"]);
     const settled = [...msgs, m("a2", "assistant")];
-    expect(buildTurns(settled, { ...p, status: "done", messageId: "a2" }).map((t) => t.key)).toEqual(["u1", "u2"]);
+    expect(buildTurns(settled, { ...p, status: "done", messageId: "a2" }).map((t) => t.key)).toEqual(["t0", "t1"]);
   });
 });

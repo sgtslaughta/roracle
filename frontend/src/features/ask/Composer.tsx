@@ -14,11 +14,13 @@ interface Props {
   models: string[];
   onModel: (m: string) => void;
   streaming: boolean;
+  /** a chat is being created; sending is paused */
+  busy?: boolean;
   onSend: (question: string) => void;
   onStop: () => void;
 }
 
-export function Composer({ scope, onScope, model, models, onModel, streaming, onSend, onStop }: Props) {
+export function Composer({ scope, onScope, model, models, onModel, streaming, busy, onSend, onStop }: Props) {
   const draft = useDraft();
   const { tabs } = useReaderStore();
   const collections = useCollections().data ?? [];
@@ -35,7 +37,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, on
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     const q = draft.trim();
-    if (!q || streaming) return;
+    if (!q || streaming || busy) return;
     setDraft("");
     onSend(q);
   };
@@ -64,7 +66,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, on
           {streaming ? (
             <Button variant="primary" className="send" onClick={onStop}><Square aria-hidden />Stop</Button>
           ) : (
-            <Button type="submit" variant="primary" className="send" disabled={!draft.trim()}><ArrowUp aria-hidden />Ask</Button>
+            <Button type="submit" variant="primary" className="send" disabled={!draft.trim() || busy}><ArrowUp aria-hidden />Ask</Button>
           )}
         </div>
       </div>

@@ -12,6 +12,8 @@ export function Thread({ turns, who, chat, onRetry, scrollKey }: { turns: TurnDa
   const near = useRef(true);
   const [away, setAway] = useState(false);
   const last = turns.at(-1);
+  const [said, setSaid] = useState("");
+  const prev = useRef<{ k: unknown; st?: string }>({ k: scrollKey });
 
   const toBottom = () => { const el = box.current; if (el) el.scrollTop = el.scrollHeight; near.current = true; setAway(false); };
   const onScroll = () => {
@@ -28,11 +30,21 @@ export function Thread({ turns, who, chat, onRetry, scrollKey }: { turns: TurnDa
     if (near.current) toBottom(); else setAway(true);
   }, [scrollKey, last?.answer?.text]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the log itself is silent (tokens would be read one by one); announce only how an answer ended
+  const st = last?.answer?.status;
+  useEffect(() => {
+    const was = prev.current.k === scrollKey ? prev.current.st : undefined;
+    prev.current = { k: scrollKey, st };
+    if (st === "streaming") setSaid("");
+    else if (was === "streaming") setSaid(st === "complete" ? "Answer ready" : st === "interrupted" ? "Answer stopped" : "Answer failed");
+  }, [scrollKey, st]);
+
   return (
     <div className="thread-wrap">
-      <div className="thread" ref={box} onScroll={onScroll}>
+      <div className="thread" ref={box} onScroll={onScroll} role="region" aria-label="Conversation" tabIndex={0}>
+        <p className="sr-only" role="status">{said}</p>
         {turns.length ? (
-          <div role="log" aria-label="Conversation">
+          <div role="log" aria-live="off">
             {turns.map((t) => <Turn key={t.key} turn={t} who={who} chat={chat} onRetry={onRetry} />)}
           </div>
         ) : (
