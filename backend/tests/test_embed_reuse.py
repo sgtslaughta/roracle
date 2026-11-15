@@ -116,3 +116,20 @@ def test_wrong_dims_cached_is_miss(db_session, session_factory, cfg, store, es, 
     assert cached_vectors(es, cfg.embed_model, v.document_id, [sha], DIMS + 1) == {}
     assert cached_vectors(es, cfg.embed_model, uuid.uuid4(), [sha], DIMS) == {}
     assert cached_vectors(es, "no-such-model-xyz", v.document_id, [sha], DIMS) == {}
+
+
+def test_ingest_into_pre_p2b_index(db_session, session_factory, cfg, store, es, user):
+    from roracle.search_index import _mapping
+
+    name = index_name(cfg.embed_model)
+    es.indices.delete(index=name, ignore_unavailable=True)
+    props = {
+        k: v
+        for k, v in _mapping(DIMS)["properties"].items()
+        if k not in ("prompt_sha", "summary_embedding", "summary")
+    }
+    es.indices.create(index=name, mappings={"properties": props})
+    v = make_version(db_session, store, user, title="T")
+    ingest(db_session, session_factory, cfg, store, es, v, paras(2))
+    mapped = es.indices.get_mapping(index=name)[name]["mappings"]["properties"]
+    assert mapped["prompt_sha"]["type"] == "keyword"

@@ -125,12 +125,12 @@ def _index(
     set_stage(sf, v.id, "chunked")
     prompts = [doc_prompt(title, c.contextual, v.summary) for c in chunks]
     shas = [prompt_sha(p) for p in prompts]
+    search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
     cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims)
     miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
     fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
     vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
     set_stage(sf, v.id, "embedded")
-    search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
     acl = search_index.acl_fields(session, d)
     session.refresh(v)
     newest = session.scalar(
