@@ -6,7 +6,7 @@ from conftest import bearer
 from sqlalchemy import func, select
 
 from roracle.api.routes.library import get_es
-from roracle.models import Document, DocumentShare, Job
+from roracle.models import Document, DocumentShare, Job, Tag
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -213,6 +213,12 @@ def test_acl_sync_handler_recomputes_from_pg(session_factory, ana, db_session):
     (c,) = f.calls
     assert c["query"] == {"term": {"doc_id": str(d.id)}}
     assert c["script"]["params"]["visibility"] == "private" and c["script"]["params"]["title"] == "Real"
+    assert c["script"]["params"]["tags"] == []
+    db_session.add(Tag(document_id=d.id, tag="ml"))
+    db_session.commit()
+    handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f, session_factory=session_factory)
+    assert f.calls[-1]["script"]["params"]["tags"] == ["ml"]
+    assert "ctx._source.tags = params.tags" in f.calls[-1]["script"]["source"]
     d2, _ = seed(db_session, ana, title=None)
     db_session.commit()
     handle_acl_sync(db_session, {"doc_id": str(d2.id)}, es=f, session_factory=session_factory)

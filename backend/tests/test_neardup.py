@@ -218,3 +218,8 @@ def test_new_version_survives_foreign_library_rows(db_session, client, as_ana):
     assert db_session.scalars(select(CollectionItem.document_id)).all() == [md.id]
     assert db_session.scalar(select(Vote.superseded_by)) is None
     assert db_session.scalars(select(Vote.document_id)).all() == [md.id]
+    from roracle.models import Job
+
+    assert [j.payload for j in db_session.scalars(select(Job).where(Job.kind == "acl_sync"))] == [
+        {"doc_id": str(md.id)}
+    ]

@@ -206,7 +206,8 @@ _ACL_SCRIPT = (
     "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
     "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
     "ctx._source.share_groups = params.share_groups; "
-    "if (params.title != null) { ctx._source.title = params.title; }"
+    "if (params.title != null) { ctx._source.title = params.title; } "
+    "if (params.tags != null) { ctx._source.tags = params.tags; }"
 )
 
 

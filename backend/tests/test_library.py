@@ -277,5 +277,28 @@ def test_tag_sync_retries_conflicts_and_raises_on_failures(app, client, as_ana, 
     assert len(f.calls) == 2
     bad = Seq({"failures": [{"x": 1}]})
     app.dependency_overrides[get_es] = lambda: bad
-    with pytest.raises(RuntimeError):
-        client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "dl"})
+    r = client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "dl"})
+    assert r.status_code == 503  # committed in PG; durable acl_sync converges ES
+
+
+def test_tag_es_failure_queues_acl_sync_and_keeps_tag(app, client, as_ana, up, db_session):
+    from sqlalchemy import select
+
+    from roracle.models import Job, Tag
+
+    d = up(as_ana)
+
+    class Down(FakeES):
+        def update_by_query(self, **kw):
+            raise RuntimeError("es down")
+
+    app.dependency_overrides[get_es] = lambda: Down()
+    r = client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "ml"})
+    assert r.status_code == 503
+    db_session.expire_all()
+    assert db_session.scalars(select(Tag.tag).where(Tag.document_id == d)).all() == ["ml"]
+    jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
+    assert [j.payload for j in jobs] == [{"doc_id": d}]
+    r = client.delete(f"/documents/{d}/tags/ml", headers=as_ana)
+    assert r.status_code == 503
+    assert len(db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()) == 2

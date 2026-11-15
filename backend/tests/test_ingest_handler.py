@@ -398,3 +398,25 @@ def test_acl_changed_between_read_and_index_converges(
     _run(db_session, session_factory, cfg, store, es, v)
     hits = _chunks(es, cfg, v)
     assert hits and {h["_source"]["visibility"] for h in hits} == {"private"}
+
+
+@pytest.mark.integration
+def test_tag_added_between_read_and_index_converges(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Tag
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="everyone")
+    real = pipeline.search_index.index_chunks
+
+    def tag_lands_first(*a, **k):  # add_tag commits and syncs ES before these chunks exist
+        with session_factory() as s:
+            s.add(Tag(document_id=v.document_id, tag="late"))
+            s.commit()
+        return real(*a, **k)
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", tag_lands_first)
+    _run(db_session, session_factory, cfg, store, es, v)
+    hits = _chunks(es, cfg, v)
+    assert hits and {tuple(h["_source"]["tags"]) for h in hits} == {("late",)}

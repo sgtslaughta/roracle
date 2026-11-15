@@ -124,9 +124,9 @@ def _index(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
     )
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
-    # update_by_query may have run before these chunks existed. Re-read via a fresh session, converge.
+    # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
-    if fresh is not None and fresh[0] != acl:
+    if fresh is not None and fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:

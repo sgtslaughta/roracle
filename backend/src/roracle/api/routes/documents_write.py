@@ -6,15 +6,16 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from roracle import search_index
+from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
-from roracle.api.routes.library import get_es
+from roracle.api.routes.library import get_es, get_session_factory
 from roracle.models import Document, DocumentShare, DocumentVersion, User
 from roracle.queue import enqueue
 
@@ -49,10 +50,6 @@ class PatchBody(BaseModel):
         return self
 
 
-def get_session_factory(request: Request):
-    return request.app.state.session_factory
-
-
 def _set_shares(session: Session, doc: Document, kind: str, principals: list[str]) -> None:
     session.execute(
         delete(DocumentShare).where(DocumentShare.document_id == doc.id, DocumentShare.principal_kind == kind)
@@ -60,12 +57,6 @@ def _set_shares(session: Session, doc: Document, kind: str, principals: list[str
     session.add_all(
         DocumentShare(document_id=doc.id, principal_kind=kind, principal=x) for x in sorted(set(principals))
     )
-
-
-def _durable_job(sf, doc_id: UUID, delay_s: float) -> None:
-    with sf() as s:
-        enqueue(s, "acl_sync", {"doc_id": str(doc_id)}, run_after_s=delay_s)
-        s.commit()
 
 
 def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:

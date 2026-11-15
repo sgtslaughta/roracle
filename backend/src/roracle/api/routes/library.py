@@ -1,5 +1,6 @@
 """Votes, tags and collections (P3 task 3). Collections stay in PG only (R12)."""
 
+import logging
 import re
 import unicodedata
 from typing import Annotated, Literal
@@ -14,12 +15,14 @@ from sqlalchemy.orm import Session
 
 from roracle import clients
 from roracle.access import visible_documents
+from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
 from roracle.search_index import ALIAS, run_update_by_query
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 MAX_TAGS = 50  # R14
 Session_ = Annotated[Session, Depends(get_session)]
 Who = Annotated[Principal, Depends(current_principal)]
@@ -30,6 +33,10 @@ def get_es(request: Request) -> Elasticsearch:
     if not hasattr(app.state, "es"):
         app.state.es = clients.es(app.state.settings)
     return app.state.es
+
+
+def get_session_factory(request: Request):
+    return request.app.state.session_factory
 
 
 def normalize_tag(s: str) -> str:
@@ -128,9 +135,27 @@ def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
     return tags
 
 
+def _sync_or_queue(session: Session, es: Elasticsearch, sf, doc_id: UUID) -> list[str]:
+    """Tag change is committed: push to ES; on failure leave a durable acl_sync job and answer 503."""
+    try:
+        return _sync_es(session, es, doc_id)
+    except Exception:
+        log.exception("tag sync for document %s failed; queueing acl_sync", doc_id)
+        try:
+            durable_job(sf, doc_id)
+        except Exception:
+            log.exception("could not queue acl_sync for document %s", doc_id)
+        raise HTTPException(503, "saved, but search index update is pending") from None
+
+
 @router.post("/documents/{doc_id}/tags")
 def add_tag(
-    doc_id: UUID, body: TagBody, p: Who, session: Session_, es: Annotated[Elasticsearch, Depends(get_es)]
+    doc_id: UUID,
+    body: TagBody,
+    p: Who,
+    session: Session_,
+    es: Annotated[Elasticsearch, Depends(get_es)],
+    sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
     _visible(session, p, doc_id)
     have = tags_of(session, doc_id)
@@ -138,13 +163,18 @@ def add_tag(
         raise HTTPException(422, "too many tags")
     session.execute(insert(Tag).values(document_id=doc_id, tag=body.tag).on_conflict_do_nothing())
     session.commit()
-    tags = _sync_es(session, es, doc_id)
+    tags = _sync_or_queue(session, es, sf, doc_id)
     return {"tag": body.tag, "tags": tags}
 
 
 @router.delete("/documents/{doc_id}/tags/{tag}")
 def delete_tag(
-    doc_id: UUID, tag: str, p: Who, session: Session_, es: Annotated[Elasticsearch, Depends(get_es)]
+    doc_id: UUID,
+    tag: str,
+    p: Who,
+    session: Session_,
+    es: Annotated[Elasticsearch, Depends(get_es)],
+    sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
     doc = _visible(session, p, doc_id)
     if not (doc.owner_id == p.user_id or p.is_admin):
@@ -155,7 +185,7 @@ def delete_tag(
         return {"tags": tags_of(session, doc_id)}
     session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
     session.commit()
-    tags = _sync_es(session, es, doc_id)
+    tags = _sync_or_queue(session, es, sf, doc_id)
     return {"tags": tags}
 
 
