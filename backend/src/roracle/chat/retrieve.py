@@ -16,7 +16,7 @@ from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.models import Document, DocumentVersion
-from roracle.notes.community import note_passages
+from roracle.notes.community import note_passages, strict_gate
 from roracle.retrieval import Passage, embed_query, search_chunks
 
 MAX_CHARS = 1200
@@ -210,4 +210,4 @@ def retrieve_for_chat(
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
     if sel and sel_id in live and sel_id not in dropped:
         out.insert(0, _selection(session, sel, sel_id, live))
-    return out + (note_passages(session, p, out) if include_notes else [])
+    return out + (note_passages(session, p, out, strict_gate(settings)) if include_notes else [])

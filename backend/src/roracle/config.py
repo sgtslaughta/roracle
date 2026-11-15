@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
     chat_passages: int = 8  # clamped 4-12 at use
+    chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
+    chat_note_min_ratio: float = 0.6
 
     @property
     def chat_model_list(self) -> list[str]:

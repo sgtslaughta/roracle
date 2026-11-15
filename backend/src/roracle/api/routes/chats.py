@@ -20,7 +20,7 @@ from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat
-from roracle.chat.answer import build_messages, stream_answer
+from roracle.chat.answer import build_messages, split_notes, stream_answer
 from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
@@ -152,15 +152,16 @@ def post_message(
     if not chat.title:
         chat.title = body.content[:80]
     session.commit()
-    messages = build_messages(body.content, passages, history, HISTORY)
-    vids = [UUID(x.version_id) for x in passages]
+    passages, notes = split_notes(passages)
+    messages = build_messages(body.content, passages, history, HISTORY, notes)
+    vids = [UUID(x.version_id) for x in (*passages, *notes)]
     versions = {
         str(i): n
         for i, n in session.execute(
             select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
         )
     }
-    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned)
+    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes)
     return ClosingStreamingResponse(
         _frames(gen),
         media_type="text/event-stream",

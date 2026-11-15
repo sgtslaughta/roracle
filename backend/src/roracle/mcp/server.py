@@ -21,6 +21,7 @@ from roracle.chat.access import visible_versions
 from roracle.mcp import tools_notes
 from roracle.mcp.auth import current, dep, open_session
 from roracle.mcp.tools_write import digest, register
+from roracle.notes.community import attach_notes, strict_gate
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
 
@@ -125,12 +126,13 @@ def build_mcp(app: FastAPI) -> MCPServer:
         def go(session: Session, p: Principal) -> dict:
             cols = [collection] if collection else None
             search_routes.validate_search_params(query, {"collection": cols}, limit)
+            settings = dep(app, get_app_settings)
             body = search_routes.search(
                 p,
                 session,
                 dep(app, library.get_es),
                 dep(app, search_routes.get_llm),
-                dep(app, get_app_settings),
+                settings,
                 q=query,
                 tags=None,
                 year=None,
@@ -141,7 +143,10 @@ def build_mcp(app: FastAPI) -> MCPServer:
                 sort="relevance",
                 page=1,
                 size=limit,
+                notes=False,
             )
+            # notes reach an agent's LLM: strict gate (own, or well-upvoted), never the raw R8 set
+            attach_notes(session, p, body["results"], True, strict_gate(settings))
             return {"results": [_slim(h) for h in body["results"]]}
 
         return _run(app, "search", go, digest(query))

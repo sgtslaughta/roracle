@@ -1,15 +1,14 @@
 """Community notes attached to already-ACL-checked documents (R5, R8): search hits and chat passages."""
 
-from collections import defaultdict
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, and_, case, cast, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationReport, AnnotationVote, User
+from roracle.models import Annotation, AnnotationReport, AnnotationVote, DocumentVersion, User
 from roracle.notes.access import readable_notes
-from roracle.retrieval import Passage, vote_ratio
+from roracle.retrieval import Passage
 
 MIN_SCORE, MAX_REPORTS = 0.4, 3
 PER_DOC, TOTAL, BODY_MAX = 2, 6, 500
@@ -34,76 +33,121 @@ def readable_note_ids(session: Session, p: Principal, ids) -> set[str]:
     return {str(i) for i in rows}
 
 
+def strict_gate(settings) -> tuple[int, float]:
+    """LLM-bound notes: another user's note needs this many upvotes and a ratio above this (prompt-injection gate)."""
+    return settings.chat_note_min_upvotes, settings.chat_note_min_ratio
+
+
 def community_notes(
-    session: Session, p: Principal, doc_pages: dict[str, set[int]], body_max: int = BODY_MAX
+    session: Session,
+    p: Principal,
+    doc_pages: dict[str, set[int]],
+    body_max: int = BODY_MAX,
+    strict: tuple[int, float] | None = None,
 ) -> dict[str, list[dict]]:
-    """doc id -> up to 2 eligible notes (<= 6 overall); notes anchored on a shown page rank first."""
+    """doc id -> up to 2 eligible notes (<= 6 overall); notes anchored on a shown page rank first.
+
+    `strict=(min_upvotes, min_ratio)` is the gate for notes that reach an LLM: the caller's own notes
+    pass; others need the upvotes and a ratio above the floor. Loading is bounded in SQL."""
     docs = _uuids(doc_pages)
     if not docs:
         return {}
-    notes = list(
-        session.scalars(
-            select(Annotation)
-            .where(
-                Annotation.document_id.in_(docs),
-                Annotation.parent_id.is_(None),
-                Annotation.visibility == "everyone",
-                Annotation.status == "visible",
-                Annotation.stale_version.is_(None),
-                readable_notes(p),
-            )
-            .order_by(Annotation.created_at, Annotation.id)
+    A = Annotation
+    up = func.coalesce(func.sum(case((AnnotationVote.value == 1, 1), else_=0)), 0)
+    down = func.coalesce(func.sum(case((AnnotationVote.value == -1, 1), else_=0)), 0)
+    votes = (
+        select(AnnotationVote.annotation_id.label("aid"), up.label("up"), down.label("down"))
+        .group_by(AnnotationVote.annotation_id)
+        .subquery()
+    )
+    reports = (
+        select(AnnotationReport.annotation_id.label("aid"), func.count().label("n"))
+        .group_by(AnnotationReport.annotation_id)
+        .subquery()
+    )
+    nup, ndown = func.coalesce(votes.c.up, 0), func.coalesce(votes.c.down, 0)
+    score = (nup + 1.0) / (nup + ndown + 2.0)
+    page = cast(A.anchor["page"].astext, Integer)
+    on_page = or_(
+        false(),
+        *[
+            and_(A.document_id == UUID(d), page.in_(sorted(pg)))
+            for d, pg in doc_pages.items()
+            if pg and _uuids([d])
+        ],
+    )
+    latest = exists(
+        select(1).where(
+            DocumentVersion.id == A.version_id,
+            DocumentVersion.is_latest.is_(True),
+            DocumentVersion.stage == "searchable",
         )
     )
-    if not notes:
+    mine = A.author_id == p.user_id
+    if strict:
+        gate = or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1]))
+    else:
+        gate = and_(A.visibility == "everyone", score >= MIN_SCORE)
+    ranked = (
+        select(
+            A.id,
+            A.document_id,
+            A.kind,
+            func.substr(A.body, 1, body_max).label("body"),
+            A.author_id,
+            page.label("page"),
+            A.created_at,
+            score.label("score"),
+            on_page.label("on_page"),
+            func.row_number()
+            .over(partition_by=A.document_id, order_by=(on_page.desc(), score.desc(), A.created_at, A.id))
+            .label("rn"),
+        )
+        .select_from(A)
+        .outerjoin(votes, votes.c.aid == A.id)
+        .outerjoin(reports, reports.c.aid == A.id)
+        .where(
+            A.document_id.in_(docs),
+            A.parent_id.is_(None),
+            A.status == "visible",
+            A.stale_version.is_(None),
+            latest,
+            func.coalesce(reports.c.n, 0) < MAX_REPORTS,
+            gate,
+            readable_notes(p),
+        )
+        .subquery()
+    )
+    rows = session.execute(
+        select(ranked)
+        .where(ranked.c.rn <= PER_DOC)
+        .order_by(ranked.c.on_page.desc(), ranked.c.score.desc(), ranked.c.created_at, ranked.c.id)
+    ).all()
+    if not rows:
         return {}
-    ids = [n.id for n in notes]
-    counts: dict[UUID, list[int]] = defaultdict(lambda: [0, 0])
-    for aid, val, c in session.execute(
-        select(AnnotationVote.annotation_id, AnnotationVote.value, func.count())
-        .where(AnnotationVote.annotation_id.in_(ids))
-        .group_by(AnnotationVote.annotation_id, AnnotationVote.value)
-    ):
-        counts[aid][0 if val == 1 else 1] = c
-    reports = dict(
-        session.execute(
-            select(AnnotationReport.annotation_id, func.count())
-            .where(AnnotationReport.annotation_id.in_(ids))
-            .group_by(AnnotationReport.annotation_id)
-        ).all()
-    )
     names = dict(
-        session.execute(select(User.id, User.username).where(User.id.in_({n.author_id for n in notes}))).all()
+        session.execute(select(User.id, User.username).where(User.id.in_({r.author_id for r in rows}))).all()
     )
-    ranked = []
-    for n in notes:
-        up, down = counts[n.id]
-        score = vote_ratio(up, down)
-        if score < MIN_SCORE or reports.get(n.id, 0) >= MAX_REPORTS:
-            continue
-        page = (n.anchor or {}).get("page")
-        on_page = page in doc_pages.get(str(n.document_id), ())
-        item = {
-            "id": str(n.id), "kind": n.kind, "body": n.body[:body_max],
-            "author": names.get(n.author_id, ""), "score": score, "page": page,
-        }  # fmt: skip
-        ranked.append((not on_page, -score, n.created_at, str(n.document_id), item))
-    ranked.sort(key=lambda r: r[:3])
     out: dict[str, list[dict]] = {}
-    total = 0
-    for *_, doc, item in ranked:
-        if total >= TOTAL:
-            break
-        if len(out.setdefault(doc, [])) < PER_DOC:
-            out[doc].append(item)
-            total += 1
-    return {d: v for d, v in out.items() if v}
+    for r in rows[:TOTAL]:
+        out.setdefault(str(r.document_id), []).append(
+            {
+                "id": str(r.id), "kind": r.kind, "body": r.body,
+                "author": {"id": str(r.author_id), "username": names.get(r.author_id, "")},
+                "score": float(r.score), "page": r.page,
+            }
+        )  # fmt: skip
+    return out
 
 
-def attach_notes(session: Session, p: Principal, hits: list[dict], on: bool) -> None:
+def attach_notes(
+    session: Session, p: Principal, hits: list[dict], on: bool, strict: tuple[int, float] | None = None
+) -> None:
     """Set `hit["notes"]` on search hits (empty list when off)."""
     found = (
-        community_notes(session, p, {h["doc_id"]: {x["page"] for x in h["passages"]} for h in hits})
+        community_notes(
+            session, p, {h["doc_id"]: {x["page"] for x in h["passages"]} for h in hits}, strict=strict
+        )
         if on
         else {}
     )
@@ -111,7 +155,7 @@ def attach_notes(session: Session, p: Principal, hits: list[dict], on: bool) -> 
         h["notes"] = found.get(h["doc_id"], [])
 
 
-def note_passages(session: Session, p: Principal, passages: list) -> list:
+def note_passages(session: Session, p: Principal, passages: list, strict: tuple[int, float]) -> list:
     """Chat passages for community notes on the docs in `passages` (appended, not counted in k)."""
     first: dict[str, Passage] = {}
     pages: dict[str, set[int]] = {}
@@ -119,7 +163,7 @@ def note_passages(session: Session, p: Principal, passages: list) -> list:
         first.setdefault(x.doc_id, x)
         pages.setdefault(x.doc_id, set()).update(x.pages)
     out = []
-    for doc, items in community_notes(session, p, pages, 1200).items():
+    for doc, items in community_notes(session, p, pages, 1200, strict).items():
         x = first[doc]
         for n in items:
             out.append(
@@ -133,6 +177,7 @@ def note_passages(session: Session, p: Principal, passages: list) -> list:
                     bboxes=[],
                     score=0.0,
                     title=f"Community note on: {x.title}",
+                    authors=[n["author"]["username"]],
                     note_id=n["id"],
                 )
             )
