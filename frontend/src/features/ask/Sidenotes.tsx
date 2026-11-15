@@ -16,11 +16,12 @@ export interface SidenotesProps {
   citations: Citation[];
   order: number[];
   answerRef: RefObject<HTMLElement | null>;
+  excludes?: string[];
   hot?: number | null;
   onHot?: (n: number | null) => void;
 }
 
-export function Sidenotes({ citations, order, answerRef, hot, onHot }: SidenotesProps) {
+export function Sidenotes({ citations, order, answerRef, excludes, hot, onHot }: SidenotesProps) {
   const marginRef = useRef<HTMLDivElement>(null);
   const list = order.flatMap((n) => citations.find((c) => c.n === n) ?? []);
 
@@ -66,7 +67,7 @@ export function Sidenotes({ citations, order, answerRef, hot, onHot }: Sidenotes
           }
           return (
             <button
-              key={c.n} type="button" className={`note${hot === c.n ? " hot" : ""}`} data-n={c.n}
+              key={c.n} type="button" className={`note${hot === c.n ? " hot" : ""}${excludes?.includes(c.doc_id) ? " excluded" : ""}`} data-n={c.n}
               onClick={() => openCitation(c)}
               onMouseEnter={() => onHot?.(c.n)} onMouseLeave={() => onHot?.(null)}
               onFocus={() => onHot?.(c.n)} onBlur={() => onHot?.(null)}

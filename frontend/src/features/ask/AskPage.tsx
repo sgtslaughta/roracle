@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
 import { attachChat, startTurn, stopTurn, usePendingTurn } from "./askStore";
 import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
+import { ChatMenu } from "./ChatMenu";
 import { Composer } from "./Composer";
 import { Thread } from "./Thread";
 import { initials } from "./Turn";
@@ -75,21 +76,23 @@ export function AskPage({ chatId }: { chatId?: string }) {
       </section>
     );
 
+  const chatCtx = chat && { id: chat.id, owner: chat.is_owner, pins: chat.pins, excludes: chat.excludes };
   const title = chat?.title ?? "New chat";
   return (
     <section className="view ask">
       <header className="ask-head">
         <h1 title={title}>{title}</h1>
-        <div className="ask-actions" />
+        <div className="ask-actions">{chat && <ChatMenu chat={chat} />}</div>
       </header>
       {chatId && chatQ.isPending && !pending ? <p className="sub ask-load" role="status">Loading…</p> : (
-        <Thread turns={turns} who={initials(me?.username)} onRetry={(q) => void send(q)} scrollKey={chatId} />
+        <Thread turns={turns} who={initials(me?.username)} chat={chatCtx} onRetry={(q) => void send(q)} scrollKey={chatId} />
       )}
-      <Composer
+      {chat && !chat.is_owner ? <p className="ask-ro" role="status">Shared with you. Read-only.</p> : (
+        <Composer
         scope={scope} onScope={(s) => (chatId ? patch.mutate({ scope: s }) : setNewScope(s))}
         model={model} models={models?.models ?? []} onModel={setModel}
         streaming={!!streaming} onSend={(q) => void send(q)} onStop={() => chatId && stopTurn(chatId)}
-      />
+      />)}
     </section>
   );
 }

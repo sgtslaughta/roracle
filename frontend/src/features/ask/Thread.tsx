@@ -1,12 +1,13 @@
 import { ArrowDown, MessagesSquare } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import type { ChatCtx } from "./AnswerFooter";
 import { Turn } from "./Turn";
 import type { TurnData } from "./turns";
 
 const NEAR = 80;
 
-export function Thread({ turns, who, onRetry, scrollKey }: { turns: TurnData[]; who: string; onRetry: (q: string) => void; scrollKey: unknown }) {
+export function Thread({ turns, who, chat, onRetry, scrollKey }: { turns: TurnData[]; who: string; chat?: ChatCtx; onRetry: (q: string) => void; scrollKey: unknown }) {
   const box = useRef<HTMLDivElement>(null);
   const near = useRef(true);
   const [away, setAway] = useState(false);
@@ -32,7 +33,7 @@ export function Thread({ turns, who, onRetry, scrollKey }: { turns: TurnData[]; 
       <div className="thread" ref={box} onScroll={onScroll}>
         {turns.length ? (
           <div role="log" aria-label="Conversation">
-            {turns.map((t) => <Turn key={t.key} turn={t} who={who} onRetry={onRetry} />)}
+            {turns.map((t) => <Turn key={t.key} turn={t} who={who} chat={chat} onRetry={onRetry} />)}
           </div>
         ) : (
           <div className="turn">

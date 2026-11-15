@@ -20,6 +20,13 @@ export function usePatchChat(id: string) {
   return useMutation({
     mutationFn: (patch: { title?: string; scope?: ChatScope; pins?: string[]; excludes?: string[] }) =>
       apiFetch<Chat>(`/chats/${seg(id)}`, { method: "PATCH", json: patch }),
+    // optimistic: pins/excludes/title show at once and roll back if the PATCH fails
+    onMutate: (p) => {
+      const prev = qc.getQueryData<ChatDetail>(["chat", id]);
+      qc.setQueryData<ChatDetail>(["chat", id], (old) => (old ? { ...old, ...p } : old));
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(["chat", id], ctx.prev); },
     onSuccess: (chat) => {
       qc.setQueryData<ChatDetail>(["chat", id], (old) => (old ? { ...old, ...chat } : old));
       return qc.invalidateQueries({ queryKey: ["chats"] });

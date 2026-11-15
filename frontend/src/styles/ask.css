@@ -86,3 +86,26 @@ sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
 .cchip button svg.lucide{width:12px;height:12px}
 .composer .send{gap:6px}
 .q .avatar{font-size:12px}
+
+/* answer actions */
+.ans-foot{align-items:center}
+.drawer .ps{display:block;width:100%;text-align:left;border:0;background:none;padding:0;color:inherit;cursor:pointer}
+.drawer .ps:hover{color:var(--primary)}
+.drawer .acts button svg.lucide{width:14px;height:14px}
+.drawer-all{margin:0 8px 8px}
+.rate-pop{display:flex;flex-direction:column;gap:8px;width:280px;padding:10px}
+.rate-pop label{font-size:12.5px;font-weight:600}
+.rate-pop textarea,.rename-pop input,.chipin input{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:7px 9px;font-size:13.5px}
+.rate-pop textarea{resize:vertical}
+.rate-pop button{align-self:flex-end}
+.rename-pop{width:280px;padding:8px}
+.rename-pop input{width:100%}
+.chipin{display:flex;flex-direction:column;gap:6px}
+.chipin label{font-size:12.5px;font-weight:600}
+.chipin-row{display:flex;gap:6px}
+.chipin-row input{flex:1;min-width:0}
+.chipin input:focus-visible,.rate-pop textarea:focus-visible,.rename-pop input:focus-visible{outline:2px solid var(--apricot);outline-offset:1px}
+.chipin-help{margin:0;color:var(--muted);font-size:12.5px}
+.chipin-err{margin:0;color:var(--terra);font-size:12.5px}
+.cchip-t{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ask-ro{margin:0;padding:14px 24px calc(16px + env(safe-area-inset-bottom,0px));text-align:center;color:var(--muted);font-size:13.5px;border-top:1px solid var(--border);background:var(--surface)}

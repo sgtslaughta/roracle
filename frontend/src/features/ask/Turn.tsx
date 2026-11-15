@@ -3,6 +3,7 @@ import { AnswerText } from "./AnswerText";
 import { Sidenotes } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
 import { Button } from "@/components/ui/button";
+import { AnswerFooter, type ChatCtx } from "./AnswerFooter";
 import type { TurnData } from "./turns";
 
 export const initials = (name: string | undefined) => {
@@ -10,9 +11,9 @@ export const initials = (name: string | undefined) => {
   return ((w.length > 1 ? w[0][0] + w[1][0] : (w[0] ?? "?").slice(0, 2)) || "?").toUpperCase();
 };
 
-interface Props { turn: TurnData; who: string; onRetry: (question: string) => void }
+interface Props { turn: TurnData; who: string; chat?: ChatCtx; onRetry: (question: string) => void }
 
-function TurnImpl({ turn, who, onRetry }: Props) {
+function TurnImpl({ turn, who, chat, onRetry }: Props) {
   const { question, quote, answer } = turn;
   const ref = useRef<HTMLElement>(null);
   const [hot, setHot] = useState<number | null>(null);
@@ -29,8 +30,8 @@ function TurnImpl({ turn, who, onRetry }: Props) {
       {answer && (
         <article className="answer" ref={ref} aria-label="Answer" aria-busy={streaming}>
           <AnswerText text={answer.text} citations={answer.citations} streaming={streaming} hot={hot} onHot={setHot} />
-          <Sidenotes citations={answer.citations} order={citeNumbers(answer.text)} answerRef={ref} hot={hot} onHot={setHot} />
-          <div className="ans-foot">
+          <Sidenotes citations={answer.citations} order={citeNumbers(answer.text)} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
+          {(streaming || answer.status !== "complete") && <div className="ans-foot">
             {streaming && !answer.text && <p className="stat" role="status">Reading the library…</p>}
             {answer.status === "interrupted" && <p className="stat">Stopped before the answer finished.</p>}
             {answer.status === "failed" && (
@@ -39,7 +40,8 @@ function TurnImpl({ turn, who, onRetry }: Props) {
                 <Button onClick={() => onRetry(question)}>Try again</Button>
               </div>
             )}
-          </div>
+          </div>}
+          {chat && answer.status === "complete" && answer.id && <AnswerFooter question={question} answer={answer} chat={chat} />}
         </article>
       )}
     </div>
