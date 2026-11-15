@@ -17,7 +17,7 @@ export function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
         <strong>Drop files here or choose files</strong>
         <span>PDF, Word, PowerPoint, HTML, Markdown and more. Up to 500 MB each. Visible to everyone unless you change it.</span>
       </span>
-      <input id="file-input" type="file" multiple hidden aria-label="Drop files here or choose files" onChange={(e) => { onFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
+      <input id="file-input" type="file" multiple className="sr-only" aria-label="Drop files here or choose files" onChange={(e) => { onFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
     </label>
   );
 }

@@ -33,3 +33,4 @@
 .tdet .msg { flex: 1 1 320px; display: flex; gap: 8px; align-items: start; }
 .tdet .acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.drop:focus-within { outline: 2px solid var(--apricot); outline-offset: 2px; }

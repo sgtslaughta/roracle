@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
-import { cn } from "@/lib/utils";
 import { isDuplicate, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
@@ -48,7 +47,7 @@ export function UploadsPage() {
         </div>
       </div>
       <DropZone onFiles={onFiles} />
-      <div className={cn("tbl")}>
+      <div className="tbl">
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>
         {rows.map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}

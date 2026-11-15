@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -147,5 +148,17 @@ describe("my uploads", () => {
       await vi.advanceTimersByTimeAsync(3100);
       await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(before));
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("keyboard access", () => {
+  it("the file input is focusable (not hidden) so the drop zone works with Tab and Enter/Space", async () => {
+    await renderUploads();
+    const input = screen.getByLabelText(/Drop files here or choose files/) as HTMLInputElement;
+    expect(input).not.toHaveAttribute("hidden");
+    await userEvent.tab(); // walks the page; the input must be reachable
+    input.focus();
+    expect(input).toHaveFocus();
+    expect(readFileSync("src/styles/uploads.css", "utf8")).toMatch(/\.drop:focus-within/);
   });
 });
