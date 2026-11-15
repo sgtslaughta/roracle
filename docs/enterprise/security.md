@@ -146,6 +146,8 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
     they need.
   - Anything not globally routable (private, loopback, CGNAT, ULA, reserved) is blocked unless inside an
     explicit `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` entry (for air-gapped internal crawling; empty by default).
+    `::1` cannot be allowlisted (use IPv4 `127.0.0.0/8` for local test crawls); an allowlisted translator CIDR must be the
+    translator's real RFC 6052 `/96` prefix (`/32`-`/64` NAT64 layouts are unsupported).
     Link-local (incl. `169.254.169.254` metadata), multicast, unspecified and the other known metadata
     addresses (`fd00:ec2::254`, `100.100.100.200`, `168.63.129.16`, `192.0.0.192`) are never reachable, allowlist
     or not.

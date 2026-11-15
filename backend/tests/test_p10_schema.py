@@ -71,3 +71,14 @@ def test_migration_down_and_up(session_factory, db_session):
     with session_factory() as s:
         assert TABLES <= set(inspect(s.connection()).get_table_names())
         assert s.scalar(text("SELECT count(*) FROM notifications")) == 0
+        insp = inspect(s.connection())
+        ix = {
+            i["name"] for t in ("notifications", "documents", "connector_runs") for i in insp.get_indexes(t)
+        }
+        assert {
+            "ix_notifications_user_id_id",
+            "ix_documents_connector_id",
+            "ix_connector_runs_connector_id_id",
+        } <= ix
+        checks = {c["name"] for t in ("connectors", "connector_runs") for c in insp.get_check_constraints(t)}
+        assert {"ck_connectors_kind", "ck_connector_runs_status"} <= checks

@@ -7,8 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle.models import Document, DocumentVersion, Notification, User
-
-USER_PREFIX = "user:"  # same marker as queue.USER_PREFIX (queue imports this module lazily)
+from roracle.queue import USER_PREFIX
 
 
 def emit(session: Session, user_id: UUID, kind: str, payload: dict[str, Any]) -> None:
@@ -31,7 +30,20 @@ def on_job_failed(session: Session, job) -> None:
         return
     v = session.get(DocumentVersion, UUID(job.payload["version_id"])) if job.payload else None
     d = session.get(Document, v.document_id) if v else None
-    if d is None or d.connector_id is not None:
+    if d is None:
+        return
+    if d.connector_id is not None:  # no uploader to tell: admins hear about it
+        emit_admins(
+            session,
+            "ops.job_failed",
+            {
+                "job_id": job.id,
+                "kind": job.kind,
+                "error": "processing failed",
+                "document_id": str(d.id),
+                "connector_id": str(d.connector_id),
+            },
+        )
         return
     emit(
         session,

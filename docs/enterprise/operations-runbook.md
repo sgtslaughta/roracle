@@ -132,3 +132,10 @@ Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, n
 | `GET /admin/users`, `/admin/groups` | Users mirror (as of last login), per-user usage, group sizes. |
 | `GET /admin/tags`, `POST /admin/tags/merge {sources, target}` | Consolidate duplicate tags; ES tags follow via `acl_sync`. |
 | `GET /admin/audit?action=<prefix>&user_id=` | Audit trail search. |
+| `GET/POST/PUT/DELETE /admin/connectors*` | Manage connectors, trigger runs, inspect `runs`; retrying a failed `connector_run` job returns 409 (skipped in bulk) while that connector has an active run. |
+| `GET/PUT /admin/settings` | Runtime setting overrides. |
+| `GET /admin/needs-title` | Documents awaiting a title. |
+| `GET /admin/ratings` | Rating overview. |
+| `GET /me/notifications`, `POST /me/notifications/read` | Caller's inbox (any user); admins also receive `ops.job_failed`. |
+
+Paging: `/admin/users` and `/admin/review` use offset `page=`; the other lists use keyset `before_id=`.

@@ -10,7 +10,7 @@ from botocore.config import Config
 from roracle.connectors import Item
 
 
-def client(config: dict):
+def client(config: dict, timeout: int):
     keyed = bool(config.get("access_key") and config.get("secret_key"))
     return boto3.client(
         "s3",
@@ -18,12 +18,18 @@ def client(config: dict):
         aws_access_key_id=config.get("access_key") if keyed else None,
         aws_secret_access_key=config.get("secret_key") if keyed else None,
         region_name=config.get("region") or "us-east-1",
-        config=Config(s3={"addressing_style": "path"}, **({} if keyed else {"signature_version": UNSIGNED})),
+        config=Config(
+            s3={"addressing_style": "path"},
+            connect_timeout=timeout,
+            read_timeout=timeout,
+            retries={"max_attempts": 2},
+            **({} if keyed else {"signature_version": UNSIGNED}),
+        ),
     )
 
 
-def items(config: dict) -> Iterator[Item]:
-    return _list(client(config), config["bucket"], config.get("prefix", ""))
+def items(config: dict, timeout: int) -> Iterator[Item]:
+    return _list(client(config, timeout), config["bucket"], config.get("prefix", ""))
 
 
 def _list(c, bucket: str, prefix: str) -> Iterator[Item]:

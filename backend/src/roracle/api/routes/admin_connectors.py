@@ -135,7 +135,7 @@ def _validate_config(kind: str, config: dict, request: Request) -> dict:
 
 
 def _out(c: Connector) -> dict:
-    out = {
+    return {
         "id": str(c.id),
         "name": c.name,
         "kind": c.kind,
@@ -149,7 +149,6 @@ def _out(c: Connector) -> dict:
         "last_run_at": c.last_run_at.isoformat() if c.last_run_at else None,
         "created_at": c.created_at.isoformat(),
     }
-    return out
 
 
 def _with_last(session: Session, c: Connector) -> dict:
@@ -293,8 +292,7 @@ def list_runs(
     if before_id:
         q = q.where(ConnectorRun.id < before_id)
     rows = session.scalars(q.order_by(ConnectorRun.id.desc()).limit(limit + 1)).all()
-    page = keyset_page([_run(r) for r in rows], limit)
-    return page
+    return keyset_page([_run(r) for r in rows], limit)
 
 
 @router.get("/admin/connectors/{cid}/runs/{run_id}")

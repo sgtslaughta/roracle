@@ -83,7 +83,7 @@ def list_users(
             func.coalesce(func.sum(DocumentVersion.size), 0).label("bytes"),
         )
         .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-        .where(Document.deleted_at.is_(None))
+        .where(Document.deleted_at.is_(None), DocumentVersion.stage.not_in(("rejected", "cancelled")))
         .group_by(Document.owner_id)
         .subquery()
     )
@@ -138,7 +138,7 @@ def review_queue(
     """Offset-paged (`page`, `limit`), oldest first; the queue is small and versions have uuid ids."""
     offset, limit = paging
     m, md = aliased(DocumentVersion), aliased(Document)
-    where = [DocumentVersion.stage == "review"]
+    where = [DocumentVersion.stage == "review", Document.deleted_at.is_(None)]
     if source == "upload":
         where.append(Document.connector_id.is_(None))
     elif source == "connector":

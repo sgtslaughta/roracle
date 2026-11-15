@@ -1,5 +1,6 @@
 """Admin guard: admins only (never PATs), one audit row per admin request (R11)."""
 
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -10,6 +11,8 @@ from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import AuditLog
 
+log = logging.getLogger(__name__)
+
 
 def require_admin(
     request: Request,
@@ -17,17 +20,20 @@ def require_admin(
     session: Annotated[Session, Depends(get_session)],
 ) -> Principal:
     if not p.is_admin or p.via != "jwt":
-        with request.app.state.session_factory() as s:  # own session: the 403 rolls back the request's
-            # user_id=None: the principal's user row may not be committed yet (first login)
-            s.add(
-                AuditLog(
-                    action="admin.denied",
-                    target=request.url.path,
-                    client=p.client,
-                    detail={"user_id": str(p.user_id), "username": p.username},
+        try:
+            with request.app.state.session_factory() as s:  # own session: the 403 rolls back the request's
+                # user_id=None: the principal's user row may not be committed yet (first login)
+                s.add(
+                    AuditLog(
+                        action="admin.denied",
+                        target=request.url.path,
+                        client=p.client,
+                        detail={"user_id": str(p.user_id), "username": p.username},
+                    )
                 )
-            )
-            s.commit()
+                s.commit()
+        except Exception:
+            log.exception("admin.denied audit write failed")
         raise HTTPException(403, "admin only")
     name = getattr(request.scope.get("endpoint"), "__name__", "unknown")
     audit(session, p, f"admin.{name}", request.url.path, {"query": dict(request.query_params)})
@@ -52,9 +58,6 @@ def keyset_params(
 
 
 def keyset_page(rows: list, limit: int) -> dict:
-    """`rows` were fetched with limit+1 in id-descending order; items are dicts or rows with `id`."""
+    """`rows` are dicts with `id`, fetched with limit+1 in id-descending order."""
     items = rows[:limit]
-    more = len(rows) > limit
-    last = items[-1] if items else None
-    nxt = (last["id"] if isinstance(last, dict) else last.id) if more and last is not None else None
-    return {"items": items, "next_before_id": nxt}
+    return {"items": items, "next_before_id": items[-1]["id"] if len(rows) > limit else None}

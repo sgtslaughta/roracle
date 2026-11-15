@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 class ReadBody(BaseModel):
-    ids: list[int] = []
+    ids: list[int] = Field(default_factory=list, max_length=1000)
     all: bool = False
 
 

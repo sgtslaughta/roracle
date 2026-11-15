@@ -32,7 +32,7 @@ def source_for(
     if connector.kind == "s3":
         from roracle.connectors import s3
 
-        return s3.items(connector.config)
+        return s3.items(connector.config, settings.connector_http_timeout_s)
     if connector.kind == "fs":
         from roracle.connectors import fs
 

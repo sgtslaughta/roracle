@@ -13,6 +13,7 @@ from roracle.api.routes.admin_deps import Admin, keyset_page, keyset_params
 from roracle.api.routes.documents import get_blob_store
 from roracle.api.routes.library import get_es
 from roracle.audit import audit
+from roracle.connectors.run import active_run_job
 from roracle.db import get_session
 from roracle.models import (
     Blob,
@@ -108,6 +109,8 @@ def retry_job(job_id: int, p: Admin, session: Annotated[Session, Depends(get_ses
         raise HTTPException(404, "job not found")
     if j.status != "failed":
         raise HTTPException(409, "only failed jobs can be retried")
+    if j.kind == "connector_run" and active_run_job(session, _uuid(j.payload.get("connector_id"))):
+        raise HTTPException(409, "connector already has an active run")
     if j.kind == "ingest":
         _reset_ingest(session, [j.payload.get("version_id")])
     for k, v in _REQUEUE.items():
@@ -130,7 +133,11 @@ def retry_failed(
     q = select(Job).where(Job.status == "failed").with_for_update()
     if kind:
         q = q.where(Job.kind == kind)
-    jobs = list(session.scalars(q))
+    jobs = []
+    for j in session.scalars(q):  # a failed connector_run is skipped while its connector is running
+        if j.kind == "connector_run" and active_run_job(session, _uuid(j.payload.get("connector_id"))):
+            continue
+        jobs.append(j)
     _reset_ingest(session, [j.payload.get("version_id") for j in jobs if j.kind == "ingest"])
     for j in jobs:
         for k, v in _REQUEUE.items():
@@ -141,6 +148,7 @@ def retry_failed(
 
 @router.get("/admin/stats")
 def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
+    """top_uploaders bytes skip rejected/cancelled versions (quota semantics); connector docs count."""
     live, deleted = session.execute(
         select(
             func.count().filter(Document.deleted_at.is_(None)),
@@ -156,7 +164,7 @@ def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
         select(User.id, User.username, func.count(func.distinct(Document.id)), size)
         .join(Document, Document.owner_id == User.id)
         .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-        .where(Document.deleted_at.is_(None))
+        .where(Document.deleted_at.is_(None), DocumentVersion.stage.not_in(("rejected", "cancelled")))
         .group_by(User.id, User.username)
         .order_by(size.desc(), User.username)
         .limit(10)
@@ -203,18 +211,25 @@ def health(
         "elastic": _check(elastic),
         "storage": _check(lambda: store.client.head_bucket(Bucket=store.bucket)),
     }
-    queue = dict.fromkeys(("queued", "running", "failed"), 0)
-    queue.update(dict(session.execute(select(Job.status, func.count()).group_by(Job.status)).all()))
-    oldest = session.scalar(
-        select(extract("epoch", func.now() - func.min(Job.created_at))).where(Job.status == "queued")
-    )
-    ticking = session.scalar(
-        select(
-            select(Job.id).where(Job.kind == "connector_tick", Job.status.in_(("queued", "running"))).exists()
+    status = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    try:
+        queue = dict.fromkeys(("queued", "running", "failed"), 0)
+        queue.update(dict(session.execute(select(Job.status, func.count()).group_by(Job.status)).all()))
+        oldest = session.scalar(
+            select(extract("epoch", func.now() - func.min(Job.created_at))).where(Job.status == "queued")
         )
-    )
+        ticking = session.scalar(
+            select(
+                select(Job.id)
+                .where(Job.kind == "connector_tick", Job.status.in_(("queued", "running")))
+                .exists()
+            )
+        )
+    except Exception:  # noqa: BLE001 - db down: report degraded, not 500
+        session.rollback()
+        return {"status": "degraded", "checks": checks, "queue": None, "scheduler": None}
     return {
-        "status": "ok" if all(v == "ok" for v in checks.values()) else "degraded",
+        "status": status,
         "checks": checks,
         "queue": {
             "queued": queue["queued"],

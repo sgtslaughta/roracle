@@ -43,7 +43,7 @@ def _need_write(p: Principal) -> None:
 
 
 def _abs(app: FastAPI, m: dict) -> dict:
-    base = dep(app, get_app_settings).public_base_url.rstrip("/")
+    base = app.state.settings.public_base_url.rstrip("/")
     return {**m, "url": base + m["url"]} if base else m
 
 

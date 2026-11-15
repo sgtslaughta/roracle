@@ -7,7 +7,7 @@ from roracle import queue
 from roracle.ingest import pipeline
 from roracle.ingest.neardup import minhash
 from roracle.ingest.state import mark_searchable_and_enqueue
-from roracle.models import Blob, Connector, Document, DocumentVersion, Notification, User
+from roracle.models import Blob, Connector, Document, DocumentVersion, Job, Notification, User
 from roracle.notify import emit, emit_admins
 from roracle.queue import NonRetryable, enqueue, run_once
 
@@ -127,7 +127,52 @@ def test_emitter_exception_never_breaks_queue(db_session, session_factory, user,
 
     monkeypatch.setattr(queue, "MAX_ATTEMPTS", 1)
     monkeypatch.setattr(notify, "on_job_failed", lambda *a: 1 / 0)
-    _fail_job(session_factory, "citations", {}, RuntimeError("x"))
+    j = _fail_job_row(session_factory, db_session, "citations", {}, RuntimeError("x"))
+    assert _notes(db_session) == [] and (j.status, j.last_error) == ("failed", "x")
+
+
+def _fail_job_row(session_factory, db_session, kind, payload, exc):
+    _fail_job(session_factory, kind, payload, exc)
+    db_session.expire_all()
+    return db_session.scalars(select(Job).where(Job.kind == kind)).one()
+
+
+def test_hook_writing_then_raising_rolls_back(db_session, session_factory, user, monkeypatch):
+    from roracle import notify
+
+    def hook(session, job):
+        emit(session, user.id, "k", {})
+        raise RuntimeError("late")
+
+    monkeypatch.setattr(queue, "MAX_ATTEMPTS", 1)
+    monkeypatch.setattr(notify, "on_job_failed", hook)
+    j = _fail_job_row(session_factory, db_session, "citations", {}, RuntimeError("x"))
+    assert _notes(db_session) == [] and j.status == "failed"
+
+
+def test_connector_ingest_failure_notifies_admins(db_session, session_factory, user, monkeypatch):
+    monkeypatch.setattr(queue, "MAX_ATTEMPTS", 1)
+    admin = User(sub="a1", username="a1", is_admin=True)
+    c = Connector(name="c", kind="fs", owner_id=user.id, visibility="everyone")
+    db_session.add_all([admin, c])
+    db_session.flush()
+    d, v = _doc(db_session, user, connector_id=c.id)
+    _fail_job(session_factory, "ingest", {"version_id": str(v.id)}, NonRetryable("bad"))
+    (n,) = _notes(db_session)
+    assert (n.user_id, n.kind) == (admin.id, "ops.job_failed")
+    assert n.payload["document_id"] == str(d.id) and n.payload["connector_id"] == str(c.id)
+    assert n.payload["error"] == "processing failed"
+
+
+def test_near_dup_connector_doc_no_notification(db_session, session_factory, cfg, user):
+    text_ = "alpha beta gamma delta " * 200
+    _, v1 = _doc(db_session, user, title="Original")
+    v1.minhash, v1.stage, v1.is_latest = minhash(text_), "searchable", True
+    c = Connector(name="c", kind="fs", owner_id=user.id, visibility="everyone")
+    db_session.add(c)
+    db_session.flush()
+    d2, v2 = _doc(db_session, user, title="Copy", connector_id=c.id)
+    assert pipeline._dedupe(db_session, v2, d2, text_, cfg, session_factory) is True
     assert _notes(db_session) == []
 
 
