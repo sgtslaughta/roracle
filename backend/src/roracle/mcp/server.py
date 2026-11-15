@@ -18,6 +18,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
 from roracle.mcp.auth import current, dep, open_session
+from roracle.mcp.tools_write import register
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
 
@@ -40,6 +41,8 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
             raise ToolError(str(e.detail if isinstance(e, HTTPException) else e)) from None
         except Exception:
             session.rollback()
+            audit(session, p, f"mcp.{tool}", target[:200], {"error": "internal"})
+            session.commit()
             raise
 
 
@@ -106,7 +109,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
     def search(
         query: Annotated[str, Field(max_length=search_routes.Q_MAX)],
         collection: Annotated[str | None, Field(max_length=search_routes.VALUE_MAX)] = None,
-        limit: int = 10,
+        limit: Annotated[int, Field(ge=1, le=50)] = 10,
     ) -> dict:
         """Search the research library (hybrid keyword + semantic). Returns documents the caller may see,
         each with matching passages and chunk_ids usable with get_passages. `collection` is an id from
@@ -151,7 +154,8 @@ def build_mcp(app: FastAPI) -> MCPServer:
 
     @mcp.tool()
     def get_passages(
-        chunk_ids: Annotated[list[str], Field(max_length=MAX_IDS)], context: int = 0
+        chunk_ids: Annotated[list[str], Field(max_length=MAX_IDS)],
+        context: Annotated[int, Field(ge=0, le=2)] = 0,
     ) -> list[dict]:
         """Fetch exact passages by chunk_id ("<version_id>:<n>", at most 50). `context` 0..2 adds that many
         neighbouring chunks either side. Returns text, pages and bboxes; passages the caller cannot see
@@ -168,4 +172,5 @@ def build_mcp(app: FastAPI) -> MCPServer:
         """List the caller's own collections (id, name, document count)."""
         return _run(app, "list_collections", lambda s, p: library.list_collections(p, s))
 
+    register(mcp, app, _run)
     return mcp

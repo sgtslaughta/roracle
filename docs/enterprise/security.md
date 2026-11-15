@@ -31,6 +31,7 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
   - Owner sign-in bound: a PAT is rejected (401 "token owner session stale") unless its owner
     signed in via JWT within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30). This bounds how long a
     disabled/removed Keycloak user keeps PAT access.
+  - Stored only as a SHA-256 hash; the plaintext is shown once at creation and cannot be recovered.
   - Admins revoke all of a user's PATs at once: `DELETE /admin/users/{id}/pats`.
   - `last_used_at` is updated at most once a minute and never blocks requests.
 
@@ -75,7 +76,8 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 
 Append-only `audit_log` table (who, when, action, target, client, request id): sign-in, search,
 document view/download, chat question (text hash + cited doc ids), handoff create/load, proposal
-approve/reject, share/visibility change, admin actions, PAT create/use/revoke. Ship to the SIEM via
+approve/reject, share/visibility change, admin actions, PAT create/use/revoke, `mcp.<tool>` for every
+MCP tool call (failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 7. Platform hardening
@@ -88,7 +90,7 @@ Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 8. Abuse and rate limits
 
-Per-user rate limits on search, chat, upload, MCP calls; max 50 pending agent proposals per session;
+Per-user rate limits on search, chat, upload, MCP calls (planned, P11); max 50 pending agent proposals per session;
 handoff loads audited and rate-limited; PAT misuse alerts (use from new client, burst rate).
 
 ## 9. Residual risks / review items

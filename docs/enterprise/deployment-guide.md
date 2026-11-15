@@ -67,7 +67,9 @@ Vector math (per embedding model index, 1 replica):
    helm upgrade --install roracle deploy/helm/roracle -n roracle -f values-prod.yaml
    ```
    The chart runs `python -m roracle migrate` as a pre-upgrade hook Job before rolling `api`/`worker`.
-6. **Smoke test**: `GET /healthz`; sign in through the proxy; upload a PDF; watch it reach
+6. **Reverse proxy**: forward `/mcp` and `/.well-known/oauth-protected-resource` to the api (not the SPA),
+   without buffering limits below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3.
+7. **Smoke test**: `GET /healthz`; sign in through the proxy; upload a PDF; watch it reach
    *Searchable* in My uploads; ask a question and click a citation.
 
 ## 5. Configuration reference (environment, prefix `ROR_`)
@@ -78,6 +80,10 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://minio.roracle-data:9000`, `roracle` | Blob store |
 | `ROR_OIDC_ISSUER`, `ROR_OIDC_AUDIENCE`, `ROR_OIDC_JWKS_URL` | `https://kc/realms/research`, `roracle` | Token validation |
 | `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
+| `ROR_MCP_MAX_UPLOAD_BYTES` | `26214400` | Max decoded file size for the MCP `upload` tool (25 MiB); also sizes the `/mcp` body cap |
+| `ROR_PUBLIC_BASE_URL` | `https://roracle.example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
+| `ROR_PATS_ENABLED` | `true` | Personal access tokens for agents (`false` rejects all PATs) |
+| `ROR_PAT_MAX_IDENTITY_AGE_DAYS` | `30` | PAT rejected if its owner has not signed in via JWT within this many days |
 | `ROR_ELASTIC_URL`, `ROR_ELASTIC_API_KEY` | `https://es-http:9200` | Search index (plan 3) |
 | `ROR_LLM_BASE_URL`, `ROR_LLM_API_KEY` | `https://inference/v1` | OpenAI-spec endpoint (plan 2+) |
 | `ROR_EMBED_MODEL`, `ROR_RERANK_MODEL` | `embeddinggemma-300m` | Defaults; admins override in UI |

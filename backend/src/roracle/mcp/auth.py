@@ -68,7 +68,7 @@ class BearerAuth:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            return await self._not_found(scope, receive, send)
+            return await self._reject(scope, receive, send)
         req = Request(scope)
         base = self.app.state.settings.public_base_url or str(req.base_url)
         meta = f"{base.rstrip('/')}/.well-known/oauth-protected-resource"
@@ -88,6 +88,6 @@ class BearerAuth:
             _current.reset(token)
 
     @staticmethod
-    async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
+    async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": 1008})

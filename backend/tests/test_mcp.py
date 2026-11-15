@@ -1,8 +1,7 @@
-import json
-
 import pytest
 from api_seed import FakeES, seed
 from fastapi.testclient import TestClient
+from mcp_helpers import HDRS, call, rpc
 from sqlalchemy import select
 from test_search_api import FakeLLM, hit
 
@@ -10,8 +9,6 @@ from roracle import pats
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
 from roracle.models import AuditLog, Collection
-
-HDRS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
 @pytest.fixture
@@ -26,21 +23,6 @@ def fes(app):
 def mc(app):
     with TestClient(app) as c:
         yield c
-
-
-def rpc(mc, headers, method, params=None):
-    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
-    return mc.post("/mcp", headers={**HDRS, **headers}, content=json.dumps(body))
-
-
-def call(mc, headers, tool, **args):
-    r = rpc(mc, headers, "tools/call", {"name": tool, "arguments": args})
-    assert r.status_code == 200, r.text
-    res = r.json()["result"]
-    text = res["content"][0]["text"] if res["content"] else ""
-    return res.get("isError", False), res.get("structuredContent") or (
-        json.loads(text) if not res.get("isError") else text
-    )
 
 
 def test_unauthenticated_401_with_resource_metadata(mc):
@@ -171,8 +153,12 @@ def test_failed_call_is_audited(mc, as_bob, ana, db_session):
     assert row.detail == {"error": True}
 
 
-def test_non_owner_cannot_fetch_unfinished_version(mc, as_ana, bob, db_session, fes):
+def test_non_owner_cannot_fetch_unfinished_version(mc, as_ana, as_bob, bob, db_session, fes):
     d, v = seed(db_session, bob, visibility="everyone", stage="embedded")
     fes.hits = [hit(d, v)]
     err, out = call(mc, as_ana, "get_passages", chunk_ids=[f"{v.id}:0"])
     assert not err and (out["result"] if isinstance(out, dict) else out) == []
+    err, out = call(mc, as_bob, "get_passages", chunk_ids=[f"{v.id}:0"])  # owner positive control
+    assert not err and [i["chunk_id"] for i in (out["result"] if isinstance(out, dict) else out)] == [
+        f"{v.id}:0"
+    ]
