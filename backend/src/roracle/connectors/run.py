@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import notify, runtime
@@ -22,6 +22,12 @@ from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
 log = logging.getLogger(__name__)
 LOG_LINES = 500
 SF = sessionmaker[Session]
+
+
+class Gone(Exception):
+    """The connector was deleted while its run was in flight."""
+
+
 STATS = ("seen", "ingested", "versions", "unchanged", "duplicate", "too_large", "errors")
 
 
@@ -56,6 +62,12 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
         stream.close()
     try:
         with sf() as s:
+            # key-share lock: a concurrent DELETE of the connector waits for this commit; checked before any put
+            if (
+                s.scalar(select(Connector.id).where(Connector.id == cid).with_for_update(key_share=True))
+                is None
+            ):
+                raise Gone
             known = s.get(ConnectorItem, (cid, item.key), with_for_update=True)
             if known is not None and known.sha256 == staged.sha256:
                 known.etag = item.etag
@@ -65,7 +77,11 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
             dup = s.scalar(
                 select(DocumentVersion.document_id)
                 .join(Document, Document.id == DocumentVersion.document_id)
-                .where(DocumentVersion.blob_sha256 == staged.sha256, Document.deleted_at.is_(None))
+                .where(
+                    DocumentVersion.blob_sha256 == staged.sha256,
+                    Document.deleted_at.is_(None),
+                    Document.connector_id == cid,  # never reference (or leak) another principal's document
+                )
                 .limit(1)
             )
             if dup is not None:
@@ -147,6 +163,11 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     eff = runtime.effective(session, settings)
     with sf() as s:
         run = ConnectorRun(connector_id=c.id, status="running")
+        s.execute(
+            update(ConnectorRun)
+            .where(ConnectorRun.connector_id == c.id, ConnectorRun.status == "running")
+            .values(status="failed", finished_at=func.now(), log="worker interrupted")
+        )
         s.add(run)
         s.commit()
         run_id = run.id
@@ -155,20 +176,29 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     status = "ok"
     deadline = time.monotonic() + settings.connector_max_run_s
     try:
-        with closing(source_for(c, settings)) as it:
+        with closing(source_for(c, settings, deadline)) as it:
             for item in it:
-                if stats["seen"] >= settings.connector_max_items or time.monotonic() > deadline:
+                # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
+                if (
+                    stats["seen"] - stats["unchanged"] >= settings.connector_max_items
+                    or time.monotonic() > deadline
+                ):
                     status = "partial"
                     lines.append("run cap reached (items or time); remaining items next run")
                     break
                 stats["seen"] += 1
                 try:
                     stats[_outcome(sf, c, item, eff.max_upload_bytes, store)] += 1
+                except Gone:
+                    return
                 except Exception as e:
                     stats["errors"] += 1
                     status = "partial"
                     lines.append(f"error {item.key}: {type(e).__name__}: {str(e)[:200]}")
                     log.exception("connector %s item %s", c.id, item.key)
+    except TimeoutError:
+        status = "partial"
+        lines.append("run cap reached (time) while listing; remaining items next run")
     except Exception as e:
         status = "failed"
         lines.append(f"source failed: {type(e).__name__}: {str(e)[:300]}")
@@ -186,8 +216,7 @@ def handle_connector_run(
         log.exception("connector run %s", payload)
 
 
-def handle_connector_tick(session: Session, payload: dict, *, settings: Settings) -> None:
-    """Enqueue due connectors (one run each), then schedule the next tick."""
+def _enqueue_due(session: Session) -> None:
     due = session.scalars(
         select(Connector)
         .where(
@@ -202,6 +231,15 @@ def handle_connector_tick(session: Session, payload: dict, *, settings: Settings
             enqueue(session, "connector_run", {"connector_id": str(c.id)})
         c.next_run_at = func.now() + timedelta(minutes=c.schedule_minutes)
     session.flush()
+
+
+def handle_connector_tick(session: Session, payload: dict, *, settings: Settings) -> None:
+    """Enqueue due connectors (one run each), then always schedule the next tick."""
+    try:
+        with session.begin_nested():  # a bad connector must not kill the scheduler
+            _enqueue_due(session)
+    except Exception:
+        log.exception("connector tick scan failed")
     if not session.scalar(
         select(Job.id).where(Job.kind == "connector_tick", Job.status == "queued").limit(1)
     ):

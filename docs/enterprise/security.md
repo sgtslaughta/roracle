@@ -118,12 +118,19 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets 
   `O_NOFOLLOW` and must be regular files (no FIFOs or devices), dot-files and dot-directories are skipped.
   Mount sources read-only; a writer who can swap a parent directory of the root during a run is outside the
   guarantee.
+- Hardlinks are not detected: a hardlink inside a root to a file outside it reads like any regular file.
+  Keep roots on a dedicated read-only mount so no such links can exist.
 - **S3 credentials** are stored in the connector's database row and are write-only through the API
   (`secret_key` reads back as `***`; sending `***` on update keeps the stored value; audit entries are
   redacted). S3 endpoints are admin-chosen and not SSRF-filtered. Without keys the client is unsigned (public buckets).
 - **Ownership.** Connector documents are owned by the admin who created the connector, with the connector's
   visibility. Versions that look like near-duplicates park in review and surface in the admin review queue
   (`GET /admin/review`).
+- Connector documents are matched for exact duplicates only against the same connector's own documents, so a
+  user's private document is never referenced by (or revealed through) a connector. They are exempt from the
+  per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES` applies to `POST /documents` only). Changing a connector's
+  visibility or org unit updates its existing documents and re-syncs their search ACLs.
+- S3 endpoints must be http(s) URLs without embedded credentials.
 - Failed or partial runs notify every admin (`ops.connector_run`); run logs keep only the last 500 lines.
 
 ## 10. Residual risks / review items

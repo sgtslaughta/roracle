@@ -58,7 +58,9 @@ def upload(
                 select(func.coalesce(func.sum(DocumentVersion.size), 0))
                 .join(Document, Document.id == DocumentVersion.document_id)
                 .where(
-                    Document.owner_id == p.user_id, DocumentVersion.stage.not_in(("rejected", "cancelled"))
+                    Document.owner_id == p.user_id,
+                    Document.connector_id.is_(None),  # connector documents are exempt
+                    DocumentVersion.stage.not_in(("rejected", "cancelled")),
                 )
             )
             if used + staged.size > settings.upload_quota_bytes:

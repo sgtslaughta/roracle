@@ -1,11 +1,12 @@
 """Admin: connector CRUD, manual runs and run history. Secrets are write-only ("***" on read)."""
 
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,7 @@ from roracle.audit import audit
 from roracle.connectors import fs
 from roracle.connectors.run import active_run_job
 from roracle.db import get_session
-from roracle.models import Connector, ConnectorRun
+from roracle.models import Connector, ConnectorRun, Document
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -96,6 +97,10 @@ def _validate_config(kind: str, config: dict, request: Request) -> dict:
         raise HTTPException(
             422, e.errors(include_url=False, include_context=False, include_input=False)
         ) from None
+    if kind == "s3":
+        u = urlsplit(out["endpoint"])
+        if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password:
+            raise HTTPException(422, "endpoint must be an http(s) URL without credentials")
     if kind == "fs":
         try:
             fs.validate_path(out["path"], request.app.state.settings.connector_fs_roots)
@@ -203,18 +208,27 @@ def patch_connector(cid: UUID, body: ConnectorPatch, p: Admin, session: Db, requ
         _name_free(session, body.name, skip=c.id)
         c.name = body.name
     if body.config is not None:
-        new = dict(body.config)
-        if new.get("secret_key") == MASK:  # write-only secret: the mask keeps the stored value
-            if c.config.get("secret_key"):
-                new["secret_key"] = c.config["secret_key"]
-            else:
-                new.pop("secret_key")
+        new = dict(c.config)  # merge: missing keys keep their value, null deletes, "***" keeps the secret
+        for k, v in body.config.items():
+            if v is None:
+                new.pop(k, None)
+            elif not (k == "secret_key" and v == MASK):
+                new[k] = v
         c.config = _validate_config(c.kind, new, request)
     elif c.kind == "fs":
         _validate_config("fs", c.config, request)  # roots may have changed since create
     visibility = body.visibility or c.visibility
-    c.org_unit = _check_scope(visibility, body.org_unit if body.org_unit is not None else c.org_unit)
-    c.visibility = visibility
+    org_unit = _check_scope(visibility, body.org_unit if body.org_unit is not None else c.org_unit)
+    if (visibility, org_unit) != (c.visibility, c.org_unit):  # existing documents follow the connector
+        c.visibility, c.org_unit = visibility, org_unit
+        ids = session.scalars(
+            update(Document)
+            .where(Document.connector_id == c.id)
+            .values(visibility=visibility, org_unit=org_unit)
+            .returning(Document.id)
+        ).all()
+        for doc_id in ids:
+            enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
     if "schedule_minutes" in sent:
         c.schedule_minutes, c.next_run_at = body.schedule_minutes, None  # due at the next tick
     if body.enabled is not None:

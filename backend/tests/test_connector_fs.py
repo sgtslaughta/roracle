@@ -83,12 +83,12 @@ def test_symlinked_root_config_resolves_and_is_allowed_only_if_target_inside(tre
     root, _ = tree
     link = tmp_path / "inroot"
     os.symlink(root / "sub", link)  # link outside root dir, target inside
-    assert fs.validate_path(str(link), [str(root)]) == str((root / "sub").resolve())
+    assert fs.validate_path(str(link), [str(root)])[0] == str((root / "sub").resolve())
 
 
 def test_dotdot_that_stays_inside_is_ok(tree):
     root, _ = tree
-    assert fs.validate_path(str(root / "sub" / ".." / "sub"), [str(root)]) == str((root / "sub").resolve())
+    assert fs.validate_path(str(root / "sub" / ".." / "sub"), [str(root)])[0] == str((root / "sub").resolve())
 
 
 def _connector(db, **kw):
@@ -127,3 +127,31 @@ def test_run_ingests_only_inside_and_fails_if_config_moved_outside(
     run = _run(db_session, session_factory, s, store, c)
     assert run.status == "failed" and "outside" in run.log
     assert db_session.scalar(select(ConnectorItem).where(ConnectorItem.key == "secret.txt")) is None
+
+
+def test_symlink_swapped_in_after_validation_does_not_escape(tree, monkeypatch):
+    root, outside = tree
+    real = fs.validate_path
+
+    def swap_after_check(path, roots):
+        out = real(path, roots)
+        (root / "sub" / "b.pdf").unlink()
+        (root / "sub").rmdir()
+        os.symlink(outside, root / "sub")  # attacker swaps the validated directory for a symlink
+        return out
+
+    monkeypatch.setattr(fs, "validate_path", swap_after_check)
+    with pytest.raises(OSError):
+        list(fs.items({"path": str(root / "sub")}, [str(root)]))
+
+
+def test_hardlink_inside_walk_is_regular_file(tree):
+    root, outside = tree
+    os.link(outside / "secret.txt", root / "hard.txt")  # documented limitation: not distinguishable
+    assert "hard.txt" in keys(root, [root])
+
+
+def test_expired_deadline_stops_walk(tree):
+    root, _ = tree
+    with pytest.raises(TimeoutError):
+        list(fs.items({"path": str(root)}, [str(root)], deadline=0))

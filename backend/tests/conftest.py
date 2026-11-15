@@ -297,3 +297,24 @@ def es(cfg):
     c = Elasticsearch(cfg.elastic_url)
     yield c
     c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
+
+
+@pytest.fixture
+def adm(make_token):
+    return bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+
+
+@pytest.fixture
+def owner(db_session):
+    u = User(sub="adm", username="adm", is_admin=True)
+    db_session.add(u)
+    db_session.commit()
+    return u
+
+
+@pytest.fixture
+def prefix(s3_client, test_bucket):
+    p = f"src-{uuid.uuid4().hex[:8]}/"
+    yield p
+    for o in s3_client.list_objects_v2(Bucket=test_bucket, Prefix=p).get("Contents", []):
+        s3_client.delete_object(Bucket=test_bucket, Key=o["Key"])
