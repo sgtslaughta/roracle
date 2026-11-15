@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     oidc_jwks_url: str
     oidc_allowed_clients: Annotated[list[str], NoDecode] = ["roracle-web", "roracle-mcp"]
     max_upload_bytes: int = 524288000
+    pats_enabled: bool = True
     elastic_url: str = "http://localhost:9200"
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "unused"
