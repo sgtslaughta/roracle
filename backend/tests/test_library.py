@@ -322,3 +322,16 @@ def test_add_tag_locks_document_before_cap_check(client, as_ana, up, fes, db_ses
     lock = next(i for i, x in enumerate(seen) if "FOR UPDATE" in x and "documents" in x)
     count = next(i for i, x in enumerate(seen) if "FROM tags" in x and "SELECT" in x)
     assert lock < count
+
+
+def test_vote_upsert_refreshes_created_at(client, as_ana, as_bob, up, db_session):
+    from datetime import UTC, datetime
+
+    d = up(as_ana)
+    assert _vote(client, as_bob, d, value=-1, reason="outdated").status_code == 200
+    old = datetime(2020, 1, 1, tzinfo=UTC)
+    db_session.execute(Vote.__table__.update().values(created_at=old))
+    db_session.commit()
+    assert _vote(client, as_bob, d, value=-1, reason="outdated").status_code == 200
+    db_session.expire_all()
+    assert db_session.query(Vote).one().created_at > old

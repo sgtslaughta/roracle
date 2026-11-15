@@ -96,7 +96,9 @@ def put_vote(doc_id: UUID, body: VoteBody, p: Who, session: Session_) -> dict:
         session.execute(
             insert(Vote)
             .values(user_id=p.user_id, document_id=doc_id, **vals)
-            .on_conflict_do_update(index_elements=[Vote.user_id, Vote.document_id], set_=vals)
+            .on_conflict_do_update(
+                index_elements=[Vote.user_id, Vote.document_id], set_={**vals, "created_at": func.now()}
+            )
         )
     session.commit()
     return vote_summary(session, doc_id, p.user_id)
