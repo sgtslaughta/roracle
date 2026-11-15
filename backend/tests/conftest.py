@@ -68,7 +68,7 @@ def app(settings, db_session):
     return app
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _blob_store_override(app, store):
     from roracle.api.routes.documents import get_blob_store
 

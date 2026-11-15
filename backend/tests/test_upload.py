@@ -1,6 +1,9 @@
-from sqlalchemy import func, select
+import pytest
+from sqlalchemy import func, select, update
 
-from roracle.models import Blob, Document, DocumentVersion, Job
+from roracle.models import Blob, Document, DocumentShare, DocumentVersion, Job
+
+pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
 
 def _up(client, headers, data=b"%PDF-1", name="paper.pdf", **form):
@@ -71,3 +74,19 @@ def test_invalid_visibility_is_422(client, as_ana):
 
 def test_unauthenticated_is_401(client):
     assert client.post("/documents", files={"file": ("a", b"x")}).status_code == 401
+
+
+def test_soft_deleted_visible_doc_does_not_trigger_409(client, as_ana, db_session):
+    _up(client, as_ana)
+    db_session.execute(update(Document).values(deleted_at=func.now()))
+    assert _up(client, as_ana).status_code == 201
+
+
+def test_group_shared_doc_triggers_409_for_group_member(client, as_ana, as_bob, db_session):
+    first = _up(client, as_ana, visibility="shared").json()
+    db_session.add(
+        DocumentShare(document_id=first["document_id"], principal_kind="group", principal="/Physics")
+    )
+    db_session.flush()
+    r = _up(client, as_bob)
+    assert r.status_code == 409 and r.json()["detail"]["document_id"] == first["document_id"]

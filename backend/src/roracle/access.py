@@ -1,6 +1,6 @@
 """Document visibility rule. P3 mirrors this for Elastic filters."""
 
-from sqlalchemy import and_, exists, false, func, literal, or_, select, true
+from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.auth import Principal
@@ -17,25 +17,23 @@ def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
     )
 
 
+def org_ancestors(groups: list[str]) -> list[str]:
+    """Each group plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
+    out = {"/"}
+    for g in groups:
+        g = g.rstrip("/")
+        while g:
+            out.add(g)
+            g = g.rpartition("/")[0]
+    return sorted(out)
+
+
 def visible_documents(p: Principal) -> ColumnElement[bool]:
     live = Document.deleted_at.is_(None)
     if p.is_admin:
         return and_(live, true())
     groups = list(p.groups)
-    prefix = func.rtrim(Document.org_unit, "/") + "/"
-    org = (
-        and_(
-            Document.visibility == "org_unit",
-            or_(
-                *[
-                    or_(Document.org_unit == g, literal(g).startswith(prefix, autoescape=False))
-                    for g in groups
-                ]
-            ),
-        )
-        if groups
-        else false()
-    )
+    org = and_(Document.visibility == "org_unit", Document.org_unit.in_(org_ancestors(groups)))
     return and_(
         live,
         or_(
