@@ -78,6 +78,7 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
         ctrl.enqueue(ev("token", { text: text.slice(i, i + 12) }));
       }
       if (signal.aborted || saved) { save("interrupted"); return; }
+      // saved complete before citations/done are sent: an abort after this point still leaves a complete message
       save("complete");
       if (citations.length) ctrl.enqueue(ev("citations", { items: citations }));
       ctrl.enqueue(ev("done", { message_id: aid }));

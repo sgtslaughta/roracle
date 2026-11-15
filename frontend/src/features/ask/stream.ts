@@ -47,16 +47,16 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
   if (!res.body) { h.onError("The answer was cut off."); return; }
   let finished = false;
   const parse = createSseParser(({ event, data }) => {
-    if (finished) return;
+    if (finished || signal?.aborted) return;
     let p: Record<string, unknown>;
     try { p = JSON.parse(data) as Record<string, unknown>; } catch { return; }
     if (event === "token") h.onToken(String(p.text ?? ""));
-    else if (event === "citations") h.onCitations((p.items as Citation[]) ?? []);
-    else if (event === "done") { finished = true; h.onDone(String(p.message_id)); }
+    else if (event === "citations") { if (Array.isArray(p.items)) h.onCitations(p.items as Citation[]); }
+    else if (event === "done") { if (typeof p.message_id === "string") { finished = true; h.onDone(p.message_id); } }
     else if (event === "error") { finished = true; h.onError(String(p.detail ?? "Something went wrong.")); }
   });
   const reader = res.body.getReader();
-  const dec = new TextDecoder();
+  const dec = new TextDecoder(); // also strips a leading BOM from the first chunk
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -66,7 +66,8 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     }
     parse(dec.decode());
   } finally {
-    reader.cancel().catch(() => {});
+    await reader.cancel().catch(() => {});
+    try { reader.releaseLock(); } catch { /* already released */ }
   }
   if (!finished) h.onError("The answer was cut off.");
 }

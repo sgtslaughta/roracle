@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { createElement, type ReactNode } from "react";
+import { renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { DocumentDetail } from "@/api/types";
+import { openDoc, resetReaderStore } from "@/features/reader/useReaderStore";
 import type { ReaderTab } from "@/features/reader/useReaderStore";
-import { buildViewer } from "./viewer";
+import { buildViewer, useViewer } from "./viewer";
 
 const tab = (docId: string, page = 1, version?: number, seq = 1): ReaderTab => ({ docId, page, version, seq });
 const ids = (d: string, v?: number) => (d === "unk" ? null : `${d}-v${v ?? 9}`);
@@ -28,5 +33,18 @@ describe("buildViewer", () => {
     expect(buildViewer({ tabs: [], active: null }, [], ids).selection).toBeNull();
     const sel = { doc_id: "a", page: 1, text: "x" };
     expect(buildViewer({ tabs: [], active: null }, [], ids, sel).selection).toEqual(sel);
+  });
+});
+
+describe("useViewer", () => {
+  beforeEach(resetReaderStore);
+  it("getViewer resolves version ids from a cache filled after first render", () => {
+    const qc = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: qc }, children);
+    const { result } = renderHook(() => useViewer(), { wrapper });
+    openDoc("d1", { page: 2 });
+    expect(result.current().tabs[0]).toEqual({ doc_id: "d1", version_id: null, page: 2 });
+    qc.setQueryData(["doc", "d1"], { versions: [{ id: "v-old", version: 1, is_latest: false }, { id: "v-new", version: 2, is_latest: true }] } as unknown as DocumentDetail);
+    expect(result.current().tabs[0].version_id).toBe("v-new");
   });
 });

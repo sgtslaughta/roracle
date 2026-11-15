@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "@/mocks/server";
-import { API_BASE, ApiError, setAuthHooks } from "@/api/client";
-import type { Citation, Viewer } from "@/api/chat";
+import { API_BASE, ApiError, apiFetch, setAuthHooks } from "@/api/client";
+import type { ChatDetail, Citation, Viewer } from "@/api/chat";
 import { createSseParser, streamMessage } from "./stream";
 
 const VIEWER: Viewer = { tabs: [], ignored: [], selection: null };
@@ -30,6 +30,19 @@ describe("createSseParser", () => {
     expect(evs).toEqual([]);
     feed("event: done\rdata: 1\r\r");
     expect(evs).toEqual([{ event: "done", data: "1" }]);
+  });
+});
+
+describe("createSseParser edge cases", () => {
+  it("no event without the blank line", () => {
+    const { evs, feed } = collect();
+    feed("data: x\n");
+    expect(evs).toEqual([]);
+  });
+  it("CR, CR, LF split across chunks yields exactly two events", () => {
+    const { evs, feed } = collect();
+    ["data: 1\r", "\r", "\ndata: 2\n\n"].forEach(feed);
+    expect(evs).toEqual([{ event: "message", data: "1" }, { event: "message", data: "2" }]);
   });
 });
 
@@ -96,5 +109,71 @@ describe("streamMessage", () => {
     expect(err).toBeInstanceOf(Error);
     expect(h.onToken).toHaveBeenCalledTimes(1);
     expect(h.onError).not.toHaveBeenCalled();
+  });
+
+  const enc = new TextEncoder();
+  const spyStream = (chunks: string[], cancel = vi.fn()) =>
+    http.post(`${API_BASE}/chats/c1/messages`, () => sse(new ReadableStream({ start(c) { chunks.forEach((x) => c.enqueue(enc.encode(x))); }, cancel }))); // never closes
+  const tok = (t: string) => `event: token\ndata: {"text":"${t}"}\n\n`;
+
+  it("abort inside the first token of a chunk drops the rest and cancels the reader", async () => {
+    const cancel = vi.fn();
+    server.use(spyStream([tok("a") + tok("b")], cancel));
+    const ac = new AbortController();
+    const h = handlers();
+    h.onToken.mockImplementation(() => ac.abort());
+    const err = await streamMessage("c1", { content: "q", viewer: VIEWER }, h, ac.signal).catch((e) => e);
+    expect(h.onToken).toHaveBeenCalledTimes(1);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe("AbortError");
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("a throwing handler rejects and cancels the reader", async () => {
+    const cancel = vi.fn();
+    server.use(spyStream([tok("a")], cancel));
+    const h = handlers();
+    h.onToken.mockImplementation(() => { throw new Error("bad handler"); });
+    await expect(streamMessage("c1", { content: "q", viewer: VIEWER }, h)).rejects.toThrow("bad handler");
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("401, renew ok, retry 401: signIn once and ApiError 401", async () => {
+    server.use(http.post(`${API_BASE}/chats/c1/messages`, () => new HttpResponse(null, { status: 401 })));
+    hooks.renew.mockClear(); hooks.signIn.mockClear();
+    const err = await streamMessage("c1", { content: "q", viewer: VIEWER }, handlers()).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 401 });
+    expect(hooks.renew).toHaveBeenCalledTimes(1);
+    expect(hooks.signIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("401 with failed renew signs in", async () => {
+    server.use(http.post(`${API_BASE}/chats/c1/messages`, () => new HttpResponse(null, { status: 401 })));
+    hooks.renew.mockResolvedValueOnce(false); hooks.signIn.mockClear();
+    await expect(streamMessage("c1", { content: "q", viewer: VIEWER }, handlers())).rejects.toMatchObject({ status: 401 });
+    expect(hooks.signIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores done without a string message_id and citations without an items array", async () => {
+    server.use(http.post(`${API_BASE}/chats/c1/messages`, () =>
+      sse('event: citations\ndata: {"items":5}\n\nevent: done\ndata: {"message_id":7}\n\nevent: done\ndata: {}\n\n')));
+    const h = handlers();
+    await streamMessage("c1", { content: "q", viewer: VIEWER }, h);
+    expect(h.onCitations).not.toHaveBeenCalled();
+    expect(h.onDone).not.toHaveBeenCalled();
+    expect(h.onError).toHaveBeenCalledWith("The answer was cut off.");
+  });
+
+  it("mock: aborting mid-stream saves the assistant message as interrupted with partial content", async () => {
+    const ac = new AbortController();
+    const h = handlers();
+    h.onToken.mockImplementation(() => ac.abort());
+    await streamMessage("c1", { content: "spectral gap hypergraphs", viewer: VIEWER }, h, ac.signal).catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+    const chat = await apiFetch<ChatDetail>("/chats/c1");
+    const last = chat.messages[chat.messages.length - 1];
+    expect(last).toMatchObject({ role: "assistant", status: "interrupted", citations: [] });
+    expect(last.content.length).toBeGreaterThan(0);
   });
 });

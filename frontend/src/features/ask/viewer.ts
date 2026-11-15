@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DocumentDetail } from "@/api/types";
 import type { Viewer } from "@/api/chat";
-import { useReaderStore, type ReaderState } from "@/features/reader/useReaderStore";
+import { getReaderState, type ReaderState } from "@/features/reader/useReaderStore";
 
 const MAX = 3;
 
@@ -22,16 +22,15 @@ export function buildViewer(
   };
 }
 
-/** Live viewer for the current reader tabs; version numbers resolve via the cached ["doc", id] detail. */
-export function useViewer(ignored: string[], selection: Viewer["selection"] = null): Viewer {
-  const reader = useReaderStore();
+/** Returns `getViewer()`: resolves reader tabs and cached version ids at call time (call it when sending). */
+export function useViewer() {
   const qc = useQueryClient();
-  return useMemo(() => {
+  return useCallback((ignored: string[] = [], selection: Viewer["selection"] = null): Viewer => {
     const versionIdOf = (docId: string, version?: number) => {
       const vs = qc.getQueryData<DocumentDetail>(["doc", docId])?.versions;
       const v = version === undefined ? vs?.find((x) => x.is_latest) : vs?.find((x) => x.version === version);
       return v?.id ?? null;
     };
-    return buildViewer(reader, ignored, versionIdOf, selection);
-  }, [reader, ignored, selection, qc]);
+    return buildViewer(getReaderState(), ignored, versionIdOf, selection);
+  }, [qc]);
 }
