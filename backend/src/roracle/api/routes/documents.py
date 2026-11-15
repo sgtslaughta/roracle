@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -64,7 +66,7 @@ def upload(
         )
         doc = Document(
             owner_id=p.user_id,
-            title=title or filename,
+            title=title or None,
             org_unit=p.groups[0] if p.groups else "/",
             visibility=visibility,
         )
@@ -85,3 +87,35 @@ def upload(
         return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
     finally:
         Path(staged.path).unlink(missing_ok=True)
+
+
+class TitleBody(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+
+
+@router.put("/documents/{doc_id}/versions/{version_id}/title")
+def set_title(
+    doc_id: UUID,
+    version_id: UUID,
+    body: TitleBody,
+    p: Annotated[Principal, Depends(current_principal)],
+    session: Annotated[Session, Depends(get_session)],
+) -> dict:
+    row = session.execute(
+        select(DocumentVersion, Document)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(DocumentVersion.id == version_id, Document.id == doc_id, visible_documents(p))
+        .with_for_update(of=DocumentVersion)
+    ).first()
+    if row is None:
+        raise HTTPException(404, "not found")
+    v, doc = row
+    if not (doc.owner_id == p.user_id or p.is_admin):
+        raise HTTPException(403, "only the document owner can set the title")
+    if v.stage != "needs_title":
+        raise HTTPException(409, "not awaiting a title")
+    doc.title = body.title.strip()
+    v.stage = "parsed"
+    enqueue(session, "ingest", {"version_id": str(v.id)})
+    session.commit()
+    return {"version_id": str(v.id), "document_id": str(doc.id), "stage": v.stage}

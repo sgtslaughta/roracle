@@ -57,7 +57,7 @@ class Document(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    title: Mapped[str] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
     org_unit: Mapped[str] = mapped_column(String)
     visibility: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
@@ -70,7 +70,7 @@ class DocumentVersion(Base):
         UniqueConstraint("document_id", "version", name="uq_document_versions_doc_version"),
         CheckConstraint(
             "stage IN ('uploaded','scanned','parsed','summarized','deduped','chunked','embedded',"
-            "'searchable','review','rejected','cancelled')",
+            "'searchable','review','needs_title','rejected','cancelled')",
             name="ck_document_versions_stage",
         ),
     )

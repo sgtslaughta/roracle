@@ -15,11 +15,12 @@ depends_on = None
 
 STAGES = (
     "'uploaded','scanned','parsed','summarized','deduped','chunked','embedded',"
-    "'searchable','review','rejected','cancelled'"
+    "'searchable','review','needs_title','rejected','cancelled'"
 )
 
 
 def upgrade() -> None:
+    op.alter_column("documents", "title", existing_type=sa.String, nullable=True)
     op.add_column("users", sa.Column("groups", postgresql.JSONB, server_default="[]", nullable=False))
     op.add_column("users", sa.Column("is_admin", sa.Boolean, server_default="false", nullable=False))
     t = "document_versions"
@@ -45,5 +46,7 @@ def downgrade() -> None:
         "page_count", "stage",
     ):  # fmt: skip
         op.drop_column(t, c)
+    op.execute("UPDATE documents SET title = '' WHERE title IS NULL")
+    op.alter_column("documents", "title", existing_type=sa.String, nullable=False)
     op.drop_column("users", "is_admin")
     op.drop_column("users", "groups")

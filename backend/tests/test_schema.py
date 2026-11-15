@@ -57,7 +57,7 @@ def test_models_match_migrations(db_session):
         (
             "document_versions",
             {"uploaded", "scanned", "parsed", "summarized", "deduped", "chunked", "embedded", "searchable"}
-            | {"review", "rejected", "cancelled"},
+            | {"review", "needs_title", "rejected", "cancelled"},
         ),
     ],
 )
@@ -102,3 +102,8 @@ def test_ingest_defaults(db_session, document, blob):
 def test_user_defaults(db_session, user):
     db_session.refresh(user)
     assert user.groups == [] and user.is_admin is False
+
+
+def test_document_title_is_nullable(db_session, user):
+    db_session.add(Document(owner_id=user.id, title=None, org_unit="/", visibility="private"))
+    db_session.flush()
