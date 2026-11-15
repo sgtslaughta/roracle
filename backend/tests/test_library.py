@@ -5,7 +5,7 @@ from conftest import bearer
 from elasticsearch import Elasticsearch
 
 from roracle.api.routes.library import get_es, normalize_tag
-from roracle.models import Vote
+from roracle.models import Document, Vote
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -109,6 +109,9 @@ def test_vote_invisible_is_404(client, as_ana, as_bob, up):
         ("  --a__b--  ", "a-b"),
         ("RAG", "rag"),
         ("x" * 40, "x" * 40),
+        ("Größe", "grösse"),
+        ("数学", "数学"),
+        ("naïve", "naïve"),
     ],
 )
 def test_normalize_ok(raw, norm):
@@ -207,3 +210,50 @@ def test_collection_rules(client, as_ana, as_bob, up):
     assert client.put(f"/collections/{uuid.uuid4()}/items/{hidden}", headers=as_bob).status_code == 404
     assert client.post("/collections", headers=as_bob, json={"name": ""}).status_code == 422
     assert client.post("/collections", headers=as_bob, json={"name": "n" * 101}).status_code == 422
+
+
+def test_unicode_normalization_is_stable():
+    for raw in ("Größe", "数学", "naïve", "ＡＢＣ"):
+        n = normalize_tag(raw)
+        assert normalize_tag(n) == n
+    assert normalize_tag("ＡＢＣ") == "abc"
+
+
+def test_tag_cap(client, as_ana, up, fes):
+    d = up(as_ana)
+    for i in range(50):
+        assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": f"t{i}"}).status_code == 200
+    r = client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "extra"})
+    assert r.status_code == 422 and r.json()["detail"] == "too many tags"
+    assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "t3"}).status_code == 200
+
+
+def test_vote_upsert_from_two_sessions(client, as_ana, up, session_factory, db_session):
+    d = up(as_ana)
+    assert _vote(client, as_ana, d, value=-1, reason="wrong").status_code == 200
+    uid = db_session.query(Vote.user_id).scalar()
+    with session_factory() as s2:  # second session upserts the same key
+        from sqlalchemy.dialects.postgresql import insert
+
+        s2.execute(
+            insert(Vote)
+            .values(user_id=uid, document_id=d, value=1)
+            .on_conflict_do_update(
+                index_elements=[Vote.user_id, Vote.document_id], set_={"value": 1, "reason": None}
+            )
+        )
+        s2.commit()
+    db_session.expire_all()
+    assert _vote(client, as_ana, d, value=-1).json() == {"up": 0, "down": 1, "mine": -1}
+    assert db_session.query(Vote).count() == 1
+
+
+def test_remove_item_after_losing_access(client, as_ana, as_bob, up, db_session):
+    d = up(as_ana)
+    c = client.post("/collections", headers=as_bob, json={"name": "x"}).json()["id"]
+    assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).status_code == 200
+    db_session.execute(Document.__table__.update().where(Document.id == d).values(visibility="private"))
+    db_session.flush()
+    assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).status_code == 404
+    r = client.delete(f"/collections/{c}/items/{d}", headers=as_bob)
+    assert r.status_code == 200 and r.json()["count"] == 0

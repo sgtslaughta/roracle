@@ -20,10 +20,10 @@ def upgrade() -> None:
     op.create_table(
         "votes",
         sa.Column("user_id", UUID, sa.ForeignKey("users.id"), primary_key=True),
-        sa.Column("document_id", UUID, sa.ForeignKey("documents.id"), primary_key=True),
+        sa.Column("document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
         sa.Column("value", sa.Integer, nullable=False),
         sa.Column("reason", sa.String),
-        sa.Column("superseded_by", UUID, sa.ForeignKey("documents.id")),
+        sa.Column("superseded_by", UUID, sa.ForeignKey("documents.id", ondelete="SET NULL")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("value IN (-1, 1)", name="ck_votes_value"),
         sa.CheckConstraint(
@@ -34,7 +34,7 @@ def upgrade() -> None:
     op.create_index("ix_votes_document_id", "votes", ["document_id"])
     op.create_table(
         "tags",
-        sa.Column("document_id", UUID, sa.ForeignKey("documents.id"), primary_key=True),
+        sa.Column("document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
         sa.Column("tag", sa.String(40), primary_key=True),
     )
     op.create_table(
@@ -47,7 +47,7 @@ def upgrade() -> None:
     op.create_table(
         "collection_items",
         sa.Column("collection_id", UUID, sa.ForeignKey("collections.id"), primary_key=True),
-        sa.Column("document_id", UUID, sa.ForeignKey("documents.id"), primary_key=True),
+        sa.Column("document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
     )
 
 

@@ -133,17 +133,21 @@ class Vote(Base):
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True, index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
     value: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str | None] = mapped_column(String)
-    superseded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"))
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class Tag(Base):
     __tablename__ = "tags"
 
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
     tag: Mapped[str] = mapped_column(String(40), primary_key=True)
 
 
@@ -159,4 +163,6 @@ class CollectionItem(Base):
     __tablename__ = "collection_items"
 
     collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("collections.id"), primary_key=True)
-    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )

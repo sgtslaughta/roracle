@@ -1,6 +1,7 @@
 """Votes, tags and collections (P3 task 3). Collections stay in PG only (R12)."""
 
 import re
+import unicodedata
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from roracle.models import Collection, CollectionItem, Document, Tag, Vote
 from roracle.search_index import ALIAS
 
 router = APIRouter()
+MAX_TAGS = 50  # R14
 Session_ = Annotated[Session, Depends(get_session)]
 Who = Annotated[Principal, Depends(current_principal)]
 
@@ -31,7 +33,7 @@ def get_es(request: Request) -> Elasticsearch:
 
 
 def normalize_tag(s: str) -> str:
-    t = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    t = re.sub(r"[\W_]+", "-", unicodedata.normalize("NFKC", s).casefold()).strip("-")
     if not 1 <= len(t) <= 40:
         raise ValueError("tag must be 1-40 characters after normalization")
     return t
@@ -107,7 +109,8 @@ def _tags(session: Session, doc_id: UUID) -> list[str]:
     return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
 
 
-def _sync_es(es: Elasticsearch, doc_id: UUID, tags: list[str]) -> None:
+def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
+    tags = _tags(session, doc_id)  # re-read right before the update to shrink the stale window
     try:
         es.update_by_query(
             index=ALIAS,
@@ -118,6 +121,7 @@ def _sync_es(es: Elasticsearch, doc_id: UUID, tags: list[str]) -> None:
         )
     except NotFoundError:  # no index yet (nothing ingested); P2 _index reads tags from PG
         pass
+    return tags
 
 
 @router.post("/documents/{doc_id}/tags")
@@ -125,10 +129,12 @@ def add_tag(
     doc_id: UUID, body: TagBody, p: Who, session: Session_, es: Annotated[Elasticsearch, Depends(get_es)]
 ) -> dict:
     _visible(session, p, doc_id)
+    have = _tags(session, doc_id)
+    if body.tag not in have and len(have) >= MAX_TAGS:
+        raise HTTPException(422, "too many tags")
     session.execute(insert(Tag).values(document_id=doc_id, tag=body.tag).on_conflict_do_nothing())
     session.commit()
-    tags = _tags(session, doc_id)
-    _sync_es(es, doc_id, tags)
+    tags = _sync_es(session, es, doc_id)
     return {"tag": body.tag, "tags": tags}
 
 
@@ -145,8 +151,7 @@ def delete_tag(
         return {"tags": _tags(session, doc_id)}
     session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
     session.commit()
-    tags = _tags(session, doc_id)
-    _sync_es(es, doc_id, tags)
+    tags = _sync_es(session, es, doc_id)
     return {"tags": tags}
 
 

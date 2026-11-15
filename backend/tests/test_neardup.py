@@ -190,3 +190,31 @@ def test_wrong_stage_409(db_session, client, as_ana, stage):
 def test_invalid_action_422(db_session, client, as_ana):
     _, _, ud, mine = _setup(db_session, client, as_ana)
     assert _post(client, as_ana, ud, mine, "bogus").status_code == 422
+
+
+def test_new_version_survives_foreign_library_rows(db_session, client, as_ana):
+    from roracle.models import Collection, CollectionItem, Tag, Vote
+
+    md, _, ud, mine = _setup(db_session, client, as_ana)
+    bob = db_session.scalar(select(User).where(User.sub == "bob"))
+    c = Collection(owner_id=bob.id, name="mine")
+    db_session.add(c)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Tag(document_id=ud.id, tag="x"),
+            Tag(document_id=ud.id, tag="shared"),
+            Tag(document_id=md.id, tag="shared"),
+            CollectionItem(collection_id=c.id, document_id=ud.id),
+            Vote(user_id=bob.id, document_id=ud.id, value=1),
+            Vote(user_id=bob.id, document_id=md.id, value=-1, reason="superseded", superseded_by=ud.id),
+        ]
+    )
+    db_session.flush()
+    r = _post(client, as_ana, ud, mine, "new_version")
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    assert sorted(db_session.scalars(select(Tag.tag).where(Tag.document_id == md.id))) == ["shared", "x"]
+    assert db_session.scalars(select(CollectionItem.document_id)).all() == [md.id]
+    assert db_session.scalar(select(Vote.superseded_by)) is None
+    assert db_session.scalars(select(Vote.document_id)).all() == [md.id]

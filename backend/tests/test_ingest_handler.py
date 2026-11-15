@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -347,3 +347,32 @@ def test_tags_indexed_and_new_version_clears_outdated_reasons(
     mine = db_session.get(Vote, (user.id, v1.document_id))
     assert (mine.value, mine.reason) == (-1, None)
     assert db_session.get(Vote, (user.id, other.document_id)).reason == "outdated"
+
+
+@pytest.mark.integration
+def test_reingest_keeps_votes_cast_after_new_version(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Vote
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    doc = db_session.get(Document, v1.document_id)
+    v2 = make_version(db_session, store, user, doc=doc, version=2)
+    db_session.add(Vote(user_id=user.id, document_id=doc.id, value=-1, reason="outdated"))
+    db_session.commit()
+    db_session.query(DocumentVersion).filter_by(id=v2.id).update(
+        {"created_at": datetime.now(UTC) + timedelta(hours=1)}
+    )
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, doc.id)).reason is None
+    db_session.get(Vote, (user.id, doc.id)).reason = "outdated"  # voted after v2 appeared
+    db_session.query(DocumentVersion).filter_by(id=v2.id).update(
+        {"created_at": datetime.now(UTC) - timedelta(hours=1), "stage": "uploaded"}
+    )
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, doc.id)).reason == "outdated"

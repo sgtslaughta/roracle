@@ -103,12 +103,19 @@ def demote_older_versions(
 
 
 def clear_outdated_reasons(
-    session_factory: sessionmaker[Session], doc_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+    session_factory: sessionmaker[Session],
+    doc_id: UUID,
+    version_id: UUID,
+    *,
+    lock_timeout_s: float = LOCK_TIMEOUT_S,
 ) -> None:
     """A new latest version makes `outdated` downvotes stale: keep the votes, drop the reason (R8)."""
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
-        s.execute(
-            update(Vote).where(Vote.document_id == doc_id, Vote.reason == "outdated").values(reason=None)
+        made = select(DocumentVersion.created_at).where(DocumentVersion.id == version_id).scalar_subquery()
+        s.execute(  # only votes cast before this version: idempotent on re-ingest
+            update(Vote)
+            .where(Vote.document_id == doc_id, Vote.reason == "outdated", Vote.created_at < made)
+            .values(reason=None)
         )
         s.commit()

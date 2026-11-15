@@ -126,7 +126,7 @@ def _index(
         search_index.mark_previous_versions(es, d.id, v.version)
         demote_older_versions(sf, d.id, v.id)
         if v.version > 1:
-            clear_outdated_reasons(sf, d.id)
+            clear_outdated_reasons(sf, d.id, v.id)
     set_stage(sf, v.id, "searchable")
 
 
