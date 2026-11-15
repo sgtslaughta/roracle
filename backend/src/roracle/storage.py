@@ -68,6 +68,10 @@ class BlobStore:
     def get_bytes(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
 
+    def open_key(self, key: str) -> tuple[BinaryIO, int]:
+        r = self.client.get_object(Bucket=self.bucket, Key=key)
+        return r["Body"], r["ContentLength"]
+
     def open(self, sha256: str) -> BinaryIO:
         return self.client.get_object(Bucket=self.bucket, Key=self.key(sha256))["Body"]
 

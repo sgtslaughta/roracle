@@ -18,6 +18,7 @@ from roracle.api.routes.documents import get_blob_store
 from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.ingest.office import rendition_key
 from roracle.models import Document, DocumentVersion, User
 from roracle.search_index import ALIAS, file_type
 from roracle.storage import BlobStore
@@ -156,6 +157,59 @@ def download(
         headers={
             "Content-Disposition": _disposition(kind, v.filename),
             "Content-Length": str(v.size),
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+        },
+    )
+
+
+def _open_pdf(store: BlobStore, v: DocumentVersion):
+    """(body, head, size) of the rendition, else of the original if it is a real PDF; 404 otherwise.
+    Closes the body on every path that does not return it."""
+    try:
+        body, size = store.open_key(rendition_key(v.id))
+    except ClientError as e:
+        if not _missing(e):
+            raise
+        body = None
+    if body is None:
+        try:
+            body, size = store.open_key(store.key(v.blob_sha256))
+        except ClientError as e:
+            if _missing(e):
+                raise HTTPException(404, "not found") from None
+            raise
+        original = True
+    else:
+        original = False
+    try:
+        head = body.read(5)
+        stored_pdf = (v.content_type or "").split(";")[0].strip().lower() == "application/pdf"
+        if head != b"%PDF-" or (original and not (stored_pdf or file_type(v.filename) == "pdf")):
+            raise HTTPException(404, "not found")
+    except BaseException:
+        body.close()
+        raise
+    return body, head, size
+
+
+@router.get("/documents/{doc_id}/versions/{n}/pdf")
+def pdf(
+    doc_id: UUID,
+    n: Annotated[int, Path(le=2**31 - 1)],
+    p: Who,
+    session: Session_,
+    store: Annotated[BlobStore, Depends(get_blob_store)],
+) -> StreamingResponse:
+    v = _version(session, p, doc_id, n)
+    body, head, size = _open_pdf(store, v)
+    stem = v.filename.rsplit(".", 1)[0] if "." in v.filename else v.filename
+    return StreamingResponse(
+        _stream(body, head),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": _disposition("inline", f"{stem}.pdf"),
+            "Content-Length": str(size),
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "sandbox; default-src 'none'",
         },
