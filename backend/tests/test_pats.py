@@ -192,14 +192,8 @@ def test_failed_auth_leaves_last_used_null(client, as_ana, db_session):
     assert db_session.query(PersonalAccessToken).one().last_used_at is None
 
 
-def test_lookup_error_is_401_other_errors_not(client, as_ana, monkeypatch):
+def test_infrastructure_errors_are_not_401(client, as_ana, monkeypatch):
     tok = bearer(mint(client, as_ana)["token"])
-
-    def boom(*a):
-        raise LookupError("x")
-
-    monkeypatch.setattr(pats, "hash_token", boom)
-    assert client.get("/me", headers=tok).status_code == 401
 
     def db_down(*a):
         raise RuntimeError("db down")

@@ -173,7 +173,7 @@ def resolve_principal(
             return pats.principal_from_pat(session, settings, token, session_factory)
         except pats.StaleIdentity:
             raise HTTPException(401, STALE_DETAIL, headers={"WWW-Authenticate": "Bearer"}) from None
-        except (ValueError, LookupError):
+        except ValueError:
             raise _unauthorized() from None
     return _jwt_principal(session, jwks, settings, token)
 
