@@ -15,7 +15,8 @@ from roracle.retrieval import vote_ratio
 
 
 def vote(session: Session, p: Principal, note_id: UUID, value: int) -> dict:
-    get_readable(session, p, note_id)
+    if get_readable(session, p, note_id).author_id == p.user_id:
+        raise HTTPException(422, "cannot vote on your own note")
     if value == 0:
         session.execute(
             delete(AnnotationVote).where(

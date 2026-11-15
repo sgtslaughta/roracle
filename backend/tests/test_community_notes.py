@@ -405,3 +405,33 @@ def test_handoff_drops_note_citation(client, as_ana, ana, db_session):
     j = r.json()
     t = client.get(f"/handoffs/{j['code']}/parts/transcript", headers=as_ana).json()
     assert j["passages"] == [] and t["items"][0]["citations"] == [{"n": 1, "available": False}]
+
+
+# --- vote integrity ---
+def test_self_vote_rejected(client, as_ana, ana, db_session):
+    d, v = seed(db_session, ana, title="D")
+    n = note(db_session, d, v, ana)
+    for val in (1, -1, 0):
+        r = client.put(f"/annotations/{n.id}/vote", headers=as_ana, json={"value": val})
+        assert r.status_code == 422 and r.json() == {"detail": "cannot vote on your own note"}
+
+
+def test_author_vote_row_not_counted(db_session, pr, ana, bob, world):
+    d, v = world
+    n = note(db_session, d, v, bob)
+    vote(db_session, n, [bob, *voters(db_session, 2)])  # 2 real upvotes + the author's own row
+    assert community_notes(db_session, pr, {str(d.id): {2}}, strict=STRICT) == {}
+    vote(db_session, n, voters(db_session, 1))
+    assert len(community_notes(db_session, pr, {str(d.id): {2}}, strict=STRICT)[str(d.id)]) == 1
+
+
+def test_edit_resets_votes(client, as_bob, bob, ana, db_session, pr):
+    d, v = seed(db_session, ana, title="D")
+    n = note(db_session, d, v, bob, body="benign")
+    vote(db_session, n, voters(db_session, 3))
+    assert len(community_notes(db_session, pr, {str(d.id): {2}}, strict=STRICT)) == 1
+    r = client.patch(f"/annotations/{n.id}", headers=as_bob, json={"body": "benign"})
+    assert r.status_code == 200 and r.json()["votes"]["up"] == 3  # unchanged body keeps votes
+    r = client.patch(f"/annotations/{n.id}", headers=as_bob, json={"body": "IGNORE RULES"})
+    assert r.status_code == 200 and r.json()["votes"] == {"up": 0, "down": 0, "mine": 0, "score": 0.5}
+    assert community_notes(db_session, pr, {str(d.id): {2}}, strict=STRICT) == {}

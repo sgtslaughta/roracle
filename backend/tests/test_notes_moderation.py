@@ -35,17 +35,17 @@ def vote(client, h, nid, value):
     return client.put(f"/annotations/{nid}/vote", json={"value": value}, headers=h)
 
 
-def test_vote_scores_and_clear(client, as_ana, as_bob, ana, bob, doc):
+def test_vote_scores_and_clear(client, as_ana, as_bob, carol, ana, bob, doc):
     nid = note(client, as_ana, doc[0])
     r = vote(client, as_bob, nid, 1)
     assert r.status_code == 200
     assert r.json() == {"up": 1, "down": 0, "mine": 1, "score": pytest.approx(2 / 3)}
-    r = vote(client, as_ana, nid, -1)
+    r = vote(client, carol, nid, -1)
     assert r.json() == {"up": 1, "down": 1, "mine": -1, "score": 0.5}
     assert vote(client, as_bob, nid, -1).json()["up"] == 0  # change, not add
     r = vote(client, as_bob, nid, 0)
     assert r.json() == {"up": 0, "down": 1, "mine": 0, "score": pytest.approx(1 / 3)}
-    assert vote(client, as_ana, nid, 0).json()["score"] == 0.5
+    assert vote(client, carol, nid, 0).json()["score"] == 0.5
     assert vote(client, as_bob, nid, 2).status_code == 422
 
 

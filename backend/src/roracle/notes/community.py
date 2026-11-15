@@ -57,6 +57,8 @@ def community_notes(
     down = func.coalesce(func.sum(case((AnnotationVote.value == -1, 1), else_=0)), 0)
     votes = (
         select(AnnotationVote.annotation_id.label("aid"), up.label("up"), down.label("down"))
+        .join(Annotation, Annotation.id == AnnotationVote.annotation_id)
+        .where(AnnotationVote.user_id != Annotation.author_id)  # self-votes never count
         .group_by(AnnotationVote.annotation_id)
         .subquery()
     )

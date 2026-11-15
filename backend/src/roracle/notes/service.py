@@ -4,6 +4,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -130,8 +131,11 @@ def patch(session: Session, p: Principal, note_id: UUID, body: NotePatch) -> Ann
     n = _own(session, p, note_id)
     if n.parent_id is not None and (body.visibility is not None or body.shares is not None):
         raise HTTPException(422, "replies follow their thread's visibility")
-    if body.body is not None:
+    if body.body is not None and body.body != n.body:
         n.body = body.body
+        session.execute(
+            sa_delete(AnnotationVote).where(AnnotationVote.annotation_id == n.id)
+        )  # votes endorsed old text
     vis = body.visibility or n.visibility
     if body.visibility is not None:
         n.visibility = vis
