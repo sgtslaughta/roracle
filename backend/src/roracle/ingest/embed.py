@@ -14,8 +14,14 @@ def query_prompt(q: str) -> str:
 def embed(client, model: str, texts: list[str], dims: int, batch: int = 32) -> list[list[float]]:
     out: list[list[float]] = []
     for i in range(0, len(texts), batch):
-        resp = client.embeddings.create(model=model, input=texts[i : i + batch])
-        for d in resp.data:
+        part = texts[i : i + batch]
+        resp = client.embeddings.create(model=model, input=part)
+        data = resp.data
+        if len(data) != len(part):
+            raise RuntimeError("embedding response count mismatch")
+        if all(getattr(d, "index", None) is not None for d in data):
+            data = sorted(data, key=lambda d: d.index)
+        for d in data:
             if len(d.embedding) != dims:
                 raise NonRetryable("embedding dimension mismatch")
             out.append(list(d.embedding))

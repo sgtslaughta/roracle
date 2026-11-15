@@ -16,9 +16,10 @@ def _big_doc() -> dict:
     for p in range(1, 4):
         doc.add_page(page_no=p, size=Size(width=612, height=792))
     for p in range(1, 4):
-        doc.add_heading(f"Section {p}", level=1)
+        h = doc.add_heading(f"Section {p}", level=1)
         for i in range(25):
             doc.add_text(
+                parent=h,
                 label=DocItemLabel.TEXT,
                 text=f"Paragraph {i} of section {p} discusses retrieval of research notes. " * 4,
                 prov=ProvenanceItem(
@@ -48,8 +49,22 @@ def test_large_doc_token_cap_and_multi_chunks():
     tk = _chunker(TOK, 480).tokenizer
     assert all(tk.count_tokens(c.contextual) <= 480 for c in chunks)
     assert {p for c in chunks for p in c.pages} == {1, 2, 3}
-    assert any(c.headings for c in chunks)
+    for c in chunks:
+        sec = int(c.headings[0].split()[1])
+        assert c.headings == [f"Section {sec}"]
+        assert c.contextual.startswith(f"Section {sec}")
+        assert c.pages == [sec]
 
 
 def test_chunker_cached():
     assert _chunker(TOK, 480) is _chunker(TOK, 480)
+
+
+def test_blank_chunks_skipped():
+    doc = DoclingDocument(name="b")
+    doc.add_page(page_no=1, size=Size(width=612, height=792))
+    for t in ["Real text here.", "   ", ""]:
+        doc.add_text(label=DocItemLabel.TEXT, text=t)
+    chunks = chunk(doc.export_to_dict(), "T", TOK)
+    assert [c.n for c in chunks] == list(range(len(chunks)))
+    assert chunks and all(c.text.strip() for c in chunks)

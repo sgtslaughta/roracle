@@ -27,6 +27,24 @@ def test_batches_and_order():
     assert [v[0] for v in out] == [float(i) for i in range(70)]
 
 
+def test_empty_input():
+    c = Fake()
+    assert embed(c, "m", [], 4) == []
+    assert c.calls == []
+
+
+def test_count_mismatch():
+    c = NS(embeddings=NS(create=lambda **k: NS(data=[NS(embedding=[1.0] * 4)])))
+    with pytest.raises(RuntimeError, match="count mismatch"):
+        embed(c, "m", ["a", "b"], 4)
+
+
+def test_index_realigned():
+    data = [NS(index=1, embedding=[2.0] * 4), NS(index=0, embedding=[1.0] * 4)]
+    c = NS(embeddings=NS(create=lambda **k: NS(data=data)))
+    assert [v[0] for v in embed(c, "m", ["a", "b"], 4)] == [1.0, 2.0]
+
+
 def test_dim_mismatch():
     with pytest.raises(NonRetryable, match="embedding dimension mismatch"):
         embed(Fake(3), "m", ["1"], 4)
