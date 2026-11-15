@@ -23,6 +23,7 @@ from roracle.api.routes import (
     me,
     near_dup,
     proposals,
+    notifications,
     search,
     tokens,
 )
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(me.router)
+    app.include_router(notifications.router)
     app.include_router(tokens.router)
     app.include_router(handoffs.router)
     app.include_router(documents.router)

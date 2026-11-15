@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import exists, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from roracle import notify
 from roracle.models import Document, DocumentVersion, Vote
 from roracle.queue import enqueue
 
@@ -146,4 +147,13 @@ def mark_searchable_and_enqueue(
         if res.rowcount == 0:
             raise LookupError(f"document version {version_id} not found")
         enqueue(s, "citations", {"version_id": str(version_id)})
+        v = s.get(DocumentVersion, version_id)
+        d = s.get(Document, v.document_id)
+        if d.connector_id is None:
+            notify.emit(
+                s,
+                d.owner_id,
+                "upload.searchable",
+                {"document_id": str(d.id), "version_id": str(v.id), "filename": v.filename, "title": d.title},
+            )
         s.commit()
