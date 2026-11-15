@@ -137,11 +137,11 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
   - **Connect-time IP vetting.** Name resolution happens once, inside the socket connect: every address the
     name resolves to is checked (one bad address blocks the host: fail closed) and the connection goes to a
     vetted IP literal. There is no separate pre-check lookup, so DNS rebinding cannot swap the address. TLS
-    still verifies the certificate against the URL host. Encodings such as `0x7f.1`, decimal IPs, IPv4-mapped
-    (`::ffff:a.b.c.d`), 6to4, Teredo and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) forms must pass twice: the wrapped IPv4 (public or allowlisted, never-list always applies) and the wrapper
-    itself (public by default only for `64:ff9b::/96` and mapped public IPv4; 6to4, Teredo, `64:ff9b:1::/48` and `::/96` need
-    an allowlist CIDR covering the wrapper). Admins who allowlist a non-public v4 range must also allowlist the
-    v6-mapped form if their resolver returns it (e.g. `10.0.0.0/8` plus `::ffff:10.0.0.0/104`).
+    still verifies the certificate against the URL host. Encodings such as `0x7f.1` and decimal IPs are judged on the resolved
+    address. IPv6 forms that embed or translate IPv4 (mapped `::ffff:0:0/96`, `::/96`, NAT64 `64:ff9b::/96` and
+    `64:ff9b:1::/48`, 6to4, Teredo) are never decoded or trusted by default: they are blocked unless an
+    allowlist CIDR covers them explicitly (the IPv4 inside a mapped address is additionally held to the
+    never-list). NAT64-only networks must allowlist the translator prefix (e.g. `64:ff9b::/96`).
   - Anything not globally routable (private, loopback, CGNAT, ULA, reserved) is blocked unless inside an
     explicit `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` entry (for air-gapped internal crawling; empty by default).
     Link-local (incl. `169.254.169.254` metadata), multicast, unspecified and the other known metadata

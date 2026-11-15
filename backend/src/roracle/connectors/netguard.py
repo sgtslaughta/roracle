@@ -55,61 +55,39 @@ NEVER = [
 _deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar("fetch_deadline", default=None)
 
 
-def _embedded_v4(
-    ip: ipaddress.IPv6Address,
-) -> tuple[str, list[ipaddress.IPv4Address], list[ipaddress.IPv4Address]] | None:
-    """(kind, IPv4s that must pass, IPv4s that only get the never-list) for IPv6 forms embedding an IPv4."""
-    if ip.ipv4_mapped:
-        return "mapped", [ip.ipv4_mapped], []
-    if ip.sixtofour:
-        return "6to4", [ip.sixtofour], []
-    if ip.teredo:
-        return "teredo", [ip.teredo[1]], []  # the client address
-    if ip in (ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1")):
-        return None
-    p = ip.packed
-    if p[:12] == bytes.fromhex("0064ff9b0000000000000000"):
-        return "nat64", [ipaddress.IPv4Address(p[12:])], []
-    if p[:6] == bytes.fromhex("0064ff9b0001"):  # local-use NAT64: the RFC 6052 layouts are ambiguous
-        layouts = (p[4:8], p[5:8] + p[9:10], p[6:8] + p[9:11], p[7:8] + p[9:12], p[9:13], p[12:16], p[8:12])
-        cands = [ipaddress.IPv4Address(x) for x in layouts]
-        return "local64", [cands[2]] + ([cands[5]] if p[12:16] != bytes(4) else []), cands
-    if p[:12] == bytes(12):
-        return "compat", [ipaddress.IPv4Address(p[12:])], []  # deprecated IPv4-compatible ::/96
-    return None
+BLOCKED6 = [
+    ipaddress.ip_network(n)
+    for n in (
+        "::/96", "::ffff:0:0/96", "::ffff:0:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "2002::/16",
+        "2001::/32", "100::/64", "fc00::/7", "fe80::/10", "ff00::/8", "::1/128",
+    )
+]  # fmt: skip
 
 
-def _never(a: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+def _always(a: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return a.is_link_local or a.is_multicast or a.is_unspecified or any(a in n for n in NEVER)
+
+
+def check_ip(ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> None:
+    """Raise Blocked unless `ip` may be dialled (fail closed, no decoding of embedded IPv4 except the
+    kernel-dialled IPv4-mapped form). Never allowed, allowlist or not (R10): link-local, multicast,
+    unspecified, known metadata addresses, and the IPv4 inside a mapped address. Otherwise: globally
+    routable (IPv6 additionally outside BLOCKED6: mapped, NAT64, 6to4, Teredo, ULA, ...) or inside an
+    allowlisted CIDR. Translator/tunnel prefixes therefore need an explicit allowlist entry."""
+    addr = ipaddress.ip_address(ip.split("%")[0] if isinstance(ip, str) else ip)  # drop IPv6 zone id
+    mapped = addr.ipv4_mapped if isinstance(addr, ipaddress.IPv6Address) else None
+    if _always(addr) or (mapped is not None and _always(mapped)):
+        raise Blocked(f"address {addr} is never allowed")
+    if isinstance(addr, ipaddress.IPv6Address):
+        ok = (addr.is_global and not any(addr in n for n in BLOCKED6)) or _listed(addr, allow_cidrs)
+    else:
+        ok = addr.is_global or _listed(addr, allow_cidrs)
+    if not ok:
+        raise Blocked(f"address {addr} is not publicly routable and not in ROR_CONNECTOR_HTTP_ALLOW_CIDRS")
 
 
 def _listed(a: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> bool:
     return any(a in ipaddress.ip_network(c, strict=False) for c in allow_cidrs)
-
-
-def check_ip(ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidrs: list[str]) -> None:
-    """Raise Blocked unless `ip` may be dialled. Never allowed (even inside an allowlisted CIDR): link-local,
-    multicast, unspecified and known metadata addresses (R10), checked on the address and on any IPv4 it
-    wraps. Plain addresses must be globally routable or allowlisted. An IPv6 that embeds an IPv4 (mapped,
-    NAT64, 6to4, Teredo, ::/96) must pass twice: the wrapped IPv4 (global or allowlisted) AND the wrapper
-    itself. The wrapper passes by default only for 64:ff9b::/96 and for mapped addresses of a global IPv4;
-    6to4, Teredo, local-use NAT64 and ::/96 need an allowlist CIDR covering the wrapper."""
-    addr = ipaddress.ip_address(ip.split("%")[0] if isinstance(ip, str) else ip)  # drop IPv6 zone id
-    emb = _embedded_v4(addr) if isinstance(addr, ipaddress.IPv6Address) else None
-    inners = emb[1] if emb else []
-    if _never(addr) or any(_never(i) for i in inners):
-        raise Blocked(f"address {addr} is never allowed")
-    if emb and any(_never(i) for i in emb[2] if not i.is_unspecified):
-        raise Blocked(f"address {addr} is never allowed")
-    if emb is None:
-        ok = addr.is_global or _listed(addr, allow_cidrs)
-    else:
-        outer = (
-            emb[0] == "nat64" or (emb[0] == "mapped" and inners[0].is_global) or _listed(addr, allow_cidrs)
-        )
-        ok = outer and all(i.is_global or _listed(i, allow_cidrs) for i in inners)
-    if not ok:
-        raise Blocked(f"address {addr} is not publicly routable and not in ROR_CONNECTOR_HTTP_ALLOW_CIDRS")
 
 
 def _clamp(timeout: float | None, exc: type[Exception]) -> float | None:
