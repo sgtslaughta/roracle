@@ -226,3 +226,32 @@ def test_filtered_query_embeds_once(client, as_ana, ana, db_session, fes, monkey
     monkeypatch.setattr("roracle.retrieval.embed", counting)
     assert get(client, as_ana, q="alpha", year=[2021]).json()["total"] == 1
     assert len(n) == 1
+
+
+@pytest.mark.parametrize("params", [{"author": ["Zed"]}, {"file_type": ["docx"]}, {"file_type": ["other"]}])
+def test_browse_filters_keep_limit(client, as_ana, ana, db_session, fes, monkeypatch, params):
+    seed(db_session, ana, title="Z", authors=("Zed",), filename="z.docx")
+    seed(db_session, ana, title="N", authors=("Ann",), filename="noext")
+    limits = []
+    real = search_mod._load
+
+    def spy(*a, **k):
+        limits.append(a[4] if len(a) > 4 else k.get("limit"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(search_mod, "_load", spy)
+    get(client, as_ana, **params)
+    assert limits[0] == search_mod.MAX_DOCS
+
+
+def test_browse_author_file_type_sql_semantics(client, as_ana, ana, db_session, fes):
+    seed(db_session, ana, title="A", authors=("Ann", "Bo"), filename="a.PDF")
+    seed(db_session, ana, title="B", authors=("Cy",), filename="b.pdf.docx")
+    seed(db_session, ana, title="C", authors=("Bo",), filename="c.toolongext1")
+    t = lambda **p: sorted(x["title"] for x in get(client, as_ana, **p).json()["results"])
+    assert t(author=["Bo"]) == ["A", "C"]
+    assert t(author=["Bo", "Cy"]) == ["A", "B", "C"]
+    assert t(file_type=["pdf"]) == ["A"]
+    assert t(file_type=["pdf", "docx"]) == ["A", "B"]
+    assert t(file_type=["other"]) == ["C"]
+    assert t(author=["Bo"], file_type=["pdf"]) == ["A"]

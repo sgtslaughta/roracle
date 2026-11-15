@@ -1,5 +1,6 @@
 """GET /search: hybrid query path or Postgres browse path (R15), ACL-filtered disjunctive facets (R17), sorts, paging."""
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
@@ -7,7 +8,8 @@ from uuid import UUID
 
 from elasticsearch import Elasticsearch, NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, exists, func, select
+from sqlalchemy import and_, case, exists, false, func, or_, select
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.orm import Session
 
 from roracle import clients
@@ -81,6 +83,19 @@ def _votes(session: Session, ids: list[UUID], uid: UUID) -> dict[str, tuple[int,
     return {str(d): (u, n, m) for d, u, n, m in rows}
 
 
+def _file_type_clause(want: set[str]):
+    """SQL twin of search_index.file_type: lowercase extension of 1-8 [a-z0-9] chars, else "other"."""
+    name = func.lower(DocumentVersion.filename)
+    ext = r"\.[a-z0-9]{1,8}$"
+    exts = sorted(w for w in want if w != "other" and re.fullmatch(r"[a-z0-9]{1,8}", w))
+    parts = []
+    if exts:
+        parts.append(name.op("~")(r"\.(" + "|".join(exts) + ")$"))
+    if "other" in want:
+        parts.append(~name.op("~")(ext))
+    return or_(*parts) if parts else false()
+
+
 def _load(
     session: Session,
     p: Principal,
@@ -90,8 +105,7 @@ def _load(
 ) -> list[Row]:
     """Visible documents with a searchable latest version, newest first, enriched from Postgres.
 
-    `wanted` pushes year/org_unit/tags/collection down to SQL (author/file_type stay in Python,
-    so callers must not pass `limit` together with those)."""
+    `wanted` pushes every facet filter down to SQL, so `limit` is always safe."""
     stmt = (
         select(Document, DocumentVersion)
         .join(
@@ -116,6 +130,10 @@ def _load(
             stmt = stmt.where(Document.org_unit.in_(want))
         elif name == "tags":
             stmt = stmt.where(exists().where(Tag.document_id == Document.id, Tag.tag.in_(want)))
+        elif name == "author":
+            stmt = stmt.where(DocumentVersion.meta["authors"].has_any(array(sorted(want))))
+        elif name == "file_type":
+            stmt = stmt.where(_file_type_clause(want))
         elif name == "collection":
             stmt = stmt.where(
                 Document.id.in_(
@@ -324,8 +342,7 @@ def search(
             raise HTTPException(422, str(e)) from None
         rows = [r for r in rows if _keep(r, wanted)]
     else:
-        py_only = bool(wanted.get("author") or wanted.get("file_type"))
-        rows = _load(session, p, None, wanted, None if py_only else MAX_DOCS)
+        rows = _load(session, p, None, wanted, MAX_DOCS)
         rows = [r for r in rows if _keep(r, wanted)]
         universe = _load(session, p, None, None, MAX_DOCS) if filtered else rows
     seen = {r.doc.id for r in universe}
