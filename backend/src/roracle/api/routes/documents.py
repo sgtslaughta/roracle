@@ -56,7 +56,7 @@ def upload(
         filename = file.filename or "upload"
         content_type = file.content_type or "application/octet-stream"
         # ponytail: object written before DB commit can orphan on DB failure; a P2 GC job deletes blob objects without a blobs row
-        store.put_if_absent(staged, content_type)
+        store.put(staged, content_type)
         session.execute(
             insert(Blob)
             .values(sha256=staged.sha256, size=staged.size)

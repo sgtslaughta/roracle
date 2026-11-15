@@ -7,7 +7,6 @@ from typing import BinaryIO
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
 
 
 class TooLarge(Exception):
@@ -54,21 +53,14 @@ class BlobStore:
     def key(self, sha256: str) -> str:
         return f"blobs/{sha256[:2]}/{sha256}"
 
-    def put_if_absent(self, staged: StagedFile, content_type: str) -> bool:
-        key = self.key(staged.sha256)
-        try:
-            self.client.head_object(Bucket=self.bucket, Key=key)
-            return False
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("404", "NoSuchKey", "NotFound"):
-                raise
+    def put(self, staged: StagedFile, content_type: str) -> None:
+        # ponytail: always PUT; costs bandwidth on duplicates, accepted to avoid an existence oracle (timing).
         self.client.upload_file(
             str(staged.path),
             self.bucket,
-            key,
+            self.key(staged.sha256),
             ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": staged.sha256}},
         )
-        return True
 
     def open(self, sha256: str) -> BinaryIO:
         return self.client.get_object(Bucket=self.bucket, Key=self.key(sha256))["Body"]

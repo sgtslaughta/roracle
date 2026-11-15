@@ -48,8 +48,9 @@ def test_key_is_content_addressed(store):
     assert store.key("ab" + "0" * 62) == "blobs/ab/ab" + "0" * 62
 
 
-def test_put_if_absent_uploads_once(store, staged, s3):
-    assert store.put_if_absent(staged, "application/pdf") is True
-    assert store.put_if_absent(staged, "application/pdf") is False
+def test_put_twice_is_idempotent(store, staged, s3):
+    store.put(staged, "application/pdf")
+    store.put(staged, "application/pdf")
     assert store.open(staged.sha256).read() == staged.path.read_bytes()
     assert s3.exists(store.key(staged.sha256))
+    assert s3.keys().count(store.key(staged.sha256)) == 1
