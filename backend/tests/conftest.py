@@ -4,6 +4,7 @@ import time
 import uuid
 from pathlib import Path
 
+import boto3
 import jwt
 import pytest
 from alembic import command
@@ -17,6 +18,7 @@ from roracle.auth import JwksCache, get_jwks
 from roracle.config import Settings
 from roracle.db import get_session, make_session_factory
 from roracle.models import Base, Blob, Document, User
+from roracle.storage import BlobStore, stage
 
 REPO_ROOT = Path(__file__).parents[2]
 BACKEND_ROOT = Path(__file__).parents[1]
@@ -184,3 +186,61 @@ def as_ana(make_token):
 @pytest.fixture
 def as_bob(make_token):
     return bearer(make_token(sub="bob", username="bob", groups=("/Physics",)))
+
+
+class S3Helper:
+    def __init__(self, client, bucket):
+        self.client, self.bucket = client, bucket
+
+    def exists(self, key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except self.client.exceptions.ClientError:
+            return False
+
+    def keys(self) -> list[str]:
+        pages = self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket)
+        return [o["Key"] for p in pages for o in p.get("Contents", [])]
+
+
+@pytest.fixture(scope="session")
+def s3_client(settings):
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name="us-east-1",
+        config=boto3.session.Config(s3={"addressing_style": "path"}),
+    )
+
+
+@pytest.fixture(scope="session")
+def test_bucket(s3_client):
+    name = f"roracle-test-{uuid.uuid4().hex[:8]}"
+    s3_client.create_bucket(Bucket=name)
+    yield name
+    helper = S3Helper(s3_client, name)
+    for key in helper.keys():  # noqa: SIM118
+        s3_client.delete_object(Bucket=name, Key=key)
+    s3_client.delete_bucket(Bucket=name)
+
+
+@pytest.fixture
+def store(s3_client, test_bucket):
+    return BlobStore(s3_client, test_bucket)
+
+
+@pytest.fixture
+def s3(s3_client, test_bucket):
+    return S3Helper(s3_client, test_bucket)
+
+
+@pytest.fixture
+def staged():
+    import io
+
+    s = stage(io.BytesIO(uuid.uuid4().bytes * 4), max_bytes=1024)
+    yield s
+    s.path.unlink(missing_ok=True)
