@@ -1,15 +1,15 @@
 """mcp handoff
 
-Revision ID: 0006
-Revises: 0005
+Revision ID: 0007
+Revises: 0006_p2b
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0006"
-down_revision = "0005"
+revision = "0007"
+down_revision = "0006_p2b"
 branch_labels = None
 depends_on = None
 
