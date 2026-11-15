@@ -2,6 +2,7 @@ import { Bell, Command, Moon, Search, Sun, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { cycleTheme, getTheme, type Theme } from "@/lib/theme";
+import { openPalette } from "@/features/palette/usePalette";
 import { GlobalSearch } from "./GlobalSearch";
 
 const THEME_ICON = { system: SunMoon, light: Sun, dark: Moon } as const;
@@ -17,7 +18,7 @@ export function TopBar() {
       </div>
       <GlobalSearch icon={<Search aria-hidden />} />
       <div className="tact">
-        <button className="icon-btn" aria-label="Command menu" title="Command menu (Ctrl K)">
+        <button className="icon-btn" aria-label="Command menu" title="Command menu (Ctrl K)" onClick={openPalette}>
           <Command aria-hidden />
         </button>
         <button

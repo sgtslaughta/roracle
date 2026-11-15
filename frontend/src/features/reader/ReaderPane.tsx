@@ -1,9 +1,11 @@
 import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquareQuote, Quote } from "lucide-react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoteControl } from "@/features/library/VoteControl";
+import { addRecent } from "@/features/palette/recent";
 import { useCitedBy, useDoc, useReferences } from "./api";
 import { PdfView } from "./PdfView";
 import { CitedByTab, NotesTab, ReferencesTab } from "./ReferencesTab";
@@ -14,6 +16,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const { data: d, isError } = useDoc(tab.docId);
   const refs = useReferences(tab.docId).data;
   const cited = useCitedBy(tab.docId).data;
+
+  useEffect(() => { if (d) addRecent({ id: d.id, title: d.title }); }, [d?.id, d?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isError) return <div className="empty" role="alert"><p>This document isn't available. You may need to request access from its owner.</p></div>;
   if (!d) return <div className="rhead"><p className="sub" role="status">Loading…</p></div>;

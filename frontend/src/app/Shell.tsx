@@ -6,10 +6,13 @@ import { TopBar } from "./TopBar";
 import { ReaderHost } from "./ReaderHost";
 import { useReaderStore } from "@/features/reader/useReaderStore";
 import { cn } from "@/lib/utils";
+import { CommandPalette } from "@/features/palette/CommandPalette";
+import { useGlobalKeys } from "@/lib/keys";
 
 export function Shell() {
   const { tabs, focus } = useReaderStore();
   const reading = tabs.length > 0;
+  useGlobalKeys();
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn("app", reading && "reading")} id="app" data-focus={focus}>
@@ -20,6 +23,7 @@ export function Shell() {
         </main>
         <ReaderHost />
       </div>
+      <CommandPalette />
       <Toaster />
     </TooltipProvider>
   );
