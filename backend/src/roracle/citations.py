@@ -34,7 +34,7 @@ def norm_doi(s) -> str:
 def _year(y) -> int | None:
     try:
         return int(float(str(y).strip()))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 

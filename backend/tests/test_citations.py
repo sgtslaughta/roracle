@@ -183,8 +183,13 @@ def test_tied_candidates_not_linked(db_session, ana):
 
 
 def test_doi_normalisation_and_oldest_wins(db_session, ana):
+    from datetime import UTC, datetime, timedelta
+
     old, _ = lib(db_session, ana, "First", doi="10.5/x")
-    lib(db_session, ana, "Second", doi="https://doi.org/10.5/X")
+    new, _ = lib(db_session, ana, "Second", doi="https://doi.org/10.5/X")
+    now = datetime.now(UTC)  # server_default now() ties inside one transaction: set explicitly
+    old.created_at, new.created_at = now - timedelta(hours=1), now
+    db_session.flush()
     _, v = citing(db_session, ana, [{"doi": "https://www.doi.org/10.5%2Fx)."}])
     assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [old.id]
 
