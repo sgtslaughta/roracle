@@ -139,7 +139,9 @@ class Vote(Base):
     )
     value: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str | None] = mapped_column(String)
-    superseded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
@@ -165,7 +167,7 @@ class CollectionItem(Base):
 
     collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("collections.id"), primary_key=True)
     document_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
     )
 
 

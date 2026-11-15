@@ -107,3 +107,11 @@ def test_user_defaults(db_session, user):
 def test_document_title_is_nullable(db_session, user):
     db_session.add(Document(owner_id=user.id, title=None, org_unit="/", visibility="private"))
     db_session.flush()
+
+
+def test_fk_lookup_indexes_exist(db_session):
+    from sqlalchemy import inspect
+
+    insp = inspect(db_session.connection())
+    for table, col in (("collection_items", "document_id"), ("votes", "superseded_by")):
+        assert any(i["column_names"] == [col] for i in insp.get_indexes(table)), (table, col)

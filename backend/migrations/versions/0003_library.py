@@ -32,6 +32,7 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_votes_document_id", "votes", ["document_id"])
+    op.create_index("ix_votes_superseded_by", "votes", ["superseded_by"])
     op.create_table(
         "tags",
         sa.Column("document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
@@ -49,6 +50,7 @@ def upgrade() -> None:
         sa.Column("collection_id", UUID, sa.ForeignKey("collections.id"), primary_key=True),
         sa.Column("document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
     )
+    op.create_index("ix_collection_items_document_id", "collection_items", ["document_id"])
 
 
 def downgrade() -> None:
