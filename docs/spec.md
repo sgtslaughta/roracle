@@ -220,3 +220,4 @@ mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one Sem
 | 9 | Writing | Profiles, drafts, validate/check_citations, pandoc + latex-builder, submit/review |
 | 10 | Connectors & admin | S3/fs/HTTP connectors, admin section, notifications |
 | 11 | Production | Helm, HA, observability, backups, hardening, load tests against latency targets |
+| 12 | Documentation | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
