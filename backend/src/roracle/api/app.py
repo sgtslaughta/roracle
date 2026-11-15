@@ -15,6 +15,7 @@ from roracle.api.routes import (
     documents,
     documents_read,
     documents_write,
+    evidence,
     export,
     handoffs,
     health,
@@ -54,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(library.router)
     app.include_router(annotations.router)
     app.include_router(proposals.router)
+    app.include_router(evidence.router)
     app.include_router(export.router)
     app.include_router(documents_read.router)
     app.include_router(documents_write.router)

@@ -7,6 +7,7 @@ from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.db import make_session_factory
 from roracle.ingest import handle_ingest
+from roracle.notes.evidence import handle_evidence_scan
 from roracle.queue import Handler, run_forever
 from roracle.storage import blob_store_from
 
@@ -25,6 +26,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             session_factory=session_factory,
         ),
         "citations": handle_citations,
+        "evidence_scan": partial(handle_evidence_scan, settings=settings, store=blob_store_from(settings)),
         "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
     }
 
