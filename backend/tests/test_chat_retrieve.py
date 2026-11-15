@@ -183,6 +183,33 @@ def test_tab_second_search_adds_candidates(db_session, settings, me, other, call
     assert calls[1][1]["doc_ids"] == [str(docs[2][0].id)]
 
 
+def test_question_embedded_once_with_tabs(db_session, settings, me, other, calls):
+    docs = [seed(db_session, other.id, title=f"D{i}") for i in range(2)]
+    es = FakeES([hit(d, v) for d, v in docs])
+    n = []
+    llm = FakeLLM()
+    llm.embeddings = SimpleNamespace(
+        create=lambda model, input: (
+            n.append(1) or SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[0.1] * 768)])
+        )
+    )
+    retrieve_for_chat(
+        db_session,
+        es,
+        llm,
+        settings,
+        me,
+        "alpha",
+        Viewer(tabs=[Tab(doc_id=str(docs[1][0].id))]),
+        "all",
+        [],
+        [],
+        None,
+    )
+    assert len(calls) == 2 and len(n) == 1
+    assert all(kw["qvec"] == [0.1] * 768 for _, kw in calls)
+
+
 def test_pin_forces_inclusion(db_session, settings, me, other):
     docs = [seed(db_session, other.id, title=f"D{i}") for i in range(8)]
     es = FakeES([hit(d, v) for d, v in docs])

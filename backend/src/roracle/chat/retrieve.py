@@ -16,7 +16,7 @@ from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.models import Document, DocumentVersion
-from roracle.retrieval import Passage, search_chunks
+from roracle.retrieval import Passage, embed_query, search_chunks
 
 MAX_CHARS = 1200
 MIN_K, MAX_K = 4, 12
@@ -96,7 +96,7 @@ def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
     return bool(_live(session, p, {i for i in ids if i}))
 
 
-def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int):
+def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec):
     try:
         return search_chunks(
             es,
@@ -107,6 +107,7 @@ def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str
             filters={},
             doc_ids=doc_ids,
             size=size,
+            qvec=qvec,
             min_similarity=settings.chat_min_similarity or None,
         )
     except NotFoundError:  # nothing ingested yet: no index
@@ -182,8 +183,11 @@ def retrieve_for_chat(
 
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
-        main = _search(es, llm, settings, p, question, scoped, 50)
-        tab = _search(es, llm, settings, p, question, tab_ids, 20) if tab_ids and scope != "open" else []
+        qvec = embed_query(llm, settings, question)  # embed once per turn
+        main = _search(es, llm, settings, p, question, scoped, 50, qvec)
+        tab = (
+            _search(es, llm, settings, p, question, tab_ids, 20, qvec) if tab_ids and scope != "open" else []
+        )
         found = _merge(main, tab)
 
     sel = viewer.selection
