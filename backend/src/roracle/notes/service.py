@@ -20,6 +20,7 @@ from roracle.models import (
 )
 from roracle.notes.access import doc_readable, get_readable
 from roracle.notes.schemas import NoteIn, NotePatch, ReplyIn, Share
+from roracle.notify import emit
 from roracle.retrieval import vote_ratio
 
 NOT_FOUND = HTTPException(404, "not found")
@@ -96,6 +97,9 @@ def create(
         _set_shares(session, n, body.shares)
     session.flush()
     session.refresh(n)
+    owner = session.scalar(select(Document.owner_id).where(Document.id == doc_id))
+    if vis == "everyone" and owner and owner != p.user_id:  # private/shared notes never leak to the owner
+        emit(session, owner, "note.on_document", {"document_id": str(doc_id), "note_id": str(n.id)})
     return n
 
 
@@ -117,6 +121,13 @@ def reply(
     session.add(n)
     session.flush()
     session.refresh(n)
+    if root.author_id != p.user_id:
+        emit(
+            session,
+            root.author_id,
+            "note.reply",
+            {"document_id": str(root.document_id), "note_id": str(root.id), "reply_id": str(n.id)},
+        )
     return n
 
 

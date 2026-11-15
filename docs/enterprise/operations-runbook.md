@@ -136,6 +136,6 @@ Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, n
 | `GET/PUT /admin/settings` | Runtime setting overrides. |
 | `GET /admin/needs-title` | Documents awaiting a title. |
 | `GET /admin/ratings` | Rating overview. |
-| `GET /me/notifications`, `POST /me/notifications/read` | Caller's inbox (any user); admins also receive `ops.job_failed`. |
+| `GET /me/notifications`, `POST /me/notifications/read` | Caller's inbox (any user); admins also receive `ops.job_failed`; kinds also include `proposal.new`, `note.reply`, `note.on_document` (public notes only). |
 
 Paging: `/admin/users` and `/admin/review` use offset `page=`; the other lists use keyset `before_id=`.

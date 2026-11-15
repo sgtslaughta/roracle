@@ -53,6 +53,13 @@ def test_get_shape_and_null_resets(client, adm):
     assert out["rerank_depth"] == {"value": 50, "source": "env"}
 
 
+def test_note_gate_overridable(client, adm):
+    out = put(client, adm, {"chat_note_min_upvotes": 5, "chat_note_min_ratio": 0.8}).json()
+    assert out["chat_note_min_upvotes"] == {"value": 5, "source": "override"}
+    assert out["chat_note_min_ratio"] == {"value": 0.8, "source": "override"}
+    assert put(client, adm, {"chat_note_min_ratio": 1.5}).status_code == 422
+
+
 @pytest.mark.parametrize(
     "body",
     [

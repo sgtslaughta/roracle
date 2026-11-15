@@ -12,8 +12,8 @@ from roracle.api.routes.library import normalize_tag
 from roracle.audit import audit
 from roracle.db import get_session
 from roracle.models import AuditLog, Document, DocumentVersion, PersonalAccessToken, Tag, User
-from roracle.queue import enqueue
 from roracle.notes import moderation
+from roracle.queue import enqueue
 
 router = APIRouter()
 

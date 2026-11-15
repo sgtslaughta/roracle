@@ -8,10 +8,10 @@ from starlette.routing import Route
 from roracle import __version__
 from roracle.api.routes import (
     admin,
-    annotations,
     admin_connectors,
     admin_ops,
     admin_settings,
+    annotations,
     chats,
     chats_read,
     citations,
@@ -25,8 +25,8 @@ from roracle.api.routes import (
     library,
     me,
     near_dup,
-    proposals,
     notifications,
+    proposals,
     search,
     tokens,
 )

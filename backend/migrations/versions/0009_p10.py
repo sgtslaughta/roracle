@@ -1,15 +1,15 @@
 """p10 connectors, notifications, app settings
 
-Revision ID: 0008_p10
-Revises: 0007
+Revision ID: 0009
+Revises: 0008_p8
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0008_p10"
-down_revision = "0007"
+revision = "0009"
+down_revision = "0008_p8"
 branch_labels = None
 depends_on = None
 

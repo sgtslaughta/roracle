@@ -107,7 +107,7 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_MAX_RENDITION_BYTES` | `524288000` | Cap on the Gotenberg PDF rendition (streamed, aborted when exceeded); over = permanent failure. Page/size caps are enforced by Docling itself: set `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` on the docling-serve container (over-limit documents fail; the error is not distinguishable, so they surface as a conversion failure). The ingest Gotenberg is a dedicated, isolated instance with chromium routes disabled (office → PDF only); the later paper-drafts HTML/Markdown → PDF build (spec §8) needs its own separate Chromium-enabled instance. Deploy Gotenberg isolated: own namespace, deny-all egress NetworkPolicy (ingress from worker only), no secrets, read-only root FS, command `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s` |
 
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
-Postgres, not env. Admins can override `chat_models`, `chat_default_model`, `chat_passages`, `rerank_depth`,
+Postgres, not env. Admins can override `chat_models`, `chat_default_model`, `chat_passages`, `chat_note_min_upvotes`, `chat_note_min_ratio`, `rerank_depth`,
 `near_dup_threshold`, `near_dup_summary_threshold`, `max_upload_bytes`, `upload_quota_bytes`,
 `rate_limit_per_minute` and `pats_enabled` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
 the env value; `null` removes the override). Changes apply to new requests and jobs without a restart.

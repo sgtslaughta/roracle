@@ -262,3 +262,28 @@ def test_root_visibility_patch_updates_replies(client, as_ana, as_bob, ana, bob,
     client.patch(f"/annotations/{root['id']}", json={"visibility": "private"}, headers=as_ana)
     db_session.expire_all()
     assert db_session.get(Annotation, uuid.UUID(rid)).visibility == "private"
+
+
+def test_notifications_on_note_reply_and_proposal(client, as_ana, as_bob, ana, bob, doc, db_session):
+    from test_proposals import prop
+
+    from roracle.models import Notification
+
+    d, _ = doc
+
+    def kinds(u):
+        rows = db_session.scalars(select(Notification).where(Notification.user_id == u))
+        return sorted(n.kind for n in rows)
+
+    nid = post(client, as_bob, d.id).json()["id"]
+    assert kinds(ana) == ["note.on_document"]
+    priv = post(client, as_bob, d.id, visibility="private")
+    assert priv.status_code == 201 and kinds(ana) == ["note.on_document"]
+    post(client, as_ana, d.id)  # own doc: no self-notification
+    db_session.expire_all()
+    assert kinds(ana) == ["note.on_document"]
+    assert client.post(f"/annotations/{nid}/replies", json={"body": "r"}, headers=as_ana).status_code == 201
+    db_session.expire_all()
+    assert kinds(bob) == ["note.reply"]
+    prop(db_session, ana, d.id)
+    assert kinds(ana) == ["note.on_document", "proposal.new"]
