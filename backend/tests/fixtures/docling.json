@@ -1,0 +1,121 @@
+{
+  "schema_name": "DoclingDocument",
+  "version": "1.10.0",
+  "name": "sample",
+  "origin": {
+    "mimetype": "application/pdf",
+    "binary_hash": 16344506192932734961,
+    "filename": "sample.pdf",
+    "uri": null
+  },
+  "furniture": {
+    "self_ref": "#/furniture",
+    "parent": null,
+    "children": [],
+    "content_layer": "furniture",
+    "meta": null,
+    "name": "_root_",
+    "label": "unspecified"
+  },
+  "body": {
+    "self_ref": "#/body",
+    "parent": null,
+    "children": [
+      {
+        "$ref": "#/texts/0"
+      },
+      {
+        "$ref": "#/texts/1"
+      }
+    ],
+    "content_layer": "body",
+    "meta": null,
+    "name": "_root_",
+    "label": "unspecified"
+  },
+  "groups": [],
+  "texts": [
+    {
+      "self_ref": "#/texts/0",
+      "parent": {
+        "$ref": "#/body"
+      },
+      "children": [],
+      "content_layer": "body",
+      "meta": null,
+      "label": "text",
+      "prov": [
+        {
+          "page_no": 1,
+          "bbox": {
+            "l": 72.0,
+            "t": 730.052,
+            "r": 434.5719999999999,
+            "b": 677.102,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "charspan": [
+            0,
+            151
+          ]
+        }
+      ],
+      "orig": "Sparse Retrieval for Lab Notebooks This paper studies retrieval over small research corpora. The quokka heuristic reranks passages by lexical surprise.",
+      "text": "Sparse Retrieval for Lab Notebooks This paper studies retrieval over small research corpora. The quokka heuristic reranks passages by lexical surprise.",
+      "formatting": null,
+      "hyperlink": null
+    },
+    {
+      "self_ref": "#/texts/1",
+      "parent": {
+        "$ref": "#/body"
+      },
+      "children": [],
+      "content_layer": "body",
+      "meta": null,
+      "label": "text",
+      "prov": [
+        {
+          "page_no": 2,
+          "bbox": {
+            "l": 72.0,
+            "t": 730.052,
+            "r": 482.0599999999997,
+            "b": 677.102,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "charspan": [
+            0,
+            121
+          ]
+        }
+      ],
+      "orig": "Results Hybrid search beats dense-only search on short technical queries. We conclude that lexical signals remain useful.",
+      "text": "Results Hybrid search beats dense-only search on short technical queries. We conclude that lexical signals remain useful.",
+      "formatting": null,
+      "hyperlink": null
+    }
+  ],
+  "pictures": [],
+  "tables": [],
+  "key_value_items": [],
+  "form_items": [],
+  "pages": {
+    "1": {
+      "size": {
+        "width": 612.0,
+        "height": 792.0
+      },
+      "image": null,
+      "page_no": 1
+    },
+    "2": {
+      "size": {
+        "width": 612.0,
+        "height": 792.0
+      },
+      "image": null,
+      "page_no": 2
+    }
+  }
+}

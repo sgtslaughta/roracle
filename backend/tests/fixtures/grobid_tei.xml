@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader xml:lang="en">
+    <fileDesc>
+      <titleStmt><title level="a" type="main">Sparse Retrieval for Lab Notebooks</title></titleStmt>
+      <sourceDesc>
+        <biblStruct>
+          <analytic>
+            <author><persName><forename type="first">Ada</forename><surname>Lovelace</surname></persName></author>
+            <author><persName><forename type="first">Alan</forename><forename type="middle">M</forename><surname>Turing</surname></persName></author>
+            <title level="a" type="main">Sparse Retrieval for Lab Notebooks</title>
+          </analytic>
+          <monogr>
+            <title level="j">Journal of Applied Retrieval</title>
+            <imprint><date type="published" when="2022-05-01">May 2022</date></imprint>
+          </monogr>
+          <idno type="DOI">10.1234/jar.2022.001</idno>
+        </biblStruct>
+      </sourceDesc>
+    </fileDesc>
+    <profileDesc>
+      <abstract><div><p>We study retrieval over small research corpora.</p></div></abstract>
+    </profileDesc>
+  </teiHeader>
+  <text xml:lang="en">
+    <body><div><head>Introduction</head><p>Body text.</p></div></body>
+    <back>
+      <div type="references">
+        <listBibl>
+          <biblStruct xml:id="b0">
+            <analytic>
+              <title level="a" type="main">Dense retrieval basics</title>
+              <author><persName><forename type="first">J</forename><surname>Smith</surname></persName></author>
+            </analytic>
+            <monogr><title level="j">Proc. IR</title><imprint><date type="published" when="2020-01-01"/></imprint></monogr>
+            <idno type="DOI">10.1000/dense.2020</idno>
+          </biblStruct>
+          <biblStruct xml:id="b1">
+            <analytic>
+              <title level="a" type="main">Hybrid ranking in practice</title>
+              <author><persName><forename type="first">K</forename><surname>Lee</surname></persName></author>
+              <author><persName><forename type="first">M</forename><surname>Chen</surname></persName></author>
+            </analytic>
+            <monogr><title level="j">Proc. SIGIR</title><imprint><date type="published" when="2021"/></imprint></monogr>
+          </biblStruct>
+          <biblStruct xml:id="b2">
+            <analytic>
+              <title level="a" type="main">Lexical surprise in reranking</title>
+              <author><persName><forename type="first">R</forename><surname>Roe</surname></persName></author>
+            </analytic>
+            <monogr><title level="j">Proc. ECIR</title><imprint><date type="published" when="2019-04-14"/></imprint></monogr>
+            <idno type="DOI">10.1000/lexical.2019</idno>
+          </biblStruct>
+        </listBibl>
+      </div>
+    </back>
+  </text>
+</TEI>

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     embed_tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2"
     summary_model: str = "qwen2.5:3b"
     docling_url: str = "http://localhost:5001"
+    docling_timeout_s: float = 300.0
     grobid_url: str = ""
     clamav_host: str = ""
     near_dup_threshold: float = 0.85
