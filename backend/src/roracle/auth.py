@@ -1,10 +1,10 @@
 """Keycloak JWT validation, principal resolution and user upsert."""
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
@@ -15,13 +15,15 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from roracle.config import Settings, get_settings
+from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import User
 
 ADMIN_ROLE = "roracle-admin"
 LEEWAY_S = 30
 REFETCH_MIN_INTERVAL_S = 60
+KEYS_MAX_AGE_S = 600
+KEYS_HARD_MAX_AGE_S = 3600
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,11 @@ def httpx_fetch(url: str) -> dict:
 
 
 class JwksCache:
-    """JWKS keyed by kid. Unknown kid: refetch once, at most once per 60 s."""
+    """JWKS keyed by kid.
+
+    Unknown kid or stale cache: reload, at most once per 60 s (failed loads count). Keys older than
+    10 min are reloaded; if reloading keeps failing the old keys serve until 1 h, then fail closed.
+    """
 
     def __init__(
         self,
@@ -52,34 +58,63 @@ class JwksCache:
         self._fetch = fetch
         self._clock = clock
         self._keys: dict[str, jwt.PyJWK] | None = None
-        self._last_refetch: float | None = None
+        self._loaded_at = 0.0
+        self._last_attempt: float | None = None
         self._lock = threading.Lock()
 
     def _load(self) -> None:
-        keys = {}
+        keys: dict[str, jwt.PyJWK] = {}
         for jwk in self._fetch(self._url).get("keys", []):
-            if jwk.get("kid") and jwk.get("kty") == "RSA":
+            if not isinstance(jwk, dict) or not jwk.get("kid") or jwk.get("kty") != "RSA":
+                continue
+            if jwk.get("use", "sig") != "sig" or jwk.get("alg", "RS256") != "RS256":
+                continue  # e.g. Keycloak's RSA-OAEP encryption key
+            try:
                 keys[jwk["kid"]] = jwt.PyJWK(jwk)
+            except (jwt.PyJWTError, ValueError, KeyError, TypeError):
+                continue
         self._keys = keys
+        self._loaded_at = self._clock()
+
+    def _lookup(self, kid: str) -> jwt.PyJWK | None:
+        keys = self._keys  # dict is replaced atomically, never mutated
+        if keys is None or self._clock() - self._loaded_at >= KEYS_HARD_MAX_AGE_S:
+            return None
+        return keys.get(kid)
 
     def key_for(self, kid: str) -> jwt.PyJWK:
+        fresh = self._clock() - self._loaded_at < KEYS_MAX_AGE_S
+        if fresh and (key := self._lookup(kid)):
+            return key
         with self._lock:
-            if self._keys is None:
-                self._load()
-            if kid not in self._keys:
-                now = self._clock()
-                last = self._last_refetch
-                if last is None or now - last >= REFETCH_MIN_INTERVAL_S:
-                    self._last_refetch = now
+            now = self._clock()
+            fresh = now - self._loaded_at < KEYS_MAX_AGE_S
+            if fresh and (key := self._lookup(kid)):
+                return key
+            initial = self._keys is None
+            throttled = self._last_attempt is not None and now - self._last_attempt < REFETCH_MIN_INTERVAL_S
+            reload = (initial or not fresh or self._lookup(kid) is None) and not throttled
+            if reload:
+                if not initial:
+                    self._last_attempt = now
+                try:
                     self._load()
-            if kid not in self._keys:
+                except Exception:
+                    self._last_attempt = now
+                    if self._lookup(kid) is None:
+                        raise
+                else:
+                    if initial and self._lookup(kid) is None:  # initial load + one refetch
+                        self._last_attempt = now
+                        with contextlib.suppress(Exception):  # keep the keys just loaded
+                            self._load()
+            if (key := self._lookup(kid)) is None:
                 raise KeyError(kid)
-            return self._keys[kid]
+            return key
 
 
-@lru_cache
-def get_jwks() -> JwksCache:
-    return JwksCache(get_settings().oidc_jwks_url)
+def get_jwks(request: Request) -> JwksCache:
+    return request.app.state.jwks
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -101,7 +136,7 @@ def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
     if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
         raise ValueError("bad header")
     key = jwks.key_for(header["kid"])
-    return jwt.decode(
+    claims = jwt.decode(
         token,
         key.key,
         algorithms=["RS256"],
@@ -110,6 +145,9 @@ def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
         leeway=LEEWAY_S,
         options={"require": ["exp", "iss", "aud", "sub"]},
     )
+    if claims.get("typ") != "Bearer" or claims.get("azp") not in settings.oidc_allowed_clients:
+        raise ValueError("not an access token for an allowed client")
+    return claims
 
 
 def current_principal(

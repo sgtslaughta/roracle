@@ -103,7 +103,13 @@ def rsa_key():
 @pytest.fixture(scope="session")
 def jwk_set(rsa_key):
     jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(rsa_key.public_key()))
-    return {"keys": [{**jwk, "kid": "k1", "alg": "RS256", "use": "sig"}]}
+    return {
+        "keys": [
+            {"kid": "enc1", "kty": "RSA", "alg": "RSA-OAEP", "use": "enc", "n": "AQAB", "e": "AQAB"},
+            {"kid": "bad1", "kty": "RSA", "use": "sig", "alg": "RS256", "n": "!!", "e": "x"},
+            {**jwk, "kid": "k1", "alg": "RS256", "use": "sig"},
+        ]
+    }
 
 
 class CountingJwks(JwksCache):
@@ -143,6 +149,9 @@ def make_token(rsa_key, settings, jwks):
         key=None,
         alg="RS256",
         email=None,
+        typ="Bearer",
+        azp="roracle-web",
+        **extra,
     ):
         claims = {
             "sub": sub,
@@ -152,6 +161,9 @@ def make_token(rsa_key, settings, jwks):
             "exp": int(time.time()) + exp_in,
             "iss": iss or settings.oidc_issuer,
             "aud": aud,
+            "typ": typ,
+            "azp": azp,
+            **extra,
         }
         if email:
             claims["email"] = email
