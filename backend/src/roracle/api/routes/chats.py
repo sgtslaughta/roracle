@@ -1,4 +1,4 @@
-"""Chats: create, and stream cited answers over SSE (history/sharing/export land in Task 4)."""
+"""Chats: create, and stream cited answers over SSE (read/share/export: chats_read)."""
 
 import contextlib
 from collections.abc import AsyncIterator, Iterator
@@ -19,6 +19,7 @@ from starlette.responses import StreamingResponse
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.chat.access import owned_chat
 from roracle.chat.answer import build_messages, stream_answer
 from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
 from roracle.config import Settings
@@ -64,29 +65,26 @@ def _check_model(settings: Settings, model: str | None) -> None:
         raise HTTPException(422, "unknown model")
 
 
-@router.post("", status_code=201)
-def create_chat(body: ChatIn, p: Who, session: Db, settings: Cfg) -> dict:
-    _check_model(settings, body.model)
-    if body.scope.startswith("collection:"):
-        cid = body.scope.partition(":")[2]
+def check_scope(session: Session, p: Principal, scope: str) -> None:
+    if scope.startswith("collection:"):
+        cid = scope.partition(":")[2]
         try:
             UUID(cid)
         except ValueError:
             raise HTTPException(422, "invalid scope") from None
         if not _own_collections(session, p, [cid])[0]:
             raise HTTPException(422, "unknown collection")
+
+
+@router.post("", status_code=201)
+def create_chat(body: ChatIn, p: Who, session: Db, settings: Cfg) -> dict:
+    _check_model(settings, body.model)
+    check_scope(session, p, body.scope)
     chat = Chat(owner_id=p.user_id, title=body.title, scope=body.scope, model=body.model)
     session.add(chat)
     session.commit()
     session.refresh(chat)
     return chat_json(chat)
-
-
-def _get_chat(session: Session, p: Principal, chat_id: UUID) -> Chat:
-    chat = session.get(Chat, chat_id)
-    if chat is None or chat.owner_id != p.user_id:  # Task 4: shared readers (then 403 on write)
-        raise HTTPException(404, "not found")
-    return chat
 
 
 class ClosingStreamingResponse(StreamingResponse):
@@ -120,7 +118,7 @@ def post_message(
     es: Annotated[Elasticsearch, Depends(get_es)],
     llm: Annotated[object, Depends(get_llm)],
 ) -> StreamingResponse:
-    chat = _get_chat(session, p, chat_id)
+    chat = owned_chat(session, p, chat_id)
     _check_model(settings, body.model)
     allowed = settings.chat_model_list
     model = body.model or (chat.model if chat.model in allowed else allowed[0])
