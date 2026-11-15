@@ -7,7 +7,7 @@ from roracle.auth import Principal
 
 
 def acl_filter(p: Principal) -> dict[str, Any]:
-    """ES filter for chunks visible to `p`. Callers must also add `is_latest: true`
+    """ES filter for chunks visible to `p`. Use in filter context (`bool.filter`), not `must`. Callers must also add `is_latest: true`
     (and deleted docs have no chunks: deletion removes them from the index)."""
     if p.is_admin:
         return {"match_all": {}}

@@ -42,8 +42,10 @@ def test_groups_add_share_groups_and_ancestor_terms():
 
 # ---- parity (real ES + Postgres) ----
 @pytest.fixture
-def es():
-    return Elasticsearch("http://localhost:9200")
+def es(settings):
+    c = Elasticsearch(settings.elastic_url)
+    yield c
+    c.close()
 
 
 @pytest.fixture
@@ -53,6 +55,7 @@ def model(es):
     es.indices.delete(index=index_name(m), ignore_unavailable=True)
 
 
+@pytest.mark.integration
 def test_sql_es_parity(es, model, db_session, blob):
     ana, eve, bob, carol, dave = (
         User(id=uuid.uuid4(), sub=n, username=n, email=f"{n}@x.org")
@@ -74,6 +77,7 @@ def test_sql_es_parity(es, model, db_session, blob):
         "org_root": (eve, "org_unit", "/", []),
         "org_underscore": (eve, "org_unit", "/Chem_Lab", []),
         "org_lookalike": (eve, "org_unit", "/ChemXLab", []),
+        "org_percent": (eve, "org_unit", "/Chem%Lab", []),
         "deleted": (eve, "everyone", "/", []),
     }
     docs: dict[str, Document] = {}
@@ -108,6 +112,9 @@ def test_sql_es_parity(es, model, db_session, blob):
         "bob": _p(["/Physics", "/Chem_Lab"], uid=bob.id),
         "carol": _p(uid=carol.id),
         "dave": _p(["/Mathematics/Spectral Theory"], uid=dave.id),
+        "slash": _p(["/Mathematics/"], uid=carol.id),
+        "root_group": _p(["/"], uid=carol.id),
+        "percent": _p(["/Chem%Lab"], uid=carol.id),
     }
     for who, p in principals.items():
         sql = {str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))}
@@ -117,4 +124,9 @@ def test_sql_es_parity(es, model, db_session, blob):
             size=100,
         )["hits"]["hits"]
         assert {h["_source"]["doc_id"] for h in hits} == sql, who
-        assert str(docs["deleted"].id) not in sql
+    # soft-deleted doc: hidden in SQL for everyone (and never indexed in ES)
+    deleted_id = str(docs["deleted"].id)
+    for p in principals.values():
+        assert deleted_id not in {
+            str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))
+        }
