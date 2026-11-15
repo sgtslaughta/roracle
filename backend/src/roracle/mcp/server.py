@@ -1,17 +1,19 @@
 """MCP server: read tools. Each tool = own session, `audit("mcp.<tool>")`, commit; errors -> ToolError."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from elasticsearch import NotFoundError
 from fastapi import FastAPI, HTTPException
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from roracle.api.routes import documents_read, library
 from roracle.api.routes import search as search_routes
+from roracle.api.routes.search import BadInput
 from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
@@ -31,12 +33,11 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
             audit(session, p, f"mcp.{tool}", target[:200])
             session.commit()
             return out
-        except HTTPException as e:
+        except (HTTPException, BadInput) as e:
             session.rollback()
-            raise ToolError(str(e.detail)) from None
-        except ValueError as e:
-            session.rollback()
-            raise ToolError(str(e)) from None
+            audit(session, p, f"mcp.{tool}", target[:200], {"error": True})
+            session.commit()
+            raise ToolError(str(e.detail if isinstance(e, HTTPException) else e)) from None
         except Exception:
             session.rollback()
             raise
@@ -47,16 +48,18 @@ def _split(chunk_id: str) -> tuple[str, int]:
         ver, n = chunk_id.rsplit(":", 1)
         return str(UUID(ver)), int(n)
     except ValueError:
-        raise ValueError(f"bad chunk id: {chunk_id[:80]}") from None
+        raise BadInput(f"bad chunk id: {chunk_id[:80]}") from None
 
 
 def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], context: int) -> list[dict]:
     if not 0 < len(ids) <= MAX_IDS:
-        raise ValueError(f"chunk_ids must hold 1..{MAX_IDS} ids")
+        raise BadInput(f"chunk_ids must hold 1..{MAX_IDS} ids")
     if not 0 <= context <= 2:
-        raise ValueError("context must be 0..2")
+        raise BadInput("context must be 0..2")
     wanted = set()
     for cid in ids:
+        if len(cid) > 100:
+            raise BadInput("chunk id too long")
         ver, n = _split(cid)
         wanted.update(f"{ver}:{k}" for k in range(max(0, n - context), n + context + 1))
     es = dep(app, library.get_es)
@@ -100,14 +103,18 @@ def build_mcp(app: FastAPI) -> MCPServer:
     mcp = MCPServer("rOracle")
 
     @mcp.tool()
-    def search(query: str, collection: str | None = None, limit: int = 10) -> dict:
+    def search(
+        query: Annotated[str, Field(max_length=search_routes.Q_MAX)],
+        collection: Annotated[str | None, Field(max_length=search_routes.VALUE_MAX)] = None,
+        limit: int = 10,
+    ) -> dict:
         """Search the research library (hybrid keyword + semantic). Returns documents the caller may see,
         each with matching passages and chunk_ids usable with get_passages. `collection` is an id from
         list_collections; `limit` is 1..50 documents."""
 
         def go(session: Session, p: Principal) -> dict:
-            if not 1 <= limit <= 50:
-                raise ValueError("limit must be 1..50")
+            cols = [collection] if collection else None
+            search_routes.validate_search_params(query, {"collection": cols}, limit)
             body = search_routes.search(
                 p,
                 session,
@@ -119,7 +126,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
                 year=None,
                 file_type=None,
                 org_unit=None,
-                collection=[collection] if collection else None,
+                collection=cols,
                 author=None,
                 sort="relevance",
                 page=1,
@@ -130,7 +137,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
         return _run(app, "search", go, query)
 
     @mcp.tool()
-    def get_document(doc_id: str) -> dict:
+    def get_document(doc_id: Annotated[str, Field(max_length=100)]) -> dict:
         """Get a document's metadata, summary, tags, votes and versions by id."""
 
         def go(session: Session, p: Principal) -> dict:
@@ -143,7 +150,9 @@ def build_mcp(app: FastAPI) -> MCPServer:
         return _run(app, "get_document", go, doc_id)
 
     @mcp.tool()
-    def get_passages(chunk_ids: list[str], context: int = 0) -> list[dict]:
+    def get_passages(
+        chunk_ids: Annotated[list[str], Field(max_length=MAX_IDS)], context: int = 0
+    ) -> list[dict]:
         """Fetch exact passages by chunk_id ("<version_id>:<n>", at most 50). `context` 0..2 adds that many
         neighbouring chunks either side. Returns text, pages and bboxes; passages the caller cannot see
         are omitted."""

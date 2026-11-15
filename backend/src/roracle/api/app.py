@@ -68,14 +68,14 @@ def _mount_mcp(app: FastAPI) -> None:
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-        max_request_body_size=s.max_upload_bytes * 4 // 3 + 1024 * 1024,
+        max_request_body_size=s.mcp_max_upload_bytes * 4 // 3 + 64 * 1024,
     )
     app.router.routes.append(Route("/mcp", BearerAuth(inner, app)))
 
     @app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
     def protected_resource(request: Request) -> dict:  # R6
         return {
-            "resource": f"{str(request.base_url).rstrip('/')}/mcp",
+            "resource": f"{(s.public_base_url or str(request.base_url)).rstrip('/')}/mcp",
             "authorization_servers": [s.oidc_issuer],
             "bearer_methods_supported": ["header"],
             "scopes_supported": ["read", "write"],

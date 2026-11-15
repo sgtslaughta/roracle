@@ -1,7 +1,8 @@
 """Bearer auth for the MCP mount: pure ASGI wrapper + `current()` principal contextvar.
 
 Tests override `get_jwks`/`get_session`/`get_app_settings` via `app.dependency_overrides`; `dep()`/`open_session()`
-honour those overrides and otherwise read `app.state` (same behaviour as the FastAPI dependencies)."""
+honour those overrides and otherwise read `app.state` (same behaviour as the FastAPI dependencies).
+Overrides must be plain zero-arg callables returning the value."""
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -67,9 +68,10 @@ class BearerAuth:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            return await self.inner(scope, receive, send)
+            return await self._not_found(scope, receive, send)
         req = Request(scope)
-        meta = f"{str(req.base_url).rstrip('/')}/.well-known/oauth-protected-resource"
+        base = self.app.state.settings.public_base_url or str(req.base_url)
+        meta = f"{base.rstrip('/')}/.well-known/oauth-protected-resource"
         try:
             p = await anyio.to_thread.run_sync(_resolve, self.app, req.headers.get("authorization"))
         except HTTPException as e:
@@ -84,3 +86,8 @@ class BearerAuth:
             await self.inner(scope, receive, send)
         finally:
             _current.reset(token)
+
+    @staticmethod
+    async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008})

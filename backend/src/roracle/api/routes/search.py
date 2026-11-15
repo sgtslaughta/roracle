@@ -28,7 +28,25 @@ MAX_DOCS = 200  # R15: browse cap; the query path is bounded by the fused lists 
 FACET_MAX = 50
 FACETS = ("tags", "year", "file_type", "org_unit", "collection", "author")
 Who = Annotated[Principal, Depends(current_principal)]
-Multi = Annotated[list[str] | None, Query()]
+Q_MAX, LIST_MAX, VALUE_MAX = 1000, 50, 200
+Multi = Annotated[list[Annotated[str, Query(max_length=VALUE_MAX)]] | None, Query(max_length=LIST_MAX)]
+
+
+class BadInput(ValueError):
+    """Caller-supplied search parameter outside the documented limits (REST: 422, MCP: tool error)."""
+
+
+def validate_search_params(q: str, lists: dict[str, list | None], size: int, page: int = 1) -> None:
+    """The REST Query limits, for callers that invoke `search()` directly (MCP)."""
+    if len(q) > Q_MAX:
+        raise BadInput(f"query too long (max {Q_MAX})")
+    for name, vs in lists.items():
+        if vs and (len(vs) > LIST_MAX or any(len(str(v)) > VALUE_MAX for v in vs)):
+            raise BadInput(f"{name}: at most {LIST_MAX} values of {VALUE_MAX} characters")
+    if not 1 <= size <= 50:
+        raise BadInput("limit must be 1..50")
+    if page < 1:
+        raise BadInput("page must be >= 1")
 
 
 def get_llm(request: Request):
@@ -308,7 +326,7 @@ def search(
     settings: Annotated[Settings, Depends(get_app_settings)],
     q: Annotated[str, Query(max_length=1000)] = "",
     tags: Multi = None,
-    year: Annotated[list[int] | None, Query()] = None,
+    year: Annotated[list[int] | None, Query(max_length=LIST_MAX)] = None,
     file_type: Multi = None,
     org_unit: Multi = None,
     collection: Multi = None,
@@ -317,6 +335,13 @@ def search(
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> dict:
+    try:
+        validate_search_params(
+            q, {"tags": tags, "year": year, "file_type": file_type, "org_unit": org_unit,
+                "collection": collection, "author": author}, size, page,
+        )  # fmt: skip
+    except BadInput as e:
+        raise HTTPException(422, str(e)) from None
     es_filters = {
         "tags": tags or [],
         "year": year or [],

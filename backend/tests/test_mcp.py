@@ -119,3 +119,60 @@ def test_pat_bearer_works_and_is_audited_with_client(mc, as_ana, ana, db_session
     assert call(mc, h, "list_collections")[0] is False
     row = db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.list_collections")).one()
     assert row.client == "pat:laptop"
+
+
+def test_search_inputs_bounded(mc, as_ana, fes):
+    err, _ = call(mc, as_ana, "search", query="x" * 1001)
+    assert err
+    assert call(mc, as_ana, "search", query="x", collection="c" * 201)[0]
+    assert call(mc, as_ana, "get_passages", chunk_ids=[f"{'0' * 36}:{i}" for i in range(51)])[0]
+    assert call(mc, as_ana, "get_passages", chunk_ids=["a" * 101])[0]
+    assert not fes.calls
+
+
+def test_validator_and_rest_limits(client, as_ana, fes):
+    from roracle.api.routes.search import BadInput, validate_search_params
+
+    with pytest.raises(BadInput):
+        validate_search_params("q", {"tags": ["t"] * 51}, 10)
+    with pytest.raises(BadInput):
+        validate_search_params("q", {"tags": ["t" * 201]}, 10)
+    with pytest.raises(BadInput):
+        validate_search_params("q", {}, 51)
+    assert client.get("/search", headers=as_ana, params={"q": "x" * 1001}).status_code == 422
+    assert client.get("/search", headers=as_ana, params={"tags": ["t"] * 51}).status_code == 422
+
+
+def test_body_cap_413(app, settings, as_ana):
+    from roracle.api.app import create_app
+
+    small = create_app(settings.model_copy(update={"mcp_max_upload_bytes": 1024}))
+    small.dependency_overrides = app.dependency_overrides
+    with TestClient(small) as c:
+        r = c.post("/mcp", headers={**HDRS, **as_ana}, content=b" " * 100_000)
+        assert r.status_code == 413
+
+
+def test_non_post_unauthenticated_401(mc):
+    assert mc.get("/mcp").status_code == 401
+    assert mc.delete("/mcp").status_code == 401
+
+
+def test_acl_filter_in_es_query(mc, as_ana, ana, db_session, fes):
+    call(mc, as_ana, "search", query="alpha")
+    flt = fes.calls[0]["query"]["bool"]["filter"]
+    assert any("bool" in f and "should" in f["bool"] for f in flt)
+
+
+def test_failed_call_is_audited(mc, as_bob, ana, db_session):
+    d, _ = seed(db_session, ana, visibility="private")
+    assert call(mc, as_bob, "get_document", doc_id=str(d.id))[0]
+    row = db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.get_document")).one()
+    assert row.detail == {"error": True}
+
+
+def test_non_owner_cannot_fetch_unfinished_version(mc, as_ana, bob, db_session, fes):
+    d, v = seed(db_session, bob, visibility="everyone", stage="embedded")
+    fes.hits = [hit(d, v)]
+    err, out = call(mc, as_ana, "get_passages", chunk_ids=[f"{v.id}:0"])
+    assert not err and (out["result"] if isinstance(out, dict) else out) == []
