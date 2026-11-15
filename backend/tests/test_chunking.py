@@ -7,7 +7,7 @@ from docling_core.types.doc.base import CoordOrigin, Size
 from roracle.ingest.chunking import _chunker, chunk
 from roracle.ingest.embed import doc_prompt
 
-TOK = "sentence-transformers/all-MiniLM-L6-v2"
+TOK = str(Path(__file__).parent / "fixtures" / "tokenizer" / "all-MiniLM-L6-v2")
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "docling.json").read_text())
 
 
