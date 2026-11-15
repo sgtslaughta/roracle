@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoteControl } from "@/features/library/VoteControl";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
+import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
 import { useCitedBy, useDoc, useReferences } from "./api";
 const PdfView = lazy(() => import("./PdfView"));
 import { CitedByTab, NotesTab, ReferencesTab } from "./ReferencesTab";
@@ -58,6 +59,11 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <Button onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast("Link copied. People without access will be asked to request it."), () => toast(link)); }}>
             <LinkIcon aria-hidden />Copy link
           </Button>
+          <ContinueInAgent source={() => ({
+            kind: "document", sourceId: d.id, docIds: [d.id], title: d.title.slice(0, 200), goal: `Work with “${d.title}”`,
+            brief: `Goal: work with “${d.title}”. I'm reading page ${tab.page} of version ${version}.`,
+            summary: "Hands this document to an agent, with its notes, references and cited-by links.",
+          })} />
           <button className="icon-btn" aria-label="Download original" onClick={download}><Download aria-hidden /></button>
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>

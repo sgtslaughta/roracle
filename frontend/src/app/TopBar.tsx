@@ -1,7 +1,11 @@
-import { Bell, Command, Moon, Search, Sun, SunMoon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Bell, Command, Moon, Search, Settings, Sun, SunMoon } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { cycleTheme, useTheme } from "@/lib/theme";
 import { openPalette } from "@/features/palette/usePalette";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useMe } from "@/features/library/useMe";
 import { GlobalSearch } from "./GlobalSearch";
 
 const THEME_ICON = { system: SunMoon, light: Sun, dark: Moon } as const;
@@ -34,10 +38,26 @@ export function TopBar() {
         <button className="icon-btn" aria-label="Notifications">
           <Bell aria-hidden />
         </button>
-        <div className="avatar" title="Signed in">
-          R
-        </div>
+        <AccountMenu />
       </div>
     </header>
+  );
+}
+
+/** Avatar menu. Admin entry arrives with the admin section (its route doesn't exist yet). */
+function AccountMenu() {
+  const { data: me } = useMe();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="avatar" aria-label="Account menu" title={me ? `Signed in as ${me.username}` : "Signed in"}>
+          {me?.username.charAt(0).toUpperCase() || "R"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="chipmenu" role="menu" aria-label="Account">
+        <Link to="/settings" role="menuitem" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link>
+      </PopoverContent>
+    </Popover>
   );
 }

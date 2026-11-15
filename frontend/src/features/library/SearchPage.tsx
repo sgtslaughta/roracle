@@ -1,16 +1,40 @@
 import { SearchX } from "lucide-react";
 import { openDoc } from "@/features/reader/useReaderStore";
-import { SORTS } from "@/lib/searchParams";
+import { ARRAY_KEYS, SORTS, type LibrarySearch } from "@/lib/searchParams";
+import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
+import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { ActiveFilters } from "./ActiveFilters";
 import { Facets } from "./Facets";
 import { FiltersButton } from "./FiltersButton";
-import { PAGE_SIZE, RESULT_CAP, useSearch } from "./api";
+import { PAGE_SIZE, RESULT_CAP, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
 
 const SORT_LABEL = { relevance: "Relevance", newest: "Newest", votes: "Most useful", title: "Title" } as const;
+
+/** Exactly one collection filter hands off the collection; otherwise the search with this page's results. */
+function searchHandoff(search: LibrarySearch, docIds: string[], total: number, collName: (id: string) => string): HandoffSource {
+  const q = search.q ?? "";
+  const coll = search.collection?.length === 1 ? search.collection[0] : null;
+  if (coll) {
+    const name = collName(coll);
+    return {
+      kind: "collection", sourceId: coll, docIds: [], title: name.slice(0, 200),
+      goal: `Work through the “${name}” collection and summarise what's settled and what's open.`,
+      brief: `Goal: work through the “${name}” collection and summarise what's settled and what's open.${q ? `\nFocus: “${q}”.` : ""}`,
+      summary: "Hands this collection to an agent: its documents as of now, and the notes on them.",
+    };
+  }
+  const filters = ARRAY_KEYS.flatMap((k) => (search[k] ?? []).map((v) => (k === "collection" ? collName(v) : v))).join(", ");
+  return {
+    kind: "search", docIds, title: (q ? `Search: ${q}` : "Library search").slice(0, 200),
+    goal: q ? `Review the documents matching “${q}” and pull out the main results.` : "Review these documents and pull out the main results.",
+    brief: `Query: ${q ? `“${q}”` : "none"}\nFilters: ${filters || "none"}\n${total} matching documents; the ${docIds.length} on this page are included.`,
+    summary: "Hands this search to an agent, with its query, filters and the results on this page.",
+  };
+}
 
 export function SearchPage() {
   const nav = useLibraryNav();
@@ -22,6 +46,7 @@ export function SearchPage() {
   const capped = total >= RESULT_CAP;
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
+  const collName = useCollectionName();
 
   return (
     <section className="view" aria-label="Library search">
@@ -33,6 +58,7 @@ export function SearchPage() {
           </p>
         </div>
         <div className="sortrow">
+          <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
           <FiltersButton facets={data?.facets} selected={search} onToggle={nav.toggle} />
           <label className="vis" htmlFor="sort">Sort</label>
           <select id="sort" className="sel" value={search.sort ?? "relevance"} onChange={(e) => nav.setSort(e.target.value as (typeof SORTS)[number])}>

@@ -7,6 +7,8 @@ import { DraftsRoute, ProposalsRoute } from "@/routes/placeholders";
 import { AskRoute } from "@/routes/AskRoute";
 import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
+import { SettingsRoute } from "@/routes/SettingsRoute";
+import { HandoffRoute } from "@/routes/HandoffRoute";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
 const rootRoute = createRootRoute({ component: Shell });
@@ -23,6 +25,8 @@ const routeTree = rootRoute.addChildren([
   r("/drafts", DraftsRoute),
   r("/d/$docId", DocRoute),
   r("/d/$docId/v/$version", DocRoute),
+  r("/settings", SettingsRoute),
+  r("/h/$code", HandoffRoute),
 ]);
 
 export function createAppRouter(initialEntries?: string[]) {
