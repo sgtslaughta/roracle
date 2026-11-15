@@ -1,10 +1,14 @@
 import { UserManager, WebStorageStateStore, type User } from "oidc-client-ts";
-import type { AuthHooks } from "@/api/client";
+import { SignInInProgress, type AuthHooks } from "@/api/client";
 
+type Tok = Pick<User, "access_token" | "expired">;
 export interface AuthClient {
-  getUser(): Promise<Pick<User, "access_token" | "expired"> | null>;
-  signinSilent(): Promise<Pick<User, "access_token" | "expired"> | null>;
-  signinRedirect(): Promise<void>;
+  getUser(): Promise<Tok | null>;
+  signinSilent(): Promise<Tok | null>;
+  signinRedirect(args?: { state?: unknown }): Promise<void>;
+}
+export interface GateClient extends AuthClient {
+  signinRedirectCallback(): Promise<{ state?: unknown }>;
 }
 
 export function createUserManager() {
@@ -21,20 +25,32 @@ export function createUserManager() {
   });
 }
 
-/** Hooks consumed by apiFetch. An expired or absent token renews silently, else goes to sign-in. */
+/** Only same-origin relative paths survive a sign-in round trip ("/x", never "//host" or absolute URLs). */
+export function safeReturnTo(v: unknown): string {
+  return typeof v === "string" && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") ? v : "/";
+}
+export const currentPath = () => window.location.pathname + window.location.search + window.location.hash;
+
+/**
+ * Hooks consumed by apiFetch. One shared in-flight silent renew; one sign-in redirect ever;
+ * once a redirect has started no further (unauthenticated) request is sent.
+ */
 export function createAuthHooks(um: AuthClient): AuthHooks {
-  const renew = async () => {
-    try { const u = await um.signinSilent(); return !!u && !u.expired; } catch { return false; }
-  };
+  let inflight: Promise<boolean> | null = null;
+  let redirect: Promise<void> | null = null;
+  const renew = () =>
+    (inflight ??= um.signinSilent().then((u) => !!u && !u.expired, () => false).finally(() => { inflight = null; }));
+  const signIn = () => (redirect ??= um.signinRedirect({ state: { returnTo: currentPath() } }));
   return {
     async getToken() {
+      if (redirect) throw new SignInInProgress();
       const u = await um.getUser();
       if (u && !u.expired) return u.access_token;
       if (await renew()) return (await um.getUser())?.access_token ?? null;
-      await um.signinRedirect();
-      return null;
+      await signIn();
+      throw new SignInInProgress();
     },
     renew,
-    signIn: () => um.signinRedirect(),
+    signIn,
   };
 }

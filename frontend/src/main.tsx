@@ -11,13 +11,14 @@ import { RouterProvider } from "@tanstack/react-router";
 import { applyTheme, getTheme } from "./lib/theme";
 import { createAppRouter } from "./app/router";
 import { AuthGate } from "./auth/AuthGate";
+import { createUserManager } from "./auth/oidc";
+import { useState } from "react";
 
 const MOCK = import.meta.env.VITE_MOCK === "1";
 
 async function boot() {
   applyTheme(getTheme());
   if (window.location.pathname === "/auth/silent") {
-    const { createUserManager } = await import("./auth/oidc");
     await createUserManager().signinSilentCallback();
     return;
   }
@@ -26,13 +27,16 @@ async function boot() {
     await worker.start({ onUnhandledFrame: "bypass", quiet: true });
   }
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000 } } });
-  const router = createAppRouter();
-  const app = (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  );
-  createRoot(document.getElementById("root")!).render(<StrictMode>{MOCK ? app : <AuthGate>{app}</AuthGate>}</StrictMode>);
+  // the router is created on first mount, i.e. after AuthGate has restored the original URL
+  const App = () => {
+    const [router] = useState(() => createAppRouter());
+    return (
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    );
+  };
+  createRoot(document.getElementById("root")!).render(<StrictMode>{MOCK ? <App /> : <AuthGate><App /></AuthGate>}</StrictMode>);
 }
 
 void boot();

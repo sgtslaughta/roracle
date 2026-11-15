@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { SignInInProgress } from "@/api/client";
 import { createAuthHooks, type AuthClient } from "./oidc";
 
 const user = (expired: boolean) => ({ access_token: "t", expired });
@@ -12,11 +13,21 @@ describe("auth hooks", () => {
     expect(silent).not.toHaveBeenCalled();
   });
 
-  it("absent token with failing silent renew redirects to sign-in", async () => {
+  it("absent token with failing silent renew redirects once and sends no request", async () => {
     const redirect = vi.fn(async () => {});
     const h = createAuthHooks(client({ signinSilent: async () => { throw new Error("no session"); }, signinRedirect: redirect }));
-    expect(await h.getToken()).toBeNull();
+    await expect(h.getToken()).rejects.toBeInstanceOf(SignInInProgress);
+    await expect(h.getToken()).rejects.toBeInstanceOf(SignInInProgress);
+    await h.signIn();
     expect(redirect).toHaveBeenCalledTimes(1);
+  });
+
+  it("concurrent renews share one in-flight silent sign-in", async () => {
+    const silent = vi.fn(() => new Promise<{ access_token: string; expired: boolean }>((r) => setTimeout(() => r(user(false)), 20)));
+    const h = createAuthHooks(client({ signinSilent: silent }));
+    const out = await Promise.all([h.renew(), h.renew(), h.renew()]);
+    expect(out).toEqual([true, true, true]);
+    expect(silent).toHaveBeenCalledTimes(1);
   });
 
   it("expired token renews silently", async () => {

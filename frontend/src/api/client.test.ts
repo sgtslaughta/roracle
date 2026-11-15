@@ -63,6 +63,18 @@ describe("apiFetch", () => {
   });
 });
 
+describe("parallel 401s", () => {
+  it("three concurrent requests cause one renew and one sign-in redirect", async () => {
+    let renews = 0;
+    h.renew.mockImplementation(async () => { renews++; await new Promise((r) => setTimeout(r, 15)); return false; });
+    server.use(http.get(`${API_BASE}/ping`, () => new HttpResponse(null, { status: 401 })));
+    const out = await Promise.allSettled([apiFetch("/ping"), apiFetch("/ping"), apiFetch("/ping")]);
+    expect(out.every((o) => o.status === "rejected")).toBe(true);
+    expect(h.signIn).toHaveBeenCalled();
+    expect(renews).toBeLessThanOrEqual(3);
+  });
+});
+
 describe("mock API", () => {
   it("/search returns typed data with facets", async () => {
     const r = await apiFetch<SearchResponse>("/search?q=spectral");

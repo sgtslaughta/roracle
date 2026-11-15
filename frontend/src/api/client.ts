@@ -11,11 +11,16 @@ export class ApiError extends Error {
   }
 }
 
+/** Thrown instead of sending a request once a sign-in redirect has started. */
+export class SignInInProgress extends Error {
+  constructor() { super("Redirecting to sign in"); this.name = "SignInInProgress"; }
+}
+
 export interface AuthHooks {
   getToken(): Promise<string | null>;
   /** Try a silent token renew; true when a fresh token is available. */
   renew(): Promise<boolean>;
-  /** Redirect to the identity provider. */
+  /** Redirect to the identity provider. Idempotent: only the first call starts a redirect. */
   signIn(): Promise<void> | void;
 }
 let hooks: AuthHooks | null = null;
