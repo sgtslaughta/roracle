@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     elastic_url: str = "http://localhost:9200"
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "unused"
+    llm_timeout_s: float = 120.0
     embed_model: str = "embeddinggemma"
     embed_dims: int = 768
     embed_tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2"

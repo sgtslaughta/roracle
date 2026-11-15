@@ -1,5 +1,22 @@
+import pytest
+
 from roracle import clients
 from roracle.config import Settings
+
+DEFAULTS = {
+    "elastic_url": "http://localhost:9200",
+    "llm_base_url": "http://localhost:11434/v1",
+    "llm_api_key": "unused",
+    "llm_timeout_s": 120.0,
+    "embed_model": "embeddinggemma",
+    "embed_dims": 768,
+    "embed_tokenizer": "sentence-transformers/all-MiniLM-L6-v2",
+    "summary_model": "qwen2.5:3b",
+    "docling_url": "http://localhost:5001",
+    "grobid_url": "",
+    "clamav_host": "",
+    "near_dup_threshold": 0.85,
+}
 
 
 def test_clients_use_settings(settings):
@@ -10,15 +27,16 @@ def test_clients_use_settings(settings):
             "llm_api_key": "k",
         }
     )
-    assert str(clients.llm(s).base_url).rstrip("/") == "http://llm.test/v1"
-    assert clients.llm(s).api_key == "k"
-    node = clients.es(s).transport.node_pool.all()[0]
+    llm = clients.llm(s)
+    assert str(llm.base_url).rstrip("/") == "http://llm.test/v1"
+    assert llm.api_key == "k"
+    assert (llm.timeout, llm.max_retries) == (s.llm_timeout_s, 0)
+    es = clients.es(s)
+    node = es.transport.node_pool.all()[0]
     assert (node.host, node.port) == ("es.test", 9200)
+    assert es._request_timeout == 30
 
 
-def test_ingest_setting_defaults(settings):
-    assert isinstance(settings, Settings)
-    assert settings.llm_base_url == "http://localhost:11434/v1"
-    assert (settings.embed_model, settings.embed_dims) == ("embeddinggemma", 768)
-    assert settings.near_dup_threshold == 0.85
-    assert settings.grobid_url == "" and settings.clamav_host == ""
+@pytest.mark.parametrize("name,default", DEFAULTS.items())
+def test_ingest_setting_defaults(name, default):
+    assert Settings.model_fields[name].default == default
