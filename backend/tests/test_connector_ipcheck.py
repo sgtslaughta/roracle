@@ -100,3 +100,11 @@ def test_wrapped_public_and_never_cases():
     ):
         with pytest.raises(Blocked):
             check_ip(ip, ["::/0", "0.0.0.0/0"])  # inner never-list applies whatever is allowlisted
+
+
+@pytest.mark.parametrize(
+    "addr", ["64:ff9b:1:0:a9:fea9:fe00:0", "64:ff9b:1:0:a9fe:a9fe::", "64:ff9b:1:a9fe:0:a9fe::"]
+)
+def test_local_nat64_every_rfc6052_layout_never_list(addr):
+    with pytest.raises(Blocked):
+        check_ip(addr, ["::/0", "0.0.0.0/0"])

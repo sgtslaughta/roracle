@@ -69,6 +69,11 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             return
+        if p == "/utf8":  # UTF-8 links, no meta charset, no header charset
+            return self.reply(
+                '<a href="http://b\u00fccher.example/x">a</a><a href="/caf\u00e9.txt">b</a>'.encode(),
+                "text/html",
+            )
         if p == "/gz":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -257,6 +262,12 @@ def test_content_encoding_skipped_and_html_cap(srv, cfg):
     assert [
         i.filename for i in crawl.items({"start_urls": [srv.base + "/bightml"], "ingest_html": True}, cfg)
     ]
+
+
+def test_links_decode_utf8_by_default(srv, cfg):
+    r = netguard.fetch(netguard.client(cfg), srv.base + "/utf8", 10_000, 5)
+    got = crawl.links(r.path, r.url, r.charset)
+    assert got == ["http://xn--bcher-kva.example/x", srv.base + "/caf%C3%A9.txt"]
 
 
 def test_frontier_bounded_by_page_budget(srv, cfg):

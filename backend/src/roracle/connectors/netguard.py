@@ -55,26 +55,27 @@ NEVER = [
 _deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar("fetch_deadline", default=None)
 
 
-def _embedded_v4(ip: ipaddress.IPv6Address) -> tuple[str, list[ipaddress.IPv4Address]] | None:
-    """(kind, wrapped IPv4 candidates) for IPv6 forms that embed an IPv4 address."""
+def _embedded_v4(
+    ip: ipaddress.IPv6Address,
+) -> tuple[str, list[ipaddress.IPv4Address], list[ipaddress.IPv4Address]] | None:
+    """(kind, IPv4s that must pass, IPv4s that only get the never-list) for IPv6 forms embedding an IPv4."""
     if ip.ipv4_mapped:
-        return "mapped", [ip.ipv4_mapped]
+        return "mapped", [ip.ipv4_mapped], []
     if ip.sixtofour:
-        return "6to4", [ip.sixtofour]
+        return "6to4", [ip.sixtofour], []
     if ip.teredo:
-        return "teredo", [ip.teredo[1]]  # the client address
+        return "teredo", [ip.teredo[1]], []  # the client address
     if ip in (ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1")):
         return None
     p = ip.packed
     if p[:12] == bytes.fromhex("0064ff9b0000000000000000"):
-        return "nat64", [ipaddress.IPv4Address(p[12:])]
-    if p[:6] == bytes.fromhex("0064ff9b0001"):  # local-use NAT64: RFC 6052 /48 layout, and the plain tail
-        cands = [ipaddress.IPv4Address(p[6:8] + p[9:11])]
-        if p[12:] != bytes(4):
-            cands.append(ipaddress.IPv4Address(p[12:]))
-        return "local64", cands
+        return "nat64", [ipaddress.IPv4Address(p[12:])], []
+    if p[:6] == bytes.fromhex("0064ff9b0001"):  # local-use NAT64: the RFC 6052 layouts are ambiguous
+        layouts = (p[4:8], p[5:8] + p[9:10], p[6:8] + p[9:11], p[7:8] + p[9:12], p[9:13], p[12:16], p[8:12])
+        cands = [ipaddress.IPv4Address(x) for x in layouts]
+        return "local64", [cands[2]] + ([cands[5]] if p[12:16] != bytes(4) else []), cands
     if p[:12] == bytes(12):
-        return "compat", [ipaddress.IPv4Address(p[12:])]  # deprecated IPv4-compatible ::/96
+        return "compat", [ipaddress.IPv4Address(p[12:])], []  # deprecated IPv4-compatible ::/96
     return None
 
 
@@ -97,6 +98,8 @@ def check_ip(ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address, allow_cidr
     emb = _embedded_v4(addr) if isinstance(addr, ipaddress.IPv6Address) else None
     inners = emb[1] if emb else []
     if _never(addr) or any(_never(i) for i in inners):
+        raise Blocked(f"address {addr} is never allowed")
+    if emb and any(_never(i) for i in emb[2] if not i.is_unspecified):
         raise Blocked(f"address {addr} is never allowed")
     if emb is None:
         ok = addr.is_global or _listed(addr, allow_cidrs)
@@ -173,10 +176,19 @@ class Fetched:
     content_type: str  # media type only, lowercase
     etag: str  # ETag, else Last-Modified, else ""
     path: str | None  # temp file with the body (2xx only); caller deletes
+    charset: str = ""  # from Content-Type, may be empty
 
 
 def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> str:
     return next((v.decode("latin-1").strip() for k, v in headers if k.lower() == name), "")
+
+
+def _charset(headers: list[tuple[bytes, bytes]]) -> str:
+    for part in _header(headers, b"content-type").split(";")[1:]:
+        k, _, v = part.partition("=")
+        if k.strip().lower() == "charset":
+            return v.strip().strip("\"'")
+    return ""
 
 
 def origin(url: str) -> tuple[str, str, int]:
@@ -270,5 +282,5 @@ def _fetch(pool, url, max_bytes, end, same_origin, type_caps) -> Fetched:
             except BaseException:
                 os.unlink(path)
                 raise
-            return Fetched(url, r.status, ct, etag, path)
+            return Fetched(url, r.status, ct, etag, path, _charset(r.headers))
     raise Blocked("too many redirects")

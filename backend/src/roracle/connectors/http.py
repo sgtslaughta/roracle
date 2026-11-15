@@ -40,13 +40,18 @@ def is_document(ct: str, ingest_html: bool) -> bool:
     return ct in DOC_TYPES or ct.startswith(DOC_PREFIXES) or (ingest_html and ct in HTML_TYPES)
 
 
-def links(path: str, base: str) -> list[str]:
+def links(path: str, base: str, charset: str = "") -> list[str]:
     """Absolute http(s) URLs (fragments stripped) from `<a href>`; [] if the page is too big or unparsable."""
     try:
         if os.path.getsize(path) > HTML_MAX:
             return []
         with open(path, "rb") as f:
-            doc = lxml.html.fromstring(f.read())
+            data = f.read()
+        try:
+            parser = lxml.html.HTMLParser(encoding=charset or "utf-8")
+        except LookupError:
+            parser = lxml.html.HTMLParser(encoding="utf-8")
+        doc = lxml.html.fromstring(data, parser=parser)
     except Exception:  # noqa: BLE001 - any parse failure just means no links
         return []
     out = []
@@ -167,7 +172,7 @@ class Crawl:
                     ct = r.content_type
                     if ct in HTML_TYPES and depth < max_depth:
                         seen.add(r.url)
-                        for u in links(r.path, r.url):
+                        for u in links(r.path, r.url, r.charset):
                             if len(queue) + self.fetched >= max_pages:
                                 break  # frontier never outgrows the page budget
                             if u in seen or origin(u) != seed_origin or not self.allowed(u):
