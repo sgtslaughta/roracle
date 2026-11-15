@@ -1,7 +1,10 @@
+import os
+import signal
 from datetime import timedelta
 
 from sqlalchemy import func, select, text
 
+from roracle import queue
 from roracle.models import Job
 from roracle.queue import claim, complete, enqueue, fail, run_once
 
@@ -95,3 +98,59 @@ def test_run_once_handler_error_persists_attempt_and_backoff(session_factory, db
     with session_factory() as s:
         job = s.get(Job, jid)
         assert (job.status, job.attempts, job.last_error) == ("queued", 1, "kaput")
+
+
+def test_failed_handler_keeps_claim_lock_and_rolls_back_side_effects(session_factory, db_session):
+    jid = _job(session_factory)
+    during = []
+
+    def boom(s, p):
+        s.execute(text("UPDATE jobs SET payload = '{\"x\": 1}' WHERE id = :i"), {"i": jid})
+        with session_factory() as other:
+            during.append(claim(other, ["ingest"]))  # row must stay locked
+        raise RuntimeError("kaput")
+
+    assert run_once(session_factory, {"ingest": boom}) is True
+    assert during == [None]
+    with session_factory() as s:
+        job = s.get(Job, jid)
+        assert (job.status, job.attempts, job.last_error) == ("queued", 1, "kaput")
+        assert job.payload == {"v": 1}  # handler side effect rolled back
+        assert job.run_after > s.scalar(select(func.now()))
+
+
+def test_five_handler_errors_end_failed(session_factory, db_session):
+    jid = _job(session_factory)
+
+    def boom(s, p):
+        raise RuntimeError("kaput")
+
+    for _ in range(5):
+        with session_factory() as s:
+            s.execute(text("UPDATE jobs SET run_after = now() WHERE id = :i"), {"i": jid})
+            s.commit()
+        assert run_once(session_factory, {"ingest": boom}) is True
+    with session_factory() as s:
+        job = s.get(Job, jid)
+        assert (job.status, job.attempts) == ("failed", 5)
+
+
+def test_run_forever_survives_infrastructure_errors(monkeypatch):
+    calls = []
+
+    def flaky(sf, handlers):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("db down")
+        if len(calls) >= 3:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return False
+
+    monkeypatch.setattr(queue, "run_once", flaky)
+    old = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
+    try:
+        queue.run_forever(None, {}, idle_sleep=0)
+    finally:
+        signal.signal(signal.SIGTERM, old[0])
+        signal.signal(signal.SIGINT, old[1])
+    assert len(calls) == 3

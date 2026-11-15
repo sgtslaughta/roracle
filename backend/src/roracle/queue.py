@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 5
 MAX_ERROR_LEN = 2000
+# Handlers run inside a savepoint of the job transaction and must NOT call session.commit().
 Handler = Callable[[Session, dict], None]
 
 
@@ -48,15 +49,18 @@ def complete(session: Session, job_id: int) -> None:
 
 
 def fail(session: Session, job: Job, error: str) -> None:
-    """Fail permanently after MAX_ATTEMPTS, else requeue with 10 * 2**attempts seconds backoff."""
-    status = "failed" if job.attempts >= MAX_ATTEMPTS else "queued"
+    """Requeue with 10 * 2**attempts seconds backoff; fail permanently at MAX_ATTEMPTS.
+
+    `attempts` is the DB value (already incremented by `claim`).
+    """
     session.execute(
         text(
-            "UPDATE jobs SET status = :status, last_error = :err, updated_at = now(),"
+            "UPDATE jobs SET status = CASE WHEN attempts >= :max THEN 'failed' ELSE 'queued' END,"
+            " last_error = :err, updated_at = now(),"
             " run_after = now() + make_interval(secs => 10 * power(2, attempts))"
             " WHERE id = :id"
         ),
-        {"status": status, "err": error[:MAX_ERROR_LEN], "id": job.id},
+        {"max": MAX_ATTEMPTS, "err": error[:MAX_ERROR_LEN], "id": job.id},
     )
     session.refresh(job)
 
@@ -64,28 +68,23 @@ def fail(session: Session, job: Job, error: str) -> None:
 def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler]) -> bool:
     """Run at most one job; return True if one was claimed.
 
-    Claim, handler and complete share ONE transaction, so a crashed worker leaves the job
-    'queued' (at-least-once). If the handler raises, its work is rolled back (which also
-    undoes the claim), then a NEW transaction records the attempt/backoff via `fail`.
+    Claim, handler and complete/fail share ONE transaction, so the claim's row lock is never
+    released mid-flight and a crashed worker leaves the job 'queued' (at-least-once). The
+    handler runs in a SAVEPOINT: on error only its work is rolled back, the claim (attempts
+    increment) survives and `fail` records the error/backoff.
     """
     with session_factory() as session:
         job = claim(session, handlers.keys())
         if job is None:
             return False
-        job_id, attempts, kind, payload = job.id, job.attempts, job.kind, job.payload
         try:
-            handlers[kind](session, payload)
-            complete(session, job_id)
-            session.commit()
-            return True
+            with session.begin_nested():
+                handlers[job.kind](session, job.payload)
         except Exception as exc:
-            log.exception("job %s (%s) failed", job_id, kind)
-            session.rollback()
-            error = str(exc) or type(exc).__name__
-    with session_factory() as session:
-        job = session.get(Job, job_id, with_for_update=True)
-        job.attempts = attempts  # the claim's increment was rolled back
-        fail(session, job, error)
+            log.exception("job %s (%s) failed", job.id, job.kind)
+            fail(session, job, str(exc) or type(exc).__name__)
+        else:
+            complete(session, job.id)
         session.commit()
     return True
 
@@ -103,5 +102,9 @@ def run_forever(
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     while not stop:
-        if not run_once(session_factory, handlers):
-            time.sleep(idle_sleep)
+        try:
+            if run_once(session_factory, handlers):
+                continue
+        except Exception:
+            log.exception("worker iteration failed")
+        time.sleep(idle_sleep)
