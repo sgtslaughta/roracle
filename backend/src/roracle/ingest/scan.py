@@ -60,6 +60,6 @@ def scan(stream: BinaryIO, host: str, port: int = 3310, timeout: float = 30) -> 
         raise ConnectionError(f"clamd error: {reply}")
     if reply.endswith("FOUND"):
         return reply.removeprefix("stream: ").removesuffix(" FOUND")
-    if reply.endswith("OK"):
+    if reply == "stream: OK":
         return None
     raise ConnectionError(f"clamd unexpected reply: {reply}")

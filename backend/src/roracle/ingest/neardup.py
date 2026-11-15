@@ -1,6 +1,6 @@
 """MinHash near-duplicate detection among documents visible to the uploader.
 
-Stored hashes are `MinHash.hashvalues` (uint64 x 128) bytes, built with seed=1 and scheme affine64.
+Stored hashes are `MinHash.hashvalues` (uint64 x 128, little-endian "<u8") bytes, built with seed=1 and scheme affine64.
 NEVER change NUM_PERM, SEED, shingle size or normalization without re-hashing stored versions:
 signatures from different settings are not comparable.
 """
@@ -39,12 +39,15 @@ def minhash(text: str) -> bytes | None:
     m = MinHash(num_perm=NUM_PERM, seed=SEED, scheme=SCHEME)
     for s in shingles:
         m.update(s.encode())
-    return m.hashvalues.tobytes()
+    return m.hashvalues.astype("<u8").tobytes()
 
 
 def _load(b: bytes) -> MinHash:
     return MinHash(
-        num_perm=NUM_PERM, seed=SEED, scheme=SCHEME, hashvalues=np.frombuffer(b, dtype=np.uint64).copy()
+        num_perm=NUM_PERM,
+        seed=SEED,
+        scheme=SCHEME,
+        hashvalues=np.frombuffer(b, dtype="<u8").astype(np.uint64),
     )
 
 

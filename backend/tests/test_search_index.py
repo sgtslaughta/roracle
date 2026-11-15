@@ -87,7 +87,7 @@ def test_index_overwrite_stale_and_latest_flip(es, model, db_session, document, 
     count = lambda q: es.count(index=index_name(model), query=q)["count"]
     assert count({"term": {"version_id": str(v1.id)}}) == 2
     index_chunks(es, v2, document, _chunks(1), vec[:1], acl, model, title="T")
-    mark_previous_versions(es, document.id, v2.id)
+    mark_previous_versions(es, document.id, v2.version)
     es.indices.refresh(index=index_name(model))
     assert (
         count({"bool": {"filter": [{"term": {"version_id": str(v1.id)}}, {"term": {"is_latest": False}}]}})

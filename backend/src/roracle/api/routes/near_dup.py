@@ -59,15 +59,12 @@ def decide_near_dup(
 def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: Document) -> None:
     match = session.get(DocumentVersion, v.near_dup_of) if v.near_dup_of else None
     target = session.get(Document, match.document_id, with_for_update=True) if match else None
+    if target is not None and not (target.owner_id == p.user_id or p.is_admin):
+        raise HTTPException(403, "only the document owner can add versions")
     if target is None or target.deleted_at is not None:
         raise HTTPException(409, "matched document no longer exists")
-    if not (target.owner_id == p.user_id or p.is_admin):
-        raise HTTPException(403, "only the document owner can add versions")
     top = session.scalar(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == target.id)
-    )
-    session.execute(
-        update(DocumentVersion).where(DocumentVersion.document_id == target.id).values(is_latest=False)
     )
     old_doc_id = v.document_id
     v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, True

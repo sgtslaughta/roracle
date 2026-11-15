@@ -60,6 +60,8 @@ def _scan(session: Session, v: DocumentVersion, settings: Settings, store: BlobS
         sig = scan(store.open(v.blob_sha256), settings.clamav_host)
         if sig:
             set_stage(sf, v.id, "rejected")
+            if sig.startswith("Heuristics.Limits.Exceeded"):
+                raise NonRetryable("file exceeds the malware scanner limits")
             raise NonRetryable(f"malware detected: {sig}")
     set_stage(sf, v.id, "scanned")
 
@@ -119,7 +121,7 @@ def _index(
     )
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
-        search_index.mark_previous_versions(es, d.id, v.id)
+        search_index.mark_previous_versions(es, d.id, v.version)
         demote_older_versions(sf, d.id, v.id)
     set_stage(sf, v.id, "searchable")
 
@@ -144,7 +146,7 @@ def handle_ingest(
     session.refresh(v)
     d = session.get(Document, v.document_id)
     session.refresh(d)
-    if v.stage in TERMINAL:
+    if v.stage in TERMINAL or d.deleted_at is not None:
         return
 
     doc: dict | None = None

@@ -150,13 +150,13 @@ def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = A
     )
 
 
-def mark_previous_versions(es: Elasticsearch, doc_id, latest_version_id, alias: str = ALIAS) -> None:
+def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str = ALIAS) -> None:
+    """Flag every chunk of this document's versions older than `version` as not latest."""
     es.update_by_query(
         index=alias,
         query={
             "bool": {
-                "filter": [{"term": {"doc_id": str(doc_id)}}],
-                "must_not": [{"term": {"version_id": str(latest_version_id)}}],
+                "filter": [{"term": {"doc_id": str(doc_id)}}, {"range": {"version": {"lt": version}}}],
             }
         },
         script={"source": "ctx._source.is_latest = false", "lang": "painless"},

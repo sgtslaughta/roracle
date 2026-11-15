@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -124,6 +125,26 @@ def test_malware_rejected_and_job_failed(db_session, session_factory, cfg, store
     assert job.last_error == "user:malware detected: Eicar-Test"
 
 
+def test_scanner_limit_is_rejected_with_accurate_message(
+    db_session, session_factory, cfg, store, user, monkeypatch
+):
+    cfg = cfg.model_copy(update={"clamav_host": "clam"})
+    monkeypatch.setattr(pipeline, "scan", lambda *a, **k: "Heuristics.Limits.Exceeded.MaxScanSize")
+    v = make_version(db_session, store, user)
+    job = _run(db_session, session_factory, cfg, store, MagicMock(), v, expect_failed=True)
+    assert _stage(db_session, v) == "rejected"
+    assert job.last_error == "user:file exceeds the malware scanner limits"
+
+
+def test_soft_deleted_document_does_no_work(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", lambda *a, **k: pytest.fail("converted"))
+    v = make_version(db_session, store, user)
+    db_session.query(Document).update({"deleted_at": datetime.now(UTC)})
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    assert _stage(db_session, v) == "uploaded"
+
+
 def test_sixth_start_fails(db_session, session_factory, cfg, store, user):
     v = make_version(db_session, store, user)
     db_session.query(DocumentVersion).update({"ingest_attempts": 5})
@@ -215,6 +236,35 @@ def test_older_version_finishing_late_does_not_demote_newer(
     assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v1)} == {False}
     db_session.expire_all()
     assert db_session.get(DocumentVersion, v2.id).is_latest is True
+
+
+@pytest.mark.integration
+def test_newer_version_moved_in_mid_run_stays_latest(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    doc = db_session.get(Document, v1.document_id)
+    v2 = make_version(db_session, store, user, doc=doc, version=2)
+    made = {}
+    real = pipeline.search_index.index_chunks
+
+    def index_then_v3_arrives(*a, **k):
+        out = real(*a, **k)
+        made["v3"] = make_version(db_session, store, user, doc=doc, version=3)  # near-dup new_version
+        return out
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", index_then_v3_arrives)
+    _run(db_session, session_factory, cfg, store, es, v2)
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", real)
+    v3 = made["v3"]
+    _run(db_session, session_factory, cfg, store, es, v3)
+    _run(db_session, session_factory, cfg, store, es, v1)
+    db_session.expire_all()
+    assert [db_session.get(DocumentVersion, v.id).is_latest for v in (v1, v2, v3)] == [False, False, True]
+    assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v3)} == {True}
+    assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v2)} == {False}
+    assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v1)} == {False}
 
 
 @pytest.mark.integration

@@ -1,3 +1,4 @@
+import logging
 from functools import partial
 
 from roracle import clients
@@ -7,6 +8,7 @@ from roracle.ingest import handle_ingest
 from roracle.queue import Handler, run_forever
 from roracle.storage import blob_store_from
 
+log = logging.getLogger(__name__)
 HANDLERS: dict[str, Handler] = {}  # filled by build_handlers() at worker startup
 
 
@@ -25,6 +27,8 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
 
 def main() -> None:
     settings = get_settings()
+    if not settings.clamav_host:
+        log.warning("clamav_host is empty: malware scanning disabled")
     sf = make_session_factory(settings.database_url)
     HANDLERS.update(build_handlers(settings, sf))
     run_forever(sf, HANDLERS)

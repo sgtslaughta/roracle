@@ -76,7 +76,9 @@ def test_size_limit_non_retryable(fake):
         scan(io.BytesIO(b"x"), "127.0.0.1", port)
 
 
-@pytest.mark.parametrize("reply", [b"stream: OK", b"stream: Sig-OK", b"", b"weird\0"])
+@pytest.mark.parametrize(
+    "reply", [b"stream: OK", b"stream: Sig-OK", b"", b"weird\0", b"nope: OK\0", b"stream: Sig-OK\0"]
+)
 def test_truncated_or_unexpected_fails_closed(fake, reply):
     port = fake(reply)
     with pytest.raises(ConnectionError):

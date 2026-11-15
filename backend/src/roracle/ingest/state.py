@@ -10,7 +10,7 @@ every helper sets a lock_timeout and fails loudly (retryable) instead.
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text, update
+from sqlalchemy import exists, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Document, DocumentVersion
@@ -88,9 +88,15 @@ def demote_older_versions(
 ) -> None:
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        number = s.scalar(select(DocumentVersion.version).where(DocumentVersion.id == version_id))
+        if number is None:
+            raise LookupError(f"document version {version_id} not found")
         s.execute(
             update(DocumentVersion)
-            .where(DocumentVersion.document_id == doc_id, DocumentVersion.id != version_id)
+            .where(DocumentVersion.document_id == doc_id, DocumentVersion.version < number)
             .values(is_latest=False)
         )
+        # A newer version may have moved in meanwhile: it keeps the flag, this one then is not latest.
+        newer = exists().where(DocumentVersion.document_id == doc_id, DocumentVersion.version > number)
+        s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
         s.commit()

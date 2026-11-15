@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -14,6 +15,12 @@ OTHER = " ".join(f"zebra{i}" for i in range(200))
 def test_similarity():
     assert similarity(minhash(TEXT), minhash(TEXT.upper())) >= 0.99
     assert similarity(minhash(TEXT), minhash(OTHER)) < 0.2
+
+
+def test_signature_bytes_are_pinned():
+    sig = minhash("the quick brown fox jumps over the lazy dog again")
+    assert len(sig) == 128 * 8
+    assert sig[:16].hex() == "6269a7e91a8cce17d8bb82ccc19c6f03"
 
 
 def test_short_and_empty_text():
@@ -96,12 +103,16 @@ def _jobs(db):
 
 def test_new_version(db_session, client, as_ana):
     md, match, ud, mine = _setup(db_session, client, as_ana)
+    mine.ingest_attempts = 4
+    db_session.flush()
     r = _post(client, as_ana, ud, mine, "new_version")
     assert r.status_code == 200, r.text
     db_session.refresh(mine)
     db_session.refresh(match)
     assert (mine.document_id, mine.version, mine.is_latest, mine.stage) == (md.id, 2, True, "deduped")
-    assert mine.near_dup_of == match.id and match.is_latest is False
+    # the old version stays latest until the new one is searchable (the index step demotes it)
+    assert mine.near_dup_of == match.id and match.is_latest is True
+    assert mine.ingest_attempts == 0
     assert db_session.get(Document, ud.id) is None
     assert [j.payload for j in _jobs(db_session)] == [{"version_id": str(mine.id)}]
 
@@ -115,11 +126,29 @@ def test_new_version_on_foreign_document_is_403(db_session, client, as_ana):
     assert mine.stage == "review" and not _jobs(db_session)
 
 
+def test_foreign_deleted_match_is_403_not_409(db_session, client, as_ana):
+    md, _match, ud, mine = _setup(db_session, client, as_ana, owner_of_match="bob")
+    md.deleted_at = datetime.now(UTC)
+    db_session.flush()
+    r = _post(client, as_ana, ud, mine, "new_version")
+    assert r.status_code == 403
+
+
+def test_own_deleted_match_is_409(db_session, client, as_ana):
+    md, _match, ud, mine = _setup(db_session, client, as_ana)
+    md.deleted_at = datetime.now(UTC)
+    db_session.flush()
+    r = _post(client, as_ana, ud, mine, "new_version")
+    assert r.status_code == 409 and r.json() == {"detail": "matched document no longer exists"}
+
+
 def test_separate(db_session, client, as_ana):
     _, _, ud, mine = _setup(db_session, client, as_ana, owner_of_match="bob")
+    mine.ingest_attempts = 4
+    db_session.flush()
     assert _post(client, as_ana, ud, mine, "separate").status_code == 200
     db_session.refresh(mine)
-    assert mine.stage == "deduped" and mine.document_id == ud.id
+    assert mine.stage == "deduped" and mine.document_id == ud.id and mine.ingest_attempts == 0
     assert len(_jobs(db_session)) == 1
 
 

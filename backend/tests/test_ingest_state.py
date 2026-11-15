@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
-from roracle.ingest.state import bump_attempts, set_stage, update_version
+from roracle.ingest.state import bump_attempts, demote_older_versions, set_stage, update_version
 from roracle.models import DocumentVersion, Job
 from roracle.queue import claim, enqueue
 
@@ -80,3 +80,34 @@ def test_get_session_uses_app_state_factory(settings):
     s = next(gen)
     assert s.get_bind() is factory.kw["bind"]
     gen.close()
+
+
+def _versions(db_session, document, blob, flags):
+    ids = []
+    for n, latest in enumerate(flags, 1):
+        v = DocumentVersion(
+            document_id=document.id, version=n, blob_sha256=blob.sha256, filename="a",
+            content_type="x", size=1, is_latest=latest,
+        )  # fmt: skip
+        db_session.add(v)
+        db_session.flush()
+        ids.append(v.id)
+    db_session.commit()
+    return ids
+
+
+def _flags(db_session, ids):
+    db_session.expire_all()
+    return [db_session.get(DocumentVersion, i).is_latest for i in ids]
+
+
+def test_demote_only_older_and_restores_own_flag(session_factory, db_session, document, blob):
+    ids = _versions(db_session, document, blob, [True, True, False])  # v3 wrongly cleared
+    demote_older_versions(session_factory, document.id, ids[2])
+    assert _flags(db_session, ids) == [False, False, True]
+
+
+def test_demote_by_older_version_never_touches_newer(session_factory, db_session, document, blob):
+    ids = _versions(db_session, document, blob, [True, True, True])
+    demote_older_versions(session_factory, document.id, ids[1])
+    assert _flags(db_session, ids) == [False, False, True]
