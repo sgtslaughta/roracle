@@ -83,7 +83,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
   superseded + link). Ranking boost = smoothed vote ratio (up+1)/(n+2) mapped to **±15% cap**. "Outdated" reasons
   reset when a new version arrives.
 - Facets (from current results only): collection, tags, org unit, author, year, file type, venue.
-  Sorts: relevance, newest, most useful, title. Cursor pagination (`search_after` + PIT).
+  Sorts: relevance, newest, most useful (`votes` sort key = net up−down), title. Cursor pagination (`search_after` + PIT).
 - Tags: shared, normalised (lowercase, hyphens), autocomplete; any reader adds, owner/admin removes,
   admins merge synonyms. Collections scope search, chat and MCP.
 - Chat: streaming SSE, mandatory citations (doc, version, page, chunk), hover excerpt + page crop,
