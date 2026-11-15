@@ -21,6 +21,7 @@
 - Elastic: index `chunks-<model-slug>-1` behind alias `chunks` (slug = lowercase, non-alphanumerics → `-`). `dense_vector` dims = `ROR_EMBED_DIMS`, `similarity: cosine`, `index_options.type: int8_hnsw`.
 - Each chunk document carries ACL fields exactly: `owner_id`, `visibility`, `org_unit`, `share_users`, `share_groups` (ADR-0002), plus `doc_id`, `version_id`, `version`, `is_latest`, `chunk_id` (`{version_id}:{n}`), `title`, `authors`, `year`, `text`, `headings`, `pages` (int[]), `bboxes` (object, not indexed), `embedding_model`.
 - Derived objects: `derived/{version_id}/docling.json` in the same bucket.
+- Title (user rule): resolved after parse as upload `title` field (no filename fallback) → GROBID `meta.title` → Docling title/first section-header item. None found → stage `needs_title` (terminal-until-input, like `review`; label "Needs a title"); owner or admin sets it via `PUT /documents/{doc_id}/versions/{version_id}/title {"title"}` (1–500 chars) → stage `parsed`, re-enqueue. Admins list them via `GET /admin/needs-title`.
 - Summary prompt output ≤ 3 sentences; inputs truncated to the first 6000 characters of document text.
 
 ## Review Focus
