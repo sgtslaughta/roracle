@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle.models import DocumentVersion
+from roracle.models import Document, DocumentVersion
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -34,6 +34,21 @@ def update_version(
         res = s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(**fields))
         if res.rowcount == 0:
             raise LookupError(f"document version {version_id} not found")
+        s.commit()
+
+
+def update_document(
+    session_factory: sessionmaker[Session],
+    doc_id: UUID,
+    *,
+    lock_timeout_s: float = LOCK_TIMEOUT_S,
+    **fields: Any,
+) -> None:
+    with session_factory() as s:
+        _lock_timeout(s, lock_timeout_s)
+        res = s.execute(update(Document).where(Document.id == doc_id).values(**fields))
+        if res.rowcount == 0:
+            raise LookupError(f"document {doc_id} not found")
         s.commit()
 
 
@@ -62,3 +77,20 @@ def bump_attempts(
             raise LookupError(f"document version {version_id} not found")
         s.commit()
         return n
+
+
+def demote_older_versions(
+    session_factory: sessionmaker[Session],
+    doc_id: UUID,
+    version_id: UUID,
+    *,
+    lock_timeout_s: float = LOCK_TIMEOUT_S,
+) -> None:
+    with session_factory() as s:
+        _lock_timeout(s, lock_timeout_s)
+        s.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.document_id == doc_id, DocumentVersion.id != version_id)
+            .values(is_latest=False)
+        )
+        s.commit()

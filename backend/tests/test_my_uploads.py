@@ -41,7 +41,7 @@ def test_lists_only_my_uploads_newest_first(client, as_ana, as_bob, upload):
     top = body["items"][0]
     assert top["document_id"] == b["document_id"] and top["version_id"] == b["version_id"]
     assert top["status"] == "queued" and top["error"] is None and top["size"] == 1
-    assert top["title"] == "b.pdf" and top["visibility"] == "everyone"
+    assert top["title"] is None and top["visibility"] == "everyone"
     assert top["uploaded_at"].startswith("2026-01-01T02:00:00")
     assert a["document_id"] == body["items"][1]["document_id"]
 
@@ -113,3 +113,31 @@ def test_deleted_excluded_and_paging(client, as_ana, upload, db_session):
 
 def test_limit_is_capped_at_200(client, as_ana):
     assert client.get("/me/uploads?limit=1000", headers=as_ana).status_code == 422
+
+
+def test_stage_label_page_count_and_near_dup_visibility(client, as_ana, as_bob, upload, db_session):
+    other_pub = upload(as_bob, b"pub")
+    other_priv = upload(as_bob, b"priv")
+    mine = upload(as_ana, b"mine")
+    db_session.execute(
+        update(Document)
+        .where(Document.id == other_priv["document_id"])
+        .values(visibility="private", title="Secret")
+    )
+    db_session.execute(update(Document).where(Document.id == other_pub["document_id"]).values(title="Public"))
+    db_session.execute(
+        update(DocumentVersion)
+        .where(DocumentVersion.id == mine["version_id"])
+        .values(stage="review", page_count=7, near_dup_of=other_pub["version_id"])
+    )
+    db_session.flush()
+    item = client.get("/me/uploads", headers=as_ana).json()["items"][0]
+    assert (item["stage"], item["stage_label"], item["page_count"]) == ("review", "Needs your decision", 7)
+    assert item["near_dup_of"] == {"document_id": other_pub["document_id"], "title": "Public"}
+    db_session.execute(
+        update(DocumentVersion)
+        .where(DocumentVersion.id == mine["version_id"])
+        .values(near_dup_of=other_priv["version_id"])
+    )
+    db_session.flush()
+    assert client.get("/me/uploads", headers=as_ana).json()["items"][0]["near_dup_of"] is None
