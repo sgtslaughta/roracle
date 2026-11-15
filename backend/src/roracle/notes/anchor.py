@@ -3,9 +3,10 @@
 import logging
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from roracle.models import Annotation
+from roracle.models import Annotation, DocumentVersion
 from roracle.search_index import ALIAS
 
 log = logging.getLogger(__name__)
@@ -32,16 +33,34 @@ def find_quote(es, version_id: UUID, quote: str) -> tuple[int | None, dict | Non
     pages = src.get("pages") or []
     page = pages[0] if pages else None
     box = next((b for b in src.get("bboxes") or [] if b.get("page") == page), None)
-    bbox = {"x0": box["l"], "y0": box["t"], "x1": box["r"], "y1": box["b"]} if box and "l" in box else None
+    bbox = (
+        {
+            "x0": box["l"],
+            "y0": box["t"],
+            "x1": box["r"],
+            "y1": box["b"],
+            "coord_origin": box.get("coord_origin"),
+        }
+        if box and "l" in box
+        else None
+    )
     return page, bbox
 
 
 def reanchor(session: Session, es, latest, notes: list[Annotation]) -> None:
     """Move root notes (<= CAP) not yet on `latest` (a DocumentVersion). ES failure leaves a note untouched."""
+    roots = [n for n in notes if n.parent_id is None and n.version_id != latest.id]
+    nums = dict(
+        session.execute(
+            select(DocumentVersion.id, DocumentVersion.version).where(
+                DocumentVersion.id.in_({n.version_id for n in roots})
+            )
+        ).all()
+    )
     todo = [
         n
-        for n in notes
-        if n.parent_id is None and n.version_id != latest.id and n.stale_version != latest.version
+        for n in roots
+        if nums.get(n.version_id, latest.version) < latest.version and n.stale_version != latest.version
     ][:CAP]
     for n in todo:
         if n.anchor is None:
@@ -57,8 +76,7 @@ def reanchor(session: Session, es, latest, notes: list[Annotation]) -> None:
             continue
         page, bbox = found
         a = dict(n.anchor)
-        if page is not None:
-            a["page"], a["bbox"] = page, bbox
+        a["page"], a["bbox"] = page, bbox
         n.anchor, n.version_id, n.stale_version = a, latest.id, None
     if todo:
         session.commit()

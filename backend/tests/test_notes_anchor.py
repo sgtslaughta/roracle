@@ -54,10 +54,25 @@ def test_found_moves_version_and_page(client, app, as_ana, setup, db_session):
     d, _ = setup
     nid = make_note(client, as_ana, d, anchor={"quote": "hello world", "page": 1})
     v2 = add_v2(db_session, d)
-    es = QES(hits=[{"_source": {"pages": [3], "bboxes": [{"page": 3, "l": 1, "t": 2, "r": 3, "b": 4}]}}])
+    es = QES(
+        hits=[
+            {
+                "_source": {
+                    "pages": [3],
+                    "bboxes": [{"page": 3, "l": 1, "t": 2, "r": 3, "b": 4, "coord_origin": "BOTTOMLEFT"}],
+                }
+            }
+        ]
+    )
     (it,) = listing(client, app, as_ana, d, es)
     assert it["version_id"] == str(v2.id) and it["version"] == 2 and it["may_not_apply_to_version"] is None
-    assert it["anchor"]["page"] == 3 and it["anchor"]["bbox"] == {"x0": 1, "y0": 2, "x1": 3, "y1": 4}
+    assert it["anchor"]["page"] == 3 and it["anchor"]["bbox"] == {
+        "x0": 1,
+        "y0": 2,
+        "x1": 3,
+        "y1": 4,
+        "coord_origin": "BOTTOMLEFT",
+    }
     q = es.calls[0]["query"]["bool"]
     assert {"term": {"version_id": str(v2.id)}} in q["filter"]
     assert q["must"] == [{"match_phrase": {"text": "hello world"}}]
@@ -103,3 +118,37 @@ def test_cap_50_and_replies_untouched(client, app, as_ana, setup, db_session):
     es = QES(hits=[{"_source": {}}])
     listing(client, app, as_ana, d, es)
     assert len(es.calls) == 50
+
+
+def test_unpublished_newer_version_not_anchored_to(client, app, as_ana, setup, db_session):
+    d, v1 = setup
+    make_note(client, as_ana, d, anchor={"quote": "q", "page": 1})
+    v2 = add_v2(db_session, d)
+    v2.stage = "parsed"
+    db_session.commit()
+    es = QES()
+    (it,) = listing(client, app, as_ana, d, es)
+    assert it["version_id"] == str(v1.id) and it["may_not_apply_to_version"] is None and es.calls == []
+
+
+def test_older_searchable_does_not_pull_back(client, app, as_ana, setup, db_session):
+    d, v1 = setup
+    v2 = add_v2(db_session, d)
+    v1.stage = "parsed"
+    nid = make_note(client, as_ana, d, anchor={"quote": "q"})  # lands on v2
+    v2.stage = "parsed"
+    v1.stage = "searchable"
+    db_session.commit()
+    es = QES()
+    (it,) = listing(client, app, as_ana, d, es)
+    assert it["id"] == nid and it["version_id"] == str(v2.id) and es.calls == []
+
+
+def test_hit_without_pages_clears_page(client, app, as_ana, setup, db_session):
+    d, _ = setup
+    make_note(
+        client, as_ana, d, anchor={"quote": "q", "page": 4, "bbox": {"x0": 1, "y0": 1, "x1": 2, "y1": 2}}
+    )
+    add_v2(db_session, d)
+    (it,) = listing(client, app, as_ana, d, QES(hits=[{"_source": {}}]))
+    assert it["anchor"]["page"] is None and it["anchor"]["bbox"] is None

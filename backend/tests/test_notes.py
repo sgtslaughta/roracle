@@ -242,8 +242,23 @@ def test_latest_searchable_version_for_non_owner(client, as_ana, as_bob, ana, bo
         select(DocumentVersion).where(DocumentVersion.document_id == d.id, DocumentVersion.version == 1)
     )
     assert post(client, as_bob, d.id).json()["version_id"] == str(v1.id)
-    assert post(client, as_ana, d.id).json()["version_id"] == str(v2.id)
+    assert post(client, as_ana, d.id).json()["version_id"] == str(v1.id)  # searchable for everyone
 
 
 def test_unauth_401(client, doc):
     assert client.get(f"/documents/{doc[0].id}/annotations").status_code == 401
+
+
+def test_owner_no_searchable_uses_highest(client, as_ana, ana, db_session):
+    d, v = seed(db_session, ana, visibility="private", stage="parsed")
+    db_session.commit()
+    assert post(client, as_ana, d.id).json()["version_id"] == str(v.id)
+
+
+def test_root_visibility_patch_updates_replies(client, as_ana, as_bob, ana, bob, doc, db_session):
+    d, _ = doc
+    root = post(client, as_ana, d.id).json()
+    rid = client.post(f"/annotations/{root['id']}/replies", json={"body": "r"}, headers=as_bob).json()["id"]
+    client.patch(f"/annotations/{root['id']}", json={"visibility": "private"}, headers=as_ana)
+    db_session.expire_all()
+    assert db_session.get(Annotation, uuid.UUID(rid)).visibility == "private"

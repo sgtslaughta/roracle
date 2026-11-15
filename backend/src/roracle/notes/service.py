@@ -25,10 +25,14 @@ NOT_FOUND = HTTPException(404, "not found")
 
 
 def _doc_version(session: Session, p: Principal, doc: Document) -> DocumentVersion:
-    q = select(DocumentVersion).where(DocumentVersion.document_id == doc.id)
-    if not (p.is_admin or doc.owner_id == p.user_id):
-        q = q.where(DocumentVersion.stage == "searchable")
-    v = session.scalar(q.order_by(DocumentVersion.version.desc()).limit(1))
+    v = latest_searchable(session, doc.id)
+    if v is None and (p.is_admin or doc.owner_id == p.user_id):
+        v = session.scalar(
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == doc.id)
+            .order_by(DocumentVersion.version.desc())
+            .limit(1)
+        )
     if v is None:
         raise NOT_FOUND
     return v
@@ -127,6 +131,8 @@ def patch(session: Session, p: Principal, note_id: UUID, body: NotePatch) -> Ann
     vis = body.visibility or n.visibility
     if body.visibility is not None:
         n.visibility = vis
+        if n.parent_id is None:
+            session.query(Annotation).filter_by(parent_id=n.id).update({"visibility": vis})
     if vis != "shared":
         _set_shares(session, n, [])
     elif body.shares is not None:

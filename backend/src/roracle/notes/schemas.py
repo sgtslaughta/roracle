@@ -12,6 +12,7 @@ class BBox(BaseModel):
     y0: float
     x1: float
     y1: float
+    coord_origin: str | None = None
 
 
 class Anchor(BaseModel):
