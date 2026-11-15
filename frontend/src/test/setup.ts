@@ -1,8 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterAll, afterEach, beforeAll } from "vitest";
+import { server } from "@/mocks/server";
+import { resetMockState } from "@/mocks/state";
 import { cleanup } from "@testing-library/react";
 
-afterEach(() => cleanup());
+beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
+afterEach(() => { cleanup(); server.resetHandlers(); resetMockState(); });
+afterAll(() => server.close());
 
 // jsdom gaps
 if (!window.matchMedia) {
