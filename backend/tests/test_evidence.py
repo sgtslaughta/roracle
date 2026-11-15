@@ -256,3 +256,71 @@ def test_scan_size_limit_failed_and_conn_error_propagates(scan_env, db_session, 
 
 def test_scan_missing_row_noop(db_session, store, settings):
     ev.handle_evidence_scan(db_session, {"evidence_id": str(uuid.uuid4())}, settings=settings, store=store)
+
+
+@pytest.mark.parametrize(
+    "prov",
+    [
+        {"parameters": {"a": {"@id": "x"}}},
+        {"parameters": {"a": [{"b": {"@type": "x"}}]}},
+        {"code": {"repo": "javascript:alert(1)", "commit": "abc1234"}},
+        {"code": {"repo": "file:///etc/passwd", "commit": "abc1234"}},
+        {"inputs": [{"name": "i", "uri": "ftp://x"}]},
+        {"uri": "data:text/html,x", "uri_sha256": "c" * 64},
+        {"uri": "https://x.org/p"},
+        {"uri_sha256": "c" * 64},
+    ],
+)
+def test_provenance_hardening_422(client, as_ana, note, prov):
+    assert post(client, as_ana, note, prov={**PROV, **prov}, data=None).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "repo", ["git@github.com:org/x.git", "HTTPS://x.org/r", "ssh://h/r", "s3://b/k", "doi:10.1/x"]
+)
+def test_repo_schemes_ok(client, as_ana, note, repo):
+    p = {**PROV, "code": {"repo": repo, "commit": "abc1234"}}
+    assert post(client, as_ana, note, prov=p, data=None).status_code == 201
+
+
+def test_pat_cannot_write_evidence(client, as_ana, ana, note, db_session):
+    tok = bearer(
+        client.post("/me/tokens", json={"name": "c", "scopes": ["read", "write"]}, headers=as_ana).json()[
+            "token"
+        ]
+    )
+    e = _mk(db_session, note, ana, "clean")
+    for r in (
+        post(client, tok, note),
+        client.put(f"/evidence/{e.id}/reproduction", json={"outcome": "failed"}, headers=tok),
+        client.delete(f"/evidence/{e.id}", headers=tok),
+    ):
+        assert r.status_code == 403
+
+
+def test_scan_missing_object_failed_and_body_closed(scan_env, db_session, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    e, s, _ = scan_env
+
+    class Store:
+        def open(self, sha):
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+    ev.handle_evidence_scan(db_session, {"evidence_id": str(e.id)}, settings=s, store=Store())
+    assert e.scan_status == "failed"
+
+    closed = []
+
+    class Body(io.BytesIO):
+        def close(self):
+            closed.append(1)
+            super().close()
+
+    class Store2:
+        def open(self, sha):
+            return Body(b"x")
+
+    monkeypatch.setattr(ev, "scan", lambda stream, host: None)
+    ev.handle_evidence_scan(db_session, {"evidence_id": str(e.id)}, settings=s, store=Store2())
+    assert e.scan_status == "clean" and closed

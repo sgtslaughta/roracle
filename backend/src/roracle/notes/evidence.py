@@ -3,11 +3,13 @@
 import json
 import re
 from collections import Counter
+from contextlib import closing
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 
+from botocore.exceptions import ClientError
 from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,12 +23,38 @@ from roracle.storage import BlobStore
 CONTEXT = "https://w3id.org/ro/crate/1.1/context"  # identifier only, never fetched (air-gapped)
 META_MAX = 256 * 1024
 PARAMS_MAX = 64 * 1024
+URI_RE = re.compile(r"^(https?|s3|doi|git|ssh):", re.IGNORECASE)
+GIT_SCP = re.compile(r"^[\w.-]+@[\w.-]+:\S+$")
+
+
+def _uri(v: str | None) -> str | None:
+    if v is not None and not URI_RE.match(v):
+        raise ValueError("uri scheme not allowed")
+    return v
+
+
+def _no_at_keys(v: Any) -> None:
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if str(k).startswith("@"):
+                raise ValueError("parameter keys must not start with '@'")
+            _no_at_keys(x)
+    elif isinstance(v, list):
+        for x in v:
+            _no_at_keys(x)
+
+
 Hex64 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 class Code(BaseModel):
     repo: str = Field(min_length=1, max_length=2000)
     commit: str = Field(pattern=r"^[0-9a-fA-F]{7,64}$")
+
+    @field_validator("repo")
+    @classmethod
+    def _repo(cls, v: str) -> str:
+        return v if GIT_SCP.match(v) else _uri(v)  # type: ignore[return-value]
 
 
 class Env(BaseModel):
@@ -37,6 +65,8 @@ class Item(BaseModel):
     name: str = Field(min_length=1, max_length=500)
     uri: str | None = Field(None, max_length=2000)
     sha256: Hex64 | None = None
+
+    _u = field_validator("uri")(_uri)
 
 
 class AgentInfo(BaseModel):
@@ -63,12 +93,17 @@ class Provenance(BaseModel):
     def _params(cls, v: dict) -> dict:
         if len(json.dumps(v)) > PARAMS_MAX:
             raise ValueError("parameters exceed 64 KB")
+        _no_at_keys(v)
         return v
+
+    _u = field_validator("uri")(_uri)
 
     @model_validator(mode="after")
     def _order(self) -> "Provenance":
         if self.started_at > self.ended_at:
             raise ValueError("started_at must not be after ended_at")
+        if (self.uri is None) != (self.uri_sha256 is None):
+            raise ValueError("uri and uri_sha256 must be given together")
         return self
 
 
@@ -155,8 +190,14 @@ def handle_evidence_scan(session: Session, payload: dict, *, settings: Settings,
         e.scan_status = "unscanned"
         return
     try:
-        sig = scan(store.open(e.blob_sha256), settings.clamav_host)
+        with closing(store.open(e.blob_sha256)) as body:
+            sig = scan(body, settings.clamav_host)
     except NonRetryable:
+        e.scan_status = "failed"
+        return
+    except ClientError as ex:
+        if ex.response.get("Error", {}).get("Code") not in ("NoSuchKey", "404", "NotFound"):
+            raise
         e.scan_status = "failed"
         return
     e.scan_status = "infected" if sig else "clean"

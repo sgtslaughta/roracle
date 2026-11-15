@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -151,16 +152,21 @@ class ReproIn(BaseModel):
 @router.put("/evidence/{evidence_id}/reproduction")
 def reproduce(evidence_id: UUID, body: ReproIn, session: Session_, p: Human) -> dict:
     e = _load(session, p, evidence_id)
-    key = (EvidenceReproduction.evidence_id == e.id, EvidenceReproduction.user_id == p.user_id)
-    row = session.scalar(select(EvidenceReproduction).where(*key))
     if body.outcome is None:
-        if row:
-            session.delete(row)
-    elif row:
-        row.outcome, row.note, row.created_at = body.outcome, body.note, func.now()
+        session.execute(
+            sa_delete(EvidenceReproduction).where(
+                EvidenceReproduction.evidence_id == e.id, EvidenceReproduction.user_id == p.user_id
+            )
+        )
     else:
-        session.add(
-            EvidenceReproduction(evidence_id=e.id, user_id=p.user_id, outcome=body.outcome, note=body.note)
+        ins = insert(EvidenceReproduction).values(
+            evidence_id=e.id, user_id=p.user_id, outcome=body.outcome, note=body.note
+        )
+        session.execute(
+            ins.on_conflict_do_update(
+                index_elements=["evidence_id", "user_id"],
+                set_={"outcome": ins.excluded.outcome, "note": ins.excluded.note, "created_at": func.now()},
+            )
         )
     session.flush()
     out = ev.to_json(session, p, [e])[0]
