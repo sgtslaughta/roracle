@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -8,6 +8,7 @@ import { API_BASE } from "@/api/client";
 import { createAppRouter } from "@/app/router";
 import { server } from "@/mocks/server";
 import { state } from "@/mocks/state";
+import type { HandoffManifest, HandoffShare } from "@/api/agents";
 import { resetReaderStore } from "@/features/reader/useReaderStore";
 import { resetAskTurns } from "@/features/ask/askStore";
 import { resetAskContext } from "@/features/ask/useAskContext";
@@ -44,6 +45,19 @@ const openDialog = async (user: ReturnType<typeof userEvent.setup>, scope: () =>
   return screen.findByRole("dialog", { name: "Continue in an agent" });
 };
 
+function seedHandoff(over: Partial<HandoffManifest> = {}, shares: HandoffShare[] = []) {
+  state.handoffs.ABCDEFGH = {
+    revoked_at: null, shares,
+    m: {
+      code: "ABCDEFGH", display: "ABCD-EFGH", url: "/h/ABCD-EFGH", uri: "roracle://handoff/ABCDEFGH", kind: "document",
+      title: "Hypergraph gap", goal: "Check the constant", brief: "<b>not bold</b>\nline two", source: {}, doc_ids: [D1], passages: [],
+      notes: [{ at: "2026-11-01T10:00:00Z", by: "agent-bot", text: "Ran the sweep", via: "mcp" }], withheld: 2,
+      parts: { transcript: 0, notes: 1 }, audience: "authenticated", expires_at: "2099-01-01T00:00:00Z", created_at: "2026-11-01T09:00:00Z",
+      created_by: "k.ito", created_via: "ui", ...over,
+    },
+  };
+}
+
 describe("continue in agent", () => {
   it("chat answer: kind chat with the chat id, creator-only by default, then shows the code and prompt", async () => {
     const user = userEvent.setup();
@@ -70,6 +84,29 @@ describe("continue in agent", () => {
     await user.selectOptions(within(dlg).getByLabelText("Expires"), "30");
     await user.click(within(dlg).getByRole("button", { name: "Create handoff link" }));
     expect(await posted()).toMatchObject({ audience: "shared", shares: [{ kind: "group", principal: "/Mathematics" }], expires_in_days: 30 });
+  });
+
+  it("caps shares at 100 in all and each entry at 200 characters", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    const dlg = await openDialog(user);
+    await user.selectOptions(within(dlg).getByLabelText("Who can load it"), "shared");
+    const people = within(dlg).getByLabelText("People (user IDs)");
+    fireEvent.change(people, { target: { value: "u".repeat(201) } });
+    fireEvent.keyDown(people, { key: "Enter" });
+    expect(within(dlg).getByRole("alert")).toHaveTextContent(/200 characters/);
+    fireEvent.change(people, { target: { value: "" } });
+    const groups = within(dlg).getByLabelText("Groups");
+    for (let i = 0; i < 100; i++) {
+      fireEvent.change(groups, { target: { value: `/g${i}` } });
+      fireEvent.keyDown(groups, { key: "Enter" });
+    }
+    fireEvent.change(groups, { target: { value: "/g100" } });
+    fireEvent.keyDown(groups, { key: "Enter" });
+    expect(within(dlg).getByRole("alert")).toHaveTextContent(/At most 100/);
+    await user.click(within(dlg).getByRole("button", { name: "Create handoff link" }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen.filter((r) => r.method === "POST" && new URL(r.url).pathname.endsWith("/handoffs"))).toHaveLength(0);
   });
 
   it("reader: kind document with the open document", async () => {
@@ -104,16 +141,7 @@ describe("continue in agent", () => {
 
 describe("handoff landing", () => {
   it("shows the manifest as plain text with its documents and withheld count", async () => {
-    state.handoffs.ABCDEFGH = {
-      revoked_at: null, shares: [],
-      m: {
-        code: "ABCDEFGH", display: "ABCD-EFGH", url: "/h/ABCD-EFGH", uri: "roracle://handoff/ABCDEFGH", kind: "document",
-        title: "Hypergraph gap", goal: "Check the constant", brief: "<b>not bold</b>\nline two", source: {}, doc_ids: [D1], passages: [],
-        notes: [{ at: "2026-11-01T10:00:00Z", by: "agent-bot", text: "Ran the sweep", via: "mcp" }], withheld: 2,
-        parts: { transcript: 0, notes: 1 }, audience: "authenticated", expires_at: "2099-01-01T00:00:00Z", created_at: "2026-11-01T09:00:00Z",
-        created_by: "k.ito", created_via: "ui",
-      },
-    };
+    seedHandoff();
     await renderApp("/h/abcd-efgh");
     expect(await screen.findByRole("heading", { level: 1, name: "Hypergraph gap" })).toBeInTheDocument();
     expect(screen.getByText(/<b>not bold<\/b>/)).toBeInTheDocument();
@@ -138,6 +166,39 @@ describe("handoff landing", () => {
 });
 
 describe("handoffs panel", () => {
+  const patched = async () => {
+    await waitFor(() => expect(seen.filter((r) => r.method === "PATCH")).toHaveLength(1));
+    return seen.find((r) => r.method === "PATCH")!.json();
+  };
+  const openEdit = async (user: ReturnType<typeof userEvent.setup>) => {
+    await renderApp("/settings");
+    await user.click(await screen.findByRole("tab", { name: "Handoffs" }));
+    await user.click(await screen.findByRole("button", { name: "Edit Hypergraph gap" }));
+    const dlg = await screen.findByRole("dialog");
+    await within(dlg).findByDisplayValue("Hypergraph gap");
+    return dlg;
+  };
+
+  it("edit sends only what changed: a title edit PATCHes just the title", async () => {
+    const user = userEvent.setup();
+    seedHandoff({ audience: "shared" }, [{ kind: "group", principal: "/Mathematics" }]);
+    const dlg = await openEdit(user);
+    await user.clear(within(dlg).getByLabelText("Title"));
+    await user.type(within(dlg).getByLabelText("Title"), "New title");
+    await user.click(within(dlg).getByRole("button", { name: "Save" }));
+    expect(await patched()).toEqual({ title: "New title" });
+  });
+
+  it("edit from shared to only me sends the audience and no shares", async () => {
+    const user = userEvent.setup();
+    seedHandoff({ audience: "shared" }, [{ kind: "group", principal: "/Mathematics" }]);
+    const dlg = await openEdit(user);
+    await user.selectOptions(within(dlg).getByLabelText("Who can load it"), "creator");
+    await user.click(within(dlg).getByRole("button", { name: "Save" }));
+    expect(await patched()).toEqual({ audience: "creator" });
+    expect(state.handoffs.ABCDEFGH.shares).toEqual([]);
+  });
+
   it("lists my handoffs and revokes after confirmation", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");

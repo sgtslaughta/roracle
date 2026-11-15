@@ -1,12 +1,12 @@
 import { Bot, Copy, Pencil, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ApiError } from "@/api/client";
+import { ApiError, seg } from "@/api/client";
 import { handoffLink, type HandoffManifest, type HandoffRow, type PatchHandoffBody } from "@/api/agents";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { useHandoff, useHandoffs, usePatchHandoff, useRevokeHandoff } from "./api";
+import { invalidText, useHandoff, useHandoffs, usePatchHandoff, useRevokeHandoff } from "./api";
 import { copyText } from "./HandoffDialog";
 import { AUDIENCE_LABEL, HandoffForm, type HandoffValues } from "./HandoffForm";
 import { fmtDate } from "./TokensPanel";
@@ -49,7 +49,7 @@ export function HandoffsPanel() {
                 </div>
                 {st === "Active" && (
                   <div className="row2">
-                    <button className="icon-btn" aria-label={`Copy link to ${nameOf(h)}`} onClick={() => void copyText(handoffLink(`/h/${h.display}`), "Handoff link copied")}><Copy aria-hidden /></button>
+                    <button className="icon-btn" aria-label={`Copy link to ${nameOf(h)}`} onClick={() => void copyText(handoffLink(`/h/${seg(h.display)}`), "Handoff link copied")}><Copy aria-hidden /></button>
                     <button className="icon-btn" aria-label={`Edit ${nameOf(h)}`} onClick={() => setEditing(h)}><Pencil aria-hidden /></button>
                     <button className="icon-btn" aria-label={`Revoke ${nameOf(h)}`} onClick={() => setTarget(h)}><X aria-hidden /></button>
                   </div>
@@ -82,7 +82,7 @@ function EditHandoff({ row, onClose }: { row: HandoffRow; onClose: () => void })
     if (!Object.keys(p).length) return onClose();
     patch.mutate({ code: m.code, patch: p }, {
       onSuccess: () => { toast("Handoff updated"); onClose(); },
-      onError: (e) => toast(e instanceof ApiError && e.status === 422 ? e.message : "The handoff couldn't be updated. Try again."),
+      onError: (e) => toast(e instanceof ApiError && e.status === 422 ? invalidText(e) : "The handoff couldn't be updated. Try again."),
     });
   };
   return (

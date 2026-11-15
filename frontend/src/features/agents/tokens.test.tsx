@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAppRouter } from "@/app/router";
 import { server } from "@/mocks/server";
 import { state } from "@/mocks/state";
+import { ApiError } from "@/api/client";
+import { invalidText } from "./api";
 
 let qc: QueryClient;
 async function renderApp(path: string) {
@@ -30,7 +32,7 @@ describe("settings", () => {
     const user = userEvent.setup();
     const router = await renderApp("/library");
     await user.click(screen.getByRole("button", { name: "Account menu" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
+    await user.click(await within(await screen.findByRole("navigation", { name: "Account" })).findByRole("link", { name: "Settings" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/settings");
   });
@@ -101,5 +103,13 @@ describe("access tokens", () => {
     const row = (await screen.findByText("Laptop agent")).closest("tr")!;
     expect(await within(row).findByText("Revoked")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /Revoke/ })).toBeNull();
+  });
+});
+
+describe("invalidText", () => {
+  it("reads string, pydantic-list and unknown 422 details", () => {
+    expect(invalidText(new ApiError(422, "name must be 1-100 characters"))).toBe("name must be 1-100 characters");
+    expect(invalidText(new ApiError(422, [{ loc: ["body", "expires_in_days"], msg: "Input should be less than or equal to 365" }]))).toBe("expires_in_days: Input should be less than or equal to 365");
+    expect(invalidText(new ApiError(422, { odd: true }))).toBe("Check the fields and try again.");
   });
 });

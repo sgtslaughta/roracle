@@ -6,20 +6,23 @@ import { ApiError } from "@/api/client";
 import type { CreatedToken } from "@/api/agents";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { createToken } from "./api";
+import { createToken, invalidText } from "./api";
 
 export function CreateTokenDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [shown, setShown] = useState(false);
+  const change = (o: boolean) => { if (!o) setShown(false); onOpenChange(o); };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={change}>
+      {/* while the secret is shown, a stray outside click must not lose it: only Done or Esc close */}
+      <DialogContent onInteractOutside={(e) => { if (shown) e.preventDefault(); }}>
         {/* Radix unmounts closed content, so the secret held in TokenForm's state is dropped on close */}
-        <TokenForm onDone={() => onOpenChange(false)} />
+        <TokenForm onDone={() => change(false)} onCreated={() => setShown(true)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function TokenForm({ onDone }: { onDone: () => void }) {
+function TokenForm({ onDone, onCreated }: { onDone: () => void; onCreated: () => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [write, setWrite] = useState(false);
@@ -35,9 +38,10 @@ function TokenForm({ onDone }: { onDone: () => void }) {
     try {
       const t = await createToken({ name: name.trim(), scopes: write ? ["read", "write"] : ["read"], expires_in_days: n });
       setCreated(t);
+      onCreated();
       void qc.invalidateQueries({ queryKey: ["tokens"] });
     } catch (e) {
-      toast(e instanceof ApiError && e.status === 422 ? e.message : "The token couldn't be created. Try again.");
+      toast(e instanceof ApiError && e.status === 422 ? invalidText(e) : "The token couldn't be created. Try again.");
     } finally { setBusy(false); }
   };
 

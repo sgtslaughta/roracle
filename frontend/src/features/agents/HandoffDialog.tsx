@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import { agentPrompt, handoffLink, type HandoffKind, type HandoffManifest } from "@/api/agents";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { useCreateHandoff } from "./api";
+import { invalidText, useCreateHandoff } from "./api";
 import { AUDIENCE_LABEL, HandoffForm, type HandoffValues } from "./HandoffForm";
 
 export interface HandoffSource {
@@ -35,7 +35,7 @@ export function HandoffDialog({ source, open, onOpenChange, onCreated }: { sourc
       doc_ids: source.docIds, audience: v.audience, ...(v.shares && { shares: v.shares }), expires_in_days: v.days ?? 7,
     }, {
       onSuccess: (m) => { setMade(m); onCreated?.(m); },
-      onError: (e) => toast(e instanceof ApiError && e.status === 404 ? "That source isn't available to hand off." : e instanceof ApiError && e.status === 422 ? e.message : "The handoff couldn't be created. Try again."),
+      onError: (e) => toast(e instanceof ApiError && e.status === 404 ? "That source isn't available to hand off." : e instanceof ApiError && e.status === 422 ? invalidText(e) : "The handoff couldn't be created. Try again."),
     });
   };
 

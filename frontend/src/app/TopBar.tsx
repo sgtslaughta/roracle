@@ -44,7 +44,7 @@ export function TopBar() {
   );
 }
 
-/** Avatar menu. Admin entry arrives with the admin section (its route doesn't exist yet). */
+/** Avatar popover: a small nav list (links, not an ARIA menu). Admin entry arrives with the admin section (its route doesn't exist yet). */
 function AccountMenu() {
   const { data: me } = useMe();
   const [open, setOpen] = useState(false);
@@ -55,8 +55,12 @@ function AccountMenu() {
           {me?.username.charAt(0).toUpperCase() || "R"}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="chipmenu" role="menu" aria-label="Account">
-        <Link to="/settings" role="menuitem" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link>
+      <PopoverContent align="end" className="chipmenu">
+        <nav aria-label="Account">
+          <ul className="menu-list">
+            <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>
+          </ul>
+        </nav>
       </PopoverContent>
     </Popover>
   );

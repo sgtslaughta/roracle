@@ -50,3 +50,14 @@ export function useRevokeHandoff() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["handoffs"] }),
   });
 }
+
+/** Readable text for a 422: FastAPI sends a string, pydantic a list of {loc, msg}. */
+export function invalidText(e: ApiError): string {
+  if (typeof e.detail === "string") return e.detail;
+  const first = Array.isArray(e.detail) ? (e.detail[0] as { loc?: unknown[]; msg?: string } | undefined) : undefined;
+  if (first?.msg) {
+    const field = Array.isArray(first.loc) ? first.loc.filter((x) => x !== "body").join(".") : "";
+    return field ? `${field}: ${first.msg}` : first.msg;
+  }
+  return "Check the fields and try again.";
+}

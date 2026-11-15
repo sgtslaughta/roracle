@@ -16,7 +16,10 @@ interface Props {
 }
 
 export const AUDIENCE_LABEL: Record<Audience, string> = { creator: "Only me", shared: "Named people or groups", authenticated: "Everyone signed in" };
-const groupError = (v: string) => (v.startsWith("/") ? null : "Group paths start with “/”, for example /Mathematics/Spectral Theory.");
+export const MAX_SHARES = 100;
+const MAX_PRINCIPAL = 200;
+const tooLong = (v: string) => (v.length > MAX_PRINCIPAL ? `Keep each entry under ${MAX_PRINCIPAL} characters.` : null);
+const groupError = (v: string) => tooLong(v) ?? (v.startsWith("/") ? null : "Group paths start with “/”, for example /Mathematics/Spectral Theory.");
 
 /** Title, goal, brief, audience (+ shares) and expiry. Everything typed here is shown to agents and recipients as plain text. */
 export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel, onSubmit, onCancel }: Props) {
@@ -32,12 +35,15 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
   // editing an already-shared handoff: the API doesn't list current shares, and omitting them keeps them
   const keepShares = mode === "edit" && initial.audience === "shared";
   const needShares = audience === "shared" && !keepShares && !groups.length && !users.length;
+  const total = groups.length + users.length;
+  const tooMany = audience === "shared" && total > MAX_SHARES;
+  const full = () => (total >= MAX_SHARES ? `At most ${MAX_SHARES} people and groups in all.` : null);
 
   const submit = () => {
     let shares: HandoffShare[] | null = null;
     if (audience === "shared") {
       const g = gRef.current ? gRef.current() : groups, u = uRef.current ? uRef.current() : users;
-      if (!g || !u) return;
+      if (!g || !u || g.length + u.length > MAX_SHARES) return;
       if (g.length || u.length) shares = [...g.map((p) => ({ kind: "group" as const, principal: p })), ...u.map((p) => ({ kind: "user" as const, principal: p }))];
       else if (!keepShares) return;
     }
@@ -66,15 +72,16 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
       </div>
       {audience === "shared" && (
         <>
-          <ChipInput label="Groups" values={groups} onChange={setGroups} validate={groupError} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
-          <ChipInput label="People (user IDs)" values={users} onChange={setUsers} commitRef={uRef} />
+          <ChipInput label="Groups" values={groups} onChange={setGroups} validate={(v) => groupError(v) ?? full()} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
+          <ChipInput label="People (user IDs)" values={users} onChange={setUsers} validate={(v) => tooLong(v) ?? full()} commitRef={uRef} />
+          {tooMany && <p className="chipin-err" role="alert">At most {MAX_SHARES} people and groups in all. Remove {total - MAX_SHARES}.</p>}
           <p className="chipin-help">{keepShares ? "Leave both empty to keep the current list; adding anyone replaces it." : "Press Enter to add. Add at least one person or group."}</p>
         </>
       )}
       <p className="chipin-help">Agents still sign in, and see only the documents their user can see.</p>
       <div className="foot">
         <Button variant="ghost" onClick={onCancel}>{mode === "create" ? "Close" : "Cancel"}</Button>
-        <Button variant="primary" onClick={submit} disabled={busy || needShares}>{submitLabel}</Button>
+        <Button variant="primary" onClick={submit} disabled={busy || needShares || tooMany}>{submitLabel}</Button>
       </div>
     </div>
   );
