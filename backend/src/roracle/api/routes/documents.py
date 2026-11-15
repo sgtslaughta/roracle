@@ -90,7 +90,8 @@ def upload(
 
 
 class TitleBody(BaseModel):
-    title: str = Field(min_length=1, max_length=500)
+    title: Annotated[str, Field(min_length=1, max_length=500)]
+    model_config = {"str_strip_whitespace": True}
 
 
 @router.put("/documents/{doc_id}/versions/{version_id}/title")
@@ -114,8 +115,9 @@ def set_title(
         raise HTTPException(403, "only the document owner can set the title")
     if v.stage != "needs_title":
         raise HTTPException(409, "not awaiting a title")
-    doc.title = body.title.strip()
+    doc.title = body.title
     v.stage = "parsed"
+    v.ingest_attempts = 0  # R17: a user decision restarts the crash budget
     enqueue(session, "ingest", {"version_id": str(v.id)})
     session.commit()
     return {"version_id": str(v.id), "document_id": str(doc.id), "stage": v.stage}

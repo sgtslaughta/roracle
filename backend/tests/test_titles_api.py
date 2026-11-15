@@ -102,3 +102,22 @@ def test_title_then_resume_to_searchable(
         assert hit["_source"]["title"] == "Given Title"
     finally:
         es.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
+
+
+def test_put_title_whitespace_only_is_422(client, as_ana, db_session):
+    b = _up(client, as_ana)
+    _stage(db_session, b["version_id"], "needs_title")
+    assert client.put(_title_url(b), headers=as_ana, json={"title": "   "}).status_code == 422
+
+
+def test_title_put_resets_crash_budget(client, as_ana, db_session):
+    b = _up(client, as_ana)
+    db_session.execute(
+        DocumentVersion.__table__.update()
+        .where(DocumentVersion.id == b["version_id"])
+        .values(stage="needs_title", ingest_attempts=5)
+    )
+    db_session.commit()
+    assert client.put(_title_url(b), headers=as_ana, json={"title": "T"}).status_code == 200
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, uuid.UUID(b["version_id"])).ingest_attempts == 0

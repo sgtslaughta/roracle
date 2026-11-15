@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from roracle.ingest import pipeline
 from roracle.ingest.neardup import minhash
-from roracle.models import Document, DocumentVersion, Job
+from roracle.models import Document, DocumentShare, DocumentVersion, Job
 from roracle.queue import enqueue, run_once
 from roracle.search_index import index_name
 
@@ -197,3 +197,78 @@ def test_near_dup_goes_to_review_and_decision_does_not_recheck(
     db_session.commit()
     monkeypatch.setattr(pipeline, "find_near_duplicate", lambda *a, **k: pytest.fail("rechecked"))
     _run(db_session, session_factory, cfg, store, MagicMock(), second)
+
+
+@pytest.mark.integration
+def test_older_version_finishing_late_does_not_demote_newer(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    doc = db_session.get(Document, v1.document_id)
+    v2 = make_version(db_session, store, user, doc=doc, version=2)
+    db_session.query(DocumentVersion).filter_by(id=v1.id).update({"is_latest": False})
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v2)
+    _run(db_session, session_factory, cfg, store, es, v1)
+    assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v2)} == {True}
+    assert {h["_source"]["is_latest"] for h in _chunks(es, cfg, v1)} == {False}
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, v2.id).is_latest is True
+
+
+@pytest.mark.integration
+def test_crash_budget_reset_allows_resume_after_title(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(title=None)))
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, es, v)
+    assert _stage(db_session, v) == "needs_title"
+    db_session.query(Document).filter_by(id=v.document_id).update({"title": "T"})
+    db_session.query(DocumentVersion).filter_by(id=v.id).update({"stage": "parsed", "ingest_attempts": 0})
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v)
+    assert _stage(db_session, v) == "searchable"
+
+
+@pytest.mark.integration
+def test_chunk_acl_with_shares_and_org_unit(db_session, session_factory, cfg, store, es, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="org_unit", org_unit="/Math/Algebra")
+    db_session.add_all(
+        [
+            DocumentShare(document_id=v.document_id, principal_kind="user", principal="u-1"),
+            DocumentShare(document_id=v.document_id, principal_kind="group", principal="/Physics"),
+        ]
+    )
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v)
+    src = _chunks(es, cfg, v)[0]["_source"]
+    assert (src["org_unit"], src["visibility"]) == ("/Math/Algebra", "org_unit")
+    assert src["share_users"] == ["u-1"] and src["share_groups"] == ["/Physics"]
+
+
+def test_llm_down_is_retryable_and_stage_unchanged(
+    db_session, session_factory, cfg, store, user, monkeypatch
+):
+    import httpx
+    import openai
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    llm = FakeLLM(DIMS)
+
+    def down(**kw):
+        raise openai.APIConnectionError(request=httpx.Request("POST", "http://x"))
+
+    llm.embeddings.create = down
+    v = make_version(db_session, store, user)
+    with session_factory() as s:
+        enqueue(s, "ingest", {"version_id": str(v.id)})
+        s.commit()
+    h = handler(cfg, store, MagicMock(), llm, session_factory)
+    assert run_once(session_factory, {"ingest": h})
+    db_session.expire_all()
+    job = db_session.scalars(select(Job)).first()
+    assert job.status == "queued" and not job.last_error.startswith("user:")
+    assert _stage(db_session, v) == "chunked"

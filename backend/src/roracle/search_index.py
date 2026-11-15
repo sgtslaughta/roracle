@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle.models import Document, DocumentShare, DocumentVersion
+from roracle.queue import NonRetryable
 
 if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeline -> here)
     from roracle.ingest.chunking import Chunk
@@ -61,8 +62,11 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
         try:
             es.indices.create(index=name, mappings=_mapping(dims))
         except BadRequestError as e:
-            if "resource_already_exists" not in str(e):
+            if e.error != "resource_already_exists_exception":
                 raise
+    props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
+    if props.get("embedding", {}).get("dims") != dims:
+        raise NonRetryable("search index dimension mismatch: reindex required")
     if not es.indices.exists_alias(name=alias, index=name):
         es.indices.put_alias(index=name, name=alias)
     return name
@@ -93,6 +97,7 @@ def index_chunks(
     model: str,
     *,
     title: str,
+    is_latest: bool | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -101,7 +106,7 @@ def index_chunks(
         "doc_id": str(document.id),
         "version_id": str(version.id),
         "version": version.version,
-        "is_latest": version.is_latest,
+        "is_latest": version.is_latest if is_latest is None else is_latest,
         "title": title,
         "authors": meta.get("authors") or [],
         "year": meta.get("year"),

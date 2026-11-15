@@ -50,6 +50,7 @@ def decide_near_dup(
         if body.action == "new_version":
             _move_under_match(session, p, v, doc)
         v.stage = "deduped"
+        v.ingest_attempts = 0  # R17
         enqueue(session, "ingest", {"version_id": str(v.id)})
     session.commit()
     return {"version_id": str(v.id), "document_id": str(v.document_id), "stage": v.stage}

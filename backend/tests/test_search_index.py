@@ -103,3 +103,11 @@ def test_bulk_error_raises(es, model, db_session, document, blob):
     ensure_index(es, model, 4)
     with pytest.raises(RuntimeError):
         index_chunks(es, _v(document, blob), document, _chunks(1), [[0.1] * 3], {}, model, title="T")
+
+
+def test_ensure_index_dims_mismatch(es, model):
+    from roracle.queue import NonRetryable
+
+    ensure_index(es, model, 4)
+    with pytest.raises(NonRetryable, match="dimension mismatch"):
+        ensure_index(es, model, 8)

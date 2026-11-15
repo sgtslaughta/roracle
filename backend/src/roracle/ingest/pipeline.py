@@ -9,6 +9,7 @@ import logging
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import search_index
@@ -39,6 +40,10 @@ TERMINAL = {"searchable", "review", "needs_title", "rejected", "cancelled"}
 
 def docling_key(version_id: UUID) -> str:
     return f"derived/{version_id}/docling.json"
+
+
+def _clean(t: str | None) -> str | None:
+    return " ".join(t.split())[:500] if t and t.strip() else None
 
 
 def docling_title(doc: dict) -> str | None:
@@ -104,10 +109,18 @@ def _index(
     set_stage(sf, v.id, "embedded")
     search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
     acl = search_index.acl_fields(session, d)
-    search_index.index_chunks(es, v, d, chunks, vectors, acl, settings.embed_model, title=title)
+    session.refresh(v)
+    newest = session.scalar(
+        select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == d.id)
+    )
+    latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
+    search_index.index_chunks(
+        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest
+    )
     search_index.delete_stale_chunks(es, v.id, len(chunks))
-    search_index.mark_previous_versions(es, d.id, v.id)
-    demote_older_versions(sf, d.id, v.id)
+    if latest:
+        search_index.mark_previous_versions(es, d.id, v.id)
+        demote_older_versions(sf, d.id, v.id)
     set_stage(sf, v.id, "searchable")
 
 
@@ -144,7 +157,7 @@ def handle_ingest(
         doc = json.loads(store.get_bytes(docling_key(vid)))
 
     if v.stage == "parsed":
-        title = d.title or (v.meta or {}).get("title") or docling_title(doc)
+        title = d.title or _clean((v.meta or {}).get("title")) or docling_title(doc)
         if not title:
             set_stage(sf, vid, "needs_title")
             return
