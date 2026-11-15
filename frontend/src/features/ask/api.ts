@@ -21,7 +21,8 @@ export function usePatchChat(id: string) {
     mutationFn: (patch: { title?: string; scope?: ChatScope; pins?: string[]; excludes?: string[] }) =>
       apiFetch<Chat>(`/chats/${seg(id)}`, { method: "PATCH", json: patch }),
     // optimistic: pins/excludes/title show at once and roll back if the PATCH fails
-    onMutate: (p) => {
+    onMutate: async (p) => {
+      await qc.cancelQueries({ queryKey: ["chat", id] });
       const prev = qc.getQueryData<ChatDetail>(["chat", id]);
       qc.setQueryData<ChatDetail>(["chat", id], (old) => (old ? { ...old, ...p } : old));
       return { prev };

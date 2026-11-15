@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "@/app/router";
+import { http, HttpResponse } from "msw";
+import { API_BASE } from "@/api/client";
 import { server } from "@/mocks/server";
 import { resetReaderStore } from "@/features/reader/useReaderStore";
 import { resetAskTurns } from "./askStore";
@@ -115,6 +117,84 @@ describe("answer actions", () => {
     await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
     expect(await sent("PATCH", /\/chats\/c1$/)[0].json()).toEqual({ title: "Renamed" });
     expect(await screen.findByRole("heading", { level: 1, name: "Renamed" })).toBeInTheDocument();
+  });
+
+  it("commits pending chip text on Save, and blocks invalid text", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Share" }));
+    const dlg = await screen.findByRole("dialog", { name: "Share this chat" });
+    await user.type(within(dlg).getByLabelText("Groups"), "nope");
+    await user.click(within(dlg).getByRole("button", { name: "Save" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent(/start with/);
+    expect(sent("PUT", /shares$/)).toHaveLength(0);
+    await user.clear(within(dlg).getByLabelText("Groups"));
+    await user.type(within(dlg).getByLabelText("Groups"), "/Math");
+    await user.type(within(dlg).getByLabelText("People (user IDs)"), "u-7");
+    await user.click(within(dlg).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PUT", /shares$/)).toHaveLength(1));
+    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["u-7"], groups: ["/Math"] });
+  });
+
+  it("starts the share dialog empty each time it opens", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Share" }));
+    let dlg = await screen.findByRole("dialog", { name: "Share this chat" });
+    await user.type(within(dlg).getByLabelText("Groups"), "/Math{Enter}");
+    expect(within(dlg).getByText("/Math")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "Share" }));
+    dlg = await screen.findByRole("dialog", { name: "Share this chat" });
+    expect(within(dlg).queryByText("/Math")).toBeNull();
+  });
+
+  it("rolls back a failed pin and shows a toast", async () => {
+    const user = userEvent.setup();
+    server.use(http.patch(`${API_BASE}/chats/:id`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: /Show the 8 passages read/ }));
+    const first = within(await screen.findByRole("list", { name: "Passages read" })).getAllByRole("listitem")[0];
+    const pin = within(first).getByRole("button", { name: "Pin" });
+    await user.click(pin);
+    await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
+    await waitFor(() => expect(pin).toHaveAttribute("aria-pressed", "false"));
+    expect(first).not.toHaveTextContent("Pinned");
+  });
+
+  it("does not re-send a Not helpful rating, only opens the comment box", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Not helpful" }));
+    await waitFor(() => expect(sent("PUT", /rating$/)).toHaveLength(1));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Not helpful" })).toHaveAttribute("aria-pressed", "true"));
+    await user.click(screen.getByRole("button", { name: "Not helpful" }));
+    expect(await screen.findByRole("textbox", { name: /What went wrong/ })).toBeInTheDocument();
+    expect(sent("PUT", /rating$/)).toHaveLength(1);
+  });
+
+  it("caps a long passages drawer at 20 until Show all", async () => {
+    const user = userEvent.setup();
+    const base = await (await fetch(`${API_BASE}/chats/c1`)).json();
+    const msgs = base.messages.map((m: { role: string; retrieved: { chunk_id: string }[] }) =>
+      m.role === "assistant" ? { ...m, retrieved: Array.from({ length: 25 }, (_, i) => ({ ...(m.retrieved[0] ?? {}), n: undefined, chunk_id: `x${i}`, score: 1 - i / 100, text: `p${i}` })) } : m);
+    server.use(http.get(`${API_BASE}/chats/c1`, () => HttpResponse.json({ ...base, messages: msgs })));
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: /Show the 25 passages read/ }));
+    const list = await screen.findByRole("list", { name: "Passages read" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(20);
+    await user.click(screen.getByRole("button", { name: "Show all 25" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(25);
+  });
+
+  it("toasts when export fails", async () => {
+    const user = userEvent.setup();
+    server.use(http.get(`${API_BASE}/chats/c1/export.md`, () => HttpResponse.json({ detail: "x" }, { status: 500 })));
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    expect(await screen.findByText("The chat couldn't be exported. Try again.")).toBeInTheDocument();
   });
 
   it("shows a shared chat read-only", async () => {

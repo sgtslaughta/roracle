@@ -44,7 +44,7 @@ export function ChatMenu({ chat }: { chat: ChatDetail }) {
       {chat.is_owner && <Button variant="ghost" onClick={() => setSharing(true)}><Share2 aria-hidden />Share</Button>}
       <Button variant="ghost" onClick={() => void download()}><Download aria-hidden />Export</Button>
       {chat.is_owner && <Rename chat={chat} />}
-      {chat.is_owner && <ShareDialog chatId={chat.id} open={sharing} onOpenChange={setSharing} />}
+      {chat.is_owner && sharing && <ShareDialog chatId={chat.id} open={sharing} onOpenChange={setSharing} />}
     </>
   );
 }

@@ -17,7 +17,7 @@ export function RateControl({ chatId, messageId, rating }: { chatId: string; mes
       <Button variant="ghost" aria-label="Helpful" aria-pressed={rating === 1} onClick={() => rating !== 1 && send(1)}><ThumbsUp aria-hidden /></Button>
       <Popover open={why !== null} onOpenChange={(o) => !o && setWhy(null)}>
         <PopoverAnchor asChild>
-          <Button variant="ghost" aria-label="Not helpful" aria-pressed={rating === -1} onClick={() => { if (rating !== -1) { send(-1); setWhy(""); } }}><ThumbsDown aria-hidden /></Button>
+          <Button variant="ghost" aria-label="Not helpful" aria-pressed={rating === -1} onClick={() => { if (rating !== -1) send(-1); setWhy(""); }}><ThumbsDown aria-hidden /></Button>
         </PopoverAnchor>
         <PopoverContent className="rate-pop" aria-label="What went wrong?">
           <label htmlFor={`why-${messageId}`}>What went wrong? (optional)</label>

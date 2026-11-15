@@ -1,6 +1,7 @@
 import { EyeOff, Pin } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { RetrievedPassage } from "@/api/chat";
+import type { ChatDetail, RetrievedPassage } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { usePatchChat } from "./api";
@@ -13,18 +14,24 @@ interface Props { id: string; chatId: string; retrieved: RetrievedPassage[]; pin
 
 /** The passages the model read, best first. Owners can pin a document into, or leave it out of, later answers. */
 export function PassagesDrawer({ id, chatId, retrieved, pins, excludes, owner }: Props) {
+  const qc = useQueryClient();
   const patch = usePatchChat(chatId);
   const [all, setAll] = useState(false);
   const rows = [...retrieved].sort((a, b) => b.score - a.score);
   const shown = all ? rows : rows.slice(0, CAP);
 
+  // derive from the latest cache, so quick successive clicks build on each other
+  const latest = () => {
+    const c = qc.getQueryData<ChatDetail>(["chat", chatId]);
+    return { pins: c?.pins ?? pins, excludes: c?.excludes ?? excludes };
+  };
   const pin = (doc: string) => {
-    const on = pins.includes(doc);
-    patch.mutate({ pins: toggle(pins, doc), excludes: on ? excludes : excludes.filter((x) => x !== doc) });
+    const l = latest(), on = l.pins.includes(doc);
+    patch.mutate({ pins: toggle(l.pins, doc), excludes: on ? l.excludes : l.excludes.filter((x) => x !== doc) });
   };
   const exclude = (doc: string) => {
-    const on = excludes.includes(doc);
-    patch.mutate({ excludes: toggle(excludes, doc), pins: on ? pins : pins.filter((x) => x !== doc) });
+    const l = latest(), on = l.excludes.includes(doc);
+    patch.mutate({ excludes: toggle(l.excludes, doc), pins: on ? l.pins : l.pins.filter((x) => x !== doc) });
   };
 
   return (
