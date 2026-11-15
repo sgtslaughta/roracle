@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     oidc_jwks_url: str
     oidc_allowed_clients: Annotated[list[str], NoDecode] = ["roracle-web", "roracle-mcp"]
     max_upload_bytes: int = 524288000
+    elastic_url: str = "http://localhost:9200"
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = "unused"
+    embed_model: str = "embeddinggemma"
+    embed_dims: int = 768
+    embed_tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2"
+    summary_model: str = "qwen2.5:3b"
+    docling_url: str = "http://localhost:5001"
+    grobid_url: str = ""
+    clamav_host: str = ""
+    near_dup_threshold: float = 0.85
 
     @field_validator("oidc_allowed_clients", mode="before")
     @classmethod

@@ -18,6 +18,10 @@ MAX_ERROR_LEN = 2000
 Handler = Callable[[Session, dict], None]
 
 
+class NonRetryable(Exception):
+    """Raised by a handler to fail its job permanently, regardless of attempts."""
+
+
 def enqueue(session: Session, kind: str, payload: dict) -> int:
     """Insert a job in the caller's transaction (no commit)."""
     job = Job(kind=kind, payload=payload)
@@ -48,19 +52,19 @@ def complete(session: Session, job_id: int) -> None:
     )
 
 
-def fail(session: Session, job: Job, error: str) -> None:
+def fail(session: Session, job: Job, error: str, *, retryable: bool = True) -> None:
     """Requeue with 10 * 2**attempts seconds backoff; fail permanently at MAX_ATTEMPTS.
 
-    `attempts` is the DB value (already incremented by `claim`).
+    `attempts` is the DB value (already incremented by `claim`). `retryable=False` fails at once.
     """
     session.execute(
         text(
-            "UPDATE jobs SET status = CASE WHEN attempts >= :max THEN 'failed' ELSE 'queued' END,"
+            "UPDATE jobs SET status = CASE WHEN NOT :retry OR attempts >= :max THEN 'failed' ELSE 'queued' END,"
             " last_error = :err, updated_at = now(),"
             " run_after = now() + make_interval(secs => 10 * power(2, attempts))"
             " WHERE id = :id"
         ),
-        {"max": MAX_ATTEMPTS, "err": error[:MAX_ERROR_LEN], "id": job.id},
+        {"max": MAX_ATTEMPTS, "retry": retryable, "err": error[:MAX_ERROR_LEN], "id": job.id},
     )
     session.refresh(job)
 
@@ -82,7 +86,7 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
                 handlers[job.kind](session, job.payload)
         except Exception as exc:
             log.exception("job %s (%s) failed", job.id, job.kind)
-            fail(session, job, str(exc) or type(exc).__name__)
+            fail(session, job, str(exc) or type(exc).__name__, retryable=not isinstance(exc, NonRetryable))
         else:
             complete(session, job.id)
         session.commit()

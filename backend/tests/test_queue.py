@@ -154,3 +154,15 @@ def test_run_forever_survives_infrastructure_errors(monkeypatch):
         signal.signal(signal.SIGTERM, old[0])
         signal.signal(signal.SIGINT, old[1])
     assert len(calls) == 3
+
+
+def test_non_retryable_fails_immediately(session_factory, db_session):
+    jid = _job(session_factory)
+
+    def bad(s, p):
+        raise queue.NonRetryable("x")
+
+    assert run_once(session_factory, {"ingest": bad}) is True
+    with session_factory() as s:
+        job = s.get(Job, jid)
+        assert (job.status, job.attempts, job.last_error) == ("failed", 1, "x")
