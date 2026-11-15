@@ -18,7 +18,7 @@ from roracle.access import visible_documents
 from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
-from roracle.models import Collection, CollectionItem, Document, Tag, Vote
+from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.search_index import ALIAS, run_update_by_query
 
 router = APIRouter()
@@ -47,8 +47,15 @@ def normalize_tag(s: str) -> str:
 
 
 def _visible(session: Session, p: Principal, doc_id: UUID) -> Document:
+    """Visible document; non-owners/non-admins only reach it once a version is searchable (R16)."""
     doc = session.scalar(select(Document).where(Document.id == doc_id, visible_documents(p)))
     if doc is None:
+        raise HTTPException(404, "not found")
+    if not (p.is_admin or doc.owner_id == p.user_id) and not session.scalar(
+        select(DocumentVersion.id).where(
+            DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
+        )
+    ):
         raise HTTPException(404, "not found")
     return doc
 

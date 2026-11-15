@@ -5,7 +5,7 @@ from conftest import bearer
 from elasticsearch import Elasticsearch
 
 from roracle.api.routes.library import get_es, normalize_tag
-from roracle.models import Document, Vote
+from roracle.models import Document, DocumentVersion, Vote
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -37,8 +37,8 @@ def admin(make_token):
 
 
 @pytest.fixture
-def up(client):
-    def make(headers, visibility="everyone"):
+def up(client, db_session):
+    def make(headers, visibility="everyone", searchable=True):
         r = client.post(
             "/documents",
             headers=headers,
@@ -46,6 +46,13 @@ def up(client):
             files={"file": ("p.pdf", uuid.uuid4().bytes, "application/pdf")},
         )
         assert r.status_code == 201, r.text
+        if searchable:
+            db_session.execute(
+                DocumentVersion.__table__.update()
+                .where(DocumentVersion.document_id == uuid.UUID(r.json()["document_id"]))
+                .values(stage="searchable")
+            )
+            db_session.commit()
         return r.json()["document_id"]
 
     return make
@@ -335,3 +342,12 @@ def test_vote_upsert_refreshes_created_at(client, as_ana, as_bob, up, db_session
     assert _vote(client, as_bob, d, value=-1, reason="outdated").status_code == 200
     db_session.expire_all()
     assert db_session.query(Vote).one().created_at > old
+
+
+def test_unsearchable_doc_is_404_for_non_owner_writes(client, as_ana, as_bob, up):
+    d = up(as_ana, searchable=False)
+    c = client.post("/collections", headers=as_bob, json={"name": "x"}).json()["id"]
+    assert _vote(client, as_bob, d, value=1).status_code == 404
+    assert client.post(f"/documents/{d}/tags", headers=as_bob, json={"tag": "a"}).status_code == 404
+    assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).status_code == 404
+    assert _vote(client, as_ana, d, value=1).status_code == 200  # owner still reaches it
