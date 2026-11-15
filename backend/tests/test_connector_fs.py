@@ -3,7 +3,7 @@ import os
 import pytest
 from sqlalchemy import select
 
-from roracle.connectors import fs
+from roracle.connectors import RunDeadline, fs
 from roracle.connectors.run import handle_connector_run
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, User
 
@@ -153,5 +153,5 @@ def test_hardlink_inside_walk_is_regular_file(tree):
 
 def test_expired_deadline_stops_walk(tree):
     root, _ = tree
-    with pytest.raises(TimeoutError):
+    with pytest.raises(RunDeadline):
         list(fs.items({"path": str(root)}, [str(root)], deadline=0))

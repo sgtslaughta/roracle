@@ -8,6 +8,10 @@ from roracle.config import Settings
 from roracle.models import Connector
 
 
+class RunDeadline(Exception):
+    """The run's wall-clock cap passed while a source was listing/fetching (run ends `partial`)."""
+
+
 @dataclass
 class Item:
     key: str
@@ -28,4 +32,8 @@ def source_for(connector: Connector, settings: Settings, deadline: float | None 
         from roracle.connectors import fs
 
         return fs.items(connector.config, settings.connector_fs_roots, deadline)
+    if connector.kind == "http":
+        from roracle.connectors import http
+
+        return http.items(connector.config, settings, deadline)
     raise ValueError(f"unsupported connector kind: {connector.kind}")

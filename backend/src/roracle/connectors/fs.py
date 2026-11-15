@@ -19,7 +19,7 @@ import time
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
-from roracle.connectors import Item
+from roracle.connectors import Item, RunDeadline
 
 
 def validate_path(path: str, roots: list[str]) -> tuple[str, str]:
@@ -72,7 +72,7 @@ def _walk(top: str, root: str, include: list[str], deadline: float | None) -> It
 def _files(topfd: int, include: list[str], flags: int, deadline: float | None) -> Iterator[Item]:
     for dirpath, dirnames, filenames, dirfd in os.fwalk(".", dir_fd=topfd, follow_symlinks=False):
         if deadline is not None and time.monotonic() > deadline:
-            raise TimeoutError("run time cap reached")
+            raise RunDeadline("run time cap reached")
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         rel_dir = os.path.relpath(dirpath, ".")
         for name in sorted(filenames):

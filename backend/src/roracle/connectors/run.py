@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import notify, runtime
 from roracle.config import Settings
-from roracle.connectors import Item, source_for
+from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
 from roracle.queue import enqueue
@@ -176,7 +176,7 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     status = "ok"
     deadline = time.monotonic() + settings.connector_max_run_s
     try:
-        with closing(source_for(c, settings, deadline)) as it:
+        with closing(source_for(c, eff, deadline)) as it:
             for item in it:
                 # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
                 if (
@@ -196,7 +196,7 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
                     status = "partial"
                     lines.append(f"error {item.key}: {type(e).__name__}: {str(e)[:200]}")
                     log.exception("connector %s item %s", c.id, item.key)
-    except TimeoutError:
+    except RunDeadline:
         status = "partial"
         lines.append("run cap reached (time) while listing; remaining items next run")
     except Exception as e:

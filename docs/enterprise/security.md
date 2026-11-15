@@ -109,7 +109,7 @@ max 50 pending agent proposals per session (P8).
 
 ## 9. Connectors
 
-Admins (never PATs) configure connectors that ingest from S3-compatible buckets and mounted filesystems.
+Admins (never PATs) configure connectors that ingest from S3-compatible buckets, mounted filesystems and HTTP sites.
 
 - **Filesystem allowlist.** Paths are accepted only if their `realpath` equals or is under a root in
   `ROR_CONNECTOR_FS_ROOTS` (empty = disabled); checked at create/update and again at every run, so a
@@ -131,6 +131,27 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets 
   per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES` applies to `POST /documents` only). Changing a connector's
   visibility or org unit updates its existing documents and re-syncs their search ACLs.
 - S3 endpoints must be http(s) URLs without embedded credentials.
+- **HTTP crawl (SSRF controls).** Admin-chosen URLs make the server fetch, so the fetch path is locked down:
+  - Only `http`/`https` URLs without embedded credentials (`file:`, `ftp:`, etc. rejected at create and at every
+    fetch and redirect hop).
+  - **Connect-time IP vetting.** Name resolution happens once, inside the socket connect: every address the
+    name resolves to is checked (one bad address blocks the host: fail closed) and the connection goes to a
+    vetted IP literal. There is no separate pre-check lookup, so DNS rebinding cannot swap the address. TLS
+    still verifies the certificate against the URL host. Encodings such as `0x7f.1`, decimal IPs, IPv4-mapped
+    (`::ffff:a.b.c.d`), 6to4, Teredo and NAT64 forms are judged as the IPv4 they wrap.
+  - Anything not globally routable (private, loopback, CGNAT, ULA, reserved) is blocked unless inside an
+    explicit `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` entry (for air-gapped internal crawling; empty by default).
+    Link-local (incl. `169.254.169.254` metadata), multicast and unspecified addresses are never reachable,
+    allowlist or not.
+  - No proxies: proxy environment variables are ignored. Redirects are followed manually (max 5), each hop
+    re-vetted; a crawl keeps only content whose final URL is on the seed's origin.
+  - Caps: per-file size (`max_upload_bytes`, checked on `Content-Length` and while streaming), per-request time
+    (`ROR_CONNECTOR_HTTP_TIMEOUT_S`), robots.txt 512 KiB, HTML link parsing 5 MiB, <= 1000 pages and depth <= 3
+    per run, plus the run item/time caps.
+  - `robots.txt` is honoured by default (`respect_robots`); the crawl is same-origin per seed (scheme, host,
+    port) and sends `User-Agent: rOracle-connector/<version>`.
+  - Residual: with an allowlisted internal CIDR, the connector can read any HTTP service in that range;
+    allowlist only ranges meant to be crawled.
 - Failed or partial runs notify every admin (`ops.connector_run`); run logs keep only the last 500 lines.
 
 ## 10. Residual risks / review items

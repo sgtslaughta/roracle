@@ -1,3 +1,4 @@
+import ipaddress
 import json
 from functools import lru_cache
 from typing import Annotated
@@ -56,6 +57,10 @@ class Settings(BaseSettings):
     connector_max_items: int = 1000  # per run
     connector_max_run_s: int = 3600
     connector_tick_s: int = 60
+    connector_http_allow_cidrs: Annotated[
+        list[str], NoDecode
+    ] = []  # http crawl may reach these private ranges
+    connector_http_timeout_s: int = 60  # per HTTP request (connect to last byte)
 
     @property
     def chat_model_list(self) -> list[str]:
@@ -68,7 +73,16 @@ class Settings(BaseSettings):
             raise ValueError("chat_models must list at least one model")
         return v
 
-    @field_validator("oidc_allowed_clients", "connector_fs_roots", mode="before")
+    @field_validator("connector_http_allow_cidrs")
+    @classmethod
+    def _cidrs(cls, v: list[str]) -> list[str]:
+        for c in v:
+            ipaddress.ip_network(c, strict=False)  # ValueError -> settings validation error
+        return v
+
+    @field_validator(
+        "oidc_allowed_clients", "connector_fs_roots", "connector_http_allow_cidrs", mode="before"
+    )
     @classmethod
     def _parse_clients(cls, v):
         if isinstance(v, str):

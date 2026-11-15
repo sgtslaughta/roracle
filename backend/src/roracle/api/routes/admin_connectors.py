@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -43,7 +43,31 @@ class FsConfig(BaseModel):
     ] = ["*"]
 
 
-CONFIGS: dict[str, type[BaseModel]] = {"s3": S3Config, "fs": FsConfig}
+def _http_url(v: str) -> str:
+    u = urlsplit(v)
+    if (
+        u.scheme not in ("http", "https")
+        or not u.hostname
+        or u.username is not None
+        or u.password is not None
+    ):
+        raise ValueError("must be an http(s) URL with a host and no credentials")
+    return v
+
+
+class HttpConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    start_urls: Annotated[
+        list[Annotated[str, Field(min_length=1, max_length=2000), AfterValidator(_http_url)]],
+        Field(min_length=1, max_length=20),
+    ]
+    max_depth: Annotated[int, Field(ge=0, le=3)] = 1
+    max_pages: Annotated[int, Field(ge=1, le=1000)] = 100
+    respect_robots: bool = True
+    ingest_html: bool = False
+
+
+CONFIGS: dict[str, type[BaseModel]] = {"s3": S3Config, "fs": FsConfig, "http": HttpConfig}
 
 
 class Common(BaseModel):
@@ -65,7 +89,12 @@ class FsIn(Common):
     config: FsConfig
 
 
-ConnectorIn = Annotated[S3In | FsIn, Field(discriminator="kind")]
+class HttpIn(Common):
+    kind: Literal["http"]
+    config: HttpConfig
+
+
+ConnectorIn = Annotated[S3In | FsIn | HttpIn, Field(discriminator="kind")]
 
 
 class ConnectorPatch(BaseModel):
