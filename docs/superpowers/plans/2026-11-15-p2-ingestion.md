@@ -75,6 +75,7 @@ backend/tests/fixtures/                 sample.md, sample.pdf (tiny, generated),
 
 **Interfaces:**
 - Produces on `DocumentVersion`: `stage: str = "uploaded"` (CHECK in the stage list), `page_count: int | None`, `summary: str | None`, `meta: JSONB = {}` (title, authors[], year, venue, doi, abstract), `references: JSONB = []` (each `{title, authors[], year, doi}`), `minhash: bytes | None`, `near_dup_of: UUID | None` (FK document_versions), `is_latest: bool = True`. `ingest.set_stage(session, version, stage) -> None` (sets and commits; the only place that commits mid-job).
+- Because `set_stage` commits mid-job, the claimed job's `running` status becomes durable; a crashed worker would leave it `running` forever. Add `queue.requeue_stale(session, older_than_s: int = 900) -> int` (sets `running` jobs whose `updated_at` is older than the cutoff back to `queued`, `run_after = now()`), touch `jobs.updated_at` in `set_stage` (heartbeat), and call `requeue_stale` from `run_forever` every 60 s. Test: a `running` job with `updated_at` 20 min old is requeued; a fresh one is not.
 - [ ] Tests: stage CHECK rejects `"bogus"`; defaults as listed. Implement, pass, `alembic check` clean.
 - [ ] **Commit** `feat(ingest): add ingest state to document versions`
 
