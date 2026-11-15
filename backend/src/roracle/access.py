@@ -27,11 +27,23 @@ def normalize_path(s: str) -> str:
     return s.rstrip("/") or "/"
 
 
-def org_ancestors(groups: list[str]) -> list[str]:
-    """Each group plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
-    out = {"/"}
+def org_units(groups: list[str]) -> list[str]:
+    """Rooted, normalized org units from token groups; blank/root-only groups are skipped (never widen to "/")."""
+    out: list[str] = []
     for g in groups:
-        g = g.rstrip("/")
+        g = g.strip()
+        if not g.strip("/"):
+            continue
+        u = normalize_path(g if g.startswith("/") else "/" + g)
+        if u not in out:
+            out.append(u)
+    return out
+
+
+def org_ancestors(groups: list[str]) -> list[str]:
+    """Each org unit plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
+    out = {"/"}
+    for g in org_units(groups):
         while g:
             out.add(g)
             g = g.rpartition("/")[0]
