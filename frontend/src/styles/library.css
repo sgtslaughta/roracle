@@ -1,0 +1,70 @@
+/* library: search header, facets, result cards (raised) in a sunken feel, votes, pager */
+.shead { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.sortrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.active { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 28px; margin-bottom: 10px; }
+.active .badge-o { background: var(--primary-soft); border-color: transparent; color: var(--primary); }
+.sbody { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; }
+.facets { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; align-self: start; }
+.facets p.fnote { margin: 0 0 2px; color: var(--muted); font-size: 12px; }
+.fgroup { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); padding: 10px 12px; box-shadow: var(--elev); }
+.fgroup h4 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.fgroup h4 svg { color: var(--primary); }
+.fgroup label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; font-size: 13px; min-width: 0; }
+.fgroup label .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgroup label .n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.fgroup .more { background: none; border: 0; padding: 4px 0 0; }
+.fgroup .more.badge-o { border: 0; background: none; color: var(--primary); font-size: 12px; padding: 4px 0 0; }
+.results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.result {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; padding: 16px 18px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--surface); box-shadow: var(--elev); transition: border-color .15s, box-shadow .15s;
+}
+.result:hover { border-color: color-mix(in srgb, var(--apricot) 45%, var(--border)); box-shadow: var(--elev), 0 0 0 1px color-mix(in srgb, var(--apricot) 30%, transparent); }
+.result:focus-visible, .result.kfocus { outline: none; border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+.rtop { display: flex; gap: 10px; align-items: start; justify-content: space-between; }
+.result h3 { margin: 0; font: 600 17px/1.3 var(--f-read); text-wrap: balance; }
+.result h3 button { all: unset; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.result h3 button:hover { color: var(--primary); }
+.hits { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+.hit {
+  all: unset; cursor: pointer; display: block; padding: 9px 11px; border-radius: 8px; box-shadow: var(--well);
+  background: color-mix(in srgb, var(--t-type) 40%, var(--surface)); font: 14px/1.55 var(--f-read);
+}
+.hit:hover { outline: 1px solid var(--apricot); }
+.hit:focus-visible { outline: 2px solid var(--apricot); }
+.hit small { display: flex; align-items: center; gap: 4px; font: 500 11.5px var(--f-ui); color: var(--muted); margin-bottom: 3px; }
+.rmeta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+.vote { display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; }
+.vote button { display: grid; place-items: center; width: 30px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--muted); }
+.vote button:hover { background: var(--muted-bg); color: var(--ink); }
+.vote button[aria-pressed="true"].up { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.vote button[aria-pressed="true"].down { color: var(--terra); background: color-mix(in srgb, var(--terra) 14%, transparent); }
+.vote .score { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+.vote .score.pos { color: var(--good); }
+.vote .score.neg { color: var(--terra); }
+.vote.row { flex-direction: row; }
+.reasons p { margin: 4px 8px 6px; font-size: 12px; color: var(--muted); }
+.reasons button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; height: auto; padding: 7px 8px; border: 0; background: none; border-radius: 6px; font-size: 13px; }
+.reasons button:hover { background: var(--muted-bg); }
+.reasons .sel { margin: 0 8px 6px; width: calc(100% - 16px); }
+.pager { display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+.pager button { min-width: 34px; justify-content: center; }
+.pager button[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+/* the workspace narrows when the reader opens, so respond to the pane width, not the viewport.
+   Facets stay beside the results (a narrower rail); only a very narrow pane collapses them into a "Filters (n)" popover. */
+.view { container-type: inline-size; }
+.filters-btn { display: none; }
+.result h3 button:focus-visible { outline: 2px solid var(--apricot); outline-offset: 2px; border-radius: 4px; }
+.pager .gap { color: var(--muted); padding: 0 2px; }
+.facets-pop { width: min(320px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
+.facets-pop .facets { position: static; }
+@container (max-width: 780px) {
+  .sbody { grid-template-columns: 180px minmax(0, 1fr); gap: 16px; }
+}
+@container (max-width: 560px) {
+  .sbody { grid-template-columns: minmax(0, 1fr); }
+  .facet-rail { display: none; }
+  .filters-btn { display: inline-flex; }
+  .result { grid-template-columns: minmax(0, 1fr); }
+  .result .vote { flex-direction: row; order: 2; }
+}
