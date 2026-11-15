@@ -53,6 +53,19 @@ def _set_shares(session: Session, note: Annotation, shares: list[Share]) -> None
     session.add_all(AnnotationShare(annotation_id=note.id, principal_kind=k, principal=v) for k, v in seen)
 
 
+def check(session: Session, p: Principal, doc_id: UUID, body: NoteIn) -> DocumentVersion:
+    """Validate a new note against ACLs (no writes); returns the version it would attach to."""
+    if not doc_readable(session, p, doc_id):
+        raise NOT_FOUND
+    if body.relation is not None:
+        tid = body.relation.target_document_id
+        if tid == doc_id:
+            raise HTTPException(422, "relation target must differ from the document")
+        if not doc_readable(session, p, tid):
+            raise NOT_FOUND
+    return _doc_version(session, p, session.get(Document, doc_id))
+
+
 def create(
     session: Session,
     p: Principal,
@@ -62,16 +75,7 @@ def create(
     agent_assisted: bool = False,
     default_visibility: str = "everyone",
 ) -> Annotation:
-    if not doc_readable(session, p, doc_id):
-        raise NOT_FOUND
-    if body.relation is not None:
-        tid = body.relation.target_document_id
-        if tid == doc_id:
-            raise HTTPException(422, "relation target must differ from the document")
-        if not doc_readable(session, p, tid):
-            raise NOT_FOUND
-    doc = session.get(Document, doc_id)
-    v = _doc_version(session, p, doc)
+    v = check(session, p, doc_id, body)
     vis = body.visibility or default_visibility
     n = Annotation(
         document_id=doc_id,

@@ -15,11 +15,13 @@ from roracle.api.routes import (
     documents,
     documents_read,
     documents_write,
+    export,
     handoffs,
     health,
     library,
     me,
     near_dup,
+    proposals,
     search,
     tokens,
 )
@@ -51,6 +53,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(near_dup.router)
     app.include_router(library.router)
     app.include_router(annotations.router)
+    app.include_router(proposals.router)
+    app.include_router(export.router)
     app.include_router(documents_read.router)
     app.include_router(documents_write.router)
     app.include_router(citations.router)
