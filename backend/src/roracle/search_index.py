@@ -180,6 +180,7 @@ def cached_vectors(
                     "bool": {"filter": [{"term": {"doc_id": str(doc_id)}}, {"terms": {"prompt_sha": batch}}]}
                 },
                 source=["prompt_sha", "embedding"],
+                collapse={"field": "prompt_sha"},
                 size=10000,
             )
         except NotFoundError:

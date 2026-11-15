@@ -63,9 +63,11 @@ def paras(n, changed=None):
     ]
 
 
-def ingest(db_session, session_factory, cfg, store, es, v, texts):
+def ingest(db_session, session_factory, cfg, store, es, v, texts, summary="Sum A."):
     store.put_bytes(pipeline.docling_key(v.id), json.dumps(det_doc(texts)).encode(), "application/json")
-    db_session.execute(update(DocumentVersion).where(DocumentVersion.id == v.id).values(stage="deduped"))
+    db_session.execute(
+        update(DocumentVersion).where(DocumentVersion.id == v.id).values(stage="deduped", summary=summary)
+    )
     db_session.commit()
     llm = CountingLLM(DIMS)
     with session_factory() as s:
@@ -93,6 +95,22 @@ def test_new_version_embeds_only_changed(db_session, session_factory, cfg, store
     llm = ingest(db_session, session_factory, cfg, store, es, v2, paras(3, changed="x"))
     assert n1 >= 2
     assert len(llm.chunk_inputs()) == 1
+
+
+def test_new_version_other_summary_embeds_all(db_session, session_factory, cfg, store, es, user):
+    v1 = make_version(db_session, store, user, title="T")
+    n1 = len(ingest(db_session, session_factory, cfg, store, es, v1, paras(3)).chunk_inputs())
+    v2 = make_version(db_session, store, user, doc=db_session.get(Document, v1.document_id), version=2)
+    llm = ingest(db_session, session_factory, cfg, store, es, v2, paras(3), summary="Sum B.")
+    assert len(llm.chunk_inputs()) == n1
+
+
+def test_summary_reaches_chunk_prompt(db_session, session_factory, cfg, store, es, user):
+    v = make_version(db_session, store, user, title="T")
+    llm = ingest(db_session, session_factory, cfg, store, es, v, paras(2), summary="Sum A.")
+    inputs = llm.chunk_inputs()
+    assert inputs
+    assert all(t.startswith("title: T | text: Sum A.\n\n") for t in inputs)
 
 
 def test_other_document_embeds_all(db_session, session_factory, cfg, store, es, user):
