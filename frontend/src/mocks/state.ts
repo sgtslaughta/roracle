@@ -1,4 +1,5 @@
 import { DOCS } from "./docs";
+import type { ChatDetail } from "@/api/chat";
 import { seedUploads, type MockUpload } from "./uploads";
 
 export interface MockState {
@@ -9,6 +10,9 @@ export interface MockState {
   uploads: MockUpload[];
   lastAdvance: number;
   admin: boolean;
+  /** seeded lazily by mocks/chat.ts (the seed needs pdf/search, which import this module) */
+  chats: ChatDetail[] | null;
+  chatSeq: number;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -21,6 +25,8 @@ const fresh = (): MockState => ({
   uploads: seedUploads(),
   lastAdvance: Date.now(),
   admin: false,
+  chats: null,
+  chatSeq: 1,
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

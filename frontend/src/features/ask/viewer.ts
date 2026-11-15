@@ -1,0 +1,37 @@
+import { useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { DocumentDetail } from "@/api/types";
+import type { Viewer } from "@/api/chat";
+import { useReaderStore, type ReaderState } from "@/features/reader/useReaderStore";
+
+const MAX = 3;
+
+/** Reader state -> the `viewer` body of POST /chats/{id}/messages. Ignored docs are listed only in `ignored`. */
+export function buildViewer(
+  reader: Pick<ReaderState, "tabs" | "active">,
+  ignored: string[],
+  versionIdOf: (docId: string, version?: number) => string | null,
+  selection: Viewer["selection"] = null,
+): Viewer {
+  const open = reader.tabs.filter((t) => !ignored.includes(t.docId));
+  const ordered = [...open.filter((t) => t.docId === reader.active), ...open.filter((t) => t.docId !== reader.active)];
+  return {
+    tabs: ordered.slice(0, MAX).map((t) => ({ doc_id: t.docId, version_id: versionIdOf(t.docId, t.version), page: t.page })),
+    ignored,
+    selection,
+  };
+}
+
+/** Live viewer for the current reader tabs; version numbers resolve via the cached ["doc", id] detail. */
+export function useViewer(ignored: string[], selection: Viewer["selection"] = null): Viewer {
+  const reader = useReaderStore();
+  const qc = useQueryClient();
+  return useMemo(() => {
+    const versionIdOf = (docId: string, version?: number) => {
+      const vs = qc.getQueryData<DocumentDetail>(["doc", docId])?.versions;
+      const v = version === undefined ? vs?.find((x) => x.is_latest) : vs?.find((x) => x.version === version);
+      return v?.id ?? null;
+    };
+    return buildViewer(reader, ignored, versionIdOf, selection);
+  }, [reader, ignored, selection, qc]);
+}

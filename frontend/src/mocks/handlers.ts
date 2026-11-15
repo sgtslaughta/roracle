@@ -6,6 +6,7 @@ import { buildPdf, docById, docling } from "./pdf";
 import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { adminHandlers } from "./admin";
+import { chatHandlers } from "./chat";
 import { advance, newUpload } from "./uploads";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -103,4 +104,5 @@ export const handlers = [
     return HttpResponse.json({ version_id: u.version_id, document_id: u.document_id, stage: u.stage });
   }),
   ...adminHandlers,
+  ...chatHandlers,
 ];
