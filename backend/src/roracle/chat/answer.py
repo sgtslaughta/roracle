@@ -58,6 +58,7 @@ def parse_citations(text: str, n: int) -> list[int]:
 def _base(n: int, x: Passage, version: int | None) -> dict:
     bbox = {k: v for k, v in x.bboxes[0].items() if k != "page"} if x.bboxes else None
     return {
+        **({"note_id": x.note_id} if x.note_id else {}),
         "n": n,
         "doc_id": x.doc_id,
         "version_id": x.version_id,

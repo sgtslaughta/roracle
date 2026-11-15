@@ -14,10 +14,11 @@ from starlette.responses import Response
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
 from roracle.auth import Principal, current_principal, get_app_settings
-from roracle.chat.access import owned_chat, readable_chat, recheck, visible_versions
+from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, visible_versions
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, User
+from roracle.notes.community import readable_note_ids
 
 router = APIRouter()
 Who = Annotated[Principal, Depends(current_principal)]
@@ -67,7 +68,9 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
             .order_by(ChatMessage.created_at, ChatMessage.id)
         )
     )
-    ok = visible_versions(session, p, [x for m in msgs for x in (*m.citations, *m.retrieved)])
+    seen = [x for m in msgs for x in (*m.citations, *m.retrieved)]
+    ok = visible_versions(session, p, seen)
+    notes = readable_note_ids(session, p, note_ids(seen))
     mine = {
         r.message_id: r
         for r in session.scalars(
@@ -89,8 +92,8 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "model": m.model,
                 "created_at": m.created_at,
                 "viewer": m.viewer if m.role == "user" and owner else None,
-                "citations": recheck(m.citations, ok, drop=False),
-                "retrieved": recheck(m.retrieved, ok, drop=True),
+                "citations": recheck(m.citations, ok, drop=False, notes=notes),
+                "retrieved": recheck(m.retrieved, ok, drop=True, notes=notes),
                 "rating": {"value": r.value, "comment": r.comment} if r else None,
             }
         )

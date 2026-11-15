@@ -105,6 +105,7 @@ def _slim(hit: dict) -> dict:
         "passages": [
             {"chunk_id": x["chunk_id"], "text": x["text"], "page": x["page"]} for x in hit["passages"]
         ],
+        "notes": hit.get("notes", []),
     }
 
 

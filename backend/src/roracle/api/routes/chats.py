@@ -45,6 +45,7 @@ class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     viewer: Viewer = Field(default_factory=Viewer)
     model: str | None = None
+    include_notes: bool = True
 
 
 def chat_json(c: Chat) -> dict:
@@ -137,7 +138,7 @@ def post_message(
         try:
             passages = retrieve_for_chat(
                 session, es, llm, settings, p, body.content, body.viewer, chat.scope,
-                list(chat.pins), list(chat.excludes),
+                list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
             )  # fmt: skip
         except ValueError as e:
             raise HTTPException(422, str(e)) from None

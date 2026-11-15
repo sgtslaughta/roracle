@@ -20,6 +20,7 @@ from roracle.citations import cited_by_counts
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
+from roracle.notes.community import attach_notes
 from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
 from roracle.search_index import file_type as ext_of
 
@@ -334,6 +335,7 @@ def search(
     sort: Literal["relevance", "newest", "votes", "title"] = "relevance",
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=50)] = 20,
+    notes: bool = True,
 ) -> dict:
     es_filters = {
         "tags": tags or [],
@@ -369,4 +371,5 @@ def search(
     counts = cited_by_counts(session, p, [UUID(h["doc_id"]) for h in out["results"]])
     for h in out["results"]:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
+    attach_notes(session, p, out["results"], notes)
     return out
