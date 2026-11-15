@@ -45,6 +45,10 @@ def _format(ref: dict) -> str:
     return ". ".join(x for x in parts if x)
 
 
+def _title(d: Document, v: DocumentVersion | None) -> str:
+    return d.title or (v.meta or {}).get("title") or (v.filename if v else None) or "Untitled"
+
+
 @router.get("/documents/{doc_id}/references")
 def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
     v = _readable(session, p, doc_id)
@@ -59,6 +63,20 @@ def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
         if best
         else {}
     )
+    latest = (
+        {
+            x.document_id: x
+            for x in session.scalars(
+                select(DocumentVersion).where(
+                    DocumentVersion.document_id.in_(list(seen)),
+                    DocumentVersion.is_latest.is_(True),
+                    DocumentVersion.stage == "searchable",
+                )
+            )
+        }
+        if seen
+        else {}
+    )
     out = []
     for n, ref in enumerate(v.references or [], 1):
         ref = ref if isinstance(ref, dict) else {}
@@ -67,7 +85,7 @@ def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
             {
                 "ref_no": n,
                 "raw": _format(ref),
-                "target": {"doc_id": str(t.id), "title": t.title or ""} if t else None,
+                "target": {"doc_id": str(t.id), "title": _title(t, latest.get(t.id))} if t else None,
             }
         )
     return out

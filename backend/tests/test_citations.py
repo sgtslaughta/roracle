@@ -276,3 +276,13 @@ def test_mark_searchable_and_enqueue_is_atomic(db_session, session_factory, ana)
     with pytest.raises(LookupError):
         mark_searchable_and_enqueue(session_factory, __import__("uuid").uuid4())
     assert db_session.scalars(select(Job).where(Job.kind == "citations")).all().__len__() == 1
+
+
+def test_reference_target_title_falls_back(client, as_ana, ana, db_session):
+    _, va = lib(db_session, ana, None, doi="10.1/a")
+    va.meta = {**va.meta, "title": "Meta Title"}
+    lib(db_session, ana, None, doi="10.1/b", filename="b-paper.pdf")
+    d, v = citing(db_session, ana, [{"doi": "10.1/a"}, {"doi": "10.1/b"}])
+    resolve_references(db_session, v)
+    got = client.get(f"/documents/{d.id}/references", headers=as_ana).json()
+    assert [r["target"]["title"] for r in got] == ["Meta Title", "b-paper.pdf"]
