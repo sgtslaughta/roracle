@@ -1,7 +1,7 @@
-from conftest import REPO_ROOT
+import roracle
 
 
-def test_healthz_reports_ok_and_repo_version(client):
+def test_healthz_reports_ok_and_package_version(client):
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "version": (REPO_ROOT / "VERSION").read_text().strip()}
+    assert r.json() == {"status": "ok", "version": roracle.__version__}
