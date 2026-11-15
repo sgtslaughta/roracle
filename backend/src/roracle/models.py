@@ -4,11 +4,13 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     UniqueConstraint,
     func,
@@ -31,6 +33,8 @@ class User(Base):
     sub: Mapped[str] = mapped_column(String, unique=True)
     username: Mapped[str] = mapped_column(String)
     email: Mapped[str | None] = mapped_column(String)
+    groups: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
@@ -62,7 +66,14 @@ class Document(Base):
 
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
-    __table_args__ = (UniqueConstraint("document_id", "version", name="uq_document_versions_doc_version"),)
+    __table_args__ = (
+        UniqueConstraint("document_id", "version", name="uq_document_versions_doc_version"),
+        CheckConstraint(
+            "stage IN ('uploaded','scanned','parsed','summarized','deduped','chunked','embedded',"
+            "'searchable','review','rejected','cancelled')",
+            name="ck_document_versions_stage",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"))
@@ -72,6 +83,15 @@ class DocumentVersion(Base):
     content_type: Mapped[str] = mapped_column(String)
     size: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    stage: Mapped[str] = mapped_column(String, default="uploaded", server_default="uploaded")
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    summary: Mapped[str | None] = mapped_column(String)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default="[]")
+    minhash: Mapped[bytes | None] = mapped_column(LargeBinary)
+    near_dup_of: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("document_versions.id"))
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    ingest_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class DocumentShare(Base):

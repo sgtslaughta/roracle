@@ -54,6 +54,11 @@ def test_models_match_migrations(db_session):
         ("documents", {"private", "shared", "org_unit", "everyone"}),
         ("jobs", {"queued", "running", "done", "failed"}),
         ("document_shares", {"user", "group"}),
+        (
+            "document_versions",
+            {"uploaded", "scanned", "parsed", "summarized", "deduped", "chunked", "embedded", "searchable"}
+            | {"review", "rejected", "cancelled"},
+        ),
     ],
 )
 def test_check_constraints_have_exact_values(db_session, table, values):
@@ -65,3 +70,35 @@ def test_check_constraints_have_exact_values(db_session, table, values):
 def test_hot_path_indexes_exist(db_session):
     rows = db_session.execute(text("SELECT indexname FROM pg_indexes")).scalars().all()
     assert {"ix_documents_owner_id", "ix_document_versions_blob_sha256", "ix_jobs_version_id"} <= set(rows)
+
+
+def _version(document, blob, **kw):
+    return DocumentVersion(
+        document_id=document.id,
+        version=1,
+        blob_sha256=blob.sha256,
+        filename="a",
+        content_type="x",
+        size=1,
+        **kw,
+    )
+
+
+def test_stage_check_rejects_bogus(db_session, document, blob):
+    db_session.add(_version(document, blob, stage="bogus"))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_ingest_defaults(db_session, document, blob):
+    v = _version(document, blob)
+    db_session.add(v)
+    db_session.flush()
+    db_session.refresh(v)
+    assert (v.stage, v.page_count, v.summary, v.meta, v.references) == ("uploaded", None, None, {}, [])
+    assert (v.minhash, v.near_dup_of, v.is_latest, v.ingest_attempts) == (None, None, True, 0)
+
+
+def test_user_defaults(db_session, user):
+    db_session.refresh(user)
+    assert user.groups == [] and user.is_admin is False

@@ -18,8 +18,11 @@ MAX_ERROR_LEN = 2000
 Handler = Callable[[Session, dict], None]
 
 
+USER_PREFIX = "user:"  # marks a last_error that is safe to show to the uploader
+
+
 class NonRetryable(Exception):
-    """Raised by a handler to fail its job permanently, regardless of attempts."""
+    """Raised by a handler to fail its job permanently; its message is user-safe (shown in My uploads)."""
 
 
 def enqueue(session: Session, kind: str, payload: dict) -> int:
@@ -86,7 +89,9 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
                 handlers[job.kind](session, job.payload)
         except Exception as exc:
             log.exception("job %s (%s) failed", job.id, job.kind)
-            fail(session, job, str(exc) or type(exc).__name__, retryable=not isinstance(exc, NonRetryable))
+            msg = str(exc) or type(exc).__name__
+            user_safe = isinstance(exc, NonRetryable)
+            fail(session, job, (USER_PREFIX + msg) if user_safe else msg, retryable=not user_safe)
         else:
             complete(session, job.id)
         session.commit()

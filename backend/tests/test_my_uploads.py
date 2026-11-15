@@ -53,7 +53,50 @@ def test_status_reflects_latest_job(client, as_ana, upload, db_session):
     db_session.flush()
     item = client.get("/me/uploads", headers=as_ana).json()["items"][0]
     assert item["version_id"] == a["version_id"]
-    assert item["status"] == "failed" and item["error"] == "OCR timed out"
+    assert item["status"] == "failed" and item["error"] == "Processing failed"
+    assert item["stage"] == "uploaded"
+
+
+def test_error_sanitized(client, as_ana, upload, db_session):
+    upload(as_ana, b"a")
+    job = db_session.scalar(select(Job))
+
+    def err():
+        return client.get("/me/uploads", headers=as_ana).json()["items"][0]["error"]
+
+    job.last_error = "Traceback /srv/secret.py"
+    db_session.flush()
+    assert err() == "Processing failed \u2014 retrying"
+    job.status, job.last_error = "failed", "user:malware detected: Eicar"
+    db_session.flush()
+    assert err() == "malware detected: Eicar"
+
+
+def test_stage_shown(client, as_ana, upload, db_session):
+    a = upload(as_ana, b"a")
+    db_session.execute(
+        update(DocumentVersion).where(DocumentVersion.id == a["version_id"]).values(stage="parsed")
+    )
+    db_session.flush()
+    assert client.get("/me/uploads", headers=as_ana).json()["items"][0]["stage"] == "parsed"
+
+
+def test_newest_job_wins_per_version(client, as_ana, upload, db_session):
+    a = upload(as_ana, b"a")
+    old = db_session.scalar(select(Job))
+    old.status, old.last_error = "failed", "old"
+    new = Job(kind="ingest", payload={"version_id": a["version_id"]}, status="running")
+    db_session.add(new)
+    db_session.flush()
+    db_session.execute(
+        update(Job).where(Job.id == old.id).values(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+    )
+    db_session.execute(
+        update(Job).where(Job.id == new.id).values(created_at=datetime(2026, 1, 2, tzinfo=UTC))
+    )
+    db_session.flush()
+    item = client.get("/me/uploads", headers=as_ana).json()["items"][0]
+    assert item["status"] == "running" and item["error"] is None
 
 
 def test_deleted_excluded_and_paging(client, as_ana, upload, db_session):

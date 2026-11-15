@@ -165,4 +165,4 @@ def test_non_retryable_fails_immediately(session_factory, db_session):
     assert run_once(session_factory, {"ingest": bad}) is True
     with session_factory() as s:
         job = s.get(Job, jid)
-        assert (job.status, job.attempts, job.last_error) == ("failed", 1, "x")
+        assert (job.status, job.attempts, job.last_error) == ("failed", 1, "user:x")

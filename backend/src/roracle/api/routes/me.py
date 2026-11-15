@@ -7,8 +7,18 @@ from sqlalchemy.orm import Session
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, DocumentVersion, Job
+from roracle.queue import USER_PREFIX
 
 router = APIRouter()
+
+
+def _public_error(status: str | None, last_error: str | None) -> str | None:
+    """Never expose raw last_error: only NonRetryable (user:-prefixed) text passes through."""
+    if last_error is None or status in ("done", "running"):
+        return None
+    if last_error.startswith(USER_PREFIX):
+        return last_error[len(USER_PREFIX) :]
+    return "Processing failed" if status == "failed" else "Processing failed \u2014 retrying"
 
 
 @router.get("/me")
@@ -48,6 +58,7 @@ def my_uploads(
             ver.c.id.label("version_id"),
             ver.c.filename,
             ver.c.size,
+            ver.c.stage,
             ver.c.created_at,
             job.c.status,
             job.c.last_error,
@@ -69,7 +80,8 @@ def my_uploads(
             "size": r.size,
             "visibility": r.visibility,
             "status": r.status or "queued",
-            "error": r.last_error,
+            "stage": r.stage,
+            "error": _public_error(r.status, r.last_error),
             "uploaded_at": r.created_at.isoformat(),
         }
         for r in rows

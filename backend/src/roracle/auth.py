@@ -172,10 +172,25 @@ def current_principal(
         roles = _str_list((claims.get("realm_access") or {}).get("roles", []))
     except Exception:  # noqa: BLE001 - any validation/fetch failure -> uniform 401, no detail leaked
         raise _unauthorized() from None
-    stmt = insert(User).values(sub=sub, username=username, email=email)
+    stmt = insert(User).values(
+        sub=sub, username=username, email=email, groups=list(groups), is_admin=ADMIN_ROLE in roles
+    )
     stmt = stmt.on_conflict_do_update(
         index_elements=[User.sub],
-        set_={"username": username, "email": func.coalesce(stmt.excluded.email, User.email)},
+        set_={
+            "username": username,
+            "email": func.coalesce(stmt.excluded.email, User.email),
+            "groups": stmt.excluded.groups,
+            "is_admin": stmt.excluded.is_admin,
+        },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()
     return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles)
+
+
+def principal_for_user(session: Session, user_id: UUID) -> Principal:
+    """Rebuild a Principal from the groups/admin flag stored at the user's last request (worker use)."""
+    u = session.get(User, user_id)
+    if u is None:
+        raise LookupError(f"user {user_id} not found")
+    return Principal(u.id, u.sub, u.username, tuple(u.groups), u.is_admin)
