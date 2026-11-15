@@ -6,7 +6,6 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 
 import html
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -66,17 +65,12 @@ def rrf(lists: list[list[str]], k: int = 60) -> dict[str, float]:
     return out
 
 
-def wilson(up: int, down: int, z: float = 1.96) -> float:
-    n = up + down
-    if n == 0:
-        return 0.5
-    p = up / n
-    z2 = z * z
-    return (p + z2 / (2 * n) - z * math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) / (1 + z2 / n)
+def vote_ratio(up: int, down: int) -> float:
+    return (up + 1) / (up + down + 2)
 
 
 def vote_multiplier(up: int, down: int) -> float:
-    return 1 + 0.15 * max(-1.0, min(1.0, (wilson(up, down) - 0.5) * 2))
+    return 1 + 0.15 * max(-1.0, min(1.0, (vote_ratio(up, down) - 0.5) * 2))
 
 
 def _filters(p: Principal, filters: dict, doc_ids: list[str] | None) -> list[dict[str, Any]]:

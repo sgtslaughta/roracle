@@ -9,7 +9,6 @@ from roracle.retrieval import (
     group_by_document,
     rrf,
     vote_multiplier,
-    wilson,
 )
 
 
@@ -20,13 +19,16 @@ def test_rrf_order():
     assert s["b"] == pytest.approx(1 / 62 + 1 / 61)
 
 
-def test_wilson_and_multiplier():
-    assert wilson(0, 0) == 0.5
+def test_vote_multiplier():
     assert vote_multiplier(0, 0) == 1.0
-    assert vote_multiplier(10_000, 0) == pytest.approx(1.15, abs=0.003)
-    assert vote_multiplier(0, 10_000) == pytest.approx(0.85, abs=0.003)
-    for u, d in [(1, 0), (0, 1), (5, 5), (100, 3)]:
-        assert 0.85 <= vote_multiplier(u, d) <= 1.15
+    assert vote_multiplier(1, 0) == pytest.approx(1.05) and vote_multiplier(1, 0) > 1
+    assert vote_multiplier(0, 1) == pytest.approx(0.95) and vote_multiplier(0, 1) < 1
+    assert 1.14 < vote_multiplier(1000, 0) < 1.15
+    assert 0.85 < vote_multiplier(0, 1000) < 0.86
+    for u in range(6):
+        for d in range(6):
+            assert vote_multiplier(u + 1, d) > vote_multiplier(u, d)
+            assert vote_multiplier(u, d + 1) < vote_multiplier(u, d)
 
 
 def P(c, doc, score, title="T"):
