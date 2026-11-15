@@ -130,6 +130,7 @@ def test_unfinished_versions_owner_only(client, as_ana, as_bob, ana, bob, db_ses
         assert (r.status_code, r.json()) == (404, {"detail": "not found"}), pth
     assert client.get(paths(d)[0], headers=as_ana).status_code == 200
     assert client.get(paths(d)[1], headers=as_ana).status_code == 200
+    assert client.get(_pdf_url(d), headers=as_ana).status_code == 200
 
 
 def test_non_owner_sees_only_searchable_versions(client, as_ana, as_bob, ana, bob, db_session):
@@ -154,9 +155,9 @@ def test_content_type_falls_back_to_extension(client, as_ana, ana, db_session, s
 @pytest.mark.parametrize("stage", ["rejected", "cancelled"])
 def test_rejected_versions_404(client, as_ana, ana, db_session, store, fes, stage):
     d, v = seed(db_session, ana, stage=stage)
-    put(store, v, b"x")
-    assert client.get(f"/documents/{d.id}/versions/1/file", headers=as_ana).status_code == 404
-    assert client.get(f"/documents/{d.id}/versions/1/docling", headers=as_ana).status_code == 404
+    put(store, v, b"%PDF-1")
+    for pth in paths(d)[1:]:
+        assert client.get(pth, headers=as_ana).status_code == 404, pth
 
 
 def test_docling_compact(client, as_ana, ana, db_session, store, fes):
@@ -229,3 +230,17 @@ def test_pdf_404_when_no_pdf(client, as_ana, ana, db_session, store, filename, c
     put(store, v, data)
     r = client.get(_pdf_url(d), headers=as_ana)
     assert (r.status_code, r.json()) == (404, {"detail": "not found"})
+
+
+def test_pdf_non_missing_s3_error_propagates(client, as_ana, ana, db_session, store, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    d, v = seed(db_session, ana, filename="paper.pdf", content_type="application/pdf")
+    put(store, v, b"%PDF-x")
+
+    def boom(key):
+        raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+
+    monkeypatch.setattr(store, "open_key", boom)
+    with pytest.raises(ClientError):
+        client.get(_pdf_url(d), headers=as_ana)

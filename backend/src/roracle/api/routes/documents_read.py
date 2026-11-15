@@ -166,22 +166,20 @@ def download(
 def _open_pdf(store: BlobStore, v: DocumentVersion):
     """(body, head, size) of the rendition, else of the original if it is a real PDF; 404 otherwise.
     Closes the body on every path that does not return it."""
+    original = False
     try:
         body, size = store.open_key(rendition_key(v.id))
     except ClientError as e:
         if not _missing(e):
             raise
-        body = None
-    if body is None:
+        original = True
+    if original:
         try:
             body, size = store.open_key(store.key(v.blob_sha256))
         except ClientError as e:
             if _missing(e):
                 raise HTTPException(404, "not found") from None
             raise
-        original = True
-    else:
-        original = False
     try:
         head = body.read(5)
         stored_pdf = (v.content_type or "").split(";")[0].strip().lower() == "application/pdf"
