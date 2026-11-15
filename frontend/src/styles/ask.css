@@ -68,3 +68,21 @@ sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
   .margin{display:flex;flex-direction:column;gap:8px;min-height:0 !important}
   .note,.margin .ovl-more{position:static !important;top:auto !important}
 }
+
+/* ask view */
+.view.ask{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.ask-head{display:flex;align-items:center;gap:12px;width:100%;max-width:1228px;margin:0 auto;padding:18px 24px 0}
+.ask-head h1{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ask-actions{display:flex;gap:4px;align-items:center}
+.ask-load{padding:24px;text-align:center}
+.thread-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.thread-wrap .thread{flex:1;min-height:0}
+.thread-wrap .jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);box-shadow:var(--shadow);border-radius:999px}
+.empty .mt{margin:14px auto 0}
+.stat{margin:0;color:var(--muted);font-size:13.5px}
+.stat.bad{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--terra)}
+.cwrap .ctx .cchip{max-width:100%}
+.cchip svg.lucide{width:13px;height:13px}
+.cchip button svg.lucide{width:12px;height:12px}
+.composer .send{gap:6px}
+.q .avatar{font-size:12px}
