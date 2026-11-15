@@ -55,6 +55,7 @@ def _mapping(dims: int) -> dict[str, Any]:
             "pages": {"type": "integer"},
             "bboxes": {"type": "object", "enabled": False},
             "embedding_model": kw,
+            "prompt_sha": kw,
             "embedding": vec,
             "summary_embedding": vec,
         }
@@ -122,6 +123,7 @@ def index_chunks(
     is_latest: bool | None = None,
     tags: list[str] | None = None,
     summary_vector: list[float] | None = None,
+    prompt_shas: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -151,15 +153,43 @@ def index_chunks(
                 "pages": c.pages,
                 "bboxes": c.bboxes,
                 "embedding": v,
+                **({"prompt_sha": prompt_shas[i]} if prompt_shas else {}),
                 **({"summary_embedding": summary_vector} if c.n == 0 and summary_vector else {}),
             },
         }
-        for c, v in zip(chunks, vectors, strict=True)
+        for i, (c, v) in enumerate(zip(chunks, vectors, strict=True))
     ]
     ok, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
     if errors:
         raise RuntimeError(f"bulk indexing failed for {len(errors)} chunks: {errors[0]}")
     return ok
+
+
+def cached_vectors(
+    es: Elasticsearch, model: str, doc_id, shas: list[str], dims: int
+) -> dict[str, list[float]]:
+    """Embeddings already indexed for this document under the same prompt hash. Scope is the one
+    document only: cross-document reuse would leak content existence via timing."""
+    out: dict[str, list[float]] = {}
+    for i in range(0, len(shas), 1000):
+        batch = shas[i : i + 1000]
+        try:
+            r = es.search(
+                index=index_name(model),
+                query={
+                    "bool": {"filter": [{"term": {"doc_id": str(doc_id)}}, {"terms": {"prompt_sha": batch}}]}
+                },
+                source=["prompt_sha", "embedding"],
+                size=10000,
+            )
+        except NotFoundError:
+            return {}
+        for h in r["hits"]["hits"]:
+            src = h["_source"]
+            vec = src.get("embedding")
+            if vec and len(vec) == dims:
+                out[src["prompt_sha"]] = vec
+    return out
 
 
 def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = ALIAS) -> None:

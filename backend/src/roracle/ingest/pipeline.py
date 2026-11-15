@@ -17,7 +17,7 @@ from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
-from roracle.ingest.embed import doc_prompt, embed, from_bytes, to_bytes
+from roracle.ingest.embed import doc_prompt, embed, from_bytes, prompt_sha, to_bytes
 from roracle.ingest.neardup import find_near_duplicate, minhash
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
@@ -123,9 +123,12 @@ def _index(
     if not chunks:
         raise NonRetryable("no text extracted")
     set_stage(sf, v.id, "chunked")
-    vectors = embed(
-        llm, settings.embed_model, [doc_prompt(title, c.contextual) for c in chunks], settings.embed_dims
-    )
+    prompts = [doc_prompt(title, c.contextual, v.summary) for c in chunks]
+    shas = [prompt_sha(p) for p in prompts]
+    cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims)
+    miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
+    fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
+    vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
     set_stage(sf, v.id, "embedded")
     search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
     acl = search_index.acl_fields(session, d)
@@ -143,7 +146,7 @@ def _index(
         sv = None
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-        summary_vector=sv,
+        summary_vector=sv, prompt_shas=shas,
     )  # fmt: skip
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.

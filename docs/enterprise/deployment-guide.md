@@ -107,3 +107,5 @@ Postgres, not env.
 
 SemVer: patch = drop-in; minor = additive migrations, rolling upgrade; major = release notes with
 manual steps. Always snapshot Postgres and Elastic before a minor/major upgrade.
+
+P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.

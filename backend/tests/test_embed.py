@@ -5,7 +5,7 @@ import httpx
 import openai
 import pytest
 
-from roracle.ingest.embed import doc_prompt, embed, from_bytes, query_prompt, to_bytes
+from roracle.ingest.embed import doc_prompt, embed, from_bytes, prompt_sha, query_prompt, to_bytes
 from roracle.queue import NonRetryable
 
 
@@ -65,6 +65,10 @@ def test_transport_error_propagates():
 def test_prompts():
     assert doc_prompt("T", "x") == "title: T | text: x"
     assert doc_prompt("", "x") == "title: none | text: x"
+    assert doc_prompt("T", "x", "S") == "title: T | text: S\n\nx"
+    assert doc_prompt("", "x", "  ") == "title: none | text: x"
+    assert doc_prompt("T", "x", None) == "title: T | text: x"
+    assert prompt_sha("a") == "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
     assert query_prompt("q") == "task: search result | query: q"
 
 
