@@ -96,19 +96,19 @@ async function renderApp(path: string) {
 }
 
 describe("reader pane", () => {
-  it("deep link /d/d1#p=3&c=v:2 opens page 3 with the passage highlighted", async () => {
+  it("deep link /d/00000000-0000-4000-8000-000000000001#p=3&c=v:2 opens page 3 with the passage highlighted", async () => {
     server.use(http.get(`${API_BASE}/documents/:id/versions/:n/docling`, () =>
       HttpResponse.json({ pages: { "3": { size: { width: 612, height: 792 } } }, chunks: [{ chunk_id: "v:2", page_no: 3, bbox: { l: 60, r: 552, t: 700, b: 640, coord_origin: "BOTTOMLEFT" } }] })));
-    await renderApp("/d/d1#p=3&c=v:2");
+    await renderApp("/d/00000000-0000-4000-8000-000000000001#p=3&c=v:2");
     expect(await screen.findByRole("heading", { name: "Lower bounds on the spectral gap of random regular graphs" })).toBeInTheDocument();
-    expect(getReaderState().tabs[0]).toMatchObject({ docId: "d1", page: 3, chunkId: "v:2" });
+    expect(getReaderState().tabs[0]).toMatchObject({ docId: "00000000-0000-4000-8000-000000000001", page: 3, chunkId: "v:2" });
     const hl = await screen.findByTestId("highlight-v:2");
     expect(hl.closest("[data-page]")).toHaveAttribute("data-page", "3");
     expect(hl.style.top).not.toBe("");
   });
 
   it("deep link with a version opens that version", async () => {
-    await renderApp("/d/d1/v/1");
+    await renderApp("/d/00000000-0000-4000-8000-000000000001/v/1");
     await screen.findByRole("heading", { name: /Lower bounds/ });
     expect(getReaderState().tabs[0].version).toBe(1);
   });
@@ -116,7 +116,7 @@ describe("reader pane", () => {
   it("focus toggle cycles the pane and Esc steps back", async () => {
     await renderApp("/library");
     await screen.findByText(/of 7 documents/);
-    act(() => openDoc("d2"));
+    act(() => openDoc("00000000-0000-4000-8000-000000000002"));
     const app = document.getElementById("app")!;
     expect(app).toHaveAttribute("data-focus", "split");
     const toggle = await screen.findByRole("button", { name: /Focus mode/ });
@@ -133,7 +133,7 @@ describe("reader pane", () => {
   });
 
   it("References tab links in-library references", async () => {
-    await renderApp("/d/d1");
+    await renderApp("/d/00000000-0000-4000-8000-000000000001");
     await screen.findByRole("heading", { name: /Lower bounds/ });
     await userEvent.click(screen.getByRole("tab", { name: /References/ }));
     const reader = screen.getByRole("complementary", { name: "Reader" });
@@ -142,7 +142,7 @@ describe("reader pane", () => {
   });
 
   it("Cited by tab lists citing documents", async () => {
-    await renderApp("/d/d1");
+    await renderApp("/d/00000000-0000-4000-8000-000000000001");
     await screen.findByRole("heading", { name: /Lower bounds/ });
     await userEvent.click(screen.getByRole("tab", { name: /Cited by/ }));
     expect(await screen.findByText(/Cheeger-type inequalities/, { selector: ".rt" })).toBeInTheDocument();

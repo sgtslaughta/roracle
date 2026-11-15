@@ -49,9 +49,9 @@ describe("apiFetch", () => {
   });
 
   it("keeps structured detail (409 duplicate)", async () => {
-    server.use(http.post(`${API_BASE}/documents`, () => HttpResponse.json({ detail: { code: "duplicate", document_id: "d1" } }, { status: 409 })));
+    server.use(http.post(`${API_BASE}/documents`, () => HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 })));
     const err = (await apiFetch("/documents", { method: "POST", json: {} }).catch((e) => e)) as ApiError;
-    expect(err.detail).toEqual({ code: "duplicate", document_id: "d1" });
+    expect(err.detail).toEqual({ code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" });
   });
 
   it("serialises json bodies", async () => {

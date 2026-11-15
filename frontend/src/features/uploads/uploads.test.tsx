@@ -93,7 +93,7 @@ describe("my uploads", () => {
     server.use(http.post(`${API_BASE}/documents`, async ({ request }) => {
       const form = await request.formData();
       seen.push(form.get("force") as string | null);
-      if (form.get("force") !== "true") return HttpResponse.json({ detail: { code: "duplicate", document_id: "d1" } }, { status: 409 });
+      if (form.get("force") !== "true") return HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 });
       return HttpResponse.json({ document_id: "x", version_id: "y", sha256: "0" }, { status: 201 });
     }));
     await renderUploads();
@@ -107,7 +107,7 @@ describe("my uploads", () => {
 
   it("409 duplicate then Cancel makes no second request", async () => {
     let n = 0;
-    server.use(http.post(`${API_BASE}/documents`, () => { n++; return HttpResponse.json({ detail: { code: "duplicate", document_id: "d1" } }, { status: 409 }); }));
+    server.use(http.post(`${API_BASE}/documents`, () => { n++; return HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 }); }));
     await renderUploads();
     await userEvent.upload(screen.getByLabelText(/Drop files here or choose files/), file("dup.pdf"));
     await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));

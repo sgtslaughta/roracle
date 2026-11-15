@@ -1,6 +1,9 @@
 /** Thin fetch wrapper: bearer token, JSON, ApiError, and one silent renew on 401. */
 export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/api";
 
+/** Encode one interpolated path segment: `a/b` -> `a%2Fb`. Use for EVERY id placed in an API path. */
+export const seg = (v: string | number) => encodeURIComponent(String(v));
+
 export class ApiError extends Error {
   constructor(public status: number, public detail: unknown) {
     super(typeof detail === "string" ? detail : `Request failed (${status})`);
@@ -21,6 +24,8 @@ export const setAuthHooks = (h: AuthHooks | null) => { hooks = h; };
 export type ApiInit = Omit<RequestInit, "body"> & { json?: unknown; body?: BodyInit | null };
 
 async function send(path: string, init: ApiInit): Promise<Response> {
+  // belt and braces: never let a dot-segment escape the API prefix
+  if (!path.startsWith("/") || path.split("?")[0].split("/").some((s) => s === ".." || s === ".")) throw new ApiError(400, "invalid request path");
   const { json, headers: h, ...rest } = init;
   const headers = new Headers(h);
   const token = await hooks?.getToken();

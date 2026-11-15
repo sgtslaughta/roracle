@@ -34,9 +34,9 @@ describe("routes", () => {
   });
 
   it("renders doc routes inside the shell", async () => {
-    await renderAt("/d/d1");
+    await renderAt("/d/00000000-0000-4000-8000-000000000001");
     expect(await screen.findByRole("navigation", { name: "Main" })).toBeInTheDocument();
-    await renderAt("/d/d1/v/2");
+    await renderAt("/d/00000000-0000-4000-8000-000000000001/v/2");
     expect((await screen.findAllByRole("navigation", { name: "Main" })).length).toBeGreaterThan(0);
   });
 

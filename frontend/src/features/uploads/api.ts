@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "@/api/client";
+import { ApiError, apiFetch, seg } from "@/api/client";
 import type { DuplicateDetail, NearDupAction, UploadCreated, UploadsResponse } from "@/api/types";
 
 /** An upload is terminal when it has finished, failed, or waits on the user. */
@@ -38,7 +38,7 @@ export function useNearDup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, versionId, action }: { documentId: string; versionId: string; action: NearDupAction }) =>
-      apiFetch(`/documents/${documentId}/versions/${versionId}/near-dup`, { method: "POST", json: { action } }),
+      apiFetch(`/documents/${seg(documentId)}/versions/${seg(versionId)}/near-dup`, { method: "POST", json: { action } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["uploads"] }),
   });
 }

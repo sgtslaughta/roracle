@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch } from "@/api/client";
+import { apiFetch, seg } from "@/api/client";
 import type { Bbox } from "@/api/types";
 import { useDocling } from "./api";
 import { loadPdf } from "./pdfjs";
@@ -19,7 +19,7 @@ export function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
   const pdf = useQuery({
     queryKey: ["pdf", tab.docId, version],
     staleTime: Infinity,
-    queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${tab.docId}/versions/${version}/file`)).arrayBuffer()),
+    queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${seg(tab.docId)}/versions/${seg(version)}/file`)).arrayBuffer()),
   });
   const docling = useDocling(tab.docId, version).data;
 

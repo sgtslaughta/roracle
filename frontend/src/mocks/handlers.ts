@@ -77,7 +77,7 @@ export const handlers = [
     if (!file || !file.size) return HttpResponse.json({ detail: "empty file" }, { status: 400 });
     if (file.size > MAX_BYTES) return HttpResponse.json({ detail: "file exceeds 500 MB limit" }, { status: 413 });
     if (file.name === "spectral-gap-v3.pdf" && form.get("force") !== "true")
-      return HttpResponse.json({ detail: { code: "duplicate", document_id: "d1" } }, { status: 409 });
+      return HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 });
     const u = newUpload(file, (form.get("visibility") as "everyone") ?? "everyone");
     state.uploads.unshift(u);
     return HttpResponse.json({ document_id: u.document_id, version_id: u.version_id, sha256: "0".repeat(64) }, { status: 201 });

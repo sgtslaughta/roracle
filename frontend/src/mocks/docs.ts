@@ -9,7 +9,7 @@ export interface MockDoc {
 
 export const DOCS: MockDoc[] = [
   {
-    id: "d1",
+    id: "00000000-0000-4000-8000-000000000001",
     short: "Chen & Aldana 2021",
     title: "Lower bounds on the spectral gap of random regular graphs",
     authors: ["M. Chen","R. Aldana"],
@@ -22,7 +22,7 @@ export const DOCS: MockDoc[] = [
     down: 3,
     ver: 2,
     collections: ["Thesis reading list"],
-    refs: [{"t":"N. Alon. Eigenvalues and expanders. Combinatorica, 1986."},{"t":"J. Friedman. A proof of Alon's second eigenvalue conjecture and related problems. Memoirs of the AMS, 2008."},{"id":"d4"}],
+    refs: [{"t":"N. Alon. Eigenvalues and expanders. Combinatorica, 1986."},{"t":"J. Friedman. A proof of Alon's second eigenvalue conjecture and related problems. Memoirs of the AMS, 2008."},{"id":"00000000-0000-4000-8000-000000000004"}],
     pages: [
       ["We show that for fixed d ≥ 3, the spectral gap d − λ₂ of a uniformly random d-regular graph on n vertices is at least d − 2√(d−1) − ε with probability 1 − o(1). The argument combines a trace method with a tangle-free decomposition.","The bound is tight up to the ε term, matching the Alon–Boppana limit for infinite families [1]. Mixing-time consequences are surveyed in [3]."],
       ["Section 3 introduces the tangle-free condition: no ball of radius r = c·log n contains more than one cycle. We prove it holds with probability 1 − O(n^−1/2).","Under tangle-freeness the non-backtracking matrix B satisfies ‖Bʳ‖ ≤ (d−1)^(r/2)·polylog n, which yields the gap through the Ihara–Bass identity."],
@@ -30,7 +30,7 @@ export const DOCS: MockDoc[] = [
     ],
   },
   {
-    id: "d2",
+    id: "00000000-0000-4000-8000-000000000002",
     short: "Ito 2023",
     title: "Cheeger-type inequalities for weighted hypergraphs",
     authors: ["K. Ito"],
@@ -43,7 +43,7 @@ export const DOCS: MockDoc[] = [
     down: 1,
     ver: 1,
     collections: ["Thesis reading list"],
-    refs: [{"id":"d1"},{"t":"F. Chung. Spectral Graph Theory. AMS, 1997."},{"id":"d4"}],
+    refs: [{"id":"00000000-0000-4000-8000-000000000001"},{"t":"F. Chung. Spectral Graph Theory. AMS, 1997."},{"id":"00000000-0000-4000-8000-000000000004"}],
     pages: [
       ["We define a nonlinear Laplacian for weighted hypergraphs and prove h²/2 ≤ γ ≤ 2h, where h is the hypergraph conductance and γ the spectral gap.","This confirms, for k-uniform hypergraphs, the analogue conjectured by Chen and Aldana [1], with a loss of a factor (k−1)."],
       ["The key step replaces the Ihara–Bass identity with a diffusion process that moves mass only between the extreme vertices of each hyperedge.","Random k-uniform d-regular hypergraphs satisfy γ ≥ c(d,k) > 0 with high probability, though our constant is far from optimal."],
@@ -51,7 +51,7 @@ export const DOCS: MockDoc[] = [
     ],
   },
   {
-    id: "d3",
+    id: "00000000-0000-4000-8000-000000000003",
     short: "Okafor & Lindqvist 2019",
     title: "Preconditioning sparse Laplacian systems with low-stretch spanning trees",
     authors: ["L. Okafor","P. Lindqvist"],
@@ -72,7 +72,7 @@ export const DOCS: MockDoc[] = [
     ],
   },
   {
-    id: "d4",
+    id: "00000000-0000-4000-8000-000000000004",
     short: "Novak 2016",
     title: "Mixing times of lazy random walks on expanders: a survey",
     authors: ["A. Novak"],
@@ -93,7 +93,7 @@ export const DOCS: MockDoc[] = [
     ],
   },
   {
-    id: "d5",
+    id: "00000000-0000-4000-8000-000000000005",
     short: "Haddad & Moreau 2022",
     title: "Stability of finite-volume schemes for anisotropic diffusion",
     authors: ["S. Haddad","J. Moreau"],
@@ -106,7 +106,7 @@ export const DOCS: MockDoc[] = [
     down: 0,
     ver: 3,
     collections: ["Solver benchmarks"],
-    refs: [{"id":"d3"}],
+    refs: [{"id":"00000000-0000-4000-8000-000000000003"}],
     pages: [
       ["We prove a discrete maximum principle for a two-point flux scheme on meshes satisfying a weakened orthogonality condition.","The stability constant depends on the anisotropy ratio κ through √κ rather than κ."],
       ["For κ > 10³ the scheme requires mesh alignment with the principal diffusion directions; otherwise spurious oscillations appear near boundary layers."],
@@ -114,7 +114,7 @@ export const DOCS: MockDoc[] = [
     ],
   },
   {
-    id: "d6",
+    id: "00000000-0000-4000-8000-000000000006",
     short: "HPC group 2024",
     title: "GPU eigensolver benchmarks, Q3 2024",
     authors: ["HPC group"],
@@ -127,14 +127,14 @@ export const DOCS: MockDoc[] = [
     down: 0,
     ver: 2,
     collections: ["Solver benchmarks"],
-    refs: [{"id":"d3"},{"id":"d5"}],
+    refs: [{"id":"00000000-0000-4000-8000-000000000003"},{"id":"00000000-0000-4000-8000-000000000005"}],
     pages: [
       ["LOBPCG on 4 GPUs computes the 10 smallest Laplacian eigenpairs of a 50M-vertex mesh graph in 212 s, against 1,840 s on 128 CPU cores.","Mixed precision cuts time by 31% while keeping residuals below 10⁻⁸."],
       ["Convergence stalls when the gap between λ₁₀ and λ₁₁ falls below 10⁻⁴; a block size of 16 recovers it. Preconditioner from [1]."],
     ],
   },
   {
-    id: "d7",
+    id: "00000000-0000-4000-8000-000000000007",
     short: "Aldana & Brandt 2024",
     title: "Graph neural networks as approximate spectral filters",
     authors: ["R. Aldana","T. Brandt"],
@@ -147,7 +147,7 @@ export const DOCS: MockDoc[] = [
     down: 6,
     ver: 1,
     collections: ["Thesis reading list"],
-    refs: [{"id":"d1"},{"id":"d2"}],
+    refs: [{"id":"00000000-0000-4000-8000-000000000001"},{"id":"00000000-0000-4000-8000-000000000002"}],
     pages: [
       ["Message-passing layers implement polynomial filters of the normalized Laplacian; a depth-L network applies a degree-L polynomial.","On expanders, the large spectral gap [1] makes deep GNNs oversmooth after O(log n) layers."],
       ["We propose a rewiring step that preserves the gap while limiting oversmoothing, extending to hypergraphs via [2]."],

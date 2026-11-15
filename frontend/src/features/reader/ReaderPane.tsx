@@ -1,6 +1,6 @@
 import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquareQuote, Quote } from "lucide-react";
 import { toast } from "sonner";
-import { apiFetch } from "@/api/client";
+import { apiFetch, seg } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoteControl } from "@/features/library/VoteControl";
@@ -24,7 +24,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
 
   const download = async () => {
     try {
-      const blob = await apiFetch<Blob>(`/documents/${d.id}/versions/${version}/file`);
+      const blob = await apiFetch<Blob>(`/documents/${seg(d.id)}/versions/${seg(version)}/file`);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
