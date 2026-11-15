@@ -41,7 +41,7 @@ operators/instances. NetworkPolicies: default deny; allow only the edges above.
 | Docling | 2–4 | 4 vCPU, 16 GiB (or GPU) | ~200k pages/day ≈ 2.3 pages/s sustained; GPU or the inference endpoint's granite-docling model recommended |
 | GROBID | 2 | 4 vCPU, 8 GiB | |
 | Gotenberg | 2 | 2 vCPU, 4 GiB | |
-| ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required |
+| ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required; `StreamMaxLength 500M` (≥ upload limit) or large uploads fail permanently |
 | latex-builder | 2 | 2 vCPU, 2 GiB per build | job concurrency limited |
 | Postgres | 3 (1 primary + 2 sync/async replicas) | 8 vCPU, 32 GiB, 500 GiB SSD | metadata ≈ 100 GiB at target |
 | Elasticsearch | 3 master (small) + 3–4 data | data: 16 vCPU, 64 GiB (31 GiB heap), 2 TiB SSD | see vector math below |
