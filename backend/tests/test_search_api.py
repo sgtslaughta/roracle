@@ -210,7 +210,7 @@ def test_disjunctive_facets_query_path(client, as_ana, ana, bob, db_session, fes
     fes.hits = [hit(a, va), hit(b, vb), hit(h, vh)]
     r = get(client, as_ana, q="alpha", year=2021).json()
     assert r["facets"]["year"] == [{"value": "2021", "count": 1}, {"value": "2022", "count": 1}]
-    assert len(fes.calls) == 4  # filtered + unfiltered search (bm25 + knn each)
+    assert len(fes.calls) == 6  # filtered + unfiltered search (bm25 + knn + summary knn each)
 
 
 def test_filtered_query_embeds_once(client, as_ana, ana, db_session, fes, monkeypatch):

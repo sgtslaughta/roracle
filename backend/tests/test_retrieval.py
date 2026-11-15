@@ -114,7 +114,7 @@ def test_rerank_timeout_and_non_json():
     assert _rerank(_settings(), "q", ps, _http(lambda r: httpx.Response(200, content=b"nope"))) is ps
 
 
-def _knn_of(**kw):
+def _knn_calls(**kw):
     from types import SimpleNamespace
 
     from roracle.auth import Principal
@@ -137,7 +137,11 @@ def _knn_of(**kw):
     p = Principal(uuid.uuid4(), "s", "u", (), False)
     s = Settings(embed_dims=1)
     search_chunks(ES(), llm, s, p, "q", filters={}, **kw)
-    return next(c["knn"] for c in calls if "knn" in c)
+    return [c["knn"] for c in calls if "knn" in c]
+
+
+def _knn_of(**kw):
+    return _knn_calls(**kw)[0]
 
 
 def test_min_similarity_goes_to_knn():
@@ -146,7 +150,42 @@ def test_min_similarity_goes_to_knn():
     assert "similarity" not in _knn_of(min_similarity=0.0)
 
 
+def test_summary_knn_shares_floor_and_can_be_skipped():
+    both = _knn_calls(min_similarity=0.4)
+    assert [k["field"] for k in both] == ["embedding", "summary_embedding"]
+    assert {k["similarity"] for k in both} == {0.4}
+    assert [k["field"] for k in _knn_calls(summary_knn=False)] == ["embedding"]
+
+
 def test_chat_settings():
     s = Settings(chat_models=" a:1, ,b:2 ")
     assert s.chat_model_list == ["a:1", "b:2"]
     assert Settings().chat_min_similarity == 0.35 and Settings().chat_passages == 8
+
+
+def test_search_chunks_summary_knn_third_list():
+    from types import SimpleNamespace
+
+    from roracle.auth import Principal
+    from roracle.retrieval import search_chunks
+
+    def hit(c):
+        return {"_source": {"chunk_id": c, "doc_id": "d" + c, "version_id": "v", "text": "t"}}
+
+    class ES:
+        def search(self, **kw):
+            knn = kw.get("knn")
+            if knn is None:
+                return {"hits": {"hits": [hit("a")]}}
+            return {"hits": {"hits": [hit("a")] if knn["field"] == "embedding" else [hit("s")]}}
+
+    llm = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=lambda model, input: SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[0.0] * 4)])
+        )
+    )
+    s = _settings().model_copy(update={"rerank_url": "", "embed_dims": 4})
+    p = Principal(user_id=None, sub="s", username="u", groups=(), is_admin=True)
+    out = search_chunks(ES(), llm, s, p, "q", filters={})
+    assert [x.chunk_id for x in out] == ["a", "s"]
+    assert out[1].score == pytest.approx(1 / 61)

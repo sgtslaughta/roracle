@@ -143,3 +143,31 @@ def test_index_chunks_file_type_and_tags(es, model, db_session, document, blob):
     es.indices.refresh(index=index_name(model))
     src = es.search(index=index_name(model))["hits"]["hits"][0]["_source"]
     assert src["file_type"] == "pdf" and src["tags"] == ["ml"]
+
+
+def test_summary_vector_only_on_chunk_zero(es, model, db_session, document, blob):
+    ensure_index(es, model, 4)
+    index_chunks(
+        es, _v(document, blob), document, _chunks(2), [[0.1] * 4] * 2, {}, model, title="T",
+        summary_vector=[0.5] * 4,
+    )  # fmt: skip
+    es.indices.refresh(index=index_name(model))
+    srcs = {
+        h["_source"]["chunk_id"].split(":")[1]: h["_source"]
+        for h in es.search(index=index_name(model))["hits"]["hits"]
+    }
+    assert srcs["0"]["summary_embedding"] == [0.5] * 4 and "summary_embedding" not in srcs["1"]
+
+
+def test_ensure_index_backfills_summary_embedding_and_checks_dims(es, model):
+    from roracle.queue import NonRetryable
+    from roracle.search_index import _mapping
+
+    name = index_name(model)
+    props = {k: v for k, v in _mapping(4)["properties"].items() if k != "summary_embedding"}
+    es.indices.create(index=name, mappings={"properties": props})
+    ensure_index(es, model, 4)
+    got = es.indices.get_mapping(index=name)[name]["mappings"]["properties"]["summary_embedding"]
+    assert got["type"] == "dense_vector" and got["dims"] == 4
+    with pytest.raises(NonRetryable, match="dimension mismatch"):
+        ensure_index(es, model, 8)

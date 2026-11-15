@@ -147,3 +147,33 @@ def test_non_latest_excluded(es, cfg, db_session, blob, user):
 def test_empty_query_raises(es, cfg):
     with pytest.raises(ValueError):
         _search(cfg, es, _p(uuid.uuid4()), "  ")
+
+
+def test_summary_vector_finds_doc_and_respects_acl(es, cfg, db_session, blob, user):
+    sv = [0.0, 0.0, 1.0, 0.0]  # FakeLLM embeds "qq" as [0,0,0,.1]; craft summary vec nearest instead
+    q = [0.0, 0.0, 0.0, 1.0]
+    sv = q
+
+    def add(title, vis):
+        d = Document(owner_id=user.id, title=title, visibility=vis, org_unit="/")
+        db_session.add(d)
+        db_session.flush()
+        v = DocumentVersion(
+            id=uuid.uuid4(), document_id=d.id, version=1, blob_sha256=blob.sha256, filename="a.pdf",
+            content_type="x", size=1, is_latest=True, meta={},
+        )  # fmt: skip
+        db_session.add(v)
+        db_session.flush()
+        index_chunks(
+            es, v, d, [Chunk(0, "zzz", "zzz", [], [1], [])], [[1.0, 0.0, 0.0, 0.0]],
+            acl_fields(db_session, d), cfg.embed_model, title=title, summary_vector=sv,
+        )  # fmt: skip
+
+    add("Visible", "everyone")
+    add("Hidden", "private")
+    es.indices.refresh(index=index_name(cfg.embed_model))
+    llm = FakeLLM()
+    llm._embed = lambda model, input: SimpleNamespace(data=[SimpleNamespace(index=0, embedding=q)])
+    llm.embeddings = SimpleNamespace(create=llm._embed)
+    out = search_chunks(es, llm, cfg, _p(uuid.uuid4()), "nomatchword", filters={})
+    assert [x.title for x in out] == ["Visible"]

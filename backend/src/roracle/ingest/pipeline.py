@@ -17,7 +17,7 @@ from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
-from roracle.ingest.embed import doc_prompt, embed, to_bytes
+from roracle.ingest.embed import doc_prompt, embed, from_bytes, to_bytes
 from roracle.ingest.neardup import find_near_duplicate, minhash
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
@@ -135,9 +135,16 @@ def _index(
     )
     tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
+    sv = from_bytes(v.summary_embedding).tolist() if v.summary_embedding else None
+    if (sv is None or len(sv) != settings.embed_dims) and (v.summary or "").strip():
+        sv = embed(llm, settings.embed_model, [doc_prompt(title, v.summary)], settings.embed_dims)[0]
+        update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
+    elif sv is not None and len(sv) != settings.embed_dims:
+        sv = None
     search_index.index_chunks(
-        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
-    )
+        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
+        summary_vector=sv,
+    )  # fmt: skip
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)

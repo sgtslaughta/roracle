@@ -25,6 +25,13 @@ def index_name(model: str) -> str:
 
 def _mapping(dims: int) -> dict[str, Any]:
     kw = {"type": "keyword"}
+    vec = {
+        "type": "dense_vector",
+        "dims": dims,
+        "index": True,
+        "similarity": "cosine",
+        "index_options": {"type": "int8_hnsw"},
+    }
     return {
         "properties": {
             "doc_id": kw,
@@ -48,13 +55,8 @@ def _mapping(dims: int) -> dict[str, Any]:
             "pages": {"type": "integer"},
             "bboxes": {"type": "object", "enabled": False},
             "embedding_model": kw,
-            "embedding": {
-                "type": "dense_vector",
-                "dims": dims,
-                "index": True,
-                "similarity": "cosine",
-                "index_options": {"type": "int8_hnsw"},
-            },
+            "embedding": vec,
+            "summary_embedding": vec,
         }
     }
 
@@ -70,11 +72,14 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
                 raise
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
     missing = {
-        f: t for f, t in _mapping(dims)["properties"].items() if f not in props and t == {"type": "keyword"}
+        f: t
+        for f, t in _mapping(dims)["properties"].items()
+        if f not in props and t["type"] in ("keyword", "dense_vector")
     }
-    if missing:  # backfill handles keyword fields only (R9); fields added after the index was created (R9)
+    if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
-    if props.get("embedding", {}).get("dims") != dims:
+    props = {**props, **missing}
+    if any(props.get(f, {}).get("dims") != dims for f in ("embedding", "summary_embedding")):
         raise NonRetryable("search index dimension mismatch: reindex required")
     if not es.indices.exists_alias(name=alias, index=name):
         es.indices.put_alias(index=name, name=alias)
@@ -114,6 +119,7 @@ def index_chunks(
     title: str,
     is_latest: bool | None = None,
     tags: list[str] | None = None,
+    summary_vector: list[float] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -143,6 +149,7 @@ def index_chunks(
                 "pages": c.pages,
                 "bboxes": c.bboxes,
                 "embedding": v,
+                **({"summary_embedding": summary_vector} if c.n == 0 and summary_vector else {}),
             },
         }
         for c, v in zip(chunks, vectors, strict=True)
