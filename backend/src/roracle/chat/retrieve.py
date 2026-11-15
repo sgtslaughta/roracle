@@ -109,7 +109,7 @@ def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str
             size=size,
             qvec=qvec,
             min_similarity=settings.chat_min_similarity or None,
-            summary_knn=False,  # summary vector ranks docs, not passages; chat needs passages
+            summary_knn=False,  # summary hit is chunk 0 of a doc, not the matching passage
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []

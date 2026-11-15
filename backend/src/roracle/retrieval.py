@@ -157,7 +157,7 @@ def search_chunks(
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
     summary_knn adds a third kNN list on the document summary vector (doc-level recall for search);
-    every chunk of a doc shares that vector, so it ranks docs, not passages.
+    only chunk 0 carries it, so a hit means "this document", not "this passage".
     """
     if not query.strip():
         raise ValueError("empty query")
