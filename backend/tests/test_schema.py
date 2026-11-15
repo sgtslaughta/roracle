@@ -32,3 +32,13 @@ def test_version_numbers_are_unique_per_document(db_session, document, blob):
     )
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+def test_models_match_migrations(db_session):
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    from roracle.models import Base
+
+    ctx = MigrationContext.configure(db_session.connection())
+    assert compare_metadata(ctx, Base.metadata) == []

@@ -38,7 +38,9 @@ def session_factory(settings):
 
 
 def _alembic_config() -> Config:
-    return Config(str(BACKEND_ROOT / "alembic.ini"))
+    cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_ROOT / "migrations"))
+    return cfg
 
 
 @pytest.fixture
@@ -52,19 +54,10 @@ def db_session(session_factory):
 
 
 @pytest.fixture
-def app(settings, session_factory):
+def app(settings, db_session):
+    """App whose get_session yields the test's db_session (the fixture owns the transaction)."""
     app = create_app(settings)
-
-    def _get_session():
-        with session_factory() as session:
-            try:
-                yield session
-                session.commit()
-            except Exception:
-                session.rollback()
-                raise
-
-    app.dependency_overrides[get_session] = _get_session
+    app.dependency_overrides[get_session] = lambda: db_session
     return app
 
 
