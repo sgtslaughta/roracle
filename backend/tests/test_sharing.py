@@ -3,7 +3,7 @@
 import pytest
 from api_seed import seed
 from conftest import bearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from roracle.api.routes.library import get_es
 from roracle.models import Document, DocumentShare, Job
@@ -143,7 +143,7 @@ def test_es_failure_503_db_unchanged_and_job_queued(app, client, as_ana, ana, bo
     d, _ = seed(db_session, ana, title="Keep", visibility="everyone")
     db_session.commit()
     r = patch(client, as_ana, d, title="X", visibility="private", share_users=[str(bob)])
-    assert r.status_code == 503 and r.json()["detail"] == "search index unavailable"
+    assert r.status_code == 503 and r.json()["detail"] == "update failed, please retry"
     db_session.expire_all()
     assert db_session.get(Document, d.id).title == "Keep"
     assert db_session.get(Document, d.id).visibility == "everyone"
@@ -151,14 +151,14 @@ def test_es_failure_503_db_unchanged_and_job_queued(app, client, as_ana, ana, bo
     assert len(f.calls) == 2  # failed update, then re-sync of the committed state (also fails)
     assert f.calls[1]["script"]["params"]["visibility"] == "everyone"
     jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
-    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}]  # durable convergence, not silent
+    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}] * 2  # pre-ES delayed job + recovery job
 
 
 def test_success_enqueues_acl_sync_in_same_commit(client, as_ana, ana, db_session, fes):
     d, _ = seed(db_session, ana)
     patch(client, as_ana, d, title="T")
     jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
-    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}]
+    assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}] * 2  # delayed pre-ES job + in-txn job
 
 
 def test_version_conflicts_retry_then_succeed(app, client, as_ana, ana, db_session):
@@ -179,7 +179,7 @@ def test_persistent_failures_or_conflicts_503(app, client, as_ana, ana, db_sessi
     db_session.expire_all()
     assert db_session.get(Document, d.id).title == "Keep"
     assert len(f.calls) == (2 if "failures" in resp else 4)  # failures raise at once; conflicts retry 3x
-    assert db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all() == []
+    assert len(db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()) == 1  # pre-ES job only
 
 
 def test_commit_fails_after_es_success_resyncs(app, client, as_ana, ana, db_session, monkeypatch):
@@ -220,3 +220,42 @@ def test_acl_sync_handler_recomputes_from_pg(session_factory, ana, db_session):
     f2 = FakeES(fail=True)
     with pytest.raises(RuntimeError):
         handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f2, session_factory=session_factory)
+
+
+def test_durable_delayed_job_committed_before_es_write(app, client, as_ana, ana, session_factory, db_session):
+    seen = {}
+
+    class Probe(FakeES):
+        def update_by_query(self, **kw):
+            with session_factory() as s:  # separate session: only committed rows are visible
+                seen["jobs"] = s.execute(
+                    select(Job.payload, Job.run_after > func.now()).where(Job.kind == "acl_sync")
+                ).all()
+            return super().update_by_query(**kw)
+
+    app.dependency_overrides[get_es] = lambda: Probe()
+    d, _ = seed(db_session, ana)
+    db_session.commit()
+    assert patch(client, as_ana, d, title="T").status_code == 200
+    assert [tuple(r) for r in seen["jobs"]] == [({"doc_id": str(d.id)}, True)]
+    assert len(db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()) == 2  # + in-txn job
+
+
+def test_double_failure_still_503(app, client, as_ana, ana, db_session, monkeypatch):
+    from roracle.api.routes import documents_write
+
+    app.dependency_overrides[get_es] = lambda: FakeES(fail=True)
+    d, _ = seed(db_session, ana)
+    db_session.commit()
+    real = documents_write._durable_job
+    n = {"c": 0}
+
+    def flaky(*a):
+        n["c"] += 1
+        if n["c"] > 1:
+            raise RuntimeError("db down")
+        real(*a)
+
+    monkeypatch.setattr(documents_write, "_durable_job", flaky)
+    r = patch(client, as_ana, d, title="T")
+    assert r.status_code == 503 and r.json()["detail"] == "update failed, please retry"

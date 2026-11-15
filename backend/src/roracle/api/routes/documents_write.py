@@ -20,6 +20,7 @@ from roracle.queue import enqueue
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+ACL_JOB_DELAY_S = 30
 
 
 def normalize_path(s: str) -> str:
@@ -61,6 +62,12 @@ def _set_shares(session: Session, doc: Document, kind: str, principals: list[str
     )
 
 
+def _durable_job(sf, doc_id: UUID, delay_s: float) -> None:
+    with sf() as s:
+        enqueue(s, "acl_sync", {"doc_id": str(doc_id)}, run_after_s=delay_s)
+        s.commit()
+
+
 def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
     """After a rollback/failed commit: re-sync ES from committed Postgres; if that fails too, leave a
     durable acl_sync job (fresh session) so the index converges. Never silent."""
@@ -68,9 +75,10 @@ def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
         search_index.sync_acl(es, doc_id, lambda: read_acl(sf, doc_id))
     except Exception:
         log.exception("ES re-sync failed for document %s; queueing acl_sync", doc_id)
-        with sf() as s:
-            enqueue(s, "acl_sync", {"doc_id": str(doc_id)})
-            s.commit()
+        try:
+            _durable_job(sf, doc_id, 0)
+        except Exception:
+            log.exception("could not queue acl_sync for document %s", doc_id)
 
 
 @router.patch("/documents/{doc_id}")
@@ -114,6 +122,9 @@ def patch_document(
     # Ordering: ES first, then commit. The acl_sync job is enqueued in the same transaction, so even
     # a crash after commit converges. If ES or the commit fails we roll back and re-sync ES from the
     # committed state (a partial update_by_query must not leave ES out of step with Postgres).
+    # Crash safety: a committed delayed job exists before ES is touched, so a crash between the ES
+    # write and our commit still converges (the job re-syncs ES from whatever Postgres holds).
+    _durable_job(sf, doc_id, ACL_JOB_DELAY_S)
     try:
         search_index.sync_acl(es, doc_id, lambda: (search_index.acl_fields(session, doc), body.title))
         enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
@@ -122,5 +133,5 @@ def patch_document(
         log.exception("document %s update failed; rolling back", doc_id)
         session.rollback()
         _recover(es, sf, doc_id)
-        raise HTTPException(503, "search index unavailable") from None
+        raise HTTPException(503, "update failed, please retry") from None
     return detail(doc_id, p, session)
