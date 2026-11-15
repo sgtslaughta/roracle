@@ -158,6 +158,7 @@ def add_tag(
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
     _visible(session, p, doc_id)
+    session.scalar(select(Document.id).where(Document.id == doc_id).with_for_update())  # serialize cap check
     have = tags_of(session, doc_id)
     if body.tag not in have and len(have) >= MAX_TAGS:
         raise HTTPException(422, "too many tags")

@@ -302,3 +302,23 @@ def test_tag_es_failure_queues_acl_sync_and_keeps_tag(app, client, as_ana, up, d
     r = client.delete(f"/documents/{d}/tags/ml", headers=as_ana)
     assert r.status_code == 503
     assert len(db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()) == 2
+
+
+def test_add_tag_locks_document_before_cap_check(client, as_ana, up, fes, db_session):
+    from sqlalchemy import event
+
+    d = up(as_ana)
+    seen = []
+    eng = db_session.get_bind()
+
+    def spy(conn, cursor, statement, *a):
+        seen.append(statement)
+
+    event.listen(eng, "before_cursor_execute", spy)
+    try:
+        assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "ml"}).status_code == 200
+    finally:
+        event.remove(eng, "before_cursor_execute", spy)
+    lock = next(i for i, x in enumerate(seen) if "FOR UPDATE" in x and "documents" in x)
+    count = next(i for i, x in enumerate(seen) if "FROM tags" in x and "SELECT" in x)
+    assert lock < count

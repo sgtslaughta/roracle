@@ -223,3 +223,18 @@ def test_new_version_survives_foreign_library_rows(db_session, client, as_ana):
     assert [j.payload for j in db_session.scalars(select(Job).where(Job.kind == "acl_sync"))] == [
         {"doc_id": str(md.id)}
     ]
+
+
+def test_merge_caps_tags_at_max(db_session, client, as_ana):
+    from roracle.api.routes.library import MAX_TAGS
+    from roracle.models import Tag
+
+    md, _, ud, mine = _setup(db_session, client, as_ana)
+    db_session.add_all([Tag(document_id=md.id, tag=f"a{i:02}") for i in range(40)])
+    db_session.add_all([Tag(document_id=ud.id, tag=f"b{i:02}") for i in range(30)])
+    db_session.flush()
+    assert _post(client, as_ana, ud, mine, "new_version").status_code == 200
+    db_session.expire_all()
+    tags = sorted(db_session.scalars(select(Tag.tag).where(Tag.document_id == md.id)))
+    assert len(tags) == MAX_TAGS and tags[:40] == [f"a{i:02}" for i in range(40)]
+    assert tags[40:] == [f"b{i:02}" for i in range(10)]

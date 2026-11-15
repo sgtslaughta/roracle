@@ -8,6 +8,7 @@ from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from roracle.api.routes.library import MAX_TAGS
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import (
@@ -86,11 +87,15 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
 
 def _merge_library(session: Session, old: UUID, new: UUID) -> None:
     """Other users may have tagged/voted/collected the doc while in review: carry tags and collections over."""
-    session.execute(
-        insert(Tag)
-        .from_select(["document_id", "tag"], select(literal(new), Tag.tag).where(Tag.document_id == old))
-        .on_conflict_do_nothing()
+    have = select(Tag.tag).where(Tag.document_id == new)
+    room = MAX_TAGS - (session.scalar(select(func.count()).select_from(have.subquery())) or 0)
+    moving = (  # the target's own tags stay; only as many of the old ones as fit under the cap
+        select(literal(new), Tag.tag)
+        .where(Tag.document_id == old, Tag.tag.not_in(have))
+        .order_by(Tag.tag)
+        .limit(max(room, 0))
     )
+    session.execute(insert(Tag).from_select(["document_id", "tag"], moving).on_conflict_do_nothing())
     session.execute(delete(Tag).where(Tag.document_id == old))
     session.execute(
         insert(CollectionItem)
