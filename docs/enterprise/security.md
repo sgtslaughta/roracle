@@ -138,18 +138,24 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
     name resolves to is checked (one bad address blocks the host: fail closed) and the connection goes to a
     vetted IP literal. There is no separate pre-check lookup, so DNS rebinding cannot swap the address. TLS
     still verifies the certificate against the URL host. Encodings such as `0x7f.1`, decimal IPs, IPv4-mapped
-    (`::ffff:a.b.c.d`), 6to4, Teredo and NAT64 forms are judged as the IPv4 they wrap.
+    (`::ffff:a.b.c.d`), 6to4, Teredo and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) forms are judged as the IPv4 they wrap.
   - Anything not globally routable (private, loopback, CGNAT, ULA, reserved) is blocked unless inside an
     explicit `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` entry (for air-gapped internal crawling; empty by default).
-    Link-local (incl. `169.254.169.254` metadata), multicast and unspecified addresses are never reachable,
-    allowlist or not.
+    Link-local (incl. `169.254.169.254` metadata), multicast, unspecified and the other known metadata
+    addresses (`fd00:ec2::254`, `100.100.100.200`, `168.63.129.16`, `192.0.0.192`) are never reachable, allowlist
+    or not.
   - No proxies: proxy environment variables are ignored. Redirects are followed manually (max 5), each hop
     re-vetted; a crawl keeps only content whose final URL is on the seed's origin.
   - Caps: per-file size (`max_upload_bytes`, checked on `Content-Length` and while streaming), per-request time
-    (`ROR_CONNECTOR_HTTP_TIMEOUT_S`), robots.txt 512 KiB, HTML link parsing 5 MiB, <= 1000 pages and depth <= 3
+    (`ROR_CONNECTOR_HTTP_TIMEOUT_S`, absolute: every connect/TLS/read/write is clamped to it, so slow headers or a
+    dripping body cannot outlast it); responses with a `Content-Encoding` are skipped; the crawl frontier never
+    exceeds the page budget, robots.txt 512 KiB, HTML link parsing 5 MiB, <= 1000 pages and depth <= 3
     per run, plus the run item/time caps.
-  - `robots.txt` is honoured by default (`respect_robots`); the crawl is same-origin per seed (scheme, host,
+  - `robots.txt` is honoured by default (`respect_robots`): 2xx is parsed, 5xx disallows the whole origin
+    (RFC 9309), 4xx or a network error/oversize file allows everything (advisory control, fail open); the crawl is same-origin per seed (scheme, host,
     port) and sends `User-Agent: rOracle-connector/<version>`.
+  - Accepted risk: `getaddrinfo` has no application-level timeout (bounded by the resolver's `resolv.conf`
+    timeout/attempts), so a hanging DNS server can delay a fetch beyond its deadline by that bound.
   - Residual: with an allowlisted internal CIDR, the connector can read any HTTP service in that range;
     allowlist only ranges meant to be crawled.
 - Failed or partial runs notify every admin (`ops.connector_run`); run logs keep only the last 500 lines.

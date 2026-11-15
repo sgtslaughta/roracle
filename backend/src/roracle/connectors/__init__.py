@@ -22,8 +22,13 @@ class Item:
     open: Callable[[], BinaryIO]  # valid only until the iterator advances; caller closes the stream
 
 
-def source_for(connector: Connector, settings: Settings, deadline: float | None = None) -> Iterator[Item]:
-    """Validates eagerly (so a bad config fails the run at once), then returns the lazy item iterator."""
+def source_for(
+    connector: Connector,
+    settings: Settings,
+    deadline: float | None = None,
+    warn: Callable[[str], None] | None = None,
+) -> Iterator[Item]:
+    """`warn(msg)` receives non-fatal per-item problems (the run turns `partial`). Validates eagerly (so a bad config fails the run at once), then returns the lazy item iterator."""
     if connector.kind == "s3":
         from roracle.connectors import s3
 
@@ -35,5 +40,5 @@ def source_for(connector: Connector, settings: Settings, deadline: float | None 
     if connector.kind == "http":
         from roracle.connectors import http
 
-        return http.items(connector.config, settings, deadline)
+        return http.items(connector.config, settings, deadline, warn)
     raise ValueError(f"unsupported connector kind: {connector.kind}")

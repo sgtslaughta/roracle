@@ -17,6 +17,7 @@ import lxml.html
 
 from roracle.config import Settings
 from roracle.connectors import Item, RunDeadline, netguard
+from roracle.connectors.netguard import origin
 
 log = logging.getLogger(__name__)
 HTML_MAX = 5 * 1024 * 1024
@@ -33,11 +34,6 @@ DOC_PREFIXES = ("application/vnd.openxmlformats-officedocument.", "application/v
 DOC_PREFIXES += ("application/vnd.ms-",)
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 Origin = tuple[str, str, int]
-
-
-def origin(url: str) -> Origin:
-    u = urlsplit(url)
-    return u.scheme, (u.hostname or "").lower(), u.port or (443 if u.scheme == "https" else 80)
 
 
 def is_document(ct: str, ingest_html: bool) -> bool:
@@ -74,60 +70,82 @@ def filename_for(url: str, ct: str) -> str:
 
 
 class Crawl:
-    def __init__(self, config: dict, settings: Settings, deadline: float | None) -> None:
+    def __init__(self, config: dict, settings: Settings, deadline: float | None, warn=None) -> None:
         self.cfg = config
         self.cap = settings.max_upload_bytes
         self.timeout = settings.connector_http_timeout_s
         self.run_deadline = deadline
+        self.warn = warn or (lambda msg: None)
         self.pool = netguard.client(settings)
         self.robots: dict[Origin, RobotFileParser | None] = {}
         self.fetched = 0
         self.ok = 0
+        self.max_queue = 0
         self.errors: list[str] = []
 
-    def request(self, url: str, cap: int) -> netguard.Fetched:
+    def error(self, msg: str) -> None:
+        self.errors.append(msg)
+        self.warn(msg)
+        log.info("crawl: %s", msg)
+
+    def request(self, url: str, cap: int, type_caps: dict[str, int] | None = None) -> netguard.Fetched:
         left = self.timeout
         if self.run_deadline is not None:
             remaining = self.run_deadline - time.monotonic()
             if remaining <= 0:
                 raise RunDeadline("run time cap reached")
             left = min(left, remaining)
-        return netguard.fetch(self.pool, url, cap, left)
+        return netguard.fetch(self.pool, url, cap, left, same_origin=True, type_caps=type_caps)
+
+    def _load_robots(self, o: Origin, url: str) -> RobotFileParser | None:
+        """2xx: parse. 5xx: disallow all (RFC 9309). 4xx/404: allow all. Network error/oversize: allow all
+        (ruling: robots is advisory, a broken robots.txt must not silently stop a crawl)."""
+        try:
+            r = self.request(f"{o[0]}://{urlsplit(url).netloc}/robots.txt", ROBOTS_MAX)
+        except RunDeadline:
+            raise
+        except Exception as e:  # noqa: BLE001 - see docstring
+            log.info("robots.txt for %s unavailable: %s", o, e)
+            return None
+        rp = RobotFileParser()
+        if r.path:
+            try:
+                with open(r.path, "rb") as f:
+                    rp.parse(f.read().decode("utf-8", "replace").splitlines())
+            finally:
+                os.unlink(r.path)
+            return rp
+        if r.status >= 500:
+            rp.disallow_all = True
+            return rp
+        return None
 
     def allowed(self, url: str) -> bool:
         if not self.cfg.get("respect_robots", True):
             return True
         o = origin(url)
         if o not in self.robots:
-            rp = None
-            try:
-                r = self.request(f"{o[0]}://{urlsplit(url).netloc}/robots.txt", ROBOTS_MAX)
-                if r.path:
-                    with open(r.path, "rb") as f:
-                        rp = RobotFileParser()
-                        rp.parse(f.read().decode("utf-8", "replace").splitlines())
-                    os.unlink(r.path)
-            except RunDeadline:
-                raise
-            except Exception as e:  # noqa: BLE001 - missing/unreadable/oversize robots.txt = no rules (R5)
-                log.info("robots.txt for %s unavailable: %s", o, e)
-            self.robots[o] = rp
+            self.robots[o] = self._load_robots(o, url)
         rp = self.robots[o]
         return rp is None or rp.can_fetch(netguard.UA, url)
 
     def run(self) -> Iterator[Item]:
-        seen: set[str] = set()
+        seen: set[str] = set()  # fetched or queued: never enqueued twice
         max_pages = self.cfg.get("max_pages", 100)
         max_depth = self.cfg.get("max_depth", 1)
         ingest_html = self.cfg.get("ingest_html", False)
+        type_caps = None if ingest_html else dict.fromkeys(HTML_TYPES, HTML_MAX)
         for seed in self.cfg["start_urls"]:
+            try:
+                seed = urldefrag(netguard.check_url(seed))[0]
+            except netguard.Blocked as e:
+                self.error(f"{seed}: {e}")
+                continue
             seed_origin = origin(seed)
-            queue = deque([(urldefrag(seed)[0], 0)])
+            queue = deque([(seed, 0)])
+            seen.add(seed)
             while queue:
                 url, depth = queue.popleft()
-                if url in seen or origin(url) != seed_origin:
-                    continue
-                seen.add(url)
                 if self.fetched >= max_pages:
                     return
                 if not self.allowed(url):
@@ -135,25 +153,28 @@ class Crawl:
                     continue
                 self.fetched += 1
                 try:
-                    r = self.request(url, self.cap)
+                    r = self.request(url, self.cap, type_caps)
                 except RunDeadline:
                     raise
                 except Exception as e:  # noqa: BLE001 - one bad page must not stop the crawl
-                    self.errors.append(f"{url}: {type(e).__name__}: {str(e)[:150]}")
-                    log.info("crawl skip %s: %s", url, e)
+                    self.error(f"{url}: {type(e).__name__}: {str(e)[:150]}")
                     continue
-                if r.path is None or origin(r.url) != seed_origin:  # non-2xx, or redirected off-origin
-                    if r.path:
-                        os.unlink(r.path)
-                    else:
-                        self.errors.append(f"{url}: HTTP {r.status}")
+                if r.path is None:
+                    self.error(f"{url}: HTTP {r.status}")
                     continue
                 self.ok += 1
                 try:
                     ct = r.content_type
                     if ct in HTML_TYPES and depth < max_depth:
                         seen.add(r.url)
-                        queue.extend((u, depth + 1) for u in links(r.path, r.url) if u not in seen)
+                        for u in links(r.path, r.url):
+                            if len(queue) + self.fetched >= max_pages:
+                                break  # frontier never outgrows the page budget
+                            if u in seen or origin(u) != seed_origin or not self.allowed(u):
+                                continue
+                            seen.add(u)
+                            queue.append((u, depth + 1))
+                        self.max_queue = max(self.max_queue, len(queue))
                     if is_document(ct, ingest_html):
                         yield self.item(r, ct)
                 finally:
@@ -170,8 +191,8 @@ class Crawl:
         )
 
 
-def items(config: dict, settings: Settings, deadline: float | None = None) -> Iterator[Item]:
-    return _items(Crawl(config, settings, deadline))
+def items(config: dict, settings: Settings, deadline: float | None = None, warn=None) -> Iterator[Item]:
+    return _items(Crawl(config, settings, deadline, warn))
 
 
 def _items(c: Crawl) -> Iterator[Item]:

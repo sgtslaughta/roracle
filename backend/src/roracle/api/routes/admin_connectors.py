@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from roracle.api.routes.admin_deps import Admin, keyset_page, keyset_params
 from roracle.audit import audit
 from roracle.connectors import fs
+from roracle.connectors.netguard import Blocked, check_url
 from roracle.connectors.run import active_run_job
 from roracle.db import get_session
 from roracle.models import Connector, ConnectorRun, Document
@@ -44,15 +45,10 @@ class FsConfig(BaseModel):
 
 
 def _http_url(v: str) -> str:
-    u = urlsplit(v)
-    if (
-        u.scheme not in ("http", "https")
-        or not u.hostname
-        or u.username is not None
-        or u.password is not None
-    ):
-        raise ValueError("must be an http(s) URL with a host and no credentials")
-    return v
+    try:
+        return check_url(v)  # scheme, host, no credentials; IDNA host and percent-encoding normalised
+    except Blocked as e:
+        raise ValueError(str(e)) from None
 
 
 class HttpConfig(BaseModel):

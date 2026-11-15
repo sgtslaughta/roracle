@@ -175,8 +175,15 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     lines: deque[str] = deque(maxlen=LOG_LINES)
     status = "ok"
     deadline = time.monotonic() + settings.connector_max_run_s
+    warned = False
+
+    def warn(msg: str) -> None:
+        nonlocal warned
+        warned = True
+        lines.append(msg)
+
     try:
-        with closing(source_for(c, eff, deadline)) as it:
+        with closing(source_for(c, eff, deadline, warn)) as it:
             for item in it:
                 # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
                 if (
@@ -203,6 +210,8 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
         status = "failed"
         lines.append(f"source failed: {type(e).__name__}: {str(e)[:300]}")
         log.exception("connector %s source failed", c.id)
+    if warned and status == "ok":
+        status = "partial"
     _finish(sf, c, run_id, status, stats, lines)
 
 
