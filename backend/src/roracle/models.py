@@ -184,3 +184,63 @@ class DocCitation(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     confidence: Mapped[float] = mapped_column(Float)
+
+
+class Chat(Base):
+    __tablename__ = "chats"
+    __table_args__ = (
+        CheckConstraint("scope IN ('all','open') OR scope LIKE 'collection:%'", name="ck_chats_scope"),
+        Index("ix_chats_owner_id_updated_at", "owner_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String, default="", server_default="")
+    scope: Mapped[str] = mapped_column(String, default="all", server_default="all")
+    model: Mapped[str | None] = mapped_column(String)
+    pins: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    excludes: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        CheckConstraint("role IN ('user','assistant')", name="ck_chat_messages_role"),
+        CheckConstraint("status IN ('complete','interrupted','failed')", name="ck_chat_messages_status"),
+        Index("ix_chat_messages_chat_id_created_at", "chat_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String)
+    content: Mapped[str] = mapped_column(String, default="", server_default="")
+    viewer: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    citations: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    retrieved: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    status: Mapped[str] = mapped_column(String, default="complete", server_default="complete")
+    model: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class ChatShare(Base):
+    __tablename__ = "chat_shares"
+    __table_args__ = (CheckConstraint("principal_kind IN ('user','group')", name="ck_chat_shares_kind"),)
+
+    chat_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True)
+    principal_kind: Mapped[str] = mapped_column(String, primary_key=True)
+    principal: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class AnswerRating(Base):
+    __tablename__ = "answer_ratings"
+    __table_args__ = (CheckConstraint("value IN (-1, 1)", name="ck_answer_ratings_value"),)
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    value: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
