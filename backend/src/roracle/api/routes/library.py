@@ -9,7 +9,7 @@ from uuid import UUID
 from elasticsearch import Elasticsearch
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -205,8 +205,17 @@ class CollectionBody(BaseModel):
     model_config = {"str_strip_whitespace": True}
 
 
-def _count(session: Session, cid: UUID) -> int:
-    return session.scalar(select(func.count()).where(CollectionItem.collection_id == cid)) or 0
+def _count(session: Session, p: Principal, cid: UUID) -> int:
+    """Items the caller can currently see (a stale member must not signal hidden documents)."""
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(CollectionItem)
+            .join(Document, Document.id == CollectionItem.document_id)
+            .where(CollectionItem.collection_id == cid, visible_documents(p))
+        )
+        or 0
+    )
 
 
 def _own(session: Session, p: Principal, cid: UUID) -> Collection:
@@ -218,10 +227,11 @@ def _own(session: Session, p: Principal, cid: UUID) -> Collection:
 
 @router.get("/collections")
 def list_collections(p: Who, session: Session_) -> list[dict]:
-    n = func.count(CollectionItem.document_id)
+    n = func.count(Document.id)
     rows = session.execute(
         select(Collection, n)
         .outerjoin(CollectionItem, CollectionItem.collection_id == Collection.id)
+        .outerjoin(Document, and_(Document.id == CollectionItem.document_id, visible_documents(p)))
         .where(Collection.owner_id == p.user_id)
         .group_by(Collection.id)
         .order_by(Collection.name, Collection.id)
@@ -245,7 +255,7 @@ def add_item(cid: UUID, doc_id: UUID, p: Who, session: Session_) -> dict:
         insert(CollectionItem).values(collection_id=cid, document_id=doc_id).on_conflict_do_nothing()
     )
     session.commit()
-    return {"id": str(cid), "count": _count(session, cid)}
+    return {"id": str(cid), "count": _count(session, p, cid)}
 
 
 @router.delete("/collections/{cid}/items/{doc_id}")
@@ -257,4 +267,4 @@ def remove_item(cid: UUID, doc_id: UUID, p: Who, session: Session_) -> dict:
         )
     )
     session.commit()
-    return {"id": str(cid), "count": _count(session, cid)}
+    return {"id": str(cid), "count": _count(session, p, cid)}

@@ -351,3 +351,15 @@ def test_unsearchable_doc_is_404_for_non_owner_writes(client, as_ana, as_bob, up
     assert client.post(f"/documents/{d}/tags", headers=as_bob, json={"tag": "a"}).status_code == 404
     assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).status_code == 404
     assert _vote(client, as_ana, d, value=1).status_code == 200  # owner still reaches it
+
+
+def test_collection_count_only_counts_visible_docs(client, as_ana, as_bob, up, db_session):
+    a, b = up(as_ana), up(as_ana)
+    c = client.post("/collections", headers=as_bob, json={"name": "x"}).json()["id"]
+    for d in (a, b):
+        assert client.put(f"/collections/{c}/items/{d}", headers=as_bob).json()["count"] >= 1
+    db_session.execute(Document.__table__.update().where(Document.id == a).values(visibility="private"))
+    db_session.commit()
+    assert client.get("/collections", headers=as_bob).json()[0]["count"] == 1
+    assert client.put(f"/collections/{c}/items/{b}", headers=as_bob).json()["count"] == 1
+    assert client.delete(f"/collections/{c}/items/{b}", headers=as_bob).json()["count"] == 0
