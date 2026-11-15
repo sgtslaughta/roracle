@@ -43,7 +43,10 @@ Example client configuration (generic MCP JSON):
 | `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, dropped}` |
 | `append_to_handoff(code, note)` | write | Add a note (max 200 per handoff) |
 | `upload(filename, content_base64, title?, visibility?)` | write | Add a document (default `private`); duplicate returns `{"duplicate_of": id}` |
-| `export_bibtex`, `list_annotations`, `propose_annotation`, `reply_to_annotation` | - | planned (P8/P9) |
+| `list_annotations(doc_id)` | read | Notes the caller may read on a document (≤ 500, oldest first) |
+| `propose_annotation(doc_id, body, kind?, anchor?, ...)` | write | Create a pending proposal (never published directly); returns its id |
+| `reply_to_annotation(annotation_id, body)` | write | Propose a reply to a readable note |
+| `export_bibtex(doc_ids)` | read | BibTeX for visible documents |
 | `save_draft`, `validate_draft`, `check_citations` | - | planned (P8/P9) |
 
 Resource template: `roracle://handoff/{code}` (same manifest and auth as `load_handoff`).
@@ -77,7 +80,11 @@ Agents never publish directly. `propose_annotation` returns a proposal id; the u
 rejects it in **Agent proposals**. Findings may carry evidence as an RO-Crate (`ro-crate-metadata.json`
 + files, ≤ 1 GB, or by reference with SHA-256). Required provenance: code repository + commit,
 container image digest, inputs, parameters + seed, agent client + model, start/end time.
-rOracle stores and displays evidence; it never executes it.
+rOracle stores and displays evidence; it never executes it. Evidence is scanned by ClamAV
+(`evidence_scan` job) and only `clean` (or `unscanned` when no scanner is configured) files download.
+A proposal is only visible to its creator until a human approves it in the UI (the note then becomes a
+normal note; default visibility for agent proposals is `private`). Search results and `ask`
+citations include community notes (`notes` on each search hit; `note:<id>` citations).
 
 ## Writing papers
 
@@ -89,4 +96,4 @@ passage, otherwise submission is blocked.
 
 ## Limits
 
-Per-user rate limits: planned (P11). Max 50 pending proposals per session: planned (P8).
+Per-user rate limits: planned (P11). Max 50 pending proposals per user and client (PAT/client identity); further proposals are refused until some are approved or rejected. Approval is UI-only.

@@ -37,6 +37,17 @@ WHERE status='failed' AND kind='ingest' AND updated_at > now() - interval '1 day
 ```
 (The admin ingest dashboard does the same per job.)
 
+### Evidence scans (`evidence_scan` job)
+Each evidence upload queues a `jobs` row `kind='evidence_scan'`; the worker streams the blob to ClamAV and
+sets `evidence.scan_status`: `pending` (queued), `clean`, `infected` (download blocked), `failed`
+(blob missing or scanner rejected it, e.g. over `StreamMaxLength`) or `unscanned` (no `ROR_CLAMAV_HOST`).
+Scanner outages retry like ingest jobs. Re-run a failed or stuck scan:
+```sql
+UPDATE jobs SET status='queued', attempts=0, run_after=now(), last_error=NULL
+WHERE kind='evidence_scan' AND status='failed';
+```
+For `failed` rows caused by size, raise ClamAV limits (see deployment guide) and re-queue.
+
 ### Change the embedding model (zero downtime)
 1. Admin → Models → Embeddings → choose model → *Start re-embed*. A new index
    `chunks-<model>-<n>` is created and filled by `reembed` jobs.
