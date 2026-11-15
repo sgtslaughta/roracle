@@ -9,7 +9,7 @@ import { createAppRouter } from "@/app/router";
 import { server } from "@/mocks/server";
 import { getReaderState, resetReaderStore } from "@/features/reader/useReaderStore";
 import { resetAskTurns } from "./askStore";
-import { resetAskContext, setQuote } from "./useAskContext";
+import { getAskContext, resetAskContext, setQuote } from "./useAskContext";
 import { streamMessage } from "./stream";
 import { buildViewer } from "./viewer";
 import { ScopeSelect } from "./ScopeSelect";
@@ -191,6 +191,7 @@ describe("pre-stream errors restore the draft", () => {
     setQuote({ doc_id: "d", page: 1, text: "quoted" });
     await ask("hello");
     expect(await screen.findByText(/This chat isn't available/)).toBeInTheDocument();
+    await waitFor(() => expect(getAskContext().quote?.text).toBe("quoted"));
   });
   it("the mock's magic question triggers the 503 path", async () => {
     await renderApp("/ask/c1");

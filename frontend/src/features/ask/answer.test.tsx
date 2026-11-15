@@ -126,6 +126,12 @@ describe("Sidenotes", () => {
     render(<Harness citations={[ok(1), { n: 2, available: false }]} />);
     expect(screen.getByText("Source not available")).toBeTruthy();
   });
+  it("treats a citation missing `available` as unavailable", () => {
+    const { available: _omitted, ...noFlag } = ok(2);
+    render(<Harness citations={[ok(1), noFlag as unknown as Citation]} />);
+    expect(screen.getByText("Source not available")).toBeTruthy();
+    expect(screen.queryByText("Doc 2")).toBeNull();
+  });
   it("note click opens doc and trims quote", () => {
     const { container } = render(<Harness citations={cites} />);
     expect(container.querySelector(".crop")!.textContent!.length).toBeLessThanOrEqual(161);

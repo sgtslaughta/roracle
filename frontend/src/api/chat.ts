@@ -22,7 +22,7 @@ export interface CitationOk {
 }
 export interface CitationGone { n: number; available: false }
 export type Citation = CitationOk | CitationGone;
-export const isAvailable = (c: Citation): c is CitationOk => c.available !== false;
+export const isAvailable = (c: Citation): c is CitationOk => c.available === true;
 export interface RetrievedPassage { n: number; doc_id: string; version_id: string; version: number; chunk_id: string | null; title: string; page: number; bbox: Bbox | null; score: number; text: string; available?: true }
 export interface ViewerTab { doc_id: string; version_id: string | null; page: number }
 export interface Viewer { tabs: ViewerTab[]; ignored: string[]; selection: { doc_id: string; page: number; text: string } | null }

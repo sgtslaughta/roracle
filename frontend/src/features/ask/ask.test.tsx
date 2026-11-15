@@ -95,7 +95,7 @@ describe("ask view", () => {
     await waitFor(() => expect(document.querySelector(".ans-text")).toHaveTextContent("Partly. See"));
     expect(document.querySelectorAll(".margin .note")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
-    const cite = { n: 1, doc_id: D1, version_id: "v", version: 2, chunk_id: "x", title: "Lower bounds", page: 1, bbox: null, quote: "the quote" };
+    const cite = { n: 1, doc_id: D1, version_id: "v", version: 2, chunk_id: "x", available: true, authors: [], year: null, title: "Lower bounds", page: 1, bbox: null, quote: "the quote" };
     await act(async () => { s.push("citations", { items: [cite] }); });
     expect(await screen.findByText("the quote")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Source 1: Lower bounds/ })).toBeInTheDocument();
