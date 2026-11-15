@@ -1,17 +1,18 @@
 """Chats: history, edit, read-only sharing, Markdown export, ratings (citations re-checked per reader)."""
 
-import re
+import base64
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
-from roracle.api.routes.chats import SCOPE, chat_json, check_scope
+from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
+from roracle.api.routes.documents_write import Path_
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat, readable_chat, recheck, visible_versions
 from roracle.config import Settings
@@ -31,11 +32,6 @@ def _uuids(values: list[str]) -> list[str]:
         raise HTTPException(422, "invalid id") from None
 
 
-def _norm_group(g: str) -> str:
-    g = re.sub(r"/{2,}", "/", "/" + g.strip()).rstrip("/")
-    return g
-
-
 @router.get("/chats/models")
 def models(p: Who, settings: Cfg) -> dict:
     allowed = settings.chat_model_list
@@ -47,13 +43,19 @@ def list_chats(
     p: Who,
     session: Db,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    before: datetime | None = None,
+    before: str | None = None,
 ) -> dict:
     q = select(Chat).where(Chat.owner_id == p.user_id)
     if before is not None:
-        q = q.where(Chat.updated_at < before)
+        try:
+            ts, _, cid = base64.urlsafe_b64decode(before.encode()).decode().partition("|")
+            q = q.where(tuple_(Chat.updated_at, Chat.id) < (datetime.fromisoformat(ts), UUID(cid)))
+        except ValueError:  # includes bad base64/utf-8 and bad timestamp/uuid
+            raise HTTPException(422, "invalid cursor") from None
     rows = list(session.scalars(q.order_by(Chat.updated_at.desc(), Chat.id.desc()).limit(limit)))
-    nxt = rows[-1].updated_at.isoformat() if len(rows) == limit else None
+    nxt = None
+    if len(rows) == limit:
+        nxt = base64.urlsafe_b64encode(f"{rows[-1].updated_at.isoformat()}|{rows[-1].id}".encode()).decode()
     return {"items": [chat_json(c) for c in rows], "next": nxt}
 
 
@@ -98,11 +100,15 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
 @router.get("/chats/{chat_id}")
 def get_chat(chat_id: UUID, p: Who, session: Db) -> dict:
     chat = readable_chat(session, p, chat_id)
-    return {
-        **chat_json(chat),
-        "is_owner": chat.owner_id == p.user_id,
-        "messages": _messages(session, p, chat),
-    }
+    out = chat_json(chat)
+    owner = chat.owner_id == p.user_id
+    if not owner:  # the owner's context config is private to the owner
+        out |= {
+            "pins": [],
+            "excludes": [],
+            "scope": "collection" if chat.scope.startswith("collection:") else chat.scope,
+        }
+    return {**out, "is_owner": owner, "messages": _messages(session, p, chat)}
 
 
 class ChatPatch(BaseModel):
@@ -116,8 +122,7 @@ class ChatPatch(BaseModel):
 @router.patch("/chats/{chat_id}")
 def patch_chat(chat_id: UUID, body: ChatPatch, p: Who, session: Db, settings: Cfg) -> dict:
     chat = owned_chat(session, p, chat_id)
-    if body.model is not None and body.model not in settings.chat_model_list:
-        raise HTTPException(422, "unknown model")
+    _check_model(settings, body.model)
     if body.scope is not None:
         check_scope(session, p, body.scope)
         chat.scope = body.scope
@@ -136,7 +141,7 @@ def patch_chat(chat_id: UUID, body: ChatPatch, p: Who, session: Db, settings: Cf
 
 class SharesIn(BaseModel):
     users: list[str] = Field(default_factory=list, max_length=100)
-    groups: list[str] = Field(default_factory=list, max_length=100)
+    groups: list[Path_] = Field(default_factory=list, max_length=100)
 
 
 def _shares(session: Session, chat_id: UUID) -> dict:
@@ -164,7 +169,7 @@ def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
         raise HTTPException(422, "unknown user") from None
     if users and len(set(session.scalars(select(User.id).where(User.id.in_(users))))) != len(users):
         raise HTTPException(422, "unknown user")
-    groups = {g for g in map(_norm_group, body.groups) if g}
+    groups = set(body.groups)
     session.execute(delete(ChatShare).where(ChatShare.chat_id == chat.id))
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="user", principal=str(u)) for u in users)
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="group", principal=g) for g in groups)
@@ -219,7 +224,7 @@ def rate(message_id: UUID, body: RatingIn, p: Who, session: Db) -> dict:
             AnswerRating(message_id=message_id, user_id=p.user_id, value=body.value, comment=body.comment)
         )
     else:
-        row.value, row.comment = body.value, body.comment
+        row.value, row.comment, row.created_at = body.value, body.comment, func.now()
     session.commit()
     return {"value": body.value, "comment": body.comment}
 

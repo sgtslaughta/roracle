@@ -49,7 +49,12 @@ def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[t
     rows = session.execute(
         select(Document.id, DocumentVersion.id)
         .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-        .where(Document.id.in_(docs), DocumentVersion.id.in_(vers), visible_documents(p))
+        .where(
+            Document.id.in_(docs),
+            DocumentVersion.id.in_(vers),
+            DocumentVersion.stage.notin_(("rejected", "cancelled")),
+            visible_documents(p),
+        )
     )
     return {(str(d), str(v)) for d, v in rows}
 

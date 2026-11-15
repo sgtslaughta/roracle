@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     def chat_model_list(self) -> list[str]:
         return [m.strip() for m in self.chat_models.split(",") if m.strip()]
 
+    @field_validator("chat_models")
+    @classmethod
+    def _models_nonempty(cls, v: str) -> str:
+        if not [m for m in v.split(",") if m.strip()]:
+            raise ValueError("chat_models must list at least one model")
+        return v
+
     @field_validator("oidc_allowed_clients", mode="before")
     @classmethod
     def _parse_clients(cls, v):

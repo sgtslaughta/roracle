@@ -70,7 +70,13 @@ def _base(n: int, x: Passage, version: int | None) -> dict:
 
 
 def citation_item(n: int, x: Passage, version: int | None = None) -> dict:
-    return {**_base(n, x, version), "quote": x.text[:300], "authors": x.authors, "year": x.year}
+    return {
+        **_base(n, x, version),
+        "quote": x.text[:300],
+        "authors": x.authors,
+        "year": x.year,
+        "available": True,
+    }
 
 
 def retrieved_item(n: int, x: Passage, version: int | None = None) -> dict:

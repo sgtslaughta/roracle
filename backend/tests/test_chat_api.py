@@ -201,11 +201,17 @@ def test_shares_put_get(client, db_session, as_ana, ana, bob, world):
     cid = world["chat"].id
     r = client.put(
         f"/chats/{cid}/shares", headers=as_ana,
-        json={"users": [str(bob), str(ana), str(bob).upper()], "groups": [" Team/ ", "/A//B/", "", "/Team", "/"]},
+        json={"users": [str(bob), str(ana), str(bob).upper()], "groups": ["/Team", "/A/B", "/Team"]},
     )  # fmt: skip
     assert r.status_code == 200
     assert r.json() == {"users": [str(bob)], "groups": ["/A/B", "/Team"]}
-    assert client.get(f"/chats/{cid}/shares", headers=as_ana).json() == r.json()
+    for bad in ("Team", ""):
+        r = client.put(f"/chats/{cid}/shares", headers=as_ana, json={"users": [], "groups": [bad]})
+        assert r.status_code == 422
+    assert client.get(f"/chats/{cid}/shares", headers=as_ana).json() == {
+        "users": [str(bob)],
+        "groups": ["/A/B", "/Team"],
+    }
     r = client.put(f"/chats/{cid}/shares", headers=as_ana, json={"users": [], "groups": []})
     assert r.json() == {"users": [], "groups": []}
 
@@ -216,3 +222,51 @@ def test_shares_unknown_user(client, as_ana, world):
             f"/chats/{world['chat'].id}/shares", headers=as_ana, json={"users": [bad], "groups": []}
         )
         assert r.status_code == 422 and r.json() == {"detail": "unknown user"}
+
+
+def test_reader_hides_owner_config(client, db_session, as_ana, as_bob, bob, world):
+    chat = world["chat"]
+    cid = str(uuid.uuid4())
+    chat.pins, chat.excludes, chat.scope = [cid], [cid], f"collection:{cid}"
+    share_user(db_session, chat, bob)
+    j = client.get(f"/chats/{chat.id}", headers=as_bob).json()
+    assert (j["pins"], j["excludes"], j["scope"]) == ([], [], "collection")
+    j = client.get(f"/chats/{chat.id}", headers=as_ana).json()
+    assert (j["pins"], j["scope"]) == ([cid], f"collection:{cid}")
+
+
+def test_cursor_ties_and_invalid(client, db_session, as_ana, ana):
+    t = datetime(2026, 1, 1, tzinfo=UTC)
+    ids = {Chat(owner_id=ana, title=f"t{i}", updated_at=t) for i in range(3)}
+    db_session.add_all(ids)
+    db_session.flush()
+    seen, cur = [], None
+    for _ in range(3):
+        r = client.get(
+            "/chats", headers=as_ana, params={"limit": 1, **({"before": cur} if cur else {})}
+        ).json()
+        seen += [c["id"] for c in r["items"]]
+        cur = r["next"]
+    assert sorted(seen) == sorted(str(c.id) for c in ids) and len(set(seen)) == 3
+    assert client.get("/chats", headers=as_ana, params={"before": "garbage"}).status_code == 422
+    assert client.get("/chats", headers=as_ana, params={"before": "2026-01-01"}).status_code == 422
+
+
+def test_rating_bumps_created_at(client, db_session, as_ana, ana, world):
+    mid = world["a"].id
+    client.put(f"/messages/{mid}/rating", headers=as_ana, json={"value": 1})
+    row = db_session.get(AnswerRating, (mid, ana))
+    row.created_at = datetime(2020, 1, 1, tzinfo=UTC)
+    db_session.flush()
+    client.put(f"/messages/{mid}/rating", headers=as_ana, json={"value": -1})
+    db_session.refresh(row)
+    assert row.created_at.year >= 2026
+
+
+def test_rejected_version_unavailable(client, db_session, as_ana, ana, world):
+    _, v = seed(db_session, ana, title="Gone", stage="rejected")
+    d = db_session.get(type(v).__mapper__.class_, v.id).document_id
+    world["a"].citations = [{**cite(1, world["chat"], v), "doc_id": str(d)}]
+    db_session.flush()
+    a = client.get(f"/chats/{world['chat'].id}", headers=as_ana).json()["messages"][1]
+    assert a["citations"] == [{"n": 1, "available": False}]
