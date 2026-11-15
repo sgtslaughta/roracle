@@ -27,19 +27,43 @@ SELECTION_SCORE = 1e9
 class Tab(BaseModel):
     doc_id: str
     version_id: str | None = None
-    page: int = 1
+    page: int = Field(default=1, ge=1)
 
 
 class Selection(BaseModel):
     doc_id: str
-    page: int
+    page: int = Field(ge=1)
     text: str = Field(max_length=4000)
 
 
 class Viewer(BaseModel):
     tabs: list[Tab] = Field(default_factory=list, max_length=3)
-    ignored: list[str] = Field(default_factory=list)
+    ignored: list[str] = Field(default_factory=list, max_length=100)
     selection: Selection | None = None
+
+
+def _uid(x: str) -> str | None:
+    try:
+        return str(UUID(x))
+    except ValueError:
+        return None
+
+
+def _uids(xs) -> list[str]:
+    """Normalised, de-duplicated (order kept), invalid ids dropped."""
+    return list(dict.fromkeys(u for u in map(_uid, xs) if u))
+
+
+def _merge(main: list[Passage], tab: list[Passage]) -> dict[str, Passage]:
+    """Tab search only ADDS chunks the corpus search missed, scaled to not outrank the main results."""
+    found = {x.chunk_id: x for x in main}
+    extra = [x for x in tab if x.chunk_id not in found]
+    if main and extra:
+        scale = min(x.score for x in main) / max(x.score for x in extra)
+        for x in extra:
+            x.score *= scale
+    found.update((x.chunk_id, x) for x in extra)
+    return found
 
 
 def _live(session: Session, p: Principal, doc_ids: set[str]) -> dict[str, DocumentVersion]:
@@ -81,12 +105,12 @@ def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str
         return []
 
 
-def _selection(sel: Selection, live: dict[str, DocumentVersion]) -> Passage:
-    v = live[sel.doc_id]
+def _selection(sel: Selection, doc_id: str, live: dict[str, DocumentVersion]) -> Passage:
+    v = live[doc_id]
     meta = v.meta or {}
     return Passage(
         chunk_id="selection",
-        doc_id=sel.doc_id,
+        doc_id=doc_id,
         version_id=str(v.id),
         text=sel.text[:MAX_CHARS],
         highlight="",
@@ -99,7 +123,7 @@ def _selection(sel: Selection, live: dict[str, DocumentVersion]) -> Passage:
     )
 
 
-def _pin(top: list[Passage], ranked: list[Passage], pins: set[str], k: int) -> list[Passage]:
+def _pin(top: list[Passage], ranked: list[Passage], pins: list[str], k: int) -> list[Passage]:
     """Make each pinned doc's best passage part of the top k, evicting the lowest unpinned."""
     top = list(top)
     for doc in pins:
@@ -129,11 +153,12 @@ def retrieve_for_chat(
     k: int | None = None,
 ) -> list[Passage]:
     k = max(MIN_K, min(MAX_K, k or settings.chat_passages))
-    dropped = set(excludes) | set(viewer.ignored)
+    dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
     tab_pages: dict[str, set[int]] = {}
     for t in viewer.tabs:
-        if t.doc_id not in dropped:
-            tab_pages.setdefault(t.doc_id, set()).add(t.page)
+        tid = _uid(t.doc_id)
+        if tid and tid not in dropped:
+            tab_pages.setdefault(tid, set()).add(t.page)
     live_tabs = _live(session, p, set(tab_pages))
     tab_ids = [d for d in tab_pages if d in live_tabs]
 
@@ -148,15 +173,13 @@ def retrieve_for_chat(
 
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
-        for x in _search(es, llm, settings, p, question, scoped, 50):
-            found[x.chunk_id] = x
-        if tab_ids and scope != "open":
-            for x in _search(es, llm, settings, p, question, tab_ids, 20):
-                if x.chunk_id not in found or found[x.chunk_id].score < x.score:
-                    found[x.chunk_id] = x
+        main = _search(es, llm, settings, p, question, scoped, 50)
+        tab = _search(es, llm, settings, p, question, tab_ids, 20) if tab_ids and scope != "open" else []
+        found = _merge(main, tab)
 
     sel = viewer.selection
-    live = _live(session, p, {x.doc_id for x in found.values()} | ({sel.doc_id} if sel else set()))
+    sel_id = _uid(sel.doc_id) if sel else None
+    live = _live(session, p, {x.doc_id for x in found.values()} | ({sel_id} if sel_id else set()))
     ranked: list[Passage] = []
     for x in found.values():
         v = live.get(x.doc_id)
@@ -168,7 +191,7 @@ def retrieve_for_chat(
         ranked.append(x)
     ranked.sort(key=lambda x: -x.score)
 
-    out = _pin(ranked[:k], ranked, set(pins) - dropped, k)
-    if sel and sel.doc_id in live and sel.doc_id not in dropped:
-        out.insert(0, _selection(sel, live))
+    out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
+    if sel and sel_id in live and sel_id not in dropped:
+        out.insert(0, _selection(sel, sel_id, live))
     return out

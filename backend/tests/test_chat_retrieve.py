@@ -14,14 +14,16 @@ from roracle.models import Collection, CollectionItem, User
 class FakeES:
     """Ignores the ACL (PG is the authority) but honours the doc_id terms filter."""
 
-    def __init__(self, hits=()):
-        self.hits, self.calls = list(hits), []
+    def __init__(self, hits=(), cap=None):
+        self.hits, self.calls, self.cap = list(hits), [], cap
 
     def search(self, **kw):
         self.calls.append(kw)
         flt = kw.get("knn", {}).get("filter") or kw["query"]["bool"]["filter"]
         ids = next((f["terms"]["doc_id"] for f in flt if "doc_id" in f.get("terms", {})), None)
         hits = [h for h in self.hits if ids is None or h["_source"]["doc_id"] in ids]
+        if ids is None and self.cap:
+            hits = hits[: self.cap]
         return {"hits": {"hits": hits}}
 
 
@@ -165,7 +167,7 @@ def test_page_and_tab_boost(db_session, settings, me, other):
     b, bv = seed(db_session, other.id, title="B")
     es = FakeES([hit(a, av, pages=(1,)), hit(b, bv, pages=(5,))])
     assert ids(run(db_session, es, settings, me)) == [str(a.id), str(b.id)]
-    top = 2 / 61  # rank-1 fused score; the tab-restricted second search ranks B first
+    top = 2 / 62  # B's main-search score (rank 2); the tab search must not inflate it
     out = run(db_session, es, settings, me, Viewer(tabs=[Tab(doc_id=str(b.id), page=2)]))
     assert ids(out) == [str(b.id), str(a.id)]
     assert next(x for x in out if x.doc_id == str(b.id)).score == pytest.approx(top * 1.5)
@@ -235,3 +237,41 @@ def test_missing_index_is_empty(db_session, settings, me):
             raise NotFoundError("nf", SimpleNamespace(status=404), {})
 
     assert run(db_session, Boom(), settings, me) == []
+
+
+def test_tab_doc_missing_from_corpus_does_not_crowd_out(db_session, settings, me, other):
+    docs = [seed(db_session, other.id, title=f"D{i}") for i in range(6)]
+    es = FakeES([hit(d, v) for d, v in docs], cap=3)  # corpus search sees only D0-D2
+    tab = str(docs[5][0].id)
+    out = run(db_session, es, settings, me, Viewer(tabs=[Tab(doc_id=tab)]), k=4)
+    assert ids(out)[0] == tab
+    assert ids(out)[1:] == [str(d.id) for d, _ in docs[:3]]
+    assert out[0].score == pytest.approx(2 / 63 * 2.0)  # on the tab's page
+
+
+def test_soft_deleted_doc_dropped(db_session, settings, me, other):
+    from datetime import UTC, datetime
+
+    a, av = seed(db_session, other.id)
+    a.deleted_at = datetime.now(UTC)
+    db_session.flush()
+    sel = Selection(doc_id=str(a.id), page=1, text="x")
+    assert run(db_session, FakeES([hit(a, av)]), settings, me, Viewer(selection=sel)) == []
+
+
+def test_exclude_beats_pin_and_selection(db_session, settings, me, other):
+    a, av = seed(db_session, other.id)
+    b, bv = seed(db_session, other.id)
+    es = FakeES([hit(a, av), hit(b, bv)])
+    sel = Selection(doc_id=str(a.id), page=1, text="x")
+    out = run(db_session, es, settings, me, Viewer(selection=sel), pins=[str(a.id)], excludes=[str(a.id)])
+    assert ids(out) == [str(b.id)]
+
+
+def test_invalid_ids_ignored(db_session, settings, me, other):
+    a, av = seed(db_session, other.id)
+    v = Viewer(tabs=[Tab(doc_id="junk")], ignored=["x"], selection=Selection(doc_id="junk", page=1, text="t"))
+    out = run(db_session, FakeES([hit(a, av)]), settings, me, v, pins=["bad"], excludes=["worse"])
+    assert ids(out) == [str(a.id)]
+    with pytest.raises(ValueError):
+        Tab(doc_id="a", page=0)

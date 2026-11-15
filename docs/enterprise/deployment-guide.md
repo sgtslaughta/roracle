@@ -80,7 +80,10 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
 | `ROR_ELASTIC_URL`, `ROR_ELASTIC_API_KEY` | `https://es-http:9200` | Search index (plan 3) |
 | `ROR_LLM_BASE_URL`, `ROR_LLM_API_KEY` | `https://inference/v1` | OpenAI-spec endpoint (plan 2+) |
-| `ROR_EMBED_MODEL`, `ROR_CHAT_MODELS`, `ROR_RERANK_MODEL` | `embeddinggemma-300m` | Defaults; admins override in UI |
+| `ROR_EMBED_MODEL`, `ROR_RERANK_MODEL` | `embeddinggemma-300m` | Defaults; admins override in UI |
+| `ROR_CHAT_MODELS` | `qwen2.5:14b` | Comma-separated allowlist of chat models; the first is the default |
+| `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
+| `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_GOTENBERG_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
 
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
