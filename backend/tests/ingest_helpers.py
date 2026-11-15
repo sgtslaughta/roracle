@@ -43,14 +43,15 @@ class FakeLLM:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat))
 
     def _embed(self, model, input):
-        def vec(t):  # deterministic per text, so different docs never look like summary near-dups
+        def vec(t):  # deterministic per text, zero-mean: different texts are unlikely summary near-dups
             rng = np.random.default_rng(int.from_bytes(hashlib.sha256(t.encode()).digest()[:8], "little"))
-            return (rng.random(self.dims) + 0.01).tolist()
+            return rng.standard_normal(self.dims).tolist()
 
         return SimpleNamespace(data=[SimpleNamespace(index=i, embedding=vec(t)) for i, t in enumerate(input)])
 
-    def _chat(self, **kw):
-        msg = SimpleNamespace(content="A fixed summary.")
+    def _chat(self, **kw):  # summary depends on the input, so distinct docs get distinct summary vectors
+        digest = hashlib.sha256(kw["messages"][-1]["content"].encode()).hexdigest()[:12]
+        msg = SimpleNamespace(content=f"A summary {digest}.")
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
 

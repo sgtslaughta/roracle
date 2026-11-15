@@ -63,7 +63,7 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     _run(db_session, session_factory, cfg, store, es, v)
     db_session.expire_all()
     v = db_session.get(DocumentVersion, v.id)
-    assert v.stage == "searchable" and v.summary == "A fixed summary." and v.page_count == 1
+    assert v.stage == "searchable" and v.summary.startswith("A summary ") and v.page_count == 1
     assert db_session.get(Document, v.document_id).title == "A Study of Retrieval"
     assert s3.exists(f"derived/{v.id}/docling.json")
     hits = _chunks(es, cfg, v)
