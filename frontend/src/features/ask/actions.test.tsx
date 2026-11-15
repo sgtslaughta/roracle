@@ -33,6 +33,7 @@ describe("answerMarkdown", () => {
   const cite = (n: number, doc_id: string, page: number) => ({ n, doc_id, version_id: "v", chunk_id: "c", title: `T${n}`, page, bbox: null, quote: "q" });
   it("formats references, unavailable sources and missing authors", () => {
     const md = answerMarkdown("Why?", "Because [1].", [{ n: 2, available: false }, cite(1, "a", 3), cite(3, "b", 1)], { a: { authors: ["Ito", "Chen"], year: 2023 } });
+    expect(answerMarkdown("  Why\n  so  much? ", "x", [], {})).toMatch(/^## Why so much\?\n/);
     expect(md).toBe("## Why?\n\nBecause [1].\n\n[1] Ito, Chen, T1, 2023, p. 3\n[2] Source not available\n[3] T3, p. 1");
   });
 });
@@ -73,8 +74,11 @@ describe("answer actions", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Not helpful" })).toHaveAttribute("aria-pressed", "true"));
     const dlg = await screen.findByRole("dialog");
     await user.type(within(dlg).getByLabelText(/What went wrong/), "Wrong page");
+    const thanks = () => screen.queryAllByText(/^Thanks\. Ratings help/).length;
+    const before = thanks();
     await user.click(within(dlg).getByRole("button", { name: "Send" }));
     await waitFor(() => expect(sent("PUT", /rating$/)).toHaveLength(3));
+    expect(thanks()).toBe(before); // the comment PUT does not thank again
     expect(await sent("PUT", /rating$/)[2].json()).toEqual({ value: -1, comment: "Wrong page" });
   });
 
@@ -119,6 +123,48 @@ describe("answer actions", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Renamed" })).toBeInTheDocument();
   });
 
+  it("rename has a Save button and Escape cancels", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    let input = await screen.findByRole("textbox", { name: "Chat title" });
+    await user.clear(input);
+    await user.type(input, "Dropped{Escape}");
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Chat title" })).toBeNull());
+    expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    input = await screen.findByRole("textbox", { name: "Chat title" });
+    expect(input).toHaveValue("Spectral gap in hypergraphs");
+    await user.clear(input);
+    await user.type(input, "Via button");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
+    expect(await sent("PATCH", /\/chats\/c1$/)[0].json()).toEqual({ title: "Via button" });
+  });
+
+  it("Quote on a passage sets the quote chip and the next question carries it", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: /Show the 8 passages read/ }));
+    const first = within(await screen.findByRole("list", { name: "Passages read" })).getAllByRole("listitem")[0];
+    await user.click(within(first).getByRole("button", { name: "Quote" }));
+    expect(await screen.findByRole("button", { name: "Remove quote" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Question" })).toHaveFocus());
+    await user.type(screen.getByRole("textbox", { name: "Question" }), "What does this mean?{Enter}");
+    await waitFor(() => expect(sent("POST", /\/chats\/c1\/messages$/)).toHaveLength(1));
+    const sel = (await sent("POST", /\/messages$/)[0].json()).viewer.selection;
+    expect(sel).toMatchObject({ doc_id: D1 });
+    expect(sel.text.length).toBeGreaterThan(0);
+  });
+
+  it("copies a share link built by the router", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await user.click(await screen.findByRole("button", { name: "Share" }));
+    await user.click(await screen.findByRole("button", { name: "Copy link" }));
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(`${location.origin}/ask/c1`));
+  });
+
   it("commits pending chip text on Save, and blocks invalid text", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
@@ -161,6 +207,7 @@ describe("answer actions", () => {
     await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
     await waitFor(() => expect(pin).toHaveAttribute("aria-pressed", "false"));
     expect(first).not.toHaveTextContent("Pinned");
+    expect(await screen.findByText("The change couldn't be saved. Try again.")).toBeInTheDocument();
   });
 
   it("does not re-send a Not helpful rating, only opens the comment box", async () => {

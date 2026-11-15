@@ -1,3 +1,4 @@
+import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "@/mocks/server";
@@ -170,10 +171,13 @@ describe("streamMessage", () => {
     const h = handlers();
     h.onToken.mockImplementation(() => ac.abort());
     await streamMessage("c1", { content: "spectral gap hypergraphs", viewer: VIEWER }, h, ac.signal).catch(() => {});
-    await new Promise((r) => setTimeout(r, 50));
-    const chat = await apiFetch<ChatDetail>("/chats/c1");
-    const last = chat.messages[chat.messages.length - 1];
-    expect(last).toMatchObject({ role: "assistant", status: "interrupted", citations: [] });
+    const last = await waitFor(async () => {
+      const chat = await apiFetch<ChatDetail>("/chats/c1");
+      const m = chat.messages[chat.messages.length - 1];
+      expect(m).toMatchObject({ role: "assistant", status: "interrupted" });
+      return m;
+    });
+    expect(last.citations).toEqual([]);
     expect(last.content.length).toBeGreaterThan(0);
   });
 });

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, seg } from "@/api/client";
-import type { DuplicateDetail, NearDupAction, NearDupResult, NeedsTitleItem, UploadCreated, UploadsResponse } from "@/api/types";
+import type { DuplicateDetail, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
 
 const TERMINAL_STAGES = ["searchable", "review", "needs_title", "rejected", "cancelled"];
 /** An upload is terminal when it has finished, failed, or waits on the user. */
@@ -49,7 +49,7 @@ export function useSetTitle() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, versionId, title }: { documentId: string; versionId: string; title: string }) =>
-      apiFetch<NearDupResult>(`/documents/${seg(documentId)}/versions/${seg(versionId)}/title`, { method: "PUT", json: { title } }),
+      apiFetch<TitleResult>(`/documents/${seg(documentId)}/versions/${seg(versionId)}/title`, { method: "PUT", json: { title } }),
     onSuccess: () => {
       toast("Title saved. Processing continues.");
       return Promise.all([qc.invalidateQueries({ queryKey: ["uploads"] }), qc.invalidateQueries({ queryKey: ["needs-title"] })]);

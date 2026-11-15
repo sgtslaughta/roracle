@@ -2,9 +2,8 @@ import { ArrowUp, Square } from "lucide-react";
 import { useLayoutEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
 import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
-import { useCollections } from "@/features/library/api";
-import { useReaderStore } from "@/features/reader/useReaderStore";
 import { ContextChips } from "./ContextChips";
+import { ScopeSelect } from "./ScopeSelect";
 import { registerComposer, setDraft, useDraft } from "./useAskContext";
 
 interface Props {
@@ -22,8 +21,6 @@ interface Props {
 
 export function Composer({ scope, onScope, model, models, onModel, streaming, busy, onSend, onStop }: Props) {
   const draft = useDraft();
-  const { tabs } = useReaderStore();
-  const collections = useCollections().data ?? [];
   const area = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => { registerComposer(area.current); return () => registerComposer(null); }, []);
@@ -55,11 +52,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
           placeholder="Ask about your documents, or about what you're reading"
         />
         <div className="crow">
-          <select className="sel" aria-label="Search in" value={scope} onChange={(e) => onScope(e.target.value as ChatScope)}>
-            <option value="all">All documents you can see</option>
-            <option value="open" disabled={!tabs.length}>Open documents only</option>
-            {collections.map((c) => <option key={c.id} value={`collection:${c.id}`}>{`Collection: ${c.name}`}</option>)}
-          </select>
+          <ScopeSelect scope={scope} onScope={onScope} />
           <select className="sel" aria-label="Model" value={model} onChange={(e) => onModel(e.target.value)}>
             {known.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>

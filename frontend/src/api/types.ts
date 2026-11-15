@@ -104,6 +104,7 @@ export interface UploadItem {
   near_dup_of: NearDupOf | null;
 }
 export interface NearDupResult { version_id: string; document_id: string; stage: Stage }
+export type TitleResult = NearDupResult;
 export interface NeedsTitleItem { document_id: string; version_id: string; filename: string; owner: string; uploaded_at: string }
 export interface UploadsResponse { items: UploadItem[]; total: number }
 export interface UploadCreated { document_id: string; version_id: string; sha256: string }

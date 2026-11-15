@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { AnswerText } from "./AnswerText";
 import { Sidenotes } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
@@ -18,6 +18,7 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
   const ref = useRef<HTMLElement>(null);
   const [hot, setHot] = useState<number | null>(null);
   const streaming = answer?.status === "streaming";
+  const order = useMemo(() => citeNumbers(answer?.text ?? ""), [answer?.text]);
   return (
     <div className="turn">
       <div className="q">
@@ -30,7 +31,7 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
       {answer && (
         <article className="answer" ref={ref} aria-label="Answer" aria-busy={streaming}>
           <AnswerText text={answer.text} citations={answer.citations} streaming={streaming} hot={hot} onHot={setHot} />
-          <Sidenotes citations={answer.citations} order={citeNumbers(answer.text)} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
+          <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">
             {streaming && !answer.text && <p className="stat" role="status">Reading the library…</p>}
             {answer.status === "interrupted" && <p className="stat">Stopped before the answer finished.</p>}

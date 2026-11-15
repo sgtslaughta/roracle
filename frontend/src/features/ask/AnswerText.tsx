@@ -29,7 +29,8 @@ export function safeHref(href: string | undefined): { href: string; external: bo
   try {
     const u = new URL(href, location.origin);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return { href, external: u.origin !== location.origin };
+    const external = u.origin !== location.origin;
+    return { href: external ? u.href : u.pathname + u.search + u.hash, external };
   } catch { return null; }
 }
 
@@ -37,7 +38,7 @@ function AnswerTextImpl({ text, citations, streaming, hot, onHot }: AnswerTextPr
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.querySelectorAll<HTMLElement>("button.c").forEach((b) => b.classList.toggle("hot", Number(b.dataset.n) === hot));
-  }, [hot, text, citations]);
+  });
 
   const components = useMemo<Components>(() => ({
     "cite-ref": ({ n: raw }: { n?: string }) => {

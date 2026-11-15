@@ -1,10 +1,11 @@
-import { EyeOff, Pin } from "lucide-react";
+import { EyeOff, Pin, TextQuote } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ChatDetail, RetrievedPassage } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { usePatchChat } from "./api";
+import { focusComposer, setQuote } from "./useAskContext";
 
 const CAP = 20;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
@@ -47,6 +48,7 @@ export function PassagesDrawer({ id, chatId, retrieved, pins, excludes, owner }:
               </div>
               {owner && (
                 <div className="acts">
+                  <Button variant="ghost" onClick={() => { setQuote({ doc_id: p.doc_id, page: p.page, text: p.text }); focusComposer(); }} title="Ask the next question about this passage"><TextQuote aria-hidden />Quote</Button>
                   <Button variant="ghost" aria-pressed={pinned} onClick={() => pin(p.doc_id)} title="Always include this document in later answers"><Pin aria-hidden />Pin</Button>
                   <Button variant="ghost" aria-pressed={left} onClick={() => exclude(p.doc_id)} title="Leave this document out of later answers"><EyeOff aria-hidden />Exclude</Button>
                 </div>

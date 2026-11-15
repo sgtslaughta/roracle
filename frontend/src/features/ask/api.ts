@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
 import type { Chat, ChatDetail, ChatScope, ChatSummary, ModelsResponse } from "@/api/chat";
 
@@ -27,7 +28,12 @@ export function usePatchChat(id: string) {
       qc.setQueryData<ChatDetail>(["chat", id], (old) => (old ? { ...old, ...p } : old));
       return { prev };
     },
-    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(["chat", id], ctx.prev); },
+    onError: (_e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["chat", id], ctx.prev);
+      toast("The change couldn't be saved. Try again.");
+    },
+    // settle on server truth (also covers a post-stream refetch that onMutate cancelled)
+    onSettled: () => qc.invalidateQueries({ queryKey: ["chat", id] }),
     onSuccess: (chat) => {
       qc.setQueryData<ChatDetail>(["chat", id], (old) => (old ? { ...old, ...chat } : old));
       return qc.invalidateQueries({ queryKey: ["chats"] });

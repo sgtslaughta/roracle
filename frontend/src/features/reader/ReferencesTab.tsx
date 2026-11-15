@@ -2,7 +2,7 @@ import { ArrowUpRight, CornerDownRight, Globe, Link2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-import { shortCite } from "@/lib/cite";
+import { citeLine, shortCite } from "@/lib/cite";
 import { useCitedBy, useReferences } from "./api";
 import { openDoc } from "./useReaderStore";
 
@@ -53,7 +53,7 @@ export function CitedByTab({ docId }: { docId: string }) {
           <li key={c.doc_id} className="ref">
             <span className="rn"><CornerDownRight aria-hidden /></span>
             <div>
-              <div className="rt">{c.authors.join(", ")}. {c.title}. {c.venue && <i>{c.venue}</i>}{c.venue && c.year != null && ", "}{c.year ?? ""}.</div>
+              <div className="rt">{[c.authors.join(", "), c.title].filter(Boolean).join(". ")}. {citeLine([], c.venue, c.year)}</div>
               <div className="rs"><span className="vis">{shortCite(c.authors, c.year)}</span></div>
             </div>
             <Button onClick={() => openDoc(c.doc_id)}>Open<ArrowUpRight aria-hidden /></Button>

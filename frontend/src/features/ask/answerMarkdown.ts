@@ -10,5 +10,5 @@ export function answerMarkdown(question: string, content: string, citations: Cit
     const parts = [d?.authors.length ? d.authors.join(", ") : null, c.title, d?.year ?? null, `p. ${c.page}`];
     return `[${c.n}] ${parts.filter((x) => x != null).join(", ")}`;
   });
-  return `## ${question}\n\n${content}\n\n${refs.join("\n")}`;
+  return `## ${question.replace(/\s+/g, " ").trim()}\n\n${content}\n\n${refs.join("\n")}`;
 }

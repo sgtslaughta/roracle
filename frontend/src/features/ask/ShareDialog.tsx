@@ -1,3 +1,4 @@
+import { useRouter } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,13 +10,14 @@ const groupError = (v: string) => (v.startsWith("/") ? null : "Group paths start
 
 export function ShareDialog({ chatId, open, onOpenChange }: { chatId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const share = useShareChat(chatId);
+  const router = useRouter();
   const [groups, setGroups] = useState<string[]>([]);
   const [users, setUsers] = useState<string[]>([]);
   const gRef = useRef<() => string[] | null>(null);
   const uRef = useRef<() => string[] | null>(null);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(`${location.origin}/ask/${chatId}`);
+      await navigator.clipboard.writeText(location.origin + router.buildLocation({ to: "/ask/$chatId", params: { chatId } }).href);
       toast("Link copied. It opens read-only for people you share with.");
     } catch { toast("Copying isn't available here."); }
   };

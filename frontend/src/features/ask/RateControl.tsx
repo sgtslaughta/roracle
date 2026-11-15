@@ -11,7 +11,7 @@ export function RateControl({ chatId, messageId, rating }: { chatId: string; mes
   const rate = useRateMessage(chatId);
   const [why, setWhy] = useState<string | null>(null); // null = popover closed
   const send = (value: 1 | -1, comment?: string) =>
-    rate.mutate({ messageId, value, comment }, { onSuccess: () => toast(THANKS), onError: () => toast("The rating couldn't be saved. Try again.") });
+    rate.mutate({ messageId, value, comment }, { onSuccess: () => { if (!comment) toast(THANKS); }, onError: () => toast("The rating couldn't be saved. Try again.") });
   return (
     <>
       <Button variant="ghost" aria-label="Helpful" aria-pressed={rating === 1} onClick={() => rating !== 1 && send(1)}><ThumbsUp aria-hidden /></Button>

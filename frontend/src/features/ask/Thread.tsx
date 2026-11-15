@@ -33,7 +33,9 @@ export function Thread({ turns, who, chat, onRetry, scrollKey }: { turns: TurnDa
   // the log itself is silent (tokens would be read one by one); announce only how an answer ended
   const st = last?.answer?.status;
   useEffect(() => {
-    const was = prev.current.k === scrollKey ? prev.current.st : undefined;
+    const switched = prev.current.k !== scrollKey;
+    const was = switched ? undefined : prev.current.st;
+    if (switched) setSaid("");
     prev.current = { k: scrollKey, st };
     if (st === "streaming") setSaid("");
     else if (was === "streaming") setSaid(st === "complete" ? "Answer ready" : st === "interrupted" ? "Answer stopped" : "Answer failed");

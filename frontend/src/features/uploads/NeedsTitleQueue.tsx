@@ -14,8 +14,8 @@ export function NeedsTitleQueue() {
   if (!me?.is_admin || !data?.length) return null;
   const rows = all ? data : data.slice(0, SHOWN);
   return (
-    <section className="ntq" aria-label="Waiting for a title">
-      <h2>Waiting for a title</h2>
+    <section className="ntq" aria-labelledby="ntq-h">
+      <h2 id="ntq-h">Waiting for a title</h2>
       <p className="sub">Uploads from anyone that need a title before they can be searched. Oldest first.</p>
       <ul>
         {rows.map((r) => (

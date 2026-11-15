@@ -3,9 +3,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { MessageCircleOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ApiError } from "@/api/client";
 import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
-import { useReaderStore } from "@/features/reader/useReaderStore";
 import { useMe } from "@/features/library/useMe";
 import { attachChat, startTurn, stopTurn, usePendingTurn } from "./askStore";
 import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
@@ -42,10 +42,8 @@ export function AskPage({ chatId }: { chatId?: string }) {
 
   const turns = useMemo(() => buildTurns(chat?.messages ?? [], pending), [chat?.messages, pending]);
   const streaming = pending?.status === "streaming";
-  const { tabs } = useReaderStore();
-  const creating = useRef(false);
-  const wanted = chat?.scope ?? newScope;
-  const scope = wanted === "open" && !tabs.length ? "all" : wanted; // "open" has nothing to search without reader tabs
+    const creating = useRef(false);
+  const scope = chat?.scope ?? newScope;
   const model = pickedModel ?? chat?.model ?? models?.default ?? "";
 
   const send = async (question: string) => {
@@ -76,20 +74,36 @@ export function AskPage({ chatId }: { chatId?: string }) {
   useEffect(() => { sendRef.current = send; });
   const onRetry = useCallback((q: string) => void sendRef.current(q), []);
 
-  if (chatId && chatQ.isError)
+  const chatCtx = useMemo(
+    () => (chat ? { id: chat.id, owner: chat.is_owner, pins: chat.pins, excludes: chat.excludes } : undefined),
+    [chat?.id, chat?.is_owner, chat?.pins, chat?.excludes],
+  );
+
+  // an error with data on screen keeps the thread; only a chat that never loaded gets an error page
+  if (chatId && chatQ.isError && !chat) {
+    const gone = chatQ.error instanceof ApiError && (chatQ.error.status === 404 || chatQ.error.status === 403);
     return (
       <section className="view ask">
         <div className="turn">
           <div className="empty" role="alert">
             <MessageCircleOff aria-hidden />
-            <p>This chat isn't available. It may have been deleted, or it hasn't been shared with you.</p>
-            <Button variant="primary" className="mt" onClick={() => void navigate({ to: "/ask" })}>New chat</Button>
+            {gone ? (
+              <>
+                <p>This chat isn't available. It may have been deleted, or it hasn't been shared with you.</p>
+                <Button variant="primary" className="mt" onClick={() => void navigate({ to: "/ask" })}>New chat</Button>
+              </>
+            ) : (
+              <>
+                <p>Couldn't load this chat.</p>
+                <Button variant="primary" className="mt" onClick={() => void chatQ.refetch()}>Retry</Button>
+              </>
+            )}
           </div>
         </div>
       </section>
     );
+  }
 
-  const chatCtx = chat && { id: chat.id, owner: chat.is_owner, pins: chat.pins, excludes: chat.excludes };
   const title = chat?.title ?? "New chat";
   return (
     <section className="view ask">

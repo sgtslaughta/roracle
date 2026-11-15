@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API_BASE } from "@/api/client";
 import { createAppRouter } from "@/app/router";
 import { server } from "@/mocks/server";
+import { state as mockState } from "@/mocks/state";
 import { openDoc, resetReaderStore } from "@/features/reader/useReaderStore";
 import { resetAskTurns } from "./askStore";
 import { openPalette } from "@/features/palette/usePalette";
@@ -45,11 +46,20 @@ afterEach(() => { server.events.removeAllListeners(); });
 const sent = (method: string, re: RegExp) => seen.filter((r) => r.method === method && re.test(new URL(r.url).pathname));
 
 /** A message endpoint whose stream stays open until the test pushes events. */
-function hold() {
+function hold({ save = true } = {}) {
   let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+  let closed = false;
   const enc = new TextEncoder();
-  server.use(http.post(`${API_BASE}/chats/:id/messages`, () => new HttpResponse(new ReadableStream({ start(c) { ctrl = c; } }), { headers: { "Content-Type": "text/event-stream" } })));
-  return { push: (e: string, d: unknown) => ctrl.enqueue(enc.encode(`event: ${e}\ndata: ${JSON.stringify(d)}\n\n`)) };
+  server.use(http.post(`${API_BASE}/chats/:id/messages`, async ({ params, request }) => {
+    if (save) { // like the real server, the question is saved as soon as the request arrives
+      const chat = mockState.chats?.find((c) => c.id === params.id);
+      const body = (await request.json()) as { content: string };
+      chat?.messages.push({ id: `${params.id}-u${chat.messages.length}`, role: "user", content: body.content, citations: [], retrieved: [], status: "complete", model: null, created_at: "" });
+    }
+    request.signal.addEventListener("abort", () => { closed = true; try { ctrl.error(new DOMException("aborted", "AbortError")); } catch { /* already closed */ } });
+    return new HttpResponse(new ReadableStream({ start(c) { ctrl = c; }, cancel() { closed = true; } }), { headers: { "Content-Type": "text/event-stream", "Content-Length": "1000000" } }); // a declared length, so an abort is a truncated body (undici asserts when an until-close body ends after abort)
+  }));
+  return { push: (e: string, d: unknown) => { if (!closed) ctrl.enqueue(enc.encode(`event: ${e}\ndata: ${JSON.stringify(d)}\n\n`)); } };
 }
 const box = () => screen.findByRole("textbox", { name: "Question" });
 
@@ -126,6 +136,30 @@ describe("ask view", () => {
     expect(await sent("PATCH", /\/chats\/c1$/)[0].json()).toEqual({ scope: "collection:c1" });
   });
 
+  it("shows an existing open-scope chat with no tabs as open, not as all", async () => {
+    const base = await (await fetch(`${API_BASE}/chats/c1`)).json();
+    server.use(http.get(`${API_BASE}/chats/c1`, () => HttpResponse.json({ ...base, scope: "open" })));
+    await renderApp("/ask/c1");
+    const scope = await screen.findByRole("combobox", { name: "Search in" });
+    await waitFor(() => expect(scope).toHaveValue("open"));
+    expect(within(scope).getByRole("option", { name: "Open documents only (none open)" })).toBeEnabled();
+  });
+
+  it("caps the scope select at 20 collections and picks more through a filter", async () => {
+    const user = userEvent.setup();
+    const cols = Array.from({ length: 25 }, (_, i) => ({ id: `k${i}`, name: `Coll ${i}`, count: 1 }));
+    server.use(http.get(`${API_BASE}/collections`, () => HttpResponse.json(cols)));
+    await renderApp("/ask/c1");
+    const scope = await screen.findByRole("combobox", { name: "Search in" });
+    await within(scope).findByRole("option", { name: "Collection: Coll 0" });
+    expect(within(scope).getAllByRole("option").filter((o) => /^Collection:/.test(o.textContent ?? ""))).toHaveLength(20);
+    await user.selectOptions(scope, "More collections…");
+    await user.type(await screen.findByRole("searchbox", { name: "Filter collections" }), "Coll 23");
+    await user.click(screen.getByRole("button", { name: "Coll 23" }));
+    await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
+    expect(await sent("PATCH", /\/chats\/c1$/)[0].json()).toEqual({ scope: "collection:k23" });
+  });
+
   it("Stop aborts the stream and marks the answer interrupted", async () => {
     const user = userEvent.setup();
     const s = hold();
@@ -137,6 +171,18 @@ describe("ask view", () => {
     expect(await screen.findByText("Stopped before the answer finished.")).toBeInTheDocument();
     expect(screen.getByText("Partly")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Ask" })).toBeInTheDocument();
+  });
+
+  it("gives the question back when the server never saved an aborted turn", async () => {
+    const user = userEvent.setup();
+    const s = hold({ save: false });
+    await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(1));
+    await act(async () => { s.push("token", { text: "Partly" }); });
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(Q));
+    expect(screen.queryByText("Stopped before the answer finished.")).toBeNull();
   });
 
   it("sends the quoted passage as viewer.selection and clears the quote chip", async () => {
@@ -163,6 +209,21 @@ describe("ask view", () => {
     expect(await screen.findByText("Stopped before the answer finished.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     expect(await screen.findByRole("button", { name: "Ask" })).toBeInTheDocument();
+  });
+
+  it("aborts cleanly when tokens arrived before the user navigated away", async () => {
+    const user = userEvent.setup();
+    const s = hold();
+    const router = await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(1));
+    await act(async () => { s.push("token", { text: "Partly" }); });
+    await screen.findByText("Partly");
+    await act(async () => { await router.navigate({ to: "/library" }); });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
+    await act(async () => { await router.navigate({ to: "/ask/$chatId", params: { chatId: "c2" } }); });
+    expect(await screen.findByText("Stopped before the answer finished.")).toBeInTheDocument();
+    expect(screen.getByText("Partly")).toBeInTheDocument();
   });
 
   it("keeps the log silent and announces the outcome once", async () => {
@@ -215,6 +276,31 @@ describe("ask view", () => {
     expect(document.querySelectorAll(".ans-text sup")).toHaveLength(6);
     expect(screen.getByText("Source not available")).toBeInTheDocument();
     expect(screen.queryByText("Stopped before the answer finished.")).toBeNull();
+  });
+
+  it("a chat that fails to load for another reason offers Retry", async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    const orig = await (await fetch(`${API_BASE}/chats/c1`)).json();
+    server.use(http.get(`${API_BASE}/chats/c1`, () => (fail ? HttpResponse.json({ detail: "x" }, { status: 500 }) : HttpResponse.json(orig))));
+    await renderApp("/ask/c1");
+    expect(await screen.findByText("Couldn't load this chat.")).toBeInTheDocument();
+    expect(screen.queryByText(/This chat isn't available/)).toBeNull();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Spectral gap in hypergraphs" })).toBeInTheDocument();
+  });
+
+  it("keeps the thread when a refetch fails after the chat loaded", async () => {
+    const user = userEvent.setup();
+    await renderApp("/ask/c1");
+    await screen.findByText(/Does the spectral-gap lower bound/);
+    server.use(http.get(`${API_BASE}/chats/c1`, () => HttpResponse.json({ detail: "x" }, { status: 500 })));
+    await user.click(await screen.findByRole("button", { name: "Helpful" })); // rating invalidates the chat
+    await waitFor(() => expect(sent("GET", /\/chats\/c1$/).length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText(/Does the spectral-gap lower bound/)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load this chat/)).toBeNull();
   });
 
   it("explains an unavailable chat and offers a new one", async () => {
@@ -298,5 +384,14 @@ describe("helpers", () => {
     expect(buildTurns(msgs, p).map((t) => t.key)).toEqual(["t0", "t1"]);
     const settled = [...msgs, m("a2", "assistant")];
     expect(buildTurns(settled, { ...p, status: "done", messageId: "a2" }).map((t) => t.key)).toEqual(["t0", "t1"]);
+  });
+
+  it("buildTurns keeps settled turns referentially stable while the pending turn streams", () => {
+    const m = (id: string, role: "user" | "assistant") => ({ id, role, content: id, citations: [], retrieved: [], status: "complete" as const, model: null, created_at: "" });
+    const msgs = [m("u1", "user"), m("a1", "assistant")];
+    const p = { question: "q2", selection: null, base: 2, text: "t", citations: [], status: "streaming" as const };
+    const a = buildTurns(msgs, p), b = buildTurns(msgs, { ...p, text: "t more" });
+    expect(b[0]).toBe(a[0]);
+    expect(b[1]).not.toBe(a[1]);
   });
 });

@@ -15,7 +15,7 @@ function Rename({ chat }: { chat: ChatDetail }) {
   const [name, setName] = useState(chat.title);
   const save = () => {
     const t = name.trim();
-    if (t && t !== chat.title) patch.mutate({ title: t }, { onError: () => toast("The chat couldn't be renamed. Try again.") });
+    if (t && t !== chat.title) patch.mutate({ title: t });
     setOpen(false);
   };
   return (
@@ -23,6 +23,7 @@ function Rename({ chat }: { chat: ChatDetail }) {
       <PopoverTrigger asChild><Button variant="ghost"><Pencil aria-hidden />Rename</Button></PopoverTrigger>
       <PopoverContent align="end" className="rename-pop" aria-label="Rename chat">
         <input aria-label="Chat title" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+        <Button variant="primary" onClick={save} disabled={!name.trim()}>Save</Button>
       </PopoverContent>
     </Popover>
   );

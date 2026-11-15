@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { Citation } from "@/api/chat";
 import { AnswerText } from "./AnswerText";
@@ -11,6 +11,7 @@ const ok = (n: number, extra: object = {}): Citation => ({
   n, doc_id: `d${n}`, version_id: `v${n}`, version: 2, chunk_id: `c${n}`, title: `Doc ${n}`, page: 4, bbox: null, quote: "q ".repeat(120), ...extra,
 });
 const cites = [ok(1), ok(2), ok(3)];
+afterEach(() => { vi.restoreAllMocks(); });
 const r = (text: string, citations: Citation[] = cites, streaming = false) =>
   render(<AnswerText text={text} citations={citations} streaming={streaming} />);
 
@@ -60,6 +61,25 @@ describe("AnswerText", () => {
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("x");
   });
+  it("rejects a backslash host trick and keeps external hrefs normalised", () => {
+    const { container } = r("[a](/\\evil.com) [b](https://example.org/p?q=1#h)");
+    const links = [...container.querySelectorAll("a")];
+    const evil = links.find((a) => a.textContent === "a");
+    if (evil) { // never the raw backslash form: either encoded same-site, or external with noopener
+      const href = evil.getAttribute("href")!;
+      expect(href).not.toContain("\\");
+      const external = new URL(href, location.origin).origin !== location.origin;
+      expect(external ? evil.getAttribute("rel") : "noopener noreferrer").toBe("noopener noreferrer");
+    }
+    expect(links.find((a) => a.textContent === "b")!.getAttribute("href")).toBe("https://example.org/p?q=1#h");
+  });
+  it("renders no image for reference-style images or KaTeX \\href", () => {
+    const a = r("![a][r]\n\n[r]: https://evil/x");
+    expect(a.container.querySelector("img")).toBeNull();
+    a.unmount();
+    const b = r("$\\href{https://evil}{x}$");
+    expect(b.container.querySelector("a,img")).toBeNull();
+  });
   it("external links are noopener, same-origin plain", () => {
     const { container } = r("[x](https://example.org) [y](/d/abc)");
     const [a, b] = [...container.querySelectorAll("a")];
@@ -106,7 +126,9 @@ describe("Sidenotes", () => {
   it("caps at 12 notes with a +1 more trigger", () => {
     const many = Array.from({ length: 13 }, (_, i) => ok(i + 1));
     const { container } = render(<Harness citations={many} />);
-    render(<Sidenotes citations={many} order={many.map((c) => c.n)} answerRef={{ current: null }} />, { container });
+    expect(container.querySelectorAll(".margin .note")).toHaveLength(3); // the harness text cites 3 of them
+    const { container: c2 } = render(<Sidenotes citations={many} order={many.map((c) => c.n)} answerRef={{ current: null }} />);
+    expect(c2.querySelectorAll(".note")).toHaveLength(12);
     expect(screen.getByText("+1 more sources")).toBeTruthy();
   });
   it("positions notes absolutely without overlap", () => {
@@ -122,7 +144,7 @@ describe("Sidenotes", () => {
     expect(tops[1]).toBeGreaterThanOrEqual(tops[0] + 58);
     expect(tops[2]).toBeGreaterThanOrEqual(tops[1] + 58);
     expect(parseFloat(container.querySelector<HTMLElement>(".margin")!.style.minHeight)).toBeGreaterThan(tops[2]);
-    gcs.mockRestore(); oh.mockRestore(); vi.restoreAllMocks();
+    expect(gcs).toHaveBeenCalled(); expect(oh).toHaveBeenCalled();
   });
   it("marker hover marks the matching note hot", () => {
     const { container } = render(<Harness citations={cites} />);

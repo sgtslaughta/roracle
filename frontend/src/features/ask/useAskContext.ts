@@ -17,6 +17,7 @@ export const resetAskContext = () => { ctx.reset(); draft.reset(); wantFocus = f
 /** The unsent question text lives here so it survives route changes and can be restored after a rejected send. */
 export const useDraft = () => draft.use((s) => s);
 export const setDraft = (text: string) => draft.set(text);
+export const getDraft = () => draft.get();
 
 let el: HTMLTextAreaElement | null = null;
 let wantFocus = false;

@@ -12,5 +12,6 @@ export function shortCite(authors: string[], year: number | null): string {
 /** "Authors. Venue, Year." with every missing part left out (never prints "null"). */
 export function citeLine(authors: string[], venue: string | null | undefined, year: number | null): string {
   const tail = [venue, year].filter((x) => x != null && x !== "").join(", ");
-  return [authors.join(", "), tail].filter(Boolean).join(". ") + ".";
+  const s = [authors.join(", "), tail].filter(Boolean).join(". ");
+  return s && `${s}.`;
 }

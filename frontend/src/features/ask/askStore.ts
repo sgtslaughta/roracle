@@ -4,7 +4,7 @@ import { ApiError } from "@/api/client";
 import type { ChatDetail, Citation, Viewer } from "@/api/chat";
 import { createStore } from "@/lib/store";
 import { streamMessage } from "./stream";
-import { setDraft, setQuote } from "./useAskContext";
+import { getDraft, setDraft, setQuote } from "./useAskContext";
 import { isSettled } from "./turns";
 
 export interface PendingTurn {
@@ -73,7 +73,14 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     void Promise.all([qc.invalidateQueries({ queryKey: ["chat", chatId] }), qc.invalidateQueries({ queryKey: ["chats"] })]).then(() => {
       const cur = turns.get()[chatId];
       const msgs = qc.getQueryData<ChatDetail>(["chat", chatId])?.messages;
-      if (cur && msgs && isSettled(cur, msgs)) put(chatId, null);
+      const newer = ctrls.get(chatId) && ctrls.get(chatId) !== ctrl;
+      if (!cur || !msgs || newer) return;
+      if (isSettled(cur, msgs)) put(chatId, null);
+      else if (cur.status === "interrupted" && msgs.length === cur.base) {
+        // aborted before the server saved the question: drop the local turn and give the question back
+        put(chatId, null);
+        if (!getDraft()) { setDraft(cur.question); setQuote(cur.selection); }
+      }
     });
   };
 
