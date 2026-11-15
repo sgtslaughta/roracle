@@ -1,4 +1,4 @@
-"""GET /search: hybrid query path or Postgres browse path (R15), ACL-filtered facets, sorts, paging."""
+"""GET /search: hybrid query path or Postgres browse path (R15), ACL-filtered disjunctive facets (R17), sorts, paging."""
 
 from collections import Counter
 from dataclasses import dataclass, field
@@ -7,7 +7,7 @@ from uuid import UUID
 
 from elasticsearch import Elasticsearch, NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, exists, func, select
 from sqlalchemy.orm import Session
 
 from roracle import clients
@@ -21,7 +21,7 @@ from roracle.retrieval import DocHit, Passage, group_by_document, search_chunks
 from roracle.search_index import file_type as ext_of
 
 router = APIRouter()
-MAX_DOCS = 200  # R15: matched set cap
+MAX_DOCS = 200  # R15: browse cap; the query path is bounded by the fused lists (~100+ docs)
 FACET_MAX = 50
 FACETS = ("tags", "year", "file_type", "org_unit", "collection", "author")
 Who = Annotated[Principal, Depends(current_principal)]
@@ -80,8 +80,17 @@ def _votes(session: Session, ids: list[UUID], uid: UUID) -> dict[str, tuple[int,
     return {str(d): (u, n, m) for d, u, n, m in rows}
 
 
-def _load(session: Session, p: Principal, ids: list[UUID] | None) -> list[Row]:
-    """Visible documents with a searchable latest version, newest first, enriched from Postgres."""
+def _load(
+    session: Session,
+    p: Principal,
+    ids: list[UUID] | None,
+    wanted: dict[str, set[str]] | None = None,
+    limit: int | None = None,
+) -> list[Row]:
+    """Visible documents with a searchable latest version, newest first, enriched from Postgres.
+
+    `wanted` pushes year/org_unit/tags/collection down to SQL (author/file_type stay in Python,
+    so callers must not pass `limit` together with those)."""
     stmt = (
         select(Document, DocumentVersion)
         .join(
@@ -97,6 +106,25 @@ def _load(session: Session, p: Principal, ids: list[UUID] | None) -> list[Row]:
     )
     if ids is not None:
         stmt = stmt.where(Document.id.in_(ids))
+    for name, want in (wanted or {}).items():
+        if not want:
+            continue
+        if name == "year":
+            stmt = stmt.where(DocumentVersion.meta["year"].astext.in_(want))
+        elif name == "org_unit":
+            stmt = stmt.where(Document.org_unit.in_(want))
+        elif name == "tags":
+            stmt = stmt.where(exists().where(Tag.document_id == Document.id, Tag.tag.in_(want)))
+        elif name == "collection":
+            stmt = stmt.where(
+                Document.id.in_(
+                    select(CollectionItem.document_id)
+                    .join(Collection, Collection.id == CollectionItem.collection_id)
+                    .where(Collection.owner_id == p.user_id, Collection.id.in_([UUID(c) for c in want]))
+                )
+            )
+    if limit is not None:
+        stmt = stmt.limit(limit)
     rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
     if rows:
         keys = list(rows)
@@ -115,33 +143,37 @@ def _load(session: Session, p: Principal, ids: list[UUID] | None) -> list[Row]:
     return list(rows.values())
 
 
-def _own_collections(session: Session, p: Principal, values: list[str]) -> tuple[list[UUID], list[str]]:
-    """R4/R10: the caller's collections among `values` -> (collection ids, member doc ids as str)."""
+def _own_collections(session: Session, p: Principal, values: list[str]) -> tuple[list[str], list[str]]:
+    """R4/R10: the caller's collections among `values` -> (collection ids, member doc ids), both str."""
     cids = []
     for v in values:
         try:
             cids.append(UUID(v))
         except ValueError:
             pass
-    docs = session.scalars(
-        select(CollectionItem.document_id)
-        .join(Collection, Collection.id == CollectionItem.collection_id)
-        .where(Collection.owner_id == p.user_id, Collection.id.in_(cids))
-        .distinct()
+    owned = list(
+        session.scalars(
+            select(Collection.id).where(Collection.owner_id == p.user_id, Collection.id.in_(cids))
+        )
     )
-    return cids, [str(d) for d in docs]
+    docs = session.scalars(
+        select(CollectionItem.document_id).where(CollectionItem.collection_id.in_(owned)).distinct()
+    )
+    return [str(c) for c in owned], [str(d) for d in docs]
 
 
-def _keep(row: Row, filters: dict[str, set[str]]) -> bool:
-    """Values OR within a facet, AND across facets (R10)."""
+def _keep(row: Row, filters: dict[str, set[str]], skip: str | None = None) -> bool:
+    """Values OR within a facet, AND across facets (R10); `skip` leaves one facet out (R17)."""
     have = row.facet_values()
-    return all(not want or want.intersection(have[name]) for name, want in filters.items())
+    return all(not want or want.intersection(have[name]) for name, want in filters.items() if name != skip)
 
 
-def _facets(rows: list[Row]) -> dict[str, list[dict]]:
+def _facets(universe: list[Row], wanted: dict[str, set[str]]) -> dict[str, list[dict]]:
+    """Disjunctive (R17): each facet counts the universe filtered by all OTHER facets' selections."""
     out: dict[str, list[dict]] = {}
-    labels = {c: n for r in rows for c, n in r.colls}
     for name in FACETS:
+        rows = [r for r in universe if _keep(r, wanted, skip=name)]
+        labels = {c: n for r in rows for c, n in r.colls}
         counts = Counter(v for r in rows for v in set(r.facet_values()[name]))
         top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:FACET_MAX]
         out[name] = [
@@ -193,7 +225,9 @@ def _hit(r: Row) -> dict:
     }
 
 
-def _response(rows: list[Row], sort: str, page: int, size: int) -> dict:
+def _response(
+    rows: list[Row], universe: list[Row], wanted: dict[str, set[str]], sort: str, page: int, size: int
+) -> dict:
     rows = rows[:MAX_DOCS]
     _sort(rows, sort)
     start = (page - 1) * size
@@ -201,7 +235,7 @@ def _response(rows: list[Row], sort: str, page: int, size: int) -> dict:
         "total": len(rows),
         "page": page,
         "results": [_hit(r) for r in rows[start : start + size]],
-        "facets": _facets(rows),
+        "facets": _facets(universe, wanted),
     }
 
 
@@ -239,6 +273,10 @@ def _query_rows(
     return rows
 
 
+def _empty(page: int) -> dict:
+    return _response([], [], {}, "relevance", page, 1)
+
+
 @router.get("/search")
 def search(
     p: Who,
@@ -268,14 +306,23 @@ def search(
     coll_docs = None
     if collection:
         cids, coll_docs = _own_collections(session, p, collection)
-        wanted["collection"] = {str(c) for c in cids}
-        if not cids:
-            wanted["collection"] = {"-"}  # foreign/unknown collection: nothing matches
+        if not cids:  # foreign/unknown collection: nothing matches
+            return _empty(page)
+        wanted["collection"] = set(cids)
+    filtered = any(wanted.values())
     if q.strip():
         try:
             rows = _query_rows(session, es, llm, settings, p, q, es_filters, coll_docs)
+            # R17: facets need the unfiltered match set too (second search, only when filters are active)
+            universe = _query_rows(session, es, llm, settings, p, q, {}, None) if filtered else rows
         except ValueError as e:  # backstop: search_chunks input errors are the client's
             raise HTTPException(422, str(e)) from None
+        rows = [r for r in rows if _keep(r, wanted)]
     else:
-        rows = _load(session, p, None)
-    return _response([r for r in rows if _keep(r, wanted)], sort, page, size)
+        py_only = bool(wanted.get("author") or wanted.get("file_type"))
+        rows = _load(session, p, None, wanted, None if py_only else MAX_DOCS)
+        rows = [r for r in rows if _keep(r, wanted)]
+        universe = _load(session, p, None, None, MAX_DOCS) if filtered else rows
+    seen = {r.doc.id for r in universe}
+    universe = universe + [r for r in rows if r.doc.id not in seen]
+    return _response(rows, universe, wanted, sort, page, size)

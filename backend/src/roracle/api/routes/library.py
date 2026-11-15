@@ -105,12 +105,12 @@ class TagBody(BaseModel):
         return self
 
 
-def _tags(session: Session, doc_id: UUID) -> list[str]:
+def tags_of(session: Session, doc_id: UUID) -> list[str]:
     return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
 
 
 def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
-    tags = _tags(session, doc_id)  # re-read right before the update to shrink the stale window
+    tags = tags_of(session, doc_id)  # re-read right before the update to shrink the stale window
     try:
         es.update_by_query(
             index=ALIAS,
@@ -129,7 +129,7 @@ def add_tag(
     doc_id: UUID, body: TagBody, p: Who, session: Session_, es: Annotated[Elasticsearch, Depends(get_es)]
 ) -> dict:
     _visible(session, p, doc_id)
-    have = _tags(session, doc_id)
+    have = tags_of(session, doc_id)
     if body.tag not in have and len(have) >= MAX_TAGS:
         raise HTTPException(422, "too many tags")
     session.execute(insert(Tag).values(document_id=doc_id, tag=body.tag).on_conflict_do_nothing())
@@ -148,7 +148,7 @@ def delete_tag(
     try:
         norm = normalize_tag(tag)
     except ValueError:
-        return {"tags": _tags(session, doc_id)}
+        return {"tags": tags_of(session, doc_id)}
     session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
     session.commit()
     tags = _sync_es(session, es, doc_id)

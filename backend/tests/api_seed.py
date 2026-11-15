@@ -37,3 +37,12 @@ def seed(db, owner_id, *, title="Doc", visibility="everyone", org_unit="/", year
         out.append(v)
     db.flush()
     return d, out[-1]
+
+
+class FakeES:
+    def __init__(self, hits=()):
+        self.hits, self.calls = list(hits), []
+
+    def search(self, **kw):
+        self.calls.append(kw)
+        return {"hits": {"hits": self.hits}}

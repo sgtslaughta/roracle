@@ -2,7 +2,7 @@ import json
 import uuid
 
 import pytest
-from api_seed import seed, user_id
+from api_seed import FakeES, seed
 
 from roracle.api.routes.library import get_es
 from roracle.models import Tag
@@ -10,30 +10,11 @@ from roracle.models import Tag
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
 
-class FakeES:
-    def __init__(self, hits=()):
-        self.hits, self.calls = list(hits), []
-
-    def search(self, **kw):
-        self.calls.append(kw)
-        return {"hits": {"hits": self.hits}}
-
-
 @pytest.fixture
 def fes(app):
     f = FakeES()
     app.dependency_overrides[get_es] = lambda: f
     return f
-
-
-@pytest.fixture
-def ana(db_session, client, as_ana):
-    return user_id(db_session, client, as_ana, "ana")
-
-
-@pytest.fixture
-def bob(db_session, client, as_bob):
-    return user_id(db_session, client, as_bob, "bob")
 
 
 def put(store, v, data):
@@ -108,23 +89,61 @@ def test_file_unicode_filename(client, as_ana, ana, db_session, store):
 
 def test_file_inline(client, as_ana, ana, db_session, store):
     d, v = seed(db_session, ana)
-    put(store, v, b"x")
+    put(store, v, b"%PDF-1.4")
     cd = client.get(f"/documents/{d.id}/versions/1/file?inline=1", headers=as_ana).headers[
         "content-disposition"
     ]
     assert cd.startswith("inline; filename=")
 
 
-def test_inline_html_never_inline(client, as_ana, ana, db_session, store):
+def test_inline_non_pdf_is_attachment(client, as_ana, ana, db_session, store):
     d, v = seed(db_session, ana, filename="x.html", content_type="text/html")
     put(store, v, b"<script>1</script>")
     r = client.get(f"/documents/{d.id}/versions/1/file?inline=1", headers=as_ana)
     assert r.headers["content-disposition"].startswith("attachment;")
+    assert r.headers["content-type"] == "application/octet-stream"
+
+
+def test_html_labelled_pdf_is_sniffed(client, as_ana, ana, db_session, store):
+    d, v = seed(db_session, ana, filename="evil.pdf", content_type="application/pdf")
+    put(store, v, b"<html><script>1</script></html>")
+    r = client.get(f"/documents/{d.id}/versions/1/file?inline=1", headers=as_ana)
+    assert r.headers["content-disposition"].startswith("attachment;")
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["content-security-policy"] == "sandbox; default-src 'none'"
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_non_latest_version_download(client, as_ana, ana, db_session, store):
+    d, v2 = seed(db_session, ana, versions=2)
+    put(store, v2, b"%PDF-1.7 two")
+    assert client.get(f"/documents/{d.id}/versions/1/file", headers=as_ana).content == b"%PDF-1.7 two"
+
+
+@pytest.mark.parametrize("stage", ["uploaded", "review", "needs_title"])
+def test_unfinished_versions_owner_only(client, as_ana, as_bob, ana, bob, db_session, store, fes, stage):
+    d, v = seed(db_session, ana, stage=stage)
+    put(store, v, b"%PDF-x")
+    for pth in paths(d):
+        r = client.get(pth, headers=as_bob)
+        assert (r.status_code, r.json()) == (404, {"detail": "not found"}), pth
+    assert client.get(paths(d)[0], headers=as_ana).status_code == 200
+    assert client.get(paths(d)[1], headers=as_ana).status_code == 200
+
+
+def test_non_owner_sees_only_searchable_versions(client, as_ana, as_bob, ana, bob, db_session):
+    d, v2 = seed(db_session, ana, versions=2)
+    v2.stage = "parsed"
+    db_session.flush()
+    mine = client.get(f"/documents/{d.id}", headers=as_ana).json()
+    theirs = client.get(f"/documents/{d.id}", headers=as_bob).json()
+    assert [x["version"] for x in mine["versions"]] == [2, 1]
+    assert [x["version"] for x in theirs["versions"]] == [1] and theirs["stage"] == "searchable"
 
 
 def test_content_type_falls_back_to_extension(client, as_ana, ana, db_session, store):
     d, v = seed(db_session, ana, filename="a.pdf", content_type="")
-    put(store, v, b"x")
+    put(store, v, b"%PDF-1.4")
     assert (
         client.get(f"/documents/{d.id}/versions/1/file", headers=as_ana).headers["content-type"]
         == "application/pdf"

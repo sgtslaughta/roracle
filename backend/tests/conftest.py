@@ -264,3 +264,17 @@ def staged():
     s = stage(io.BytesIO(uuid.uuid4().bytes * 4), max_bytes=1024)
     yield s
     s.path.unlink(missing_ok=True)
+
+
+@pytest.fixture
+def ana(db_session, client, as_ana):
+    from api_seed import user_id
+
+    return user_id(db_session, client, as_ana, "ana")
+
+
+@pytest.fixture
+def bob(db_session, client, as_bob):
+    from api_seed import user_id
+
+    return user_id(db_session, client, as_bob, "bob")

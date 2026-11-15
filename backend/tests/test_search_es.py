@@ -52,7 +52,7 @@ def index(es, cfg, db, doc, ver, text, tags=()):
 
 
 def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
-    ana, bob = user_id(db_session, client, as_ana, "ana"), user_id(db_session, client, as_bob, "bob")
+    _ana, bob = user_id(db_session, client, as_ana, "ana"), user_id(db_session, client, as_bob, "bob")
     d1, v1 = seed(db_session, bob, title="Open", year=2021)
     d2, v2 = seed(db_session, bob, title="Secret", visibility="private", year=1999)
     db_session.add_all([Tag(document_id=d1.id, tag="ml"), Tag(document_id=d2.id, tag="secret")])
@@ -67,5 +67,6 @@ def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
     own = client.get("/search", headers=as_bob, params={"q": "quokka"}).json()
     assert own["total"] == 2
     none = client.get("/search", headers=as_ana, params={"q": "secret", "tags": "secret"}).json()
-    assert none["total"] == 0 and all(v == [] for v in none["facets"].values())
-    assert ana != bob
+    assert none["total"] == 0  # facets are disjunctive (R17) but never mention the invisible doc
+    assert none["facets"]["tags"] == [{"value": "ml", "count": 1}]
+    assert none["facets"]["year"] == []  # year facet honours the tags=secret filter, which no visible doc has

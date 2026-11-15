@@ -1,7 +1,6 @@
 """Document detail, original-file download and compact docling (reader) endpoints."""
 
 import json
-import mimetypes
 import re
 from typing import Annotated
 from urllib.parse import quote
@@ -16,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
 from roracle.api.routes.documents import get_blob_store
-from roracle.api.routes.library import _tags, get_es, vote_summary
+from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, DocumentVersion, User
@@ -27,7 +26,7 @@ router = APIRouter()
 Who = Annotated[Principal, Depends(current_principal)]
 Session_ = Annotated[Session, Depends(get_session)]
 HIDDEN_STAGES = {"rejected", "cancelled"}  # R5
-MAX_CHUNKS = 10_000
+MAX_CHUNKS = 10_000  # ES search size cap: chunks beyond this get no passage box in the reader
 
 
 def _doc(session: Session, p: Principal, doc_id: UUID) -> Document:
@@ -37,13 +36,22 @@ def _doc(session: Session, p: Principal, doc_id: UUID) -> Document:
     return doc
 
 
+def _privileged(doc: Document, p: Principal) -> bool:
+    return p.is_admin or doc.owner_id == p.user_id
+
+
+def _missing(e: ClientError) -> bool:
+    return e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404", "NotFound")
+
+
 def _version(session: Session, p: Principal, doc_id: UUID, n: int) -> DocumentVersion:
-    """Downloadable version: visible doc, version exists, not rejected/cancelled (R5)."""
-    _doc(session, p, doc_id)
+    """Readable version: visible doc, version exists, not rejected/cancelled (R5), and for
+    non-owners/non-admins only once searchable (R16)."""
+    doc = _doc(session, p, doc_id)
     v = session.scalar(
         select(DocumentVersion).where(DocumentVersion.document_id == doc_id, DocumentVersion.version == n)
     )
-    if v is None or v.stage in HIDDEN_STAGES:
+    if v is None or v.stage in HIDDEN_STAGES or (not _privileged(doc, p) and v.stage != "searchable"):
         raise HTTPException(404, "not found")
     return v
 
@@ -58,6 +66,10 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
             .order_by(DocumentVersion.version.desc())
         )
     )
+    if not _privileged(doc, p):
+        versions = [v for v in versions if v.stage == "searchable"]
+        if not versions:
+            raise HTTPException(404, "not found")
     latest = next((v for v in versions if v.is_latest), versions[0] if versions else None)
     meta = (latest.meta if latest else None) or {}
     owner = session.get(User, doc.owner_id)
@@ -72,7 +84,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "owner": {"id": str(doc.owner_id), "username": owner.username if owner else ""},
         "summary": latest.summary if latest else None,
         "stage": latest.stage if latest else "uploaded",
-        "tags": _tags(session, doc_id),
+        "tags": tags_of(session, doc_id),
         "votes": vote_summary(session, doc_id, p.user_id),
         "file_type": file_type(latest.filename) if latest else "other",
         "versions": [
@@ -97,6 +109,24 @@ def _disposition(kind: str, filename: str) -> str:
     return f"{kind}; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
+_TYPES = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "doc": "application/msword",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "md": "text/markdown",
+    "txt": "text/plain",
+}
+
+
+def _stream(body, head: bytes):
+    try:
+        yield head
+        yield from body.iter_chunks(1 << 16)
+    finally:
+        body.close()
+
+
 @router.get("/documents/{doc_id}/versions/{n}/file")
 def download(
     doc_id: UUID,
@@ -107,20 +137,27 @@ def download(
     inline: bool = False,
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
-    ctype = v.content_type or mimetypes.guess_type(v.filename)[0] or "application/octet-stream"
-    # inline only for PDFs: uploads are user-controlled, never render e.g. HTML in our origin
-    kind = "inline" if inline and ctype.split(";")[0].strip().lower() == "application/pdf" else "attachment"
     try:
         body = store.open(v.blob_sha256)
-    except ClientError:
-        raise HTTPException(404, "not found") from None
+    except ClientError as e:
+        if _missing(e):
+            raise HTTPException(404, "not found") from None
+        raise
+    # Never trust the client-supplied Content-Type: PDFs are sniffed, everything else is an attachment.
+    head = body.read(5)
+    ext = file_type(v.filename)
+    stored_pdf = (v.content_type or "").split(";")[0].strip().lower() == "application/pdf"
+    is_pdf = head == b"%PDF-" and (stored_pdf or ext == "pdf")
+    ctype = "application/pdf" if is_pdf else _TYPES.get(ext, "application/octet-stream")
+    kind = "inline" if inline and is_pdf and stored_pdf else "attachment"
     return StreamingResponse(
-        body.iter_chunks(1 << 16),
+        _stream(body, head),
         media_type=ctype,
         headers={
             "Content-Disposition": _disposition(kind, v.filename),
             "Content-Length": str(v.size),
             "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
         },
     )
 
@@ -142,8 +179,10 @@ def docling(
     v = _version(session, p, doc_id, n)
     try:
         raw = json.loads(store.get_bytes(f"derived/{v.id}/docling.json"))
-    except ClientError:
-        raise HTTPException(404, "not found") from None  # not parsed yet
+    except ClientError as e:
+        if _missing(e):
+            raise HTTPException(404, "not found") from None  # not parsed yet
+        raise
     pages = {
         str(k): {"size": {"width": pg["size"]["width"], "height": pg["size"]["height"]}}
         for k, pg in (raw.get("pages") or {}).items()
