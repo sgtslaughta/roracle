@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from roracle.audit import audit
@@ -91,21 +92,26 @@ def approve(session: Session, p: Principal, proposal_id: UUID, edits: ApproveIn 
     _pending(row)
     e = edits or ApproveIn()
     pl = row.payload
-    if pl.get("parent_id"):
-        n = service.reply(
-            session, p, UUID(pl["parent_id"]), ReplyIn(body=e.body or pl["body"]), agent_assisted=True
-        )
-    else:
-        data = {**{k: v for k, v in pl.items() if k not in _META}}
-        data.update({k: v for k, v in e.model_dump(exclude_none=True).items()})
-        n = service.create(
-            session,
-            p,
-            UUID(pl["document_id"]),
-            NoteIn.model_validate(data),
-            agent_assisted=True,
-            default_visibility="private",
-        )
+    try:
+        if pl.get("parent_id"):
+            if e.visibility is not None or e.shares is not None:
+                raise HTTPException(422, "replies follow the root")
+            n = service.reply(
+                session, p, UUID(pl["parent_id"]), ReplyIn(body=e.body or pl["body"]), agent_assisted=True
+            )
+        else:
+            data = {k: v for k, v in pl.items() if k not in _META}
+            data.update(e.model_dump(exclude_none=True))
+            n = service.create(
+                session,
+                p,
+                UUID(pl["document_id"]),
+                NoteIn.model_validate(data),
+                agent_assisted=True,
+                default_visibility="private",
+            )
+    except ValidationError as err:
+        raise _422(err) from None
     row.status, row.annotation_id, row.decided_at = "approved", n.id, datetime.now(UTC)
     audit(session, p, "proposal.approve", str(row.id), {"annotation_id": str(n.id), "client": row.client})
     session.flush()
@@ -128,4 +134,6 @@ def bulk_approve(session: Session, p: Principal, ids: list[UUID]) -> dict:
                 ok.append({"proposal_id": str(pid), "annotation_id": str(approve(session, p, pid).id)})
         except HTTPException as e:
             failed.append({"proposal_id": str(pid), "detail": str(e.detail)})
+        except (ValidationError, SQLAlchemyError):
+            failed.append({"proposal_id": str(pid), "detail": "invalid proposal"})
     return {"approved": ok, "failed": failed}

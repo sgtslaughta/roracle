@@ -152,3 +152,18 @@ def test_reply_proposal(client, as_ana, ana, doc, db_session):
     j = client.post(f"/proposals/{row.id}/approve", headers=as_ana).json()
     assert j["parent_id"] == root and j["agent_assisted"] is True
     assert db_session.scalars(select(Document)).all()
+
+
+def test_reply_edit_visibility_422(client, as_ana, ana, doc, db_session):
+    root = client.post(f"/documents/{doc[0].id}/annotations", json={"body": "r"}, headers=as_ana).json()["id"]
+    row = prop(db_session, ana, doc[0].id, parent_id=root)
+    r = client.post(f"/proposals/{row.id}/approve", json={"visibility": "private"}, headers=as_ana)
+    assert r.status_code == 422
+
+
+def test_bulk_corrupt_payload_fails_softly(client, as_ana, ana, doc, db_session):
+    row = prop(db_session, ana, doc[0].id)
+    row.payload = {"document_id": str(doc[0].id), "body": "", "kind": "bogus"}
+    db_session.commit()
+    j = client.post("/proposals/bulk-approve", json={"ids": [str(row.id)]}, headers=as_ana).json()
+    assert j["approved"] == [] and j["failed"][0]["proposal_id"] == str(row.id)

@@ -97,16 +97,25 @@ def entries(session: Session, p: Principal, doc_ids: list[UUID], collection_id: 
         v = versions.get(d.id)
         meta = v.meta if v else {}
         rows.append(
-            (_key(d.title or meta.get("title") or "", meta), d.title or meta.get("title") or "", meta)
+            (
+                _key(str(d.title or meta.get("title") or ""), meta),
+                str(d.title or meta.get("title") or ""),
+                meta,
+            )
         )
     groups: dict[str, list[int]] = defaultdict(list)
     for i, (k, _, _) in enumerate(rows):
         groups[k].append(i)
     keys = [k for k, _, _ in rows]
+    used = {k for k, idx in groups.items() if len(idx) == 1}
     for k, idx in groups.items():
         if len(idx) > 1:
-            for n, i in enumerate(idx):
-                keys[i] = k + (chr(97 + n) if n < 26 else str(n))
+            n = 0
+            for i in idx:
+                while (cand := k + (chr(97 + n % 26) * (n // 26 + 1))) in used:
+                    n += 1
+                keys[i] = cand
+                used.add(cand)
     return [_entry(keys[i], t, m) for i, (_, t, m) in enumerate(rows)]
 
 

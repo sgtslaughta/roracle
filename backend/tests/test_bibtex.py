@@ -47,3 +47,15 @@ def test_collection_and_validation(client, as_ana, as_bob, ana, docs, db_session
     import uuid
 
     assert get(client, as_ana, *[uuid.uuid4() for _ in range(201)]).status_code == 422
+
+
+def test_suffix_never_collides_with_other_base_key(client, as_ana, ana, db_session):
+    a, _ = seed(db_session, ana, title="Alpha one", authors=("X Lee",), year=2020)
+    b, _ = seed(db_session, ana, title="Alpha two", authors=("Y Lee",), year=2020)
+    c, _ = seed(db_session, ana, title="Alphaa", authors=("Z Lee",), year=2020)  # base key lee2020alphaa
+    db_session.commit()
+    t = get(client, as_ana, a.id, b.id, c.id).text
+    import re
+
+    keys = re.findall(r"@\w+\{([^,]+),", t)
+    assert len(keys) == 3 and len(set(keys)) == 3
