@@ -11,7 +11,7 @@ def _dist_version() -> str:
 def resolve_version(
     env: Mapping[str, str], version_file: Path, dist_version: Callable[[], str] = _dist_version
 ) -> str:
-    # ROR_VERSION > repo VERSION file > installed metadata > dev. Containers set ROR_VERSION (Task 8).
+    # ROR_VERSION > repo VERSION file > installed metadata > dev. Containers rely on /app/VERSION.
     if v := env.get("ROR_VERSION"):
         return v
     if version_file.exists():

@@ -45,3 +45,10 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/me/uploads
 (context is the repo root). Default command runs the API; override with `worker` or `migrate`.
 `.gitlab-ci.yml` runs lint, test (Postgres + MinIO services; override `MINIO_IMAGE` if needed) and a
 kaniko build; images are pushed on `main` and tags only, merge requests build without pushing.
+
+## Air-gapped builds
+
+Set the `UV_INDEX_URL` and `REGISTRY_MIRROR` CI variables. Dependencies are installed hash-pinned
+(`uv export` from `uv.lock`, `--require-hashes`) from the mirror, so nothing is fetched from pypi.org. The index URL is a
+build ARG only (not baked into image env), but ARG values can appear in build logs/metadata; avoid
+credentials in it where possible.
