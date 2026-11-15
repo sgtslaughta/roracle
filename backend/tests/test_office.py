@@ -36,7 +36,7 @@ def test_to_pdf_5xx_retryable():
 
 
 def test_to_pdf_non_pdf_body():
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeError, match="non-PDF"):
         to_pdf(b"x", "a.docx", "http://g", client=_client(body=b"<html>"), max_bytes=1000)
 
 

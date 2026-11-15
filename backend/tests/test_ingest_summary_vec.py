@@ -1,34 +1,17 @@
 """Lazy summary-vector backfill in pipeline._index (R9)."""
 
 import json
-import uuid
 
 import pytest
-from elasticsearch import Elasticsearch
 from ingest_helpers import FakeLLM, docling_doc, handler, make_version
 
 from roracle.ingest import pipeline
 from roracle.ingest.embed import to_bytes
 from roracle.models import DocumentVersion
 from roracle.queue import enqueue, run_once
-from roracle.search_index import index_name
 
 pytestmark = pytest.mark.integration
 DIMS = 4
-
-
-@pytest.fixture
-def cfg(settings):
-    return settings.model_copy(
-        update={"embed_model": f"fake-embed-{uuid.uuid4().hex[:8]}", "embed_dims": DIMS, "grobid_url": ""}
-    )
-
-
-@pytest.fixture
-def es(cfg):
-    c = Elasticsearch(cfg.elastic_url)
-    yield c
-    c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
 
 
 WRONG = to_bytes([0.5] * 3)

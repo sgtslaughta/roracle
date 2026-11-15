@@ -50,8 +50,11 @@ still functional, so this is optional. Downtime procedure:
 1. Stop workers.
 2. Drop the index: `DELETE /chunks-<slug>-1` (slug = lowercased model name, non-alphanumerics to `-`).
 3. In Postgres (one statement; resets attempts, skips soft-deleted documents, enqueues only the reset rows):
-   `WITH r AS (UPDATE document_versions dv SET stage='deduped', ingest_attempts=0 FROM documents d WHERE d.id=dv.document_id AND d.deleted_at IS NULL AND dv.stage='searchable' RETURNING dv.id) INSERT INTO jobs (kind, payload) SELECT 'ingest', jsonb_build_object('version_id', id::text) FROM r;`
+   `WITH r AS (UPDATE document_versions dv SET stage='deduped', ingest_attempts=0, summary_embedding=NULL FROM documents d WHERE d.id=dv.document_id AND d.deleted_at IS NULL AND dv.stage='searchable' RETURNING dv.id) INSERT INTO jobs (kind, payload) SELECT 'ingest', jsonb_build_object('version_id', id::text) FROM r;`
 4. Start workers.
+`summary_embedding=NULL` is required: the stored summary vector is not model-stamped, so clearing it makes
+`_index` lazily re-embed it with the new model. Near-duplicate detection compares summary vectors, which is
+only meaningful within one embedding model.
 Until each version is searchable again it is absent from search (non-owners lose visibility
 first-hand; owners only via the document list). Do not use on a production corpus.
 

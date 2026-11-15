@@ -48,5 +48,5 @@ def to_pdf(
             c.close()
     pdf = b"".join(chunks)
     if not pdf.startswith(b"%PDF-"):
-        raise ValueError("gotenberg returned a non-PDF response")
+        raise RuntimeError("gotenberg returned a non-PDF response")
     return pdf

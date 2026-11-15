@@ -1,10 +1,8 @@
 import json
-import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
-from elasticsearch import Elasticsearch
 from ingest_helpers import FakeLLM, docling_doc, fake_convert, handler, make_version
 from sqlalchemy import select
 
@@ -16,20 +14,6 @@ from roracle.queue import enqueue, run_once
 from roracle.search_index import index_name
 
 DIMS = 4
-
-
-@pytest.fixture
-def cfg(settings):
-    return settings.model_copy(
-        update={"embed_model": f"fake-embed-{uuid.uuid4().hex[:8]}", "embed_dims": DIMS, "grobid_url": ""}
-    )
-
-
-@pytest.fixture
-def es(cfg):
-    c = Elasticsearch(cfg.elastic_url)
-    yield c
-    c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
 
 
 def _run(db_session, session_factory, cfg, store, es, v, expect_failed=False):

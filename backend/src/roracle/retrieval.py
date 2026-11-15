@@ -192,7 +192,8 @@ def search_chunks(
     knn = knn_search("embedding")
     try:
         sknn = knn_search("summary_embedding") if summary_knn else []
-    except BadRequestError:  # index predates summary_embedding and ensure_index has not run yet
+    except BadRequestError as e:  # index predates summary_embedding and ensure_index has not run yet
+        log.warning("summary kNN skipped: %s", e)
         sknn = []
     by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn]}
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight

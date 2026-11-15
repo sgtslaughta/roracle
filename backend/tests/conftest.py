@@ -278,3 +278,22 @@ def bob(db_session, client, as_bob):
     from api_seed import user_id
 
     return user_id(db_session, client, as_bob, "bob")
+
+
+@pytest.fixture
+def cfg(settings):
+    """Settings with a unique fake embed model (4 dims) so each test gets its own ES index."""
+    return settings.model_copy(
+        update={"embed_model": f"fake-embed-{uuid.uuid4().hex[:8]}", "embed_dims": 4, "grobid_url": ""}
+    )
+
+
+@pytest.fixture
+def es(cfg):
+    from elasticsearch import Elasticsearch
+
+    from roracle.search_index import index_name
+
+    c = Elasticsearch(cfg.elastic_url)
+    yield c
+    c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)

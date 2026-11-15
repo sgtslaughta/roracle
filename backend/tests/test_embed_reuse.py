@@ -4,7 +4,6 @@ import json
 import uuid
 
 import pytest
-from elasticsearch import Elasticsearch
 from ingest_helpers import FakeLLM, handler, make_version
 from sqlalchemy import update
 
@@ -28,20 +27,6 @@ class CountingLLM(FakeLLM):
 
     def chunk_inputs(self):
         return [t for t in self.inputs if "Paragraph" in t]
-
-
-@pytest.fixture
-def cfg(settings):
-    return settings.model_copy(
-        update={"embed_model": f"fake-embed-{uuid.uuid4().hex[:8]}", "embed_dims": DIMS, "grobid_url": ""}
-    )
-
-
-@pytest.fixture
-def es(cfg):
-    c = Elasticsearch(cfg.elastic_url)
-    yield c
-    c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
 
 
 def det_doc(texts: list[str]) -> dict:
