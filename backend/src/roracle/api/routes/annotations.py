@@ -1,10 +1,11 @@
 """Annotation REST (P8 task 2). Writes are JWT-only (R3)."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
 from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,7 @@ from roracle.api.routes.library import get_es
 from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
 from roracle.models import Annotation
-from roracle.notes import anchor, service
+from roracle.notes import anchor, moderation, service
 from roracle.notes.access import doc_readable, get_readable, readable_notes
 from roracle.notes.schemas import NoteIn, NotePatch, ReplyIn
 
@@ -83,5 +84,38 @@ def delete_note(note_id: UUID, session: Session_, p: Human) -> Response:
 @router.post("/annotations/{note_id}/replies", status_code=201)
 def reply_note(note_id: UUID, body: ReplyIn, session: Session_, p: Human) -> dict:
     out = _one(session, p, service.reply(session, p, note_id, body))
+    session.commit()
+    return out
+
+
+class VoteIn(BaseModel):
+    value: Literal[-1, 0, 1]
+
+
+class ReportIn(BaseModel):
+    reason: Literal["spam", "abusive", "wrong", "other"]
+
+
+class HideIn(BaseModel):
+    hidden: bool
+
+
+@router.put("/annotations/{note_id}/vote")
+def vote_note(note_id: UUID, body: VoteIn, session: Session_, p: Human) -> dict:
+    out = moderation.vote(session, p, note_id, body.value)
+    session.commit()
+    return out
+
+
+@router.post("/annotations/{note_id}/report", status_code=204)
+def report_note(note_id: UUID, body: ReportIn, session: Session_, p: Human) -> Response:
+    moderation.report(session, p, note_id, body.reason)
+    session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/annotations/{note_id}/hide")
+def hide_note(note_id: UUID, body: HideIn, session: Session_, p: Human) -> dict:
+    out = _one(session, p, moderation.set_hidden(session, p, note_id, body.hidden))
     session.commit()
     return out
