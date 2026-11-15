@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -12,7 +13,8 @@ from test_search_api import FakeLLM, hit
 from roracle import pats
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
-from roracle.models import AuditLog, Document, Handoff, Job
+from roracle.mcp.tools_write import NO_PASSAGES
+from roracle.models import AuditLog, Collection, CollectionItem, Document, Handoff, Job
 
 B64 = base64.b64encode(b"%PDF-1 hello").decode()
 
@@ -136,7 +138,7 @@ def test_handoff_roundtrip_mcp_rest_and_uri(mc, client, as_ana, as_bob, ana, bob
     err, out = call(
         mc, h, "create_handoff", title="Plan", brief="do it", doc_ids=[str(d1.id), str(d2.id)], goal="g"
     )
-    assert not err and out["withheld"] == 0 and out["url"].startswith("/h/")
+    assert not err and out["dropped"] == 1 and out["url"].startswith("/h/")
     code = out["code"]
     assert out["uri"] == f"roracle://handoff/{code}" and out["display"] == f"{code[:4]}-{code[4:]}"
     row = db_session.get(Handoff, code)
@@ -157,12 +159,57 @@ def test_handoff_roundtrip_mcp_rest_and_uri(mc, client, as_ana, as_bob, ana, bob
     assert {"mcp.create_handoff", "mcp.load_handoff", "handoff.load", "mcp.append_to_handoff"} <= actions
 
 
-def test_withheld_counts_hidden_passage_doc(mc, as_ana, as_bob, ana, bob, db_session, fes):
+def test_withheld_counts_doc_hidden_from_loader(mc, as_ana, as_bob, ana, bob, db_session, fes):
     d, _ = seed(db_session, bob, title="Secret", visibility="everyone")
-    code = call(
+    out = call(
         mc, as_bob, "create_handoff", title="t", brief="b", doc_ids=[str(d.id)], audience="authenticated"
-    )[1]["code"]
+    )
+    assert out[1]["dropped"] == 0
+    code = out[1]["code"]
     assert call(mc, as_ana, "load_handoff", code=code)[1]["doc_ids"] == [str(d.id)]
+    d.visibility = "private"
+    db_session.flush()
+    m = call(mc, as_ana, "load_handoff", code=code)[1]
+    assert m["doc_ids"] == [] and m["withheld"] == 1
+    assert "Secret" not in json.dumps(m)
+
+
+def test_ask_foreign_collection_canned_no_llm(mc, as_ana, ana, bob, db_session, fes, llm):
+    d, v = seed(db_session, bob)
+    col = Collection(owner_id=bob, name="Bobs")
+    db_session.add(col)
+    db_session.flush()
+    db_session.add(CollectionItem(collection_id=col.id, document_id=d.id))
+    db_session.flush()
+    fes.hits = [hit(d, v)]
+    err, out = call(mc, as_ana, "ask", question="q", collection=str(col.id))
+    assert not err and out == {"answer": NO_PASSAGES, "citations": []} and not llm.sent
+
+
+def test_ask_prompt_omits_invisible_title(mc, as_ana, ana, bob, db_session, fes, llm):
+    d1, v1 = seed(db_session, ana, title="Visible One")
+    d2, v2 = seed(db_session, bob, title="Hidden Title Zed", visibility="private")
+    fes.hits = [hit(d2, v2), hit(d1, v1)]
+    call(mc, as_ana, "ask", question="q")
+    sent = json.dumps(llm.sent[0][1])
+    assert "Visible One" in sent and "Hidden Title Zed" not in sent
+
+
+def test_read_pat_append_unknown_code_is_scope_error(mc, ana, db_session, fes):
+    err, text = call(mc, pat(db_session, ana, ["read"]), "append_to_handoff", code="ABCDEFGH", note="x")
+    assert err and "insufficient scope" in text
+
+
+def test_expired_and_revoked_handoff_over_mcp(mc, as_ana, ana, db_session, fes):
+    c1 = call(mc, as_ana, "create_handoff", title="a", brief="b")[1]["code"]
+    c2 = call(mc, as_ana, "create_handoff", title="c", brief="d")[1]["code"]
+    db_session.get(Handoff, c1).expires_at = datetime.now(UTC) - timedelta(days=1)
+    db_session.get(Handoff, c2).revoked_at = datetime.now(UTC)
+    db_session.flush()
+    for c, word in ((c1, "expired"), (c2, "revoked")):
+        for tool in ("load_handoff", "get_handoff_part"):
+            err, text = call(mc, as_ana, tool, code=c)
+            assert err and f"handoff {word}" in text, (tool, word)
 
 
 def test_public_base_url_makes_handoff_url_absolute(app, settings, ana, db_session, fes):
@@ -191,3 +238,10 @@ def test_internal_error_is_audited(mc, as_ana, db_session, fes):
     assert call(mc, as_ana, "ask", question="q")[0]
     row = db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.ask")).one()
     assert row.detail == {"error": "internal"}
+
+
+def test_base64_with_newlines_accepted(mc, ana, db_session, fes, _blob_store_override):
+    wrapped = "\n".join(B64[i : i + 8] for i in range(0, len(B64), 8))
+    assert not call(mc, pat(db_session, ana, ["write"]), "upload", filename="w.pdf", content_base64=wrapped)[
+        0
+    ]

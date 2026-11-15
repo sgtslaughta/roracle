@@ -40,7 +40,7 @@ Example client configuration (generic MCP JSON):
 | `ask(question, collection?)` | read | Cited answer from visible passages: `{answer, citations}` |
 | `load_handoff(code)` | read | Handoff manifest (brief, docs, passages, notes, `parts`, `withheld`) |
 | `get_handoff_part(code, part?, page?)` | read | `transcript` or `notes`, 20 items per page |
-| `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, withheld}` |
+| `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, dropped}` |
 | `append_to_handoff(code, note)` | write | Add a note (max 200 per handoff) |
 | `upload(filename, content_base64, title?, visibility?)` | write | Add a document (default `private`); duplicate returns `{"duplicate_of": id}` |
 | `export_bibtex`, `list_annotations`, `propose_annotation`, `reply_to_annotation` | - | planned (P8/P9) |
@@ -66,7 +66,8 @@ in the UI (**Continue in agent**) or by an agent (`create_handoff`, kind `agent`
   Chat handoffs are owner-only.
 - Expiry: 1-90 days (UI default 7). Not visible or not in audience: 404. Revoked or expired: 410.
 - Redaction at read time: documents/passages the loader cannot see are dropped and only counted in
-  `withheld`. Source handles of chats and collections are hidden from non-creators.
+  `withheld` (a load-time count, specific to the loader). `create_handoff` instead returns `dropped`, a
+  creation-time count of requested `doc_ids` that were not kept (not visible or nonexistent). Source handles of chats and collections are hidden from non-creators.
 - Audit: `handoff.create|load|note|revoke|update`, plus the `mcp.<tool>` row.
 - `url` is absolute when `ROR_PUBLIC_BASE_URL` is set, otherwise a path (`/h/XXXX-XXXX`).
 

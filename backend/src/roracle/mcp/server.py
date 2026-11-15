@@ -1,5 +1,6 @@
 """MCP server: read tools. Each tool = own session, `audit("mcp.<tool>")`, commit; errors -> ToolError."""
 
+import logging
 from collections.abc import Callable
 from typing import Annotated, Any
 from uuid import UUID
@@ -22,6 +23,7 @@ from roracle.mcp.tools_write import register
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
 
+log = logging.getLogger(__name__)
 MAX_IDS = 50
 _SOURCE = ["chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title"]
 
@@ -41,8 +43,11 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
             raise ToolError(str(e.detail if isinstance(e, HTTPException) else e)) from None
         except Exception:
             session.rollback()
-            audit(session, p, f"mcp.{tool}", target[:200], {"error": "internal"})
-            session.commit()
+            try:
+                audit(session, p, f"mcp.{tool}", target[:200], {"error": "internal"})
+                session.commit()
+            except Exception:
+                log.exception("mcp.%s: could not audit internal error", tool)
             raise
 
 

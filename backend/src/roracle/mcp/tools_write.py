@@ -36,7 +36,7 @@ def _need_write(p: Principal) -> None:
 
 
 def _abs(app: FastAPI, m: dict) -> dict:
-    base = app.state.settings.public_base_url.rstrip("/")
+    base = dep(app, get_app_settings).public_base_url.rstrip("/")
     return {**m, "url": base + m["url"]} if base else m
 
 
@@ -70,7 +70,7 @@ def _upload(app, session, p, filename, b64, title, visibility) -> dict:
     if len(b64) * 3 // 4 > s.mcp_max_upload_bytes + 3:
         raise HTTPException(413, "file too large for MCP upload; use POST /documents")
     try:
-        data = base64.b64decode(b64, validate=True)
+        data = base64.b64decode("".join(b64.split()), validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(400, "invalid base64") from None
     if len(data) > s.mcp_max_upload_bytes:
@@ -141,7 +141,8 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         expires_in_days: Annotated[int, Field(ge=1, le=90)] = 7,
     ) -> dict:
         """Create a handoff (needs a write token) so a person or another agent can continue this work.
-        Documents the caller cannot see are dropped (`withheld`). Returns code, display, url, uri."""
+        Documents the caller cannot see are dropped; `dropped` counts requested ids not kept (unknown ids included). Returns code, display,
+        url, uri, dropped."""
 
         def go(session: Session, p: Principal) -> dict:
             _need_write(p)
@@ -150,7 +151,8 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
                 audience=audience, expires_in_days=expires_in_days, via="mcp",
             )  # fmt: skip
             m = _abs(app, handoff.view(session, p, h))
-            return {k: m[k] for k in ("code", "display", "url", "uri", "withheld")}
+            out = {k: m[k] for k in ("code", "display", "url", "uri")}
+            return {**out, "dropped": len(set(doc_ids or [])) - len(h.doc_ids)}
 
         return run(app, "create_handoff", go, title)
 

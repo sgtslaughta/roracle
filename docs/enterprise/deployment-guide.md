@@ -61,7 +61,7 @@ Vector math (per embedding model index, 1 replica):
    - MinIO: tenant with erasure coding, versioning on the `roracle` bucket, site replication for DR.
 3. **Keycloak**: apply the realm settings in [keycloak-setup.md](keycloak-setup.md).
 4. **Secrets** (from your secret manager / sealed secrets): DB credentials, S3 keys, inference API key,
-   `ROR_PAT_PEPPER` (32 random bytes), Elastic credentials.
+   Elastic credentials.
 5. **Helm** (`deploy/helm/roracle`, delivered in roadmap plan 11):
    ```bash
    helm upgrade --install roracle deploy/helm/roracle -n roracle -f values-prod.yaml
