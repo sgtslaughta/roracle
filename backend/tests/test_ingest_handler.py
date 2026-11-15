@@ -420,3 +420,36 @@ def test_tag_added_between_read_and_index_converges(
     _run(db_session, session_factory, cfg, store, es, v)
     hits = _chunks(es, cfg, v)
     assert hits and {tuple(h["_source"]["tags"]) for h in hits} == {("late",)}
+
+
+def _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, url):
+    seen = {}
+
+    def conv(data, filename, *a, **k):
+        seen["convert"] = (data, filename)
+        return json.loads(json.dumps(docling_doc()))
+
+    monkeypatch.setattr(pipeline, "convert", conv)
+    monkeypatch.setattr(pipeline, "to_pdf", lambda data, filename, *a, **k: b"%PDF-1.7 rendition")
+    v = make_version(db_session, store, user, name="Report.DOCX")
+    _run(db_session, session_factory, cfg.model_copy(update={"gotenberg_url": url}), store, es, v)
+    return v, seen
+
+
+@pytest.mark.integration
+def test_office_converted_to_pdf_rendition(
+    db_session, session_factory, cfg, store, es, user, monkeypatch, s3
+):
+    v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "http://g")
+    assert seen["convert"] == (b"%PDF-1.7 rendition", "Report.pdf")
+    assert s3.exists(f"derived/{v.id}/rendition.pdf")
+    assert store.open(v.blob_sha256).read() != b"%PDF-1.7 rendition"  # original untouched
+
+
+@pytest.mark.integration
+def test_office_without_gotenberg_goes_to_docling(
+    db_session, session_factory, cfg, store, es, user, monkeypatch, s3
+):
+    v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "")
+    assert seen["convert"][1] == "Report.DOCX" and seen["convert"][0] != b"%PDF-1.7 rendition"
+    assert not s3.exists(f"derived/{v.id}/rendition.pdf")

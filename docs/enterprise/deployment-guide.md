@@ -40,7 +40,7 @@ operators/instances. NetworkPolicies: default deny; allow only the edges above.
 | web | 2 | 0.25 vCPU, 128 MiB | static |
 | Docling | 2–4 | 4 vCPU, 16 GiB (or GPU) | ~200k pages/day ≈ 2.3 pages/s sustained; GPU or the inference endpoint's granite-docling model recommended |
 | GROBID | 2 | 4 vCPU, 8 GiB | |
-| Gotenberg | 2 | 2 vCPU, 4 GiB | |
+| Gotenberg | 2 | 2 vCPU, 4 GiB | LibreOffice conversion of office uploads; one conversion at a time per pod |
 | ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required; set `StreamMaxLength`, `MaxFileSize`, `MaxScanSize` to 600M (> the 500 MB upload limit) and `AlertExceedsMax yes` (fail closed: oversize files are reported FOUND, never partially scanned), else large uploads fail permanently |
 | latex-builder | 2 | 2 vCPU, 2 GiB per build | job concurrency limited |
 | Postgres | 3 (1 primary + 2 sync/async replicas) | 8 vCPU, 32 GiB, 500 GiB SSD | metadata ≈ 100 GiB at target |
@@ -85,6 +85,7 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_GOTENBERG_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
+| `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down = retryable failure; invalid file = permanent failure |
 
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
 Postgres, not env.

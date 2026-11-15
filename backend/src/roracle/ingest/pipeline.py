@@ -19,6 +19,7 @@ from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.embed import doc_prompt, embed
 from roracle.ingest.neardup import find_near_duplicate, minhash
+from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
@@ -70,10 +71,15 @@ def _scan(session: Session, v: DocumentVersion, settings: Settings, store: BlobS
 
 def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict:
     data = store.open(v.blob_sha256).read()
-    doc = convert(data, v.filename, settings.docling_url, timeout=settings.docling_timeout_s)
+    name = v.filename
+    is_pdf = name.lower().endswith(".pdf") or v.content_type == "application/pdf"
+    if settings.gotenberg_url and is_office(name):
+        data = to_pdf(data, name, settings.gotenberg_url, timeout=settings.gotenberg_timeout_s)
+        store.put_bytes(rendition_key(v.id), data, "application/pdf")
+        name, is_pdf = f"{name.rsplit('.', 1)[0]}.pdf", True
+    doc = convert(data, name, settings.docling_url, timeout=settings.docling_timeout_s)
     store.put_bytes(docling_key(v.id), json.dumps(doc).encode(), "application/json")
     meta, refs = {}, []
-    is_pdf = v.filename.lower().endswith(".pdf") or v.content_type == "application/pdf"
     if is_pdf and settings.grobid_url:
         try:
             meta, refs = grobid_metadata(data, settings.grobid_url, timeout=settings.grobid_timeout_s)

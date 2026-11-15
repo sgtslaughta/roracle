@@ -73,6 +73,14 @@ services:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}lfoppiano/grobid:0.8.1
     ports: ["8070:8070"]
+  gotenberg:
+    profiles: [full]
+    image: ${REGISTRY_MIRROR:-}gotenberg/gotenberg:8.20.1
+    ports: ["${ROR_GOTENBERG_PORT:-3300}:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health"]
+      interval: 10s
+      retries: 10
   clamav:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}clamav/clamav:1.4

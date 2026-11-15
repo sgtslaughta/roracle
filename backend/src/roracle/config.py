@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     docling_timeout_s: float = 300.0
     grobid_timeout_s: float = 120.0
     grobid_url: str = ""
+    gotenberg_url: str = ""
+    gotenberg_timeout_s: float = 300.0
     clamav_host: str = ""
     rerank_url: str = ""
     rerank_model: str = ""
