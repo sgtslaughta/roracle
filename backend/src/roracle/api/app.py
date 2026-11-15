@@ -1,7 +1,9 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.routing import Route
 
 from roracle import __version__
 from roracle.api.routes import (
@@ -23,11 +25,14 @@ from roracle.api.routes import (
 from roracle.auth import JwksCache
 from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
+from roracle.mcp.auth import BearerAuth
+from roracle.mcp.server import build_mcp
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    yield
+    async with app.state.mcp.session_manager.run():
+        yield
     app.state.session_factory.kw["bind"].dispose()
 
 
@@ -50,4 +55,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(search.router)
     app.include_router(chats_read.router)
     app.include_router(chats.router)
+    _mount_mcp(app)
     return app
+
+
+def _mount_mcp(app: FastAPI) -> None:
+    """Stateless JSON MCP at exactly POST /mcp (a Mount would 307 to /mcp/); bearer-only so no DNS-rebinding guard (R5)."""
+    s = app.state.settings
+    mcp = app.state.mcp = build_mcp(app)
+    inner = mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        json_response=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        max_request_body_size=s.max_upload_bytes * 4 // 3 + 1024 * 1024,
+    )
+    app.router.routes.append(Route("/mcp", BearerAuth(inner, app)))
+
+    @app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
+    def protected_resource(request: Request) -> dict:  # R6
+        return {
+            "resource": f"{str(request.base_url).rstrip('/')}/mcp",
+            "authorization_servers": [s.oidc_issuer],
+            "bearer_methods_supported": ["header"],
+            "scopes_supported": ["read", "write"],
+        }
