@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -51,7 +52,7 @@ class Document(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String)
     org_unit: Mapped[str] = mapped_column(String)
     visibility: Mapped[str] = mapped_column(String)
@@ -66,7 +67,7 @@ class DocumentVersion(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"))
     version: Mapped[int] = mapped_column(Integer)
-    blob_sha256: Mapped[str] = mapped_column(ForeignKey("blobs.sha256"))
+    blob_sha256: Mapped[str] = mapped_column(ForeignKey("blobs.sha256"), index=True)
     filename: Mapped[str] = mapped_column(String)
     content_type: Mapped[str] = mapped_column(String)
     size: Mapped[int] = mapped_column(BigInteger)
@@ -87,6 +88,7 @@ class Job(Base):
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','done','failed')", name="ck_jobs_status"),
         Index("ix_jobs_status_run_after", "status", "run_after"),
+        Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

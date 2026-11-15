@@ -90,3 +90,7 @@ def test_group_shared_doc_triggers_409_for_group_member(client, as_ana, as_bob, 
     db_session.flush()
     r = _up(client, as_bob)
     assert r.status_code == 409 and r.json()["detail"]["document_id"] == first["document_id"]
+
+
+def test_overlong_title_is_422(client, as_ana):
+    assert _up(client, as_ana, title="x" * 501).status_code == 422

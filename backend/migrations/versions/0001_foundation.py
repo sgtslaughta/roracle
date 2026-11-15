@@ -82,6 +82,9 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('queued','running','done','failed')", name="ck_jobs_status"),
     )
     op.create_index("ix_jobs_status_run_after", "jobs", ["status", "run_after"])
+    op.create_index("ix_documents_owner_id", "documents", ["owner_id"])
+    op.create_index("ix_document_versions_blob_sha256", "document_versions", ["blob_sha256"])
+    op.create_index("ix_jobs_version_id", "jobs", [sa.text("(payload->>'version_id')"), "created_at"])
 
 
 def downgrade() -> None:

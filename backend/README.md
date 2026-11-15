@@ -26,7 +26,8 @@ uv run ruff check . && uv run ruff format --check .
 uv run pytest -q -m "not integration"
 ```
 
-Tests read `ROR_*` env and default to the dev stack (Postgres DB `roracle_test`, MinIO). Tests marked
+Tests TRUNCATE all tables, so they abort unless the database name in `ROR_DATABASE_URL` ends with `_test`
+(don't `source .env` first). Tests read `ROR_*` env and default to the dev stack (Postgres DB `roracle_test`, MinIO). Tests marked
 `integration` need the Keycloak dev stack and skip without it; CI runs `-m "not integration"`.
 
 ## Get a token (dev Keycloak)

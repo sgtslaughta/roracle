@@ -12,6 +12,7 @@ from alembic.config import Config
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from roracle.api.app import create_app
 from roracle.auth import JwksCache, get_jwks
@@ -40,6 +41,9 @@ def settings() -> Settings:
 
 @pytest.fixture(scope="session")
 def session_factory(settings):
+    db = make_url(settings.database_url).database or ""
+    if not db.endswith("_test"):
+        pytest.exit(f"refusing to run tests against non-test database {db}", returncode=2)
     command.upgrade(_alembic_config(), "head")
     return make_session_factory(settings.database_url)
 

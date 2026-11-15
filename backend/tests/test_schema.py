@@ -1,7 +1,7 @@
 import re
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from roracle.models import Document, DocumentVersion
@@ -60,3 +60,8 @@ def test_check_constraints_have_exact_values(db_session, table, values):
     checks = inspect(db_session.get_bind()).get_check_constraints(table)
     assert len(checks) == 1
     assert set(re.findall(r"'([^']+)'", checks[0]["sqltext"])) == values
+
+
+def test_hot_path_indexes_exist(db_session):
+    rows = db_session.execute(text("SELECT indexname FROM pg_indexes")).scalars().all()
+    assert {"ix_documents_owner_id", "ix_document_versions_blob_sha256", "ix_jobs_version_id"} <= set(rows)

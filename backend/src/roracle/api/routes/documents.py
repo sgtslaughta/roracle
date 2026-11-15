@@ -31,7 +31,7 @@ def upload(
     store: Annotated[BlobStore, Depends(get_blob_store)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     file: Annotated[UploadFile, File()],
-    title: Annotated[str | None, Form()] = None,
+    title: Annotated[str | None, Form(max_length=500)] = None,
     visibility: Annotated[Literal["private", "shared", "org_unit", "everyone"], Form()] = "everyone",
     force: Annotated[bool, Form()] = False,
 ) -> dict:
