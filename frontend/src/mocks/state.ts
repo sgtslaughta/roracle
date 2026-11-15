@@ -8,7 +8,10 @@ export interface MockState {
   versions: Record<string, number>;
   uploads: MockUpload[];
   lastAdvance: number;
+  admin: boolean;
 }
+
+const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
 
 const fresh = (): MockState => ({
   votes: {},
@@ -17,7 +20,8 @@ const fresh = (): MockState => ({
   versions: Object.fromEntries(DOCS.map((d) => [d.id, d.ver])),
   uploads: seedUploads(),
   lastAdvance: Date.now(),
+  admin: false,
 });
 
-export const state: MockState = fresh();
+export const state: MockState = { ...fresh(), admin: storedAdmin() };
 export const resetMockState = () => Object.assign(state, fresh());

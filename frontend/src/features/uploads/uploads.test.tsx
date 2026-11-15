@@ -8,9 +8,11 @@ import { describe, expect, it, vi } from "vitest";
 import { API_BASE } from "@/api/client";
 import { createAppRouter } from "@/app/router";
 import { server } from "@/mocks/server";
+import { state } from "@/mocks/state";
+import { isTerminal } from "./api";
 import { pipelineDone, viewStatus } from "./status";
 
-async function renderUploads() {
+async function renderUploads(wait = "chen-aldana-preprint.pdf") {
   const router = createAppRouter(["/uploads"]);
   await router.load();
   render(
@@ -18,7 +20,7 @@ async function renderUploads() {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText("chen-aldana-preprint.pdf");
+  await screen.findByText(wait);
 }
 const file = (name: string, bytes = 10, type = "application/pdf") => {
   const f = new File(["x".repeat(Math.min(bytes, 10))], name, { type });
@@ -41,13 +43,21 @@ describe("stage mapping", () => {
     expect(viewStatus({ stage: "rejected", status: "failed" })).toBe("failed");
     expect(viewStatus({ stage: "searchable", status: "done" })).toBe("done");
     expect(viewStatus({ stage: "chunked", status: "queued" })).toBe("running");
+    expect(viewStatus({ stage: "needs_title", status: "running" })).toBe("title");
+    expect(pipelineDone("needs_title")).toBe(2);
+  });
+
+  it("terminal stages stop polling", () => {
+    for (const stage of ["searchable", "review", "needs_title", "rejected", "cancelled"]) expect(isTerminal({ status: "running", stage })).toBe(true);
+    expect(isTerminal({ status: "failed", stage: "scanned" })).toBe(true);
+    expect(isTerminal({ status: "running", stage: "chunked" })).toBe(false);
   });
 });
 
 describe("my uploads", () => {
   it("shows each upload with its pipeline stages and status pill", async () => {
     await renderUploads();
-    expect(rows()).toHaveLength(4);
+    expect(rows()).toHaveLength(5);
     const u2 = screen.getByText("hypergraph-cheeger-draft.docx").closest(".trow") as HTMLElement;
     expect(within(u2).getByText("Processing")).toBeInTheDocument();
     for (const l of ["Scanned", "Parsed", "Chunked", "Embedded", "Searchable"]) expect(within(u2).getByText(l)).toBeInTheDocument();
@@ -63,9 +73,9 @@ describe("my uploads", () => {
   it("filter segments show counts and filter the table", async () => {
     await renderUploads();
     const seg = screen.getByRole("group", { name: "Filter uploads" });
-    expect(within(seg).getByRole("button", { name: /^All\s*4$/ })).toBeInTheDocument();
+    expect(within(seg).getByRole("button", { name: /^All\s*5$/ })).toBeInTheDocument();
     expect(within(seg).getByRole("button", { name: /^Processing\s*1$/ })).toBeInTheDocument();
-    expect(within(seg).getByRole("button", { name: /^Needs decision\s*1$/ })).toBeInTheDocument();
+    expect(within(seg).getByRole("button", { name: /^Needs you\s*2$/ })).toBeInTheDocument();
     expect(within(seg).getByRole("button", { name: /^Failed\s*1$/ })).toBeInTheDocument();
     expect(within(seg).getByRole("button", { name: /^Searchable\s*1$/ })).toBeInTheDocument();
     await userEvent.click(within(seg).getByRole("button", { name: /^Failed/ }));
@@ -86,7 +96,7 @@ describe("my uploads", () => {
     await renderUploads();
     await userEvent.upload(screen.getByLabelText(/Drop files here or choose files/), file("fresh-paper.pdf"));
     expect(await screen.findByText("fresh-paper.pdf")).toBeInTheDocument();
-    expect(rows()).toHaveLength(5);
+    expect(rows()).toHaveLength(6);
   });
 
   it("409 duplicate asks, then retries with force=true on confirm", async () => {
@@ -124,20 +134,28 @@ describe("my uploads", () => {
 
   it("near-duplicate decision posts the chosen action", async () => {
     const bodies: unknown[] = [];
-    server.use(http.post(`${API_BASE}/documents/:id/versions/:vid/near-dup`, async ({ request }) => { bodies.push(await request.json()); return HttpResponse.json({ ok: true }); }));
+    server.use(http.post(`${API_BASE}/documents/:id/versions/:vid/near-dup`, async ({ request }) => { bodies.push(await request.json()); return HttpResponse.json({ version_id: "uv-4", document_id: "u-4", stage: "deduped" }); }));
     await renderUploads();
     const u4 = screen.getByText("chen-aldana-preprint.pdf").closest(".trow") as HTMLElement;
-    expect(within(u4).getByText(/96% similar text/)).toBeInTheDocument();
-    await userEvent.click(within(u4).getByRole("button", { name: "Yes, add as version 3" }));
+    expect(within(u4).getByText(/Very close to/)).toHaveTextContent("Very close to Lower bounds on the spectral gap of random regular graphs. Is it the same document?");
+    expect(u4.textContent).not.toMatch(/similar|%/);
+    expect(within(u4).getByRole("button", { name: "Compare" })).toBeInTheDocument();
+    await userEvent.click(within(u4).getByRole("button", { name: "Yes, add as new version" }));
     await waitFor(() => expect(bodies).toEqual([{ action: "new_version" }]));
     await userEvent.click(within(u4).getByRole("button", { name: "No, keep separate" }));
     await userEvent.click(within(u4).getByRole("button", { name: "Cancel upload" }));
     await waitFor(() => expect(bodies).toEqual([{ action: "new_version" }, { action: "separate" }, { action: "cancel" }]));
   });
 
+  it("near-duplicate prompt without a match title still works", async () => {
+    server.use(http.get(`${API_BASE}/me/uploads`, () => HttpResponse.json({ items: [{ document_id: "a", version_id: "b", title: null, filename: "n.pdf", size: 1, visibility: "everyone", status: "done", error: null, uploaded_at: "2026-11-15T00:00:00Z", stage: "review", stage_label: "Needs your decision", page_count: null, near_dup_of: { document_id: "d", title: null } }], total: 1 })));
+    await renderUploads("n.pdf");
+    expect(screen.getByText("a document in the library")).toBeInTheDocument();
+  });
+
   it("polls while something is processing", async () => {
     const spy = vi.fn();
-    server.use(http.get(`${API_BASE}/me/uploads`, () => { spy(); return HttpResponse.json({ items: [{ document_id: "a", version_id: "b", title: "t", filename: "t.pdf", size: 1, visibility: "everyone", status: "running", error: null, uploaded_at: "2026-11-15T00:00:00Z", stage: "parsed" }], total: 1 }); }));
+    server.use(http.get(`${API_BASE}/me/uploads`, () => { spy(); return HttpResponse.json({ items: [{ document_id: "a", version_id: "b", title: "t", filename: "t.pdf", size: 1, visibility: "everyone", status: "running", error: null, uploaded_at: "2026-11-15T00:00:00Z", stage: "parsed", stage_label: "Parsed", page_count: null, near_dup_of: null }], total: 1 }); }));
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const router = createAppRouter(["/uploads"]);
@@ -148,6 +166,65 @@ describe("my uploads", () => {
       await vi.advanceTimersByTimeAsync(3100);
       await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(before));
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("needs a title", () => {
+  const input = () => within(screen.getByText("untitled-scan-0412.pdf").closest(".trow") as HTMLElement).getByLabelText("Document title");
+
+  it("the row asks for a title, submits with Enter, and moves on", async () => {
+    const puts: { url: string; body: unknown }[] = [];
+    server.use(http.put(`${API_BASE}/documents/:id/versions/:vid/title`, async ({ request }) => {
+      puts.push({ url: new URL(request.url).pathname, body: await request.json() });
+      return HttpResponse.json({ version_id: "uv-5", document_id: "u-5", stage: "parsed" });
+    }));
+    await renderUploads();
+    const row = screen.getByText("untitled-scan-0412.pdf").closest(".trow") as HTMLElement;
+    expect(within(row).getByText("Needs a title")).toBeInTheDocument();
+    expect(within(row).getByText("We couldn't find a title in this file. Add one so people can find it.")).toBeInTheDocument();
+    expect(input()).toHaveAttribute("maxlength", "500");
+    expect(within(row).getByRole("button", { name: "Save title" })).toBeDisabled(); // blank
+    await userEvent.type(input(), "   ");
+    expect(within(row).getByRole("button", { name: "Save title" })).toBeDisabled(); // whitespace only
+    await userEvent.type(input(), "Lecture notes 1998{Enter}");
+    await waitFor(() => expect(puts).toEqual([{ url: "/api/documents/u-5/versions/uv-5/title", body: { title: "Lecture notes 1998" } }]));
+    expect(await screen.findByText("Title saved. Processing continues.")).toBeInTheDocument();
+  });
+
+  it("with the real mock the row leaves needs_title after saving", async () => {
+    await renderUploads();
+    await userEvent.type(input(), "A real title");
+    await userEvent.click(screen.getByRole("button", { name: "Save title" }));
+    await waitFor(() => expect(screen.queryByLabelText("Document title")).toBeNull());
+    expect(screen.getByText("A real title")).toBeInTheDocument();
+  });
+
+  it("a server error is shown as a message", async () => {
+    server.use(http.put(`${API_BASE}/documents/:id/versions/:vid/title`, () => HttpResponse.json({ detail: "not awaiting a title" }, { status: 409 })));
+    await renderUploads();
+    await userEvent.type(input(), "x{Enter}");
+    expect(await screen.findByText("not awaiting a title")).toBeInTheDocument();
+  });
+
+  it("admins see the queue (capped at 10, Show all expands); non-admins do not", async () => {
+    state.admin = true;
+    const many = Array.from({ length: 12 }, (_, i) => ({ document_id: `d${i}`, version_id: `v${i}`, filename: `f${i}.pdf`, owner: "k.ito", uploaded_at: "2026-11-1" + (i % 9) + "T10:00:00Z" }));
+    server.use(http.get(`${API_BASE}/admin/needs-title`, () => HttpResponse.json(many)));
+    await renderUploads();
+    const q = await screen.findByRole("region", { name: "Waiting for a title" });
+    expect(within(q).getByText("Uploads from anyone that need a title before they can be searched. Oldest first.")).toBeInTheDocument();
+    expect(within(q).getAllByRole("listitem")).toHaveLength(10);
+    await userEvent.click(within(q).getByRole("button", { name: "Show all 12" }));
+    expect(within(q).getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("non-admin gets no queue and never asks for it", async () => {
+    let asked = 0;
+    server.use(http.get(`${API_BASE}/admin/needs-title`, () => { asked++; return HttpResponse.json([]); }));
+    await renderUploads();
+    await screen.findByLabelText("Document title");
+    expect(screen.queryByRole("region", { name: "Waiting for a title" })).toBeNull();
+    expect(asked).toBe(0);
   });
 });
 

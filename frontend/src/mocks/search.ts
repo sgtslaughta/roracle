@@ -3,13 +3,25 @@ import type { FacetName, FacetValue, SearchHit, SearchResponse } from "@/api/typ
 import { DOCS, type MockDoc } from "./docs";
 import { state } from "./state";
 
+/** Collection ids are positional (c1, c2…): the backend filters and facets by id, with the name as label. */
+export const COLLECTION_NAMES = [...new Set(DOCS.flatMap((d) => d.collections))];
+export const collectionId = (name: string) => `c${COLLECTION_NAMES.indexOf(name) + 1}`;
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/** Server-style highlight: escape first, then wrap matches in <em>. */
+export function emphasize(text: string, ts: string[]): string {
+  const safe = esc(text);
+  if (!ts.length) return safe;
+  const re = new RegExp(`(${ts.map((t) => esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return safe.replace(re, "<em>$1</em>");
+}
+
 const FACETS: FacetName[] = ["tags", "year", "file_type", "org_unit", "collection", "author"];
 const values: Record<FacetName, (d: MockDoc) => string[]> = {
   tags: (d) => tagsOf(d),
   year: (d) => [String(d.year)],
   file_type: (d) => [d.type],
   org_unit: (d) => [d.org],
-  collection: (d) => d.collections,
+  collection: (d) => d.collections.map(collectionId),
   author: (d) => d.authors,
 };
 
@@ -73,17 +85,17 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
     const c: Record<string, number> = {};
     matched.filter((r) => passes(r.d, f)).forEach((r) => values[f](r.d).forEach((v) => (c[v] = (c[v] ?? 0) + 1)));
     facets[f] = Object.entries(c)
-      .map(([value, count]) => ({ value, count }))
+      .map(([value, count]): FacetValue => (f === "collection" ? { value, count, label: COLLECTION_NAMES[Number(value.slice(1)) - 1] } : { value, count }))
       .sort((a, b) => (f === "year" ? Number(b.value) - Number(a.value) : b.count - a.count || a.value.localeCompare(b.value)));
   }
 
   const size = Math.min(50, Number(sp.get("size")) || 20);
   const page = Math.max(1, Number(sp.get("page")) || 1);
   const results: SearchHit[] = kept.slice((page - 1) * size, page * size).map(({ d, hits, score }) => ({
-    doc_id: d.id, title: d.title, authors: d.authors, year: d.year, score: score * boost(d),
-    passages: (hits.length ? hits : [{ p: 0, c: 0 }]).slice(0, 2).map((h) => ({ page: h.p + 1, chunk_id: chunkId(d, h.p, h.c), text: d.pages[h.p][h.c] })),
+    doc_id: d.id, title: d.title, authors: d.authors, year: d.year, score: ts.length ? score * boost(d) : 0,
+    passages: hits.slice(0, 2).map((h) => ({ page: h.p + 1, chunk_id: chunkId(d, h.p, h.c), text: d.pages[h.p][h.c], highlight: emphasize(d.pages[h.p][h.c], ts) })),
     tags: tagsOf(d), votes: votesOf(d), file_type: d.type, version: state.versions[d.id],
     venue: d.venue, org_unit: d.org, owner_id: ownerOf(d), flag: d.flag ?? null, cited_by_count: citedBy(d.id).length,
   }));
-  return { total: kept.length, page, results, facets };
+  return { total: Math.min(200, kept.length), page, results, facets };
 }

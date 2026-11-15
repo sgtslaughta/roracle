@@ -1,9 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, seg } from "@/api/client";
-import type { Collection, SearchResponse, Votes, VoteRequest } from "@/api/types";
+import type { Collection, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
 import { stringifySearch, type LibrarySearch } from "@/lib/searchParams";
 
 export const PAGE_SIZE = 20;
+/** The backend caps `total` here; at the cap the count reads "200+". */
+export const RESULT_CAP = 200;
 
 export const useSearch = (s: LibrarySearch) =>
   useQuery({
@@ -13,6 +15,12 @@ export const useSearch = (s: LibrarySearch) =>
   });
 
 export const useCollections = () => useQuery({ queryKey: ["collections"], queryFn: () => apiFetch<Collection[]>("/collections") });
+
+/** id -> collection name (collection filters carry ids). */
+export function useCollectionName() {
+  const { data } = useCollections();
+  return (id: string) => data?.find((c) => c.id === id)?.name ?? id;
+}
 
 export function useVote(docId: string) {
   const qc = useQueryClient();
@@ -25,7 +33,7 @@ export function useVote(docId: string) {
 export function useAddTag(docId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (tag: string) => apiFetch<{ tags: string[] }>(`/documents/${seg(docId)}/tags`, { method: "POST", json: { tag } }),
+    mutationFn: (tag: string) => apiFetch<TagsResponse>(`/documents/${seg(docId)}/tags`, { method: "POST", json: { tag } }),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["search"] }), qc.invalidateQueries({ queryKey: ["doc", docId] })]),
   });
 }

@@ -4,7 +4,7 @@ import { SORTS } from "@/lib/searchParams";
 import { ActiveFilters } from "./ActiveFilters";
 import { Facets } from "./Facets";
 import { FiltersButton } from "./FiltersButton";
-import { PAGE_SIZE, useSearch } from "./api";
+import { PAGE_SIZE, RESULT_CAP, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
 import { ResultCard } from "./ResultCard";
@@ -19,6 +19,7 @@ export function SearchPage() {
   const terms = searchTerms(search.q ?? "");
   const page = data?.page ?? search.page ?? 1;
   const total = data?.total ?? 0;
+  const capped = total >= RESULT_CAP;
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
 
@@ -28,7 +29,7 @@ export function SearchPage() {
         <div>
           <h1>{search.q ? `Results for “${search.q}”` : "Library"}</h1>
           <p className="sub" aria-live="polite">
-            {!data ? "Loading…" : total ? `Showing ${first}–${first + data.results.length - 1} of ${total} documents` : "No documents match"}
+            {!data ? "Loading…" : total ? `Showing ${first}–${first + data.results.length - 1} of ${capped ? `${RESULT_CAP}+` : total} documents` : "No documents match"}
           </p>
         </div>
         <div className="sortrow">
@@ -41,7 +42,7 @@ export function SearchPage() {
       </div>
       <ActiveFilters search={search} onRemove={nav.remove} onClear={nav.clear} />
       <div className="sbody">
-        <div className="facet-rail"><Facets facets={data?.facets} selected={search} onToggle={nav.toggle} /></div>
+        <div className="facet-rail"><Facets facets={data?.facets} selected={search} onToggle={nav.toggle} approximate={!search.q && capped} /></div>
         <div>
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">

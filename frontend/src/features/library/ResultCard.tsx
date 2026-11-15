@@ -2,7 +2,8 @@ import { Clock, FileText, FileType2, History, Quote, TextQuote } from "lucide-re
 import type { Bbox, SearchHit } from "@/api/types";
 import { OverflowList } from "@/components/OverflowList";
 import { Badge } from "@/components/ui/badge";
-import { highlight } from "./highlight";
+import { CiteLine } from "@/components/CiteLine";
+import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
 import { useCanRemoveTags } from "./useMe";
 import { VoteControl } from "./VoteControl";
@@ -25,7 +26,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
         <div className="rtop">
           <div style={{ minWidth: 0 }}>
             <h3><button title={hit.title} onClick={() => onOpen(hit.doc_id)}>{highlight(hit.title, terms)}</button></h3>
-            <p className="citeline trunc" title={`${hit.authors.join(", ")}. ${hit.venue ?? ""} ${hit.year}`}>{hit.authors.join(", ")}. {hit.venue && <i>{hit.venue}</i>}{hit.venue && ", "}{hit.year}.</p>
+            <CiteLine authors={hit.authors} venue={hit.venue} year={hit.year} />
           </div>
           {hit.flag && <span className="flag"><Clock aria-hidden />{hit.flag}</span>}
         </div>
@@ -33,7 +34,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           {hit.passages.map((p) => (
             <button key={p.chunk_id} className="hit" onClick={() => onOpen(hit.doc_id, { page: p.page, chunkId: p.chunk_id, bbox: p.bbox })}>
               <small><TextQuote aria-hidden />Page {p.page}</small>
-              {highlight(p.text, terms)}
+              {p.highlight ? safeHighlight(p.highlight) : p.text}
             </button>
           ))}
         </div>

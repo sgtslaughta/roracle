@@ -26,7 +26,7 @@ export function Sidebar() {
             <OverflowList
               items={collections} max={6} layout="stack" menuLabel="More collections" getLabel={(c) => c.name} moreLabel={(k) => `+${k} more`}
               renderItem={(c) => (
-                <Link key={c.id} to="/library" search={{ collection: [c.name] }} title={c.name}>
+                <Link key={c.id} to="/library" search={{ collection: [c.id] }} title={c.name}>
                   <Folder aria-hidden />
                   <span>{c.name}</span>
                 </Link>

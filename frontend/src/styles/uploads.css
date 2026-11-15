@@ -34,3 +34,15 @@
 .tdet .acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .drop:focus-within { outline: 2px solid var(--apricot); outline-offset: 2px; }
+.pill.title { color: var(--hl-ink); background: var(--hl); }
+.tdet.title { background: color-mix(in srgb, var(--apricot) 18%, transparent); }
+.fname small.fn { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.titleform { display: flex; gap: 6px; flex: 1 1 320px; }
+.titleform .inp { flex: 1; min-width: 160px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.ntq { margin-top: 24px; }
+.ntq h2 { font-size: 16px; font-weight: 600; }
+.ntq ul { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.ntq li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }
+.ntq .who { flex: 1 1 220px; min-width: 0; }
+.ntq .who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ntq .who small { color: var(--muted); font-size: 12px; }
