@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -50,10 +50,16 @@ def upload(
         ) from None
     try:
         if settings.upload_quota_bytes > 0:
+            # serialize per user until commit so concurrent uploads cannot overshoot the quota
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:u, 0))"), {"u": str(p.user_id)}
+            )
             used = session.scalar(
                 select(func.coalesce(func.sum(DocumentVersion.size), 0))
                 .join(Document, Document.id == DocumentVersion.document_id)
-                .where(Document.owner_id == p.user_id, Document.deleted_at.is_(None))
+                .where(
+                    Document.owner_id == p.user_id, DocumentVersion.stage.not_in(("rejected", "cancelled"))
+                )
             )
             if used + staged.size > settings.upload_quota_bytes:
                 raise HTTPException(413, "upload quota exceeded")

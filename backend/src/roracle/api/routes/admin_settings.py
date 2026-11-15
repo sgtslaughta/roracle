@@ -1,7 +1,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from roracle import runtime
@@ -27,6 +27,7 @@ def get_settings(p: Admin, session: Db, request: Request) -> dict:
 @router.put("/admin/settings")
 def put_settings(body: runtime.SettingsIn, p: Admin, session: Db, request: Request) -> dict:
     base = request.app.state.settings
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('app_settings', 0))"))
     old = runtime.overrides(session)
     new = dict(old)
     for k in body.model_fields_set:

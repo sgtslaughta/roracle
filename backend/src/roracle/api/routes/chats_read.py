@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
+from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
 from roracle.auth import Principal, current_principal, get_app_settings
@@ -233,9 +234,7 @@ def rate(message_id: UUID, body: RatingIn, p: Who, session: Db) -> dict:
 
 
 @router.get("/admin/ratings")
-def admin_ratings(p: Who, session: Db, limit: Annotated[int, Query(ge=1, le=500)] = 100) -> list[dict]:
-    if not p.is_admin:
-        raise HTTPException(403, "admin only")
+def admin_ratings(p: Admin, session: Db, limit: Annotated[int, Query(ge=1, le=500)] = 100) -> list[dict]:
     rows = session.execute(
         select(AnswerRating, ChatMessage, User.username)
         .join(ChatMessage, ChatMessage.id == AnswerRating.message_id)

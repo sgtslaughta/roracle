@@ -3,7 +3,7 @@ from conftest import bearer
 from fastapi.testclient import TestClient
 from ingest_helpers import docling_doc, fake_convert, make_version
 from mcp_helpers import rpc
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from roracle import runtime
 from roracle.ingest import pipeline
@@ -88,6 +88,7 @@ def test_upload_limit_override(client, adm, as_ana):
     up = lambda: client.post(
         "/documents", headers=as_ana, files={"file": ("a.pdf", b"x" * (1024 * 1024 + 1), "application/pdf")}
     )
+    assert up().status_code == 201
     put(client, adm, {"max_upload_bytes": 1024 * 1024})
     assert up().status_code == 413
 
@@ -134,3 +135,93 @@ def test_worker_dedupe_uses_override(db_session, session_factory, cfg, store, us
         d = s.get(Document, v.document_id)
         pipeline._dedupe(s, s.get(DocumentVersion, v.id), d, "some text here", cfg, session_factory)
     assert seen == [(0.91, cfg.near_dup_summary_threshold)]
+
+
+def _flatten(routes, prefix=""):
+    for r in routes:
+        if hasattr(r, "original_router"):  # FastAPI wraps included routers
+            yield from _flatten(r.original_router.routes, prefix + r.include_context.prefix)
+        elif hasattr(r, "dependant"):
+            yield prefix + r.path, r
+
+
+def _admin_routes(app):
+    return [(p, r) for p, r in _flatten(app.routes) if p.startswith("/admin")]
+
+
+def test_every_admin_route_requires_admin(app):
+    from roracle.api.routes.admin_deps import require_admin
+
+    def walk(d):
+        for sub in d.dependencies:
+            yield sub.call
+            yield from walk(sub)
+
+    routes = _admin_routes(app)
+    assert routes
+    assert len(routes) >= 3
+    for path, r in routes:
+        assert require_admin in set(walk(r.dependant)), path
+
+
+def test_admin_ratings_forbidden_for_non_admin(client, as_ana):
+    assert client.get("/admin/ratings", headers=as_ana).status_code == 403
+
+
+def test_denied_attempt_audited(client, as_ana, db_session):
+    assert client.get("/admin/settings", headers=as_ana).status_code == 403
+    row = db_session.scalars(select(AuditLog).where(AuditLog.action == "admin.denied")).one()
+    assert row.target == "/admin/settings"
+
+
+@pytest.mark.usefixtures("_blob_store_override")
+def test_quota_lock_taken_before_sum(client, adm, as_ana, db_session):
+    from sqlalchemy import event
+
+    put(client, adm, {"upload_quota_bytes": 100})
+    seen = []
+    eng = db_session.get_bind()
+
+    def spy(conn, cur, stmt, *a):
+        if "pg_advisory_xact_lock" in stmt:
+            seen.append("lock")
+        elif "sum(" in stmt.lower() and "document_versions" in stmt:
+            seen.append("sum")
+
+    event.listen(eng, "before_cursor_execute", spy)
+    try:
+        r = client.post("/documents", headers=as_ana, files={"file": ("a.pdf", b"abc", "application/pdf")})
+    finally:
+        event.remove(eng, "before_cursor_execute", spy)
+    assert r.status_code == 201 and seen[:2] == ["lock", "sum"]
+
+
+@pytest.mark.usefixtures("_blob_store_override")
+def test_quota_counts_trash_not_rejected_or_cancelled(client, adm, as_ana, db_session):
+    up = lambda data: client.post(
+        "/documents", headers=as_ana, files={"file": ("a.pdf", data, "application/pdf")}
+    )
+    put(client, adm, {"upload_quota_bytes": 10})
+    did = up(b"12345678").json()
+    db_session.execute(text("UPDATE documents SET deleted_at = now()"))
+    db_session.flush()
+    assert up(b"abc").status_code == 413  # trash still counts
+    db_session.execute(text("UPDATE document_versions SET stage = 'rejected'"))
+    db_session.flush()
+    assert up(b"abc").status_code == 201
+    assert did
+
+
+def test_put_bounds_and_dedupe(client, adm):
+    assert put(client, adm, {"rerank_depth": 101}).status_code == 422
+    assert put(client, adm, {"upload_quota_bytes": 2**63}).status_code == 422
+    out = put(client, adm, {"chat_models": ["a", "b", "a"]}).json()
+    assert out["chat_models"]["value"] == ["a", "b"]
+
+
+def test_invalid_stored_override_ignored(db_session):
+    db_session.add_all(
+        [AppSetting(key="rerank_depth", value="junk"), AppSetting(key="pats_enabled", value=False)]
+    )
+    db_session.flush()
+    assert runtime.overrides(db_session) == {"pats_enabled": False}
