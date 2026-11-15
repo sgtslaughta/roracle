@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from roracle.ingest.scan import scan
+from roracle.queue import NonRetryable
 
 
 def _serve(reply: bytes | None, received: dict):
@@ -64,9 +65,51 @@ def test_early_close(fake):
 
 
 def test_error_reply(fake):
-    port = fake(b"INSTREAM size limit exceeded. ERROR\0")
-    with pytest.raises(ConnectionError, match="size limit"):
+    port = fake(b"some other ERROR\0")
+    with pytest.raises(ConnectionError, match="other ERROR"):
         scan(io.BytesIO(b"x"), "127.0.0.1", port)
+
+
+def test_size_limit_non_retryable(fake):
+    port = fake(b"INSTREAM size limit exceeded. ERROR\0")
+    with pytest.raises(NonRetryable, match="size limit"):
+        scan(io.BytesIO(b"x"), "127.0.0.1", port)
+
+
+@pytest.mark.parametrize("reply", [b"stream: OK", b"stream: Sig-OK", b"", b"weird\0"])
+def test_truncated_or_unexpected_fails_closed(fake, reply):
+    port = fake(reply)
+    with pytest.raises(ConnectionError):
+        scan(io.BytesIO(b"x"), "127.0.0.1", port)
+
+
+def test_timeout(fake):
+    ev = threading.Event()
+
+    class H(socketserver.BaseRequestHandler):
+        def handle(self):
+            ev.wait(3)
+
+    srv = socketserver.TCPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(ConnectionError):
+            scan(io.BytesIO(b"x"), "127.0.0.1", srv.server_address[1], timeout=0.2)
+    finally:
+        ev.set()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_local_read_error_propagates(fake):
+    class Bad(io.BytesIO):
+        def read(self, n=-1):
+            raise OSError("disk")
+
+    port = fake(b"stream: OK\0")
+    with pytest.raises(OSError, match="disk") as ei:
+        scan(Bad(), "127.0.0.1", port)
+    assert not isinstance(ei.value, ConnectionError)
 
 
 def test_refused():
