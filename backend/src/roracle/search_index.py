@@ -38,6 +38,9 @@ def _mapping(dims: int) -> dict[str, Any]:
             "share_groups": kw,
             "title": {"type": "text", "analyzer": "english"},
             "authors": kw,
+            "tags": kw,
+            "file_type": kw,
+            "collections": kw,
             "year": {"type": "integer"},
             "text": {"type": "text", "analyzer": "english"},
             "headings": {"type": "text", "analyzer": "english"},
@@ -65,6 +68,11 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
             if e.error != "resource_already_exists_exception":
                 raise
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
+    missing = {
+        f: t for f, t in _mapping(dims)["properties"].items() if f not in props and t == {"type": "keyword"}
+    }
+    if missing:  # fields added after the index was created (R9)
+        es.indices.put_mapping(index=name, properties=missing)
     if props.get("embedding", {}).get("dims") != dims:
         raise NonRetryable("search index dimension mismatch: reindex required")
     if not es.indices.exists_alias(name=alias, index=name):
@@ -87,6 +95,12 @@ def acl_fields(session: Session, document: Document) -> dict[str, Any]:
     }
 
 
+def file_type(filename: str | None) -> str:
+    """Lowercase extension without dot; "other" when absent."""
+    ext = (filename or "").rsplit(".", 1)[1].lower() if "." in (filename or "") else ""
+    return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else "other"
+
+
 def index_chunks(
     es: Elasticsearch,
     version: DocumentVersion,
@@ -98,6 +112,7 @@ def index_chunks(
     *,
     title: str,
     is_latest: bool | None = None,
+    tags: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -110,6 +125,8 @@ def index_chunks(
         "title": title,
         "authors": meta.get("authors") or [],
         "year": meta.get("year"),
+        "tags": tags or [],
+        "file_type": file_type(version.filename),
         "embedding_model": model,
     }
     actions = [

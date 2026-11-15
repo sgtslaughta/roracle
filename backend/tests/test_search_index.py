@@ -111,3 +111,35 @@ def test_ensure_index_dims_mismatch(es, model):
     ensure_index(es, model, 4)
     with pytest.raises(NonRetryable, match="dimension mismatch"):
         ensure_index(es, model, 8)
+
+
+def test_file_type():
+    from roracle.search_index import file_type
+
+    assert [file_type(n) for n in ("a.PDF", "b.docx", "c.md", "noext", "x.tar.gz", "", None, "a.b c")] == [
+        "pdf", "docx", "md", "other", "gz", "other", "other", "other",
+    ]  # fmt: skip
+
+
+def test_ensure_index_adds_missing_fields_to_old_index(es, model):
+    name = index_name(model)
+    es.indices.create(
+        index=name,
+        mappings={"properties": {"embedding": {"type": "dense_vector", "dims": 4, "index": True,
+                                               "similarity": "cosine"}}},
+    )  # fmt: skip
+    ensure_index(es, model, 4)
+    ensure_index(es, model, 4)
+    props = es.indices.get_mapping(index=name)[name]["mappings"]["properties"]
+    for f in ("tags", "file_type", "collections", "doc_id", "authors"):
+        assert props[f]["type"] == "keyword"
+
+
+def test_index_chunks_file_type_and_tags(es, model, db_session, document, blob):
+    ensure_index(es, model, 4)
+    v = _v(document, blob)
+    v.filename = "Paper.PDF"
+    index_chunks(es, v, document, _chunks(1), [[0.1] * 4], {}, model, title="T", tags=["ml"])
+    es.indices.refresh(index=index_name(model))
+    src = es.search(index=index_name(model))["hits"]["hits"][0]["_source"]
+    assert src["file_type"] == "pdf" and src["tags"] == ["ml"]
