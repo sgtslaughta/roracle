@@ -1,4 +1,8 @@
-"""End-to-end ingest on the real local stack (MinIO, Docling, ES, model endpoint). Run: ROR_E2E=1 pytest -m e2e."""
+"""End-to-end ingest on the real local stack (MinIO, Docling, ES, model endpoint).
+
+Run: ROR_E2E=1 pytest -m e2e. Settings come from ROR_* env; only the GPU-tunnel LLM URL and
+summary model differ from Settings defaults, so those are defaulted here when unset.
+"""
 
 import os
 import time
@@ -27,14 +31,11 @@ MAX_WAIT_S = 180  # brief says 60; first docling/LLM calls are slow
 
 @pytest.fixture
 def e2e_settings(settings, test_bucket):
-    env = os.environ.get
+    tunnel = {"llm_base_url": "http://localhost:21434/v1", "summary_model": "qwen2.5:14b"}
+    overrides = {k: v for k, v in tunnel.items() if f"ROR_{k.upper()}" not in os.environ}
     return settings.model_copy(
         update={
-            "llm_base_url": env("ROR_LLM_BASE_URL", "http://localhost:21434/v1"),
-            "embed_model": env("ROR_EMBED_MODEL", "embeddinggemma"),
-            "embed_dims": int(env("ROR_EMBED_DIMS", "768")),
-            "summary_model": env("ROR_SUMMARY_MODEL", "qwen2.5:14b"),
-            "docling_url": env("ROR_DOCLING_URL", "http://localhost:5001"),
+            **overrides,
             "s3_bucket": test_bucket,  # same bucket as the API store override
             "grobid_url": "",
             "clamav_host": "",
@@ -106,7 +107,10 @@ def test_ingest_end_to_end(
         size=5,
     )["hits"]["hits"]
     assert knn and knn[0]["_source"]["version_id"] == vid
-    assert len(es.get(index=hits[0]["_index"], id=hits[0]["_id"])["_source"]["embedding"]) == 768
+    assert (
+        len(es.get(index=hits[0]["_index"], id=hits[0]["_id"])["_source"]["embedding"])
+        == e2e_settings.embed_dims
+    )
 
     mine = client.get("/me/uploads", headers=as_ana).json()["items"]
     assert [i["stage"] for i in mine if i["version_id"] == vid] == ["searchable"]

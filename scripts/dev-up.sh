@@ -16,11 +16,12 @@ wait_for() { # name timeout_s cmd...
 
 "${DC[@]}" up -d
 wait_for postgres 60 "${DC[@]}" exec -T postgres pg_isready -U roracle
-wait_for minio 60 curl -sf http://localhost:9000/minio/health/live
-wait_for elasticsearch 120 curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s'
-wait_for keycloak 180 curl -sf http://localhost:8080/realms/roracle
-wait_for docling 180 curl -sf http://localhost:5001/health
+wait_for minio 60 curl -sf -m 3 http://localhost:9000/minio/health/live
+wait_for elasticsearch 120 curl -sf -m 3 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s'
+wait_for keycloak 180 curl -sf -m 3 http://localhost:8080/realms/roracle
+wait_for docling 180 curl -sf -m 3 http://localhost:5001/health
 
+# Sources .env.example: its values override any exported ROR_* variables.
 set -a; source backend/.env.example; set +a
 cd backend
 for db in roracle roracle_test; do

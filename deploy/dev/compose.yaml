@@ -77,8 +77,11 @@ services:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}clamav/clamav:1.4
     environment:
-      CLAMD_CONF_StreamMaxLength: 500M
-      CLAMD_CONF_MaxFileSize: 500M
+      # fail closed: limits exceed the 500 MB upload cap; anything over a limit is reported FOUND
+      CLAMD_CONF_StreamMaxLength: 600M
+      CLAMD_CONF_MaxFileSize: 600M
+      CLAMD_CONF_MaxScanSize: 600M
+      CLAMD_CONF_AlertExceedsMax: "yes"
     ports: ["3310:3310"]
 volumes:
   esdata:
