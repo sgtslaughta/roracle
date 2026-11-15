@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import exists, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle.models import Document, DocumentVersion
+from roracle.models import Document, DocumentVersion, Vote
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -99,4 +99,16 @@ def demote_older_versions(
         # A newer version may have moved in meanwhile: it keeps the flag, this one then is not latest.
         newer = exists().where(DocumentVersion.document_id == doc_id, DocumentVersion.version > number)
         s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
+        s.commit()
+
+
+def clear_outdated_reasons(
+    session_factory: sessionmaker[Session], doc_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+) -> None:
+    """A new latest version makes `outdated` downvotes stale: keep the votes, drop the reason (R8)."""
+    with session_factory() as s:
+        _lock_timeout(s, lock_timeout_s)
+        s.execute(
+            update(Vote).where(Vote.document_id == doc_id, Vote.reason == "outdated").values(reason=None)
+        )
         s.commit()

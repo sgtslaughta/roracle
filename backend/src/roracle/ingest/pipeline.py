@@ -22,13 +22,14 @@ from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
     bump_attempts,
+    clear_outdated_reasons,
     demote_older_versions,
     set_stage,
     update_document,
     update_version,
 )
 from roracle.ingest.summary import summarize
-from roracle.models import Document, DocumentVersion
+from roracle.models import Document, DocumentVersion, Tag
 from roracle.queue import NonRetryable
 from roracle.storage import BlobStore
 
@@ -115,14 +116,17 @@ def _index(
     newest = session.scalar(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == d.id)
     )
+    tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
     search_index.index_chunks(
-        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest
+        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
     )
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
         search_index.mark_previous_versions(es, d.id, v.version)
         demote_older_versions(sf, d.id, v.id)
+        if v.version > 1:
+            clear_outdated_reasons(sf, d.id)
     set_stage(sf, v.id, "searchable")
 
 

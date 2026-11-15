@@ -322,3 +322,28 @@ def test_llm_down_is_retryable_and_stage_unchanged(
     job = db_session.scalars(select(Job)).first()
     assert job.status == "queued" and not job.last_error.startswith("user:")
     assert _stage(db_session, v) == "chunked"
+
+
+@pytest.mark.integration
+def test_tags_indexed_and_new_version_clears_outdated_reasons(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Tag, Vote
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    db_session.add_all([Tag(document_id=v1.document_id, tag="rag"), Tag(document_id=v1.document_id, tag="a")])
+    db_session.add(Vote(user_id=user.id, document_id=v1.document_id, value=-1, reason="outdated"))
+    other = make_version(db_session, store, user)
+    db_session.add(Vote(user_id=user.id, document_id=other.document_id, value=-1, reason="outdated"))
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v1)
+    assert {tuple(h["_source"]["tags"]) for h in _chunks(es, cfg, v1)} == {("a", "rag")}
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, v1.document_id)).reason == "outdated"  # v1 keeps it
+    v2 = make_version(db_session, store, user, doc=db_session.get(Document, v1.document_id), version=2)
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    mine = db_session.get(Vote, (user.id, v1.document_id))
+    assert (mine.value, mine.reason) == (-1, None)
+    assert db_session.get(Vote, (user.id, other.document_id)).reason == "outdated"
