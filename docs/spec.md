@@ -111,7 +111,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 - Snapshot for chats; live reference + membership snapshot for collections.
 - `load_handoff` returns manifest: kind, title, goal, LLM brief (editable at creation), doc ids,
   cited passages; full transcript via `get_handoff_part` (paged).
-- Link `https://<host>/h/XXXX-XXXX` = resource `roracle://handoff/XXXXXXXX` (≈ 50-bit, unambiguous
+- Link `https://<host>/h/XXXX-XXXX` = resource `roracle://handoff/XXXXXXXX` (≈ 40-bit (8 chars, 31-symbol alphabet), unambiguous
   alphabet). **Not a bearer token**: agent authenticates; undisclosed documents redacted
   ("3 sources withheld").
 - Who can load: creator (default), named users/groups, or all authenticated users. Expiry default

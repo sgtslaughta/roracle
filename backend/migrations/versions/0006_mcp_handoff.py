@@ -63,7 +63,6 @@ def upgrade() -> None:
         sa.CheckConstraint("audience IN ('creator','shared','authenticated')", name="ck_handoffs_audience"),
         sa.CheckConstraint("created_via IN ('ui','mcp')", name="ck_handoffs_created_via"),
     )
-    op.create_index("ix_handoffs_creator_id", "handoffs", ["creator_id"])
     op.create_index("ix_handoffs_creator_id_created_at", "handoffs", ["creator_id", "created_at"])
     op.create_table(
         "handoff_shares",

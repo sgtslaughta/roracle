@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import hashlib
 import json
 import mimetypes
 from collections.abc import Callable
@@ -26,6 +27,12 @@ from roracle.chat.answer import build_messages, citation_item, parse_citations
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
 from roracle.mcp.auth import dep
 
+
+def digest(text: str) -> str:
+    """Audit target for free text: a hash, never the text (matches security.md)."""
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 NO_PASSAGES = "No accessible passages matched."
 Run = Callable[..., Any]
 
@@ -46,7 +53,16 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     scope = f"collection:{collection}" if collection else "all"
     try:
         passages = retrieve_for_chat(
-            session, dep(app, library.get_es), llm, s, p, question, Viewer(), scope, [], []
+            session=session,
+            es=dep(app, library.get_es),
+            llm=llm,
+            settings=s,
+            p=p,
+            question=question,
+            viewer=Viewer(),
+            scope=scope,
+            pins=[],
+            excludes=[],
         )
         if not passages:
             return {"answer": NO_PASSAGES, "citations": []}
@@ -99,7 +115,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         """Ask a question answered only from library passages the caller may see. Returns the answer
         with [n] markers and `citations` (doc_id, chunk_id, page, quote). `collection` is an id from
         list_collections."""
-        return run(app, "ask", lambda s, p: _ask(app, s, p, question, collection), question)
+        return run(app, "ask", lambda s, p: _ask(app, s, p, question, collection), digest(question))
 
     @mcp.tool()
     def upload(

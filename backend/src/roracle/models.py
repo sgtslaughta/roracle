@@ -275,7 +275,7 @@ class Handoff(Base):
     )
 
     code: Mapped[str] = mapped_column(String(8), primary_key=True)
-    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String)
     title: Mapped[str] = mapped_column(String, default="", server_default="")
     goal: Mapped[str] = mapped_column(Text, default="", server_default="")

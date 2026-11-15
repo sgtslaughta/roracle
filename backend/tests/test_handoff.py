@@ -485,3 +485,23 @@ def test_collection_non_owner_404(client, as_ana, as_bob, db_session, ana, bob):
     db_session.add(col)
     db_session.flush()
     assert post(client, as_bob, kind="collection", source_id=str(col.id)).status_code == 404
+
+
+def test_patch_shares_without_shared_audience_422(client, as_ana, ana):
+    m = mk(client, as_ana)
+    r = client.patch(
+        f"/handoffs/{m['code']}", json={"shares": [{"kind": "group", "principal": "/P"}]}, headers=as_ana
+    )
+    assert r.status_code == 422
+
+
+def test_read_pat_cannot_mutate_and_outsider_note_404(client, as_ana, as_bob, ana, bob):
+    m = mk(client, as_ana)
+    c = m["code"]
+    tok = bearer(
+        client.post("/me/tokens", json={"name": "r", "scopes": ["read"]}, headers=as_ana).json()["token"]
+    )
+    assert client.post(f"/handoffs/{c}/notes", json={"text": "x"}, headers=tok).status_code == 403
+    assert client.patch(f"/handoffs/{c}", json={"title": "x"}, headers=tok).status_code == 403
+    assert client.delete(f"/handoffs/{c}", headers=tok).status_code == 403
+    assert client.post(f"/handoffs/{c}/notes", json={"text": "x"}, headers=as_bob).status_code == 404

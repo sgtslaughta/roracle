@@ -335,13 +335,6 @@ def search(
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> dict:
-    try:
-        validate_search_params(
-            q, {"tags": tags, "year": year, "file_type": file_type, "org_unit": org_unit,
-                "collection": collection, "author": author}, size, page,
-        )  # fmt: skip
-    except BadInput as e:
-        raise HTTPException(422, str(e)) from None
     es_filters = {
         "tags": tags or [],
         "year": year or [],

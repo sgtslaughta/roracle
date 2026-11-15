@@ -19,7 +19,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
 from roracle.mcp.auth import current, dep, open_session
-from roracle.mcp.tools_write import register
+from roracle.mcp.tools_write import digest, register
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
 
@@ -142,7 +142,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
             )
             return {"results": [_slim(h) for h in body["results"]]}
 
-        return _run(app, "search", go, query)
+        return _run(app, "search", go, digest(query))
 
     @mcp.tool()
     def get_document(doc_id: Annotated[str, Field(max_length=100)]) -> dict:

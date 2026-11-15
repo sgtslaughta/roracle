@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import User
+from roracle.models import AuditLog, User
 
 ADMIN_ROLE = "roracle-admin"
 LEEWAY_S = 30
@@ -188,6 +188,15 @@ def current_principal(
     p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
         raise HTTPException(403, "insufficient scope")
+    if p.via == "pat":
+        session.add(
+            AuditLog(
+                user_id=p.user_id,
+                action="pat.use",
+                target=f"{request.method} {request.url.path}"[:200],
+                client=p.client,
+            )
+        )
     return p
 
 

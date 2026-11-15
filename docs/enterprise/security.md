@@ -76,7 +76,7 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 Append-only `audit_log` table (who, when, action, target, client, request id): sign-in, search,
 document view/download, chat question (text hash + cited doc ids), handoff create/load, proposal
 approve/reject, share/visibility change, admin actions, PAT create/revoke, `mcp.<tool>` for every
-MCP tool call (this is how PAT use is audited; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
+MCP tool call (MCP PAT use is audited this way, REST PAT use as `pat.use` with method and path; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 7. Platform hardening

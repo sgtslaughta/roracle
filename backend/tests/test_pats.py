@@ -198,13 +198,13 @@ def test_lookup_error_is_401_other_errors_not(client, as_ana, monkeypatch):
     def boom(*a):
         raise LookupError("x")
 
-    monkeypatch.setattr(pats, "principal_for_user", boom)
+    monkeypatch.setattr(pats, "hash_token", boom)
     assert client.get("/me", headers=tok).status_code == 401
 
     def db_down(*a):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(pats, "principal_for_user", db_down)
+    monkeypatch.setattr(pats, "hash_token", db_down)
     with pytest.raises(RuntimeError):
         client.get("/me", headers=tok)
 
@@ -300,3 +300,14 @@ def test_pat_actions_audited(client, as_ana, make_token, db_session):
     client.delete(f"/admin/users/{uid}/pats", headers=admin)
     rows = {(a.action, a.target) for a in db_session.query(AuditLog)}
     assert {("pat.create", t["id"]), ("pat.revoke", t["id"]), ("admin.revoke_pats", uid)} <= rows
+
+
+def test_pat_use_is_audited_over_rest(client, as_ana, db_session):
+    from roracle.models import AuditLog
+
+    tok = bearer(mint(client, as_ana)["token"])
+    assert client.get("/me", headers=tok).status_code == 200
+    row = db_session.query(AuditLog).filter(AuditLog.action == "pat.use").one()
+    assert row.target == "GET /me" and row.client.startswith("pat:")
+    client.get("/me", headers=as_ana)
+    assert db_session.query(AuditLog).filter(AuditLog.action == "pat.use").count() == 1

@@ -13,7 +13,7 @@ from test_search_api import FakeLLM, hit
 from roracle import pats
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
-from roracle.mcp.tools_write import NO_PASSAGES
+from roracle.mcp.tools_write import NO_PASSAGES, digest
 from roracle.models import AuditLog, Collection, CollectionItem, Document, Handoff, Job
 
 B64 = base64.b64encode(b"%PDF-1 hello").decode()
@@ -112,7 +112,9 @@ def test_ask_cites_visible_never_invisible(mc, as_ana, ana, bob, db_session, fes
     assert [c["doc_id"] for c in out["citations"]] == [str(d1.id)] and out["citations"][0]["n"] == 1
     sent = json.dumps(llm.sent[0][1])
     assert "secret text" not in sent and "mine text" in sent
-    assert db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.ask")).one().target == "alpha?"
+    assert db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.ask")).one().target == digest(
+        "alpha?"
+    )
 
 
 def test_ask_no_passages_skips_llm(mc, as_ana, fes, llm):
@@ -245,3 +247,22 @@ def test_base64_with_newlines_accepted(mc, ana, db_session, fes, _blob_store_ove
     assert not call(mc, pat(db_session, ana, ["write"]), "upload", filename="w.pdf", content_base64=wrapped)[
         0
     ]
+
+
+def test_stale_pat_401_with_resource_metadata(mc, ana, db_session, fes):
+    from roracle.models import User
+
+    h = pat(db_session, ana, ["read"])
+    db_session.get(User, ana).last_login_at = datetime.now(UTC) - timedelta(days=60)
+    db_session.flush()
+    r = rpc(mc, h, "tools/list")
+    assert r.status_code == 401 and "resource_metadata=" in r.headers["www-authenticate"]
+
+
+def test_free_text_audit_target_is_hashed(mc, as_ana, fes, llm, db_session):
+    call(mc, as_ana, "ask", question="secret question")
+    call(mc, as_ana, "search", query="secret query")
+    targets = list(
+        db_session.scalars(select(AuditLog.target).where(AuditLog.action.in_(["mcp.ask", "mcp.search"])))
+    )
+    assert len(targets) == 2 and all(t.startswith("sha256:") and len(t) == 23 for t in targets)

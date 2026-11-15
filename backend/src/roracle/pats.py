@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle.auth import Principal, principal_for_user
+from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.models import PersonalAccessToken, User
 
@@ -63,23 +63,21 @@ def principal_from_pat(
     now = datetime.now(UTC)
     if row is None or row.revoked_at is not None or row.expires_at <= now:
         raise ValueError("invalid token")
-    try:
-        base = principal_for_user(session, row.user_id)
-    except LookupError:
-        raise ValueError("user missing") from None
     owner = session.get(User, row.user_id)
+    if owner is None:
+        raise ValueError("user missing")
     limit = timedelta(days=settings.pat_max_identity_age_days)
-    if owner is None or owner.last_login_at is None or owner.last_login_at < now - limit:
+    if owner.last_login_at is None or owner.last_login_at < now - limit:
         raise StaleIdentity("stale")
     if session_factory is not None:  # own short transaction: no row lock held for the request
         with session_factory() as touch:
             touch.execute(_TOUCH, {"id": row.id})  # throttled, skips locked rows
             touch.commit()
-    current = set(base.groups)
+    current = set(owner.groups)
     return Principal(
-        base.user_id,
-        base.sub,
-        base.username,
+        owner.id,
+        owner.sub,
+        owner.username,
         tuple(g for g in row.groups if g in current),  # snapshot intersect current
         False,  # admin needs an interactive JWT
         scopes=frozenset(row.scopes),

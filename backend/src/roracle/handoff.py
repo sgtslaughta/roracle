@@ -219,8 +219,8 @@ def _loadable(session: Session, p: Principal, code: str) -> Handoff:
     return h
 
 
-def _manifest(session: Session, p: Principal, h: Handoff) -> dict:
-    """Redacted for p: hidden docs/passages dropped and only counted in `withheld`."""
+def view(session: Session, p: Principal, h: Handoff) -> dict:
+    """Manifest for p, no audit. Redacted: hidden docs/passages dropped and only counted in `withheld`."""
     shown = _visible_doc_ids(session, p, h.doc_ids)
     ok = visible_versions(session, p, h.passages)
     passages = recheck(h.passages, ok, drop=True)
@@ -247,12 +247,7 @@ def _manifest(session: Session, p: Principal, h: Handoff) -> dict:
 def load(session: Session, p: Principal, code: str) -> dict:
     h = _loadable(session, p, code)
     audit(session, p, "handoff.load", h.code)
-    return _manifest(session, p, h)
-
-
-def view(session: Session, p: Principal, h: Handoff) -> dict:
-    """Manifest without audit (creator just made/changed it)."""
-    return _manifest(session, p, h)
+    return view(session, p, h)
 
 
 def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1) -> dict:
@@ -261,7 +256,7 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
         raise NF
     rows = h.transcript if part == "transcript" else h.notes
     pages = ceil(len(rows) / PAGE)
-    items = rows[(page - 1) * PAGE : page * PAGE] if page >= 1 else []
+    items = rows[(page - 1) * PAGE : page * PAGE]
     if part == "transcript":
         cites = [c for m in items for c in m.get("citations", [])]
         ok = visible_versions(session, p, cites)
@@ -314,6 +309,8 @@ def update(session: Session, p: Principal, code: str, **f) -> Handoff:
     audience = f.get("audience", h.audience)
     days = f.get("expires_in_days", 1)
     _check(audience, days)
+    if f.get("shares") and audience != "shared":
+        raise HTTPException(422, "shares need audience shared")
     for k in ("title", "goal", "brief"):
         if k in f:
             setattr(h, k, f[k])

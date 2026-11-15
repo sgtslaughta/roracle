@@ -52,7 +52,7 @@ def test_search_only_visible_and_audited(mc, as_ana, ana, bob, db_session, fes):
     assert [r["doc_id"] for r in out["results"]] == [str(d1.id)]
     assert out["results"][0]["passages"][0]["chunk_id"] == f"{v1.id}:0"
     row = db_session.scalars(select(AuditLog).where(AuditLog.action == "mcp.search")).one()
-    assert row.user_id == ana and row.target == "alpha"
+    assert row.user_id == ana and row.target.startswith("sha256:")
     assert call(mc, as_ana, "search", query="x", limit=0)[0] is True
 
 
