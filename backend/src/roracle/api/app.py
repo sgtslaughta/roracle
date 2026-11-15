@@ -9,6 +9,7 @@ from roracle import __version__
 from roracle.api.routes import (
     admin,
     annotations,
+    admin_ops,
     admin_settings,
     chats,
     chats_read,
@@ -50,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(admin_settings.router)
+    app.include_router(admin_ops.router)
     app.include_router(me.router)
     app.include_router(notifications.router)
     app.include_router(tokens.router)

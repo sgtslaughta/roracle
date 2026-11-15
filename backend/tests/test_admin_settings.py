@@ -164,6 +164,20 @@ def test_every_admin_route_requires_admin(app):
         assert require_admin in set(walk(r.dependant)), path
 
 
+def test_every_admin_route_403_for_non_admin(app, client, as_ana):
+    import re
+
+    dummy = "00000000-0000-0000-0000-000000000001"
+    n = 0
+    for path, r in _admin_routes(app):
+        url = re.sub(r"\{[^}]+\}", dummy, path)
+        for method in r.methods - {"HEAD", "OPTIONS"}:
+            resp = client.request(method, url, headers=as_ana, json={})
+            assert resp.status_code == 403, (method, path, resp.status_code)
+            n += 1
+    assert n >= 15
+
+
 def test_admin_ratings_forbidden_for_non_admin(client, as_ana):
     assert client.get("/admin/ratings", headers=as_ana).status_code == 403
 

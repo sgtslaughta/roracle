@@ -42,3 +42,19 @@ def page_params(
 ) -> tuple[int, int]:
     """(offset, limit)."""
     return (page - 1) * limit, limit
+
+
+def keyset_params(
+    before_id: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> tuple[int | None, int]:
+    return before_id, limit
+
+
+def keyset_page(rows: list, limit: int) -> dict:
+    """`rows` were fetched with limit+1 in id-descending order; items are dicts or rows with `id`."""
+    items = rows[:limit]
+    more = len(rows) > limit
+    last = items[-1] if items else None
+    nxt = (last["id"] if isinstance(last, dict) else last.id) if more and last is not None else None
+    return {"items": items, "next_before_id": nxt}

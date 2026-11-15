@@ -114,3 +114,21 @@ export audit log for the window (`audit_log` by `target_id` and time), escalate 
 **Malware detected** — job fails at *Scanned*, file quarantined (blob not linked), uploader
 notified; security gets an audit event. Nothing to clean unless detection happened after
 ingestion (signature update): admin → Documents → *Quarantine* removes it from search.
+
+## 5. Admin API
+
+All `/admin/*` routes need an admin JWT (PATs get 403) and every call is written to `audit_log`.
+Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, next_before_id}`.
+
+| Endpoint | Operator use |
+|---|---|
+| `GET /admin/health` | Dependency probe (db, elastic, storage), queue depth/age, connector scheduler tick. `degraded` = at least one check failed. |
+| `GET /admin/jobs?status=failed&kind=` | Inspect failed jobs and their `last_error`. |
+| `GET /admin/jobs/summary` | Jobs per kind/status and versions per pipeline stage. |
+| `POST /admin/jobs/{id}/retry` | Retry one failed job (409 otherwise); ingest jobs get a fresh attempt budget. |
+| `POST /admin/jobs/retry-failed {kind?}` | Requeue all failed jobs (optionally one kind) after fixing the cause, e.g. Ollama or ES outage. |
+| `GET /admin/review?source=all\|upload\|connector&page=` | Versions parked for near-duplicate review (offset paged); decide via the near-dup endpoint. |
+| `GET /admin/stats` | Document/blob counts, storage bytes, top uploaders. |
+| `GET /admin/users`, `/admin/groups` | Users mirror (as of last login), per-user usage, group sizes. |
+| `GET /admin/tags`, `POST /admin/tags/merge {sources, target}` | Consolidate duplicate tags; ES tags follow via `acl_sync`. |
+| `GET /admin/audit?action=<prefix>&user_id=` | Audit trail search. |
