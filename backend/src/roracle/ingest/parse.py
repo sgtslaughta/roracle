@@ -1,5 +1,7 @@
 """Parse stage: docling-serve conversion and optional GROBID metadata."""
 
+import re
+
 import httpx
 from lxml import etree
 
@@ -7,6 +9,17 @@ from roracle.queue import NonRetryable
 
 _NS = {"t": "http://www.tei-c.org/ns/1.0"}
 _PARSER = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+
+
+_NONRETRY = {400, 413, 415, 422}
+_COLLS = {"texts", "groups", "tables", "pictures", "key_value_items", "form_items"}
+_MAX_DEPTH = 100
+
+
+def _check(r: httpx.Response, msg: str) -> None:
+    if r.status_code in _NONRETRY:
+        raise NonRetryable(msg)
+    r.raise_for_status()
 
 
 def convert(
@@ -18,57 +31,73 @@ def convert(
 ) -> dict:
     """POST to docling-serve, return DoclingDocument JSON.
 
-    5xx/transport errors raise (retryable); 4xx and empty text are NonRetryable.
+    400/413/415/422 and empty text are NonRetryable; other errors raise (retryable).
     """
     c = client or httpx.Client(timeout=timeout)
     try:
         r = c.post(
             f"{docling_url.rstrip('/')}/v1/convert/file",
             files={"files": (filename, data)},
-            data={"to_formats": "json", "do_ocr": "true"},
-            timeout=timeout,
+            data={"to_formats": "json", "do_ocr": "true", "image_export_mode": "placeholder"},
         )
     finally:
         if client is None:
             c.close()
-    if 400 <= r.status_code < 500:
-        raise NonRetryable("document could not be converted (unsupported or invalid file)")
-    r.raise_for_status()
-    doc = (r.json().get("document") or {}).get("json_content") or {}
+    _check(r, "document could not be converted (unsupported or invalid file)")
+    try:
+        body = r.json()
+        doc = body["document"]["json_content"]
+        doc.get("texts")
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ValueError("docling-serve returned an unexpected response") from e
     if not document_text(doc).strip():
         raise NonRetryable("no text extracted")
     return doc
 
 
+def _table_text(item: dict) -> str:
+    rows: dict[int, dict[int, str]] = {}
+    for cell in (item.get("data") or {}).get("table_cells") or []:
+        t = (cell.get("text") or "").strip()
+        if t:
+            r = cell.get("start_row_offset_idx") or 0
+            rows.setdefault(r, {})[cell.get("start_col_offset_idx") or 0] = t
+    return "\n".join(" | ".join(cols[k] for k in sorted(cols)) for _, cols in sorted(rows.items()))
+
+
 def document_text(doc: dict) -> str:
-    """Concatenate text items in reading order (body tree), blank-line separated."""
-    texts = doc.get("texts") or []
+    """Concatenate text and table items in reading order (body tree), blank-line separated."""
     out: list[str] = []
     seen: set[str] = set()
 
     def resolve(ref: str):
-        _, coll, idx = ref.split("/")
-        return doc[coll][int(idx)] if coll in doc else None
+        parts = ref.split("/")
+        if len(parts) != 3 or parts[0] != "#" or parts[1] not in _COLLS or not parts[2].isdecimal():
+            return None
+        coll = doc.get(parts[1])
+        idx = int(parts[2])
+        return coll[idx] if isinstance(coll, list) and 0 <= idx < len(coll) else None
 
-    def walk(node: dict) -> None:
-        for ch in node.get("children") or []:
-            ref = ch.get("$ref", "")
-            if ref in seen or not ref.startswith("#/"):
-                continue
-            seen.add(ref)
-            try:
-                item = resolve(ref)
-            except (ValueError, IndexError):
-                continue
-            if item is None:
-                continue
-            if ref.startswith("#/texts/") and (item.get("text") or "").strip():
-                out.append(item["text"].strip())
-            walk(item)
+    def emit(ref: str, item: dict) -> None:
+        txt = _table_text(item) if ref.startswith("#/tables/") else (item.get("text") or "").strip()
+        if ref.startswith(("#/texts/", "#/tables/")) and txt:
+            out.append(txt)
 
-    walk(doc.get("body") or {})
+    stack = [(c, 0) for c in reversed((doc.get("body") or {}).get("children") or [])]
+    while stack:
+        ch, depth = stack.pop()
+        ref = ch.get("$ref", "") if isinstance(ch, dict) else ""
+        if ref in seen or depth > _MAX_DEPTH:
+            continue
+        item = resolve(ref)
+        if item is None:
+            continue
+        seen.add(ref)
+        emit(ref, item)
+        stack.extend((c, depth + 1) for c in reversed(item.get("children") or []))
     if not out:  # no tree: fall back to array order
-        out = [t["text"].strip() for t in texts if (t.get("text") or "").strip()]
+        for i, t in enumerate(doc.get("texts") or []):
+            emit(f"#/texts/{i}", t)
     return "\n\n".join(out)
 
 
@@ -79,6 +108,8 @@ def _t(el, path: str) -> str | None:
 
 
 def _authors(el) -> list[str]:
+    if el is None:
+        return []
     res = []
     for a in el.findall("t:author/t:persName", _NS):
         parts = [(p.text or "").strip() for p in a.findall("t:forename", _NS)]
@@ -91,8 +122,10 @@ def _authors(el) -> list[str]:
 
 def _year(el) -> int | None:
     d = el.find(".//t:imprint/t:date", _NS)
-    w = (d.get("when") or "")[:4] if d is not None else ""
-    return int(w) if w.isdigit() else None
+    if d is None:
+        return None
+    m = re.match(r"\s*([0-9]{4})", d.get("when") or "".join(d.itertext()))
+    return int(m.group(1)) if m else None
 
 
 def _doi(el) -> str | None:
@@ -110,7 +143,7 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     if bs is not None:
         ana = bs.find("t:analytic", _NS)
         meta["title"] = _t(ana, "t:title") if ana is not None else None
-        meta["authors"] = _authors(ana) if ana is not None else []
+        meta["authors"] = _authors(ana) or _authors(bs.find("t:monogr", _NS))
         meta["year"] = _year(bs)
         meta["venue"] = _t(bs, "t:monogr/t:title")
         meta["doi"] = _doi(bs)
@@ -133,19 +166,22 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
 
 
 def grobid_metadata(
-    pdf: bytes, grobid_url: str, timeout: float = 300.0, client: httpx.Client | None = None
+    pdf: bytes, grobid_url: str, timeout: float = 120.0, client: httpx.Client | None = None
 ) -> tuple[dict, list[dict]]:
+    """Optional enrichment: content problems give ({}, []); transport/5xx errors raise."""
     c = client or httpx.Client(timeout=timeout)
     try:
         r = c.post(
             f"{grobid_url.rstrip('/')}/api/processFulltextDocument",
             files={"input": ("paper.pdf", pdf, "application/pdf")},
-            timeout=timeout,
         )
     finally:
         if client is None:
             c.close()
-    if 400 <= r.status_code < 500:
-        raise NonRetryable("metadata extraction rejected the document")
-    r.raise_for_status()
-    return parse_tei(r.content)
+    _check(r, "metadata extraction rejected the document")
+    if r.status_code == 204 or not r.content.strip():
+        return {}, []
+    try:
+        return parse_tei(r.content)
+    except etree.XMLSyntaxError:
+        return {}, []
