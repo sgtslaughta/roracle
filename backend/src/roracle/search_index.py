@@ -185,6 +185,10 @@ def cached_vectors(
             )
         except NotFoundError:
             return {}
+        except BadRequestError as e:
+            if "no mapping found" in str(e):
+                return {}
+            raise
         for h in r["hits"]["hits"]:
             src = h["_source"]
             vec = src.get("embedding")
