@@ -211,3 +211,18 @@ def test_disjunctive_facets_query_path(client, as_ana, ana, bob, db_session, fes
     r = get(client, as_ana, q="alpha", year=2021).json()
     assert r["facets"]["year"] == [{"value": "2021", "count": 1}, {"value": "2022", "count": 1}]
     assert len(fes.calls) == 4  # filtered + unfiltered search (bm25 + knn each)
+
+
+def test_filtered_query_embeds_once(client, as_ana, ana, db_session, fes, monkeypatch):
+    d, v = seed(db_session, ana, year=2021)
+    fes.hits = [hit(d, v)]
+    n = []
+    from roracle.retrieval import embed as real
+
+    def counting(*a, **k):
+        n.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr("roracle.retrieval.embed", counting)
+    assert get(client, as_ana, q="alpha", year=[2021]).json()["total"] == 1
+    assert len(n) == 1

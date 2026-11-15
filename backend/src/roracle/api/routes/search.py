@@ -18,7 +18,7 @@ from roracle.citations import cited_by_counts
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
-from roracle.retrieval import DocHit, Passage, group_by_document, search_chunks
+from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
 from roracle.search_index import file_type as ext_of
 
 router = APIRouter()
@@ -249,11 +249,14 @@ def _query_rows(
     q: str,
     filters: dict[str, list[str]],
     coll_docs: list[str] | None,
+    qvec: list[float],
 ) -> list[Row]:
     if coll_docs is not None and not coll_docs:
         return []
     try:
-        passages = search_chunks(es, llm, settings, p, q, filters=filters, doc_ids=coll_docs, size=100)
+        passages = search_chunks(
+            es, llm, settings, p, q, filters=filters, doc_ids=coll_docs, size=100, qvec=qvec
+        )
     except NotFoundError:  # nothing ingested yet: no index
         return []
     ids = []
@@ -313,9 +316,10 @@ def search(
     filtered = any(wanted.values())
     if q.strip():
         try:
-            rows = _query_rows(session, es, llm, settings, p, q, es_filters, coll_docs)
+            qvec = embed_query(llm, settings, q)  # once for both searches
+            rows = _query_rows(session, es, llm, settings, p, q, es_filters, coll_docs, qvec)
             # R17: facets need the unfiltered match set too (second search, only when filters are active)
-            universe = _query_rows(session, es, llm, settings, p, q, {}, None) if filtered else rows
+            universe = _query_rows(session, es, llm, settings, p, q, {}, None, qvec) if filtered else rows
         except ValueError as e:  # backstop: search_chunks input errors are the client's
             raise HTTPException(422, str(e)) from None
         rows = [r for r in rows if _keep(r, wanted)]

@@ -133,6 +133,11 @@ def _rerank(
     return reranked + passages[RERANK_TOP:]
 
 
+def embed_query(llm, settings: Settings, query: str) -> list[float]:
+    [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
+    return vec
+
+
 def search_chunks(
     es,
     llm,
@@ -144,6 +149,7 @@ def search_chunks(
     doc_ids: list[str] | None = None,
     size: int = LIST_SIZE,
     http: httpx.Client | None = None,
+    qvec: list[float] | None = None,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead)."""
     if not query.strip():
@@ -162,7 +168,7 @@ def search_chunks(
         },
         highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
     )["hits"]["hits"]
-    [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
+    vec = qvec if qvec is not None else embed_query(llm, settings, query)
     knn = es.search(
         index=index,
         size=size,
