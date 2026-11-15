@@ -68,6 +68,22 @@ def app(settings, db_session):
     return app
 
 
+@pytest.fixture(autouse=True)
+def _blob_store_override(app, store):
+    from roracle.api.routes.documents import get_blob_store
+
+    app.dependency_overrides[get_blob_store] = lambda: store
+
+
+@pytest.fixture
+def settings_small_limit(app, settings):
+    from roracle.auth import get_app_settings
+
+    small = settings.model_copy(update={"max_upload_bytes": 1024 * 1024})
+    app.dependency_overrides[get_app_settings] = lambda: small
+    return small
+
+
 @pytest.fixture
 def client(app):
     return TestClient(app)
