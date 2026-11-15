@@ -44,9 +44,9 @@ Example client configuration (generic MCP JSON):
 | `append_to_handoff(code, note)` | write | Add a note (max 200 per handoff) |
 | `upload(filename, content_base64, title?, visibility?)` | write | Add a document (default `private`); duplicate returns `{"duplicate_of": id}` |
 | `list_annotations(doc_id)` | read | Notes the caller may read on a document (≤ 500, oldest first) |
-| `propose_annotation(doc_id, body, kind?, anchor?, ...)` | write | Create a pending proposal (never published directly); returns its id |
+| `propose_annotation(doc_id, kind, body, quote?, prefix?, suffix?, ...)` | write | Create a pending proposal (never published directly); returns its id |
 | `reply_to_annotation(annotation_id, body)` | write | Propose a reply to a readable note |
-| `export_bibtex(doc_ids)` | read | BibTeX for visible documents |
+| `export_bibtex(doc_ids?, collection?)` | read | BibTeX for visible documents |
 | `save_draft`, `validate_draft`, `check_citations` | - | planned (P8/P9) |
 
 Resource template: `roracle://handoff/{code}` (same manifest and auth as `load_handoff`).
