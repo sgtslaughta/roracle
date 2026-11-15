@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Clock, GitCompare, ThumbsDown, TriangleAlert } from "lucide-react";
+import { Clock, GitCompare, ThumbsDown, ThumbsUp, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -28,17 +28,17 @@ export function VoteControl({ docId, votes, row, candidates = [] }: { docId: str
 
   return (
     <div className={cn("vote", row && "row")}>
-      <button className="up" aria-pressed={votes.mine > 0} aria-label="Useful" title="Useful" onClick={() => send(votes.mine > 0 ? 0 : 1)}>
-        <ChevronUp aria-hidden />
+      <button className="up" aria-pressed={votes.mine > 0} aria-label="Upvote" title="Upvote: useful" onClick={() => send(votes.mine > 0 ? 0 : 1)}>
+        <ThumbsUp aria-hidden fill={votes.mine > 0 ? "currentColor" : "none"} />
       </button>
       <span className={cn("score", score > 0 && "pos", score < 0 && "neg")} title={`${votes.up} useful, ${votes.down} not useful`}>{score}</span>
       <Popover open={menu !== null} onOpenChange={(o) => !o && setMenu(null)}>
         <PopoverAnchor asChild>
           <button
-            className="down" aria-pressed={votes.mine < 0} aria-label="Not useful" title="Not useful"
+            className="down" aria-pressed={votes.mine < 0} aria-label="Downvote" title="Downvote: not useful"
             onClick={() => (votes.mine < 0 ? send(0) : setMenu("reasons"))}
           >
-            <ChevronDown aria-hidden />
+            <ThumbsDown aria-hidden fill={votes.mine < 0 ? "currentColor" : "none"} />
           </button>
         </PopoverAnchor>
         <PopoverContent className="reasons" role="menu">

@@ -73,7 +73,7 @@ describe("library search", () => {
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
     await screen.findByText(/of 7 documents/);
-    await userEvent.click(within(results()[0]).getByRole("button", { name: "Not useful" }));
+    await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("Outdated")).toBeInTheDocument();
     expect(within(menu).getByText("Wrong or misleading")).toBeInTheDocument();
@@ -87,10 +87,34 @@ describe("library search", () => {
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
     await screen.findByText(/of 7 documents/);
-    await userEvent.click(within(results()[0]).getByRole("button", { name: "Not useful" }));
+    await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Superseded/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Confirm" }));
     await waitFor(() => expect(body).toMatchObject({ value: -1, reason: "superseded", superseded_by: expect.any(String) }));
+  });
+
+  it("caps active filter chips at 5 with a +K menu offering Clear all", async () => {
+    await renderLibrary("/library?tags=a&tags=b&tags=c&tags=d&tags=e&tags=f&tags=g");
+    const bar = await screen.findByLabelText("Active filters");
+    expect(within(bar).getAllByRole("button", { name: /Remove filter/ })).toHaveLength(5);
+    await userEvent.click(within(bar).getByRole("button", { name: "More filters: 2 more" }));
+    expect(await screen.findByRole("button", { name: "Clear all" })).toBeInTheDocument();
+  });
+
+  it("facet groups show 8 values then Show all K in a searchable menu", async () => {
+    await renderLibrary();
+    await screen.findByText(/of 7 documents/);
+    const g = screen.getByRole("group", { name: "Tags" });
+    expect(within(g).getAllByRole("checkbox")).toHaveLength(8);
+    await userEvent.click(within(g).getByRole("button", { name: /Show all 18/ }));
+    const menu = await screen.findByLabelText("All tags values", { selector: ".ovl-menu" });
+    expect(within(menu).getByRole("searchbox")).toBeInTheDocument();
+  });
+
+  it("caps tags on a result card at 4", async () => {
+    await renderLibrary();
+    await screen.findByText(/of 7 documents/);
+    expect(within(results()[0]).getAllByRole("button", { name: /^#/ }).length).toBeLessThanOrEqual(4);
   });
 
   it("empty state copy", async () => {

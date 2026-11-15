@@ -36,8 +36,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   return (
     <>
       <div className="rhead">
-        <h2>{d.title}</h2>
-        <p className="citeline">{d.authors.join(", ")}. {d.venue && <i>{d.venue}</i>}{d.venue && ", "}{d.year}. {d.org_unit}.</p>
+        <h2 title={d.title}>{d.title}</h2>
+        <p className="citeline trunc" title={`${d.authors.join(", ")}. ${d.year}`}>{d.authors.join(", ")}. {d.venue && <i>{d.venue}</i>}{d.venue && ", "}{d.year}. {d.org_unit}.</p>
         <div className="rtools">
           <VoteControl docId={d.id} votes={d.votes} row />
           <select className="sel" aria-label="Version" value={version} onChange={(e) => setVersion(d.id, Number(e.target.value))}>

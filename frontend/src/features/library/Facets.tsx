@@ -1,5 +1,5 @@
 import { Building2, Calendar, File, Folder, Tag, User } from "lucide-react";
-import { useState } from "react";
+import { OverflowList } from "@/components/OverflowList";
 import type { FacetName, FacetValue } from "@/api/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { FacetKey, LibrarySearch } from "@/lib/searchParams";
@@ -21,7 +21,6 @@ export function Facets({ facets, selected, onToggle }: {
   selected: LibrarySearch;
   onToggle: (k: FacetKey, v: string) => void;
 }) {
-  const [open, setOpen] = useState<Set<string>>(new Set());
   return (
     <aside className="facets" aria-label="Filters">
       <p className="fnote">Filters list only what's in these results.</p>
@@ -31,23 +30,21 @@ export function Facets({ facets, selected, onToggle }: {
         sel.forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
         const vals = [...counts.keys()];
         if (!vals.length) return null;
-        const all = open.has(k);
         const { label, icon: Icon } = FACET_META[k];
         return (
           <div className="fgroup" key={k} role="group" aria-label={label}>
             <h4><Icon aria-hidden />{label}</h4>
-            {(all ? vals : vals.slice(0, LIMIT)).map((v) => (
-              <label key={v}>
-                <Checkbox checked={sel.includes(v)} onCheckedChange={() => onToggle(k, v)} aria-label={`${label}: ${v}`} />
-                <span className="v">{v}</span>
-                <span className="n">{counts.get(v)}</span>
-              </label>
-            ))}
-            {vals.length > LIMIT && (
-              <button className="more" onClick={() => setOpen((o) => { const n = new Set(o); if (all) n.delete(k); else n.add(k); return n; })}>
-                {all ? "Show fewer" : `Show all ${vals.length}`}
-              </button>
-            )}
+            <OverflowList
+              items={vals} max={LIMIT} layout="stack" searchable getLabel={(v) => v} menuLabel={`All ${label.toLowerCase()} values`}
+              moreLabel={(h) => `Show all ${h + LIMIT}`} triggerClassName="more"
+              renderItem={(v) => (
+                <label key={v} title={v}>
+                  <Checkbox checked={sel.includes(v)} onCheckedChange={() => onToggle(k, v)} aria-label={`${label}: ${v}`} />
+                  <span className="v">{v}</span>
+                  <span className="n">{counts.get(v)}</span>
+                </label>
+              )}
+            />
           </div>
         );
       })}
