@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from roracle.audit import audit
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, DocumentVersion, PersonalAccessToken, User
@@ -51,4 +52,5 @@ def revoke_user_pats(
         .where(PersonalAccessToken.user_id == user_id, PersonalAccessToken.revoked_at.is_(None))
         .values(revoked_at=func.now())
     )
+    audit(session, p, "admin.revoke_pats", str(user_id))
     return Response(status_code=204)

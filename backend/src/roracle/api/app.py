@@ -12,6 +12,7 @@ from roracle.api.routes import (
     documents,
     documents_read,
     documents_write,
+    handoffs,
     health,
     library,
     me,
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(me.router)
     app.include_router(tokens.router)
+    app.include_router(handoffs.router)
     app.include_router(documents.router)
     app.include_router(near_dup.router)
     app.include_router(library.router)

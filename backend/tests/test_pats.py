@@ -288,3 +288,15 @@ def test_no_session_factory_skips_touch(db_session, as_ana, client, settings, jw
     resolve_principal(db_session, jwks, settings, f"Bearer {tok}")
     db_session.expire_all()
     assert db_session.query(PersonalAccessToken).one().last_used_at is None
+
+
+def test_pat_actions_audited(client, as_ana, make_token, db_session):
+    from roracle.models import AuditLog
+
+    t = mint(client, as_ana)
+    client.delete(f"/me/tokens/{t['id']}", headers=as_ana)
+    uid = client.get("/me", headers=as_ana).json()["id"]
+    admin = bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+    client.delete(f"/admin/users/{uid}/pats", headers=admin)
+    rows = {(a.action, a.target) for a in db_session.query(AuditLog)}
+    assert {("pat.create", t["id"]), ("pat.revoke", t["id"]), ("admin.revoke_pats", uid)} <= rows

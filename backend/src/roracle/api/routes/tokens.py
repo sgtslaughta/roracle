@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle import pats
+from roracle.audit import audit
 from roracle.auth import Principal, require_jwt
 from roracle.db import get_session
 from roracle.models import PersonalAccessToken
@@ -53,6 +54,7 @@ def list_tokens(p: Who, session: Session_) -> list[dict]:
 def create_token(body: TokenBody, p: Who, session: Session_) -> dict:
     scopes = ["read", "write"] if "write" in body.scopes else ["read"]
     row, token = pats.create(session, p.user_id, body.name, scopes, body.expires_in_days)
+    audit(session, p, "pat.create", str(row.id), {"scopes": scopes})
     session.commit()
     session.refresh(row)
     return {**_view(row), "token": token}
@@ -73,5 +75,6 @@ def revoke_token(token_id: str, p: Who, session: Session_) -> Response:
         raise HTTPException(404, "not found")
     if row.revoked_at is None:
         row.revoked_at = datetime.now(UTC)
+        audit(session, p, "pat.revoke", str(row.id))
         session.commit()
     return Response(status_code=204)
