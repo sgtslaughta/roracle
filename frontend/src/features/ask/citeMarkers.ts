@@ -33,6 +33,7 @@ export const remarkCiteMarkers = () => (tree: MNode) => walk(tree);
 /** Citation numbers in order of first appearance, unique. */
 export function citeNumbers(text: string): number[] {
   const seen = new Set<number>();
-  for (const m of text.matchAll(RE)) for (const n of m[1].split(",")) seen.add(Number(n));
+  const plain = text.replace(/```[\s\S]*?(```|$)|~~~[\s\S]*?(~~~|$)|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$[^$\n]*\$/g, " ");
+  for (const m of plain.matchAll(RE)) for (const n of m[1].split(",")) seen.add(Number(n));
   return [...seen];
 }

@@ -52,6 +52,15 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 | Notebooks in evidence | Rendered statically; never executed |
 | Prompt injection from documents | Retrieved text is passed as quoted context, never as instructions; tools available to chat are read-only; agents can only *propose* annotations — humans approve |
 
+### Web app Content-Security-Policy
+
+The SPA ships a meta CSP limited to `img-src 'self' data: blob:` (so Vite dev keeps working). Production
+nginx must send a full CSP header with at least: `default-src 'self'; img-src 'self' data: blob:;
+script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' <OIDC authority origin>;
+frame-ancestors 'none'; base-uri 'self'; object-src 'none'`. Chat answers never render images and only
+render http(s), same-site relative or fragment links, so prompt-injected documents cannot exfiltrate data
+through image or link URLs.
+
 ## 5. Data protection
 
 - TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/MinIO).

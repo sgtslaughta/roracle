@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { OverflowList } from "@/components/OverflowList";
 import { isAvailable, type Citation } from "@/api/chat";
 import { openCitation } from "./AnswerText";
@@ -7,7 +7,9 @@ const CAP = 12;
 const GONE_TITLE = "You can't see this source, or it was removed.";
 
 export function trimQuote(q: string, max = 160) {
-  return q.length > max ? q.slice(0, max).replace(/\s\S*$/, "") + "…" : q;
+  if (q.length <= max) return q;
+  const cut = q.slice(0, max);
+  return (q[max] && /\s/.test(q[max]) ? cut : cut.replace(/\s\S*$/, "")) + "…";
 }
 
 export interface SidenotesProps {
@@ -22,11 +24,11 @@ export function Sidenotes({ citations, order, answerRef, hot, onHot }: Sidenotes
   const marginRef = useRef<HTMLDivElement>(null);
   const list = order.flatMap((n) => citations.find((c) => c.n === n) ?? []);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const answer = answerRef.current, margin = marginRef.current;
     if (!answer || !margin) return;
     const layout = () => {
-      const notes = [...margin.querySelectorAll<HTMLElement>(":scope > .note")];
+      const notes = [...margin.querySelectorAll<HTMLElement>(".note")];
       if (!notes.length || getComputedStyle(notes[0]).position !== "absolute") return;
       const top0 = answer.getBoundingClientRect().top;
       let floor = 0;
@@ -36,13 +38,14 @@ export function Sidenotes({ citations, order, answerRef, hot, onHot }: Sidenotes
         note.style.top = `${t}px`;
         floor = t + note.offsetHeight + 8;
       }
-      const more = margin.querySelector<HTMLElement>(":scope > .ovl-more");
+      const more = margin.querySelector<HTMLElement>(".ovl-more");
       if (more) { more.style.top = `${floor}px`; floor += more.offsetHeight + 8; }
       margin.style.minHeight = `${floor}px`;
     };
     layout();
     const ro = new ResizeObserver(layout);
     ro.observe(answer);
+    ro.observe(margin);
     window.addEventListener("resize", layout);
     return () => { ro.disconnect(); window.removeEventListener("resize", layout); };
   }, [answerRef, citations, order]);

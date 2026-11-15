@@ -59,9 +59,9 @@ sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
 .cwrap textarea{width:100%;resize:none;border:0;outline:none;background:none;min-height:28px;max-height:180px;font:16px/1.5 var(--f-read);padding:4px 2px}
 .crow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .crow .send{margin-left:auto}
-.caret{display:inline-block;width:7px;height:1em;background:var(--apricot);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
+.ans-text.streaming>:last-child::after{content:"";display:inline-block;width:7px;height:1em;background:var(--apricot);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.caret{animation:none}}
+@media (prefers-reduced-motion:reduce){.ans-text.streaming>:last-child::after{animation:none}}
 
 @media (max-width:1100px){
   .answer{grid-template-columns:minmax(0,1fr);padding-left:0;gap:12px}
