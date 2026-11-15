@@ -35,14 +35,17 @@ def test_doi_match_case_and_prefix_insensitive(db_session, ana, ref_doi):
     _, v = citing(db_session, ana, [{"title": "unrelated", "year": 1999, "doi": ref_doi}])
     assert resolve_references(db_session, v) == 1
     assert targets(db_session, v) == [t.id]
-    assert db_session.get(DocCitation, (v.id, 1)).confidence == 1.0
+    assert (
+        db_session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id)).one().confidence
+        == 1.0
+    )
 
 
 def test_fuzzy_title_and_year_match(db_session, ana):
     t, _ = lib(db_session, ana, "Attention Is All You Need", year=2017)
     _, v = citing(db_session, ana, [{"title": "attention is all you need.", "year": 2017}])
     assert resolve_references(db_session, v) == 1
-    row = db_session.get(DocCitation, (v.id, 1))
+    row = db_session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id)).one()
     assert row.target_document_id == t.id and row.confidence == 1.0  # case/punct-normalised: exact
 
 
@@ -50,7 +53,7 @@ def test_near_miss_title_not_matched(db_session, ana):
     lib(db_session, ana, "Attention Is All You Need", year=2017)
     _, v = citing(db_session, ana, [{"title": "Attention Is All You Need In Practice Today", "year": 2017}])
     assert resolve_references(db_session, v) == 0
-    assert targets(db_session, v) == [None]
+    assert targets(db_session, v) == []
 
 
 def test_same_title_different_year_not_matched(db_session, ana):
@@ -63,7 +66,7 @@ def test_resolve_idempotent_ref_no_and_no_self_link(db_session, ana):
     _, v = citing(db_session, ana, [{"title": "x", "year": 1}, {"title": "Citing paper", "year": 2024}])
     assert resolve_references(db_session, v) == 0 and resolve_references(db_session, v) == 0
     rows = db_session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id)).all()
-    assert sorted(r.ref_no for r in rows) == [1, 2] and all(r.target_document_id is None for r in rows)
+    assert rows == []  # unmatched references have no rows
 
 
 def test_backfill_links_earlier_dangling_reference(db_session, ana):
@@ -72,7 +75,7 @@ def test_backfill_links_earlier_dangling_reference(db_session, ana):
     t, _ = lib(db_session, ana, "Late Arrival Paper", year=2019)
     assert backfill_for(db_session, t) == 1
     assert targets(db_session, v) == [t.id]
-    assert backfill_for(db_session, t) == 0
+    assert backfill_for(db_session, t) == 1 and targets(db_session, v) == [t.id]  # rebuild is idempotent
 
 
 def test_handler_resolves_and_backfills(db_session, ana):
@@ -162,7 +165,7 @@ def test_fuzzy_confidence_is_ratio(db_session, ana):
         db_session, ana, [{"title": "Deep Residual Learning for Image Recognitions", "year": 2016.0}]
     )
     assert resolve_references(db_session, v) == 1
-    row = db_session.get(DocCitation, (v.id, 1))
+    row = db_session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id)).one()
     assert row.target_document_id == t.id and 0.92 <= row.confidence < 1.0
 
 
@@ -175,23 +178,68 @@ def test_short_generic_title_never_fuzzy_matches(db_session, ana):
     assert resolve_references(db_session, v) == 0
 
 
-def test_tied_candidates_not_linked(db_session, ana):
+def _aged(db, *docs):
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)  # server_default now() ties inside one transaction: set explicitly
+    for i, d in enumerate(docs):
+        d.created_at = now - timedelta(hours=len(docs) - i)
+    db.flush()
+
+
+def test_all_candidates_stored_on_tie(db_session, ana):
     lib(db_session, ana, "A Survey of Graph Neural Networks", year=2020)
     lib(db_session, ana, "A Survey of Graph Neural Networks", year=2020)
     _, v = citing(db_session, ana, [{"title": "A Survey of Graph Neural Networks", "year": 2020}])
-    assert resolve_references(db_session, v) == 0
+    assert resolve_references(db_session, v) == 1 and len(targets(db_session, v)) == 2
 
 
-def test_doi_normalisation_and_oldest_wins(db_session, ana):
-    from datetime import UTC, datetime, timedelta
-
-    old, _ = lib(db_session, ana, "First", doi="10.5/x")
-    new, _ = lib(db_session, ana, "Second", doi="https://doi.org/10.5/X")
-    now = datetime.now(UTC)  # server_default now() ties inside one transaction: set explicitly
-    old.created_at, new.created_at = now - timedelta(hours=1), now
-    db_session.flush()
+def test_doi_normalisation(db_session, ana):
+    t, _ = lib(db_session, ana, "First", doi="10.5/x")
     _, v = citing(db_session, ana, [{"doi": "https://www.doi.org/10.5%2Fx)."}])
-    assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [old.id]
+    assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [t.id]
+
+
+def refs(client, hdr, d):
+    return client.get(f"/documents/{d.id}/references", headers=hdr).json()
+
+
+def test_private_older_doi_clash_does_not_hijack_or_leak(client, as_ana, as_bob, ana, bob, db_session):
+    priv, _ = lib(db_session, ana, "Hidden", doi="10.5/x", visibility="private")
+    pub, _ = lib(db_session, ana, "Visible", doi="10.5/x")
+    _aged(db_session, priv, pub)  # private is the oldest
+    d, v = citing(db_session, ana, [{"doi": "10.5/x"}])
+    resolve_references(db_session, v)
+    assert refs(client, as_bob, d)[0]["target"] == {"doc_id": str(pub.id), "title": "Visible"}
+    assert refs(client, as_ana, d)[0]["target"]["doc_id"] == str(priv.id)  # sees both: oldest wins
+    assert client.get(f"/documents/{pub.id}/cited-by", headers=as_bob).json()[0]["doc_id"] == str(d.id)
+
+
+def test_only_invisible_candidate_is_unresolved(client, as_bob, ana, bob, db_session):
+    lib(db_session, ana, "Hidden", doi="10.5/y", visibility="private")
+    d, v = citing(db_session, ana, [{"doi": "10.5/y"}])
+    resolve_references(db_session, v)
+    assert refs(client, as_bob, d)[0]["target"] is None
+
+
+def test_fuzzy_tie_visible_vs_invisible_links_visible(client, as_bob, ana, bob, db_session):
+    priv, _ = lib(db_session, ana, "A Survey of Graph Neural Networks", year=2020, visibility="private")
+    pub, _ = lib(db_session, ana, "A Survey of Graph Neural Networks", year=2020)
+    _aged(db_session, priv, pub)
+    d, v = citing(db_session, ana, [{"title": "A Survey of Graph Neural Networks", "year": 2020}])
+    resolve_references(db_session, v)
+    assert refs(client, as_bob, d)[0]["target"]["doc_id"] == str(pub.id)
+
+
+def test_best_confidence_beats_age(client, as_ana, ana, db_session):
+    old, _ = lib(db_session, ana, "A Survey of Graph Neural Network", year=2020)  # fuzzy < 1.0, older
+    new, _ = lib(db_session, ana, "Unrelated", year=1, doi="10.5/z")  # DOI 1.0, newer
+    _aged(db_session, old, new)
+    d, v = citing(
+        db_session, ana, [{"title": "A Survey of Graph Neural Networks", "year": 2020, "doi": "10.5/z"}]
+    )
+    resolve_references(db_session, v)
+    assert refs(client, as_ana, d)[0]["target"]["doc_id"] == str(new.id)
 
 
 def test_non_owner_non_searchable_source_404(client, as_bob, ana, db_session):

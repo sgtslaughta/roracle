@@ -7,7 +7,7 @@ from uuid import UUID
 
 from rapidfuzz import fuzz, utils
 from sqlalchemy import and_, delete, func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from roracle.access import visible_documents
 from roracle.auth import Principal
@@ -73,72 +73,71 @@ class _Index:
     flip briefly dips cited-by counts; upgrade = a periodic reconcile pass re-running resolve."""
 
     def __init__(self, cands: list[Cand]):
-        self.by_doi: dict[str, Cand] = {}
+        self.by_doi: dict[str, list[Cand]] = {}
         for c in cands:
             if c.doi:
-                self.by_doi.setdefault(c.doi, c)
+                self.by_doi.setdefault(c.doi, []).append(c)
         self.by_year: dict[int, list[Cand]] = {}
         for c in cands:
             if c.year is not None and _tokens_ok(c.norm):
                 self.by_year.setdefault(c.year, []).append(c)
 
-    def match(self, ref: dict) -> tuple[UUID, float] | None:
+    def match_all(self, ref: dict) -> dict[UUID, float]:
+        """Every candidate the reference may denote (R18): DOI hits score 1.0, fuzzy hits ratio/100."""
+        out: dict[UUID, float] = {}
         doi = norm_doi(ref.get("doi"))
-        if doi and doi in self.by_doi:
-            return self.by_doi[doi].id, 1.0
+        for c in self.by_doi.get(doi, ()) if doi else ():
+            out[c.id] = 1.0
         title, year = utils.default_process(str(ref.get("title") or "")), _year(ref.get("year"))
-        if year is None or not _tokens_ok(title):
-            return None
-        scored = [(fuzz.token_sort_ratio(title, c.norm), c.id) for c in self.by_year.get(year, ())]
-        top = max((r for r, _ in scored), default=0)
-        best = [i for r, i in scored if r == top]
-        if top < FUZZY_MIN or len(best) != 1:  # ambiguous tie: do not guess
-            return None
-        return best[0], top / 100
+        if year is not None and _tokens_ok(title):
+            for c in self.by_year.get(year, ()):
+                r = fuzz.token_sort_ratio(title, c.norm)
+                if r >= FUZZY_MIN:
+                    out[c.id] = max(out.get(c.id, 0.0), r / 100)
+        return out
 
 
 def resolve_references(session: Session, version: DocumentVersion) -> int:
-    """Replace the version's citation rows (idempotent); returns the matched count."""
+    """Replace the version's citation rows (idempotent); returns the number of references with a candidate.
+
+    Matching is global: ALL candidates are stored; the viewer's best visible one is chosen at read time."""
     index = _Index(_candidates(session, exclude=version.document_id))
     session.execute(delete(DocCitation).where(DocCitation.src_version_id == version.id))
     matched = 0
     for n, ref in enumerate(version.references or [], 1):
-        ref = ref if isinstance(ref, dict) else {}
-        hit = index.match(ref)
-        matched += hit is not None
-        session.add(
-            DocCitation(
-                src_version_id=version.id,
-                ref_no=n,
-                target_document_id=hit[0] if hit else None,
-                confidence=hit[1] if hit else None,
-                raw=ref,
-            )
+        hits = index.match_all(ref if isinstance(ref, dict) else {})
+        matched += bool(hits)
+        session.add_all(
+            DocCitation(src_version_id=version.id, ref_no=n, target_document_id=t, confidence=c)
+            for t, c in hits.items()
         )
     session.flush()
     return matched
 
 
 def backfill_for(session: Session, document: Document) -> int:
-    """Link dangling rows of OTHER documents' latest versions that cite `document`."""
+    """Rebuild the edges INTO `document` from other documents' latest searchable versions."""
     index = _Index(_candidates(session, only=document.id))
+    session.execute(delete(DocCitation).where(DocCitation.target_document_id == document.id))
     if not index.by_doi and not index.by_year:
         return 0
-    rows = session.scalars(
-        select(DocCitation)
-        .join(DocumentVersion, DocumentVersion.id == DocCitation.src_version_id)
-        .where(
-            DocCitation.target_document_id.is_(None),
+    versions = session.scalars(
+        select(DocumentVersion).where(
             DocumentVersion.is_latest.is_(True),
+            DocumentVersion.stage == "searchable",
             DocumentVersion.document_id != document.id,
+            DocumentVersion.references != [],
         )
-    ).all()
+    )
     n = 0
-    for row in rows:
-        hit = index.match(row.raw or {})
-        if hit:
-            row.target_document_id, row.confidence = hit
-            n += 1
+    for v in versions:
+        for no, ref in enumerate(v.references or [], 1):
+            c = index.match_all(ref if isinstance(ref, dict) else {}).get(document.id)
+            if c is not None:
+                session.add(
+                    DocCitation(src_version_id=v.id, ref_no=no, target_document_id=document.id, confidence=c)
+                )
+                n += 1
     session.flush()
     return n
 
@@ -157,19 +156,42 @@ def handle_citations(
     backfill_for(session, d)
 
 
+def best_targets(p: Principal):
+    """Per (src_version, ref_no) the viewer's best VISIBLE candidate (rn == 1): max confidence, then
+    oldest document, then id. Never refuses a tie and never reveals a candidate the viewer can't see."""
+    tv = aliased(DocumentVersion)
+    rn = func.row_number().over(
+        partition_by=[DocCitation.src_version_id, DocCitation.ref_no],
+        order_by=[DocCitation.confidence.desc(), Document.created_at, Document.id],
+    )
+    return (
+        select(DocCitation.src_version_id, DocCitation.ref_no, DocCitation.target_document_id, rn.label("rn"))
+        .join(Document, Document.id == DocCitation.target_document_id)
+        .join(
+            tv,
+            and_(tv.document_id == Document.id, tv.is_latest.is_(True), tv.stage == "searchable"),
+        )
+        .where(visible_documents(p))
+        .subquery()
+    )
+
+
 def cited_by_counts(session: Session, p: Principal, doc_ids: list[UUID]) -> dict[str, int]:
     """Distinct VISIBLE citing documents (latest searchable version) per target; one query."""
     if not doc_ids:
         return {}
+    bt = best_targets(p)
     rows = session.execute(
-        select(DocCitation.target_document_id, func.count(func.distinct(Document.id)))
-        .join(DocumentVersion, DocumentVersion.id == DocCitation.src_version_id)
+        select(bt.c.target_document_id, func.count(func.distinct(Document.id)))
+        .join(DocumentVersion, DocumentVersion.id == bt.c.src_version_id)
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
-            DocCitation.target_document_id.in_(doc_ids),
-            and_(DocumentVersion.is_latest.is_(True), DocumentVersion.stage == "searchable"),
+            bt.c.rn == 1,
+            bt.c.target_document_id.in_(doc_ids),
+            DocumentVersion.is_latest.is_(True),
+            DocumentVersion.stage == "searchable",
             visible_documents(p),
         )
-        .group_by(DocCitation.target_document_id)
+        .group_by(bt.c.target_document_id)
     ).all()
     return {str(t): n for t, n in rows}

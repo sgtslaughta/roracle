@@ -26,9 +26,10 @@ def upgrade() -> None:
             primary_key=True,
         ),
         sa.Column("ref_no", sa.Integer, primary_key=True),
-        sa.Column("target_document_id", UUID, sa.ForeignKey("documents.id", ondelete="SET NULL")),
-        sa.Column("confidence", sa.Float),
-        sa.Column("raw", postgresql.JSONB, server_default="{}", nullable=False),
+        sa.Column(
+            "target_document_id", UUID, sa.ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+        ),
+        sa.Column("confidence", sa.Float, nullable=False),
     )
     op.create_index("ix_doc_citations_target_document_id", "doc_citations", ["target_document_id"])
 

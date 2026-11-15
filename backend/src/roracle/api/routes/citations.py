@@ -11,8 +11,9 @@ from roracle.access import visible_documents
 from roracle.api.routes.documents_read import HIDDEN_STAGES, _doc, _privileged
 from roracle.auth import Principal, current_principal
 from roracle.citations import _year as _int_or_none
+from roracle.citations import best_targets
 from roracle.db import get_session
-from roracle.models import DocCitation, Document, DocumentVersion
+from roracle.models import Document, DocumentVersion
 
 router = APIRouter()
 Who = Annotated[Principal, Depends(current_principal)]
@@ -47,20 +48,21 @@ def _format(ref: dict) -> str:
 @router.get("/documents/{doc_id}/references")
 def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
     v = _readable(session, p, doc_id)
-    rows = {
-        c.ref_no: c for c in session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id))
-    }
-    ids = {c.target_document_id for c in rows.values() if c.target_document_id}
-    seen = (  # a target the caller cannot see stays unresolved
-        {d.id: d for d in session.scalars(select(Document).where(Document.id.in_(ids), visible_documents(p)))}
-        if ids
+    bt = best_targets(p)
+    best = dict(
+        session.execute(
+            select(bt.c.ref_no, bt.c.target_document_id).where(bt.c.src_version_id == v.id, bt.c.rn == 1)
+        ).all()
+    )
+    seen = (
+        {d.id: d for d in session.scalars(select(Document).where(Document.id.in_(set(best.values()))))}
+        if best
         else {}
     )
     out = []
     for n, ref in enumerate(v.references or [], 1):
         ref = ref if isinstance(ref, dict) else {}
-        row = rows.get(n)
-        t = seen.get(row.target_document_id) if row else None
+        t = seen.get(best.get(n))
         out.append(
             {
                 "ref_no": n,
@@ -74,12 +76,14 @@ def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
 @router.get("/documents/{doc_id}/cited-by")
 def cited_by(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
     _readable(session, p, doc_id)
+    bt = best_targets(p)
     rows = session.execute(
         select(Document, DocumentVersion)
         .join(DocumentVersion, DocumentVersion.document_id == Document.id)
-        .join(DocCitation, DocCitation.src_version_id == DocumentVersion.id)
+        .join(bt, bt.c.src_version_id == DocumentVersion.id)
         .where(
-            DocCitation.target_document_id == doc_id,
+            bt.c.rn == 1,
+            bt.c.target_document_id == doc_id,
             DocumentVersion.is_latest.is_(True),
             DocumentVersion.stage == "searchable",
             visible_documents(p),
