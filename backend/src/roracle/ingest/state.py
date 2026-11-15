@@ -122,8 +122,16 @@ def clear_outdated_reasons(
         s.commit()
 
 
-def enqueue_job(session_factory: sessionmaker[Session], kind: str, payload: dict) -> None:
-    """Enqueue a follow-up job from a short session of its own (never the handler's)."""
+def mark_searchable_and_enqueue(
+    session_factory: sessionmaker[Session], version_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+) -> None:
+    """stage=searchable and its `citations` job (R6) in ONE transaction: no searchable version without a job."""
     with session_factory() as s:
-        enqueue(s, kind, payload)
+        _lock_timeout(s, lock_timeout_s)
+        res = s.execute(
+            update(DocumentVersion).where(DocumentVersion.id == version_id).values(stage="searchable")
+        )
+        if res.rowcount == 0:
+            raise LookupError(f"document version {version_id} not found")
+        enqueue(s, "citations", {"version_id": str(version_id)})
         s.commit()

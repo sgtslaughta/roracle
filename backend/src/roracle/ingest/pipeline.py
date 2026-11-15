@@ -24,7 +24,7 @@ from roracle.ingest.state import (
     bump_attempts,
     clear_outdated_reasons,
     demote_older_versions,
-    enqueue_job,
+    mark_searchable_and_enqueue,
     set_stage,
     update_document,
     update_version,
@@ -128,8 +128,7 @@ def _index(
         demote_older_versions(sf, d.id, v.id)
         if v.version > 1:
             clear_outdated_reasons(sf, d.id, v.id)
-    set_stage(sf, v.id, "searchable")
-    enqueue_job(sf, "citations", {"version_id": str(v.id)})  # R6
+    mark_searchable_and_enqueue(sf, v.id)  # R6: stage + citations job atomically
 
 
 def handle_ingest(

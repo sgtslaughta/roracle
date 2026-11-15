@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from roracle.access import visible_documents
 from roracle.api.routes.documents_read import HIDDEN_STAGES, _doc, _privileged
 from roracle.auth import Principal, current_principal
+from roracle.citations import _year as _int_or_none
 from roracle.db import get_session
 from roracle.models import DocCitation, Document, DocumentVersion
 
@@ -94,8 +95,8 @@ def cited_by(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
                 "doc_id": str(d.id),
                 "title": d.title or m.get("title") or v.filename,
                 "authors": list(m.get("authors") or []),
-                "year": m.get("year"),
-                "venue": m.get("venue"),
+                "year": _int_or_none(m.get("year")),
+                **({"venue": m["venue"]} if m.get("venue") else {}),
             },
         )
     return list(out.values())

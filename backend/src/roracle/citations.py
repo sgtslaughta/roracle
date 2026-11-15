@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from urllib.parse import unquote
 from uuid import UUID
 
 from rapidfuzz import fuzz, utils
@@ -20,22 +21,32 @@ class Cand:
     id: UUID
     doi: str
     title: str
-    year: str
+    year: int | None
+    norm: str = ""
 
 
 def norm_doi(s) -> str:
-    s = str(s or "").strip().lower()
-    s = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:\s*)", "", s)
-    return s.strip()
+    s = unquote(str(s or "")).strip().lower()
+    s = re.sub(r"^(https?://(www\.)?(dx\.)?doi\.org/|doi:\s*)", "", s)
+    return s.strip().rstrip(".,;)")
 
 
-def _year(y) -> str:
-    return str(y).strip() if y not in (None, "") else ""
+def _year(y) -> int | None:
+    try:
+        return int(float(str(y).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _tokens_ok(norm: str) -> bool:
+    """Short/generic titles ("Introduction") must never fuzzy-match."""
+    return len(norm.split()) >= 3 and len(norm) >= 15
 
 
 def _cand(doc_id: UUID, title: str | None, meta: dict | None) -> Cand:
     m = meta or {}
-    return Cand(doc_id, norm_doi(m.get("doi")), (title or m.get("title") or "").strip(), _year(m.get("year")))
+    t = (title or m.get("title") or "").strip()
+    return Cand(doc_id, norm_doi(m.get("doi")), t, _year(m.get("year")), utils.default_process(t))
 
 
 def _candidates(session: Session, *, exclude: UUID | None = None, only: UUID | None = None) -> list[Cand]:
@@ -47,6 +58,7 @@ def _candidates(session: Session, *, exclude: UUID | None = None, only: UUID | N
             DocumentVersion.is_latest.is_(True),
             DocumentVersion.stage == "searchable",
         )
+        .order_by(Document.created_at, Document.id)  # deterministic: oldest document wins DOI clashes
     )
     if exclude:
         stmt = stmt.where(Document.id != exclude)
@@ -56,28 +68,33 @@ def _candidates(session: Session, *, exclude: UUID | None = None, only: UUID | N
 
 
 class _Index:
-    """# ponytail: in-memory scan, fine to ~100k docs; beyond that use a pg_trgm/ES candidate query."""
+    """# ponytail: in-memory scan, fine to ~100k docs; beyond that use a pg_trgm/ES candidate query.
+    Known limits (accepted): a concurrent resolve (A) vs backfill (B) can miss a link, and a version
+    flip briefly dips cited-by counts; upgrade = a periodic reconcile pass re-running resolve."""
 
     def __init__(self, cands: list[Cand]):
-        self.by_doi = {c.doi: c for c in cands if c.doi}
-        self.by_year: dict[str, list[Cand]] = {}
+        self.by_doi: dict[str, Cand] = {}
         for c in cands:
-            if c.title and c.year:
+            if c.doi:
+                self.by_doi.setdefault(c.doi, c)
+        self.by_year: dict[int, list[Cand]] = {}
+        for c in cands:
+            if c.year is not None and _tokens_ok(c.norm):
                 self.by_year.setdefault(c.year, []).append(c)
 
     def match(self, ref: dict) -> tuple[UUID, float] | None:
         doi = norm_doi(ref.get("doi"))
         if doi and doi in self.by_doi:
             return self.by_doi[doi].id, 1.0
-        title, year = str(ref.get("title") or "").strip(), _year(ref.get("year"))
-        if not title or not year:
+        title, year = utils.default_process(str(ref.get("title") or "")), _year(ref.get("year"))
+        if year is None or not _tokens_ok(title):
             return None
-        best: tuple[UUID, float] | None = None
-        for c in self.by_year.get(year, ()):
-            r = fuzz.token_sort_ratio(title, c.title, processor=utils.default_process)
-            if r >= FUZZY_MIN and (best is None or r / 100 > best[1]):
-                best = (c.id, r / 100)
-        return best
+        scored = [(fuzz.token_sort_ratio(title, c.norm), c.id) for c in self.by_year.get(year, ())]
+        top = max((r for r, _ in scored), default=0)
+        best = [i for r, i in scored if r == top]
+        if top < FUZZY_MIN or len(best) != 1:  # ambiguous tie: do not guess
+            return None
+        return best[0], top / 100
 
 
 def resolve_references(session: Session, version: DocumentVersion) -> int:
