@@ -6,7 +6,7 @@ from conftest import bearer
 from sqlalchemy import func, text
 
 from roracle import pats
-from roracle.auth import get_app_settings
+from roracle.auth import get_app_settings, resolve_principal
 from roracle.models import PersonalAccessToken, User
 
 
@@ -29,6 +29,7 @@ def test_last_used_updated(client, as_ana, db_session):
     tok = mint(client, as_ana)["token"]
     assert db_session.query(PersonalAccessToken).one().last_used_at is None
     client.get("/me", headers=bearer(tok))
+    db_session.expire_all()
     assert db_session.query(PersonalAccessToken).one().last_used_at is not None
 
 
@@ -260,9 +261,30 @@ def test_admin_revokes_all_user_pats(client, as_ana, as_bob, make_token, db_sess
     assert client.delete(f"/admin/users/{uid}/pats", headers=pat).status_code == 403
 
 
-def test_last_used_does_not_block_on_locked_row(client, as_ana, session_factory):
+def test_last_used_does_not_block_on_locked_row(client, as_ana, session_factory, db_session):
     tok = bearer(mint(client, as_ana)["token"])
     with session_factory() as other:
-        other.execute(text("SELECT 1 FROM personal_access_tokens FOR UPDATE"))
+        other.execute(text("SET lock_timeout = '2s'"))
+        assert len(other.execute(text("SELECT 1 FROM personal_access_tokens FOR UPDATE")).all()) == 1
         assert client.get("/me", headers=tok).status_code == 200
         other.rollback()
+    db_session.expire_all()
+    assert db_session.query(PersonalAccessToken).one().last_used_at is None  # touch skipped the locked row
+
+
+def test_touch_holds_no_lock_after_use(app, as_ana, client, session_factory, db_session, settings, jwks):
+    tok = mint(client, as_ana)["token"]
+    p = resolve_principal(db_session, jwks, settings, f"Bearer {tok}", session_factory)
+    assert p.via == "pat"  # request session still open (uncommitted)
+    with session_factory() as other:
+        other.execute(text("SET lock_timeout = '2s'"))
+        assert len(other.execute(text("SELECT 1 FROM personal_access_tokens FOR UPDATE NOWAIT")).all()) == 1
+        assert other.execute(text("SELECT last_used_at FROM personal_access_tokens")).scalar() is not None
+        other.rollback()
+
+
+def test_no_session_factory_skips_touch(db_session, as_ana, client, settings, jwks):
+    tok = mint(client, as_ana)["token"]
+    resolve_principal(db_session, jwks, settings, f"Bearer {tok}")
+    db_session.expire_all()
+    assert db_session.query(PersonalAccessToken).one().last_used_at is None

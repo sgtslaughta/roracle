@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.auth import Principal, principal_for_user
 from roracle.config import Settings
@@ -52,7 +52,9 @@ def create(
     return row, token
 
 
-def principal_from_pat(session: Session, settings: Settings, token: str) -> Principal:
+def principal_from_pat(
+    session: Session, settings: Settings, token: str, session_factory: sessionmaker | None = None
+) -> Principal:
     if not settings.pats_enabled:
         raise ValueError("pats disabled")
     row = session.scalar(
@@ -69,7 +71,10 @@ def principal_from_pat(session: Session, settings: Settings, token: str) -> Prin
     limit = timedelta(days=settings.pat_max_identity_age_days)
     if owner is None or owner.last_login_at is None or owner.last_login_at < now - limit:
         raise StaleIdentity("stale")
-    session.execute(_TOUCH, {"id": row.id})  # throttled, never waits on a row lock
+    if session_factory is not None:  # own short transaction: no row lock held for the request
+        with session_factory() as touch:
+            touch.execute(_TOUCH, {"id": row.id})  # throttled, skips locked rows
+            touch.commit()
     current = set(base.groups)
     return Principal(
         base.user_id,

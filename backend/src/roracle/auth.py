@@ -13,7 +13,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.config import Settings
 from roracle.db import get_session
@@ -155,7 +155,11 @@ def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
 
 
 def resolve_principal(
-    session: Session, jwks: JwksCache, settings: Settings, authorization: str | None
+    session: Session,
+    jwks: JwksCache,
+    settings: Settings,
+    authorization: str | None,
+    session_factory: sessionmaker | None = None,
 ) -> Principal:
     """Bearer PAT (`ror_pat_`) or Keycloak JWT -> Principal. Every failure is the same 401."""
     scheme, _, token = (authorization or "").partition(" ")
@@ -166,7 +170,7 @@ def resolve_principal(
 
     if token.startswith(pats.PREFIX):
         try:
-            return pats.principal_from_pat(session, settings, token)
+            return pats.principal_from_pat(session, settings, token, session_factory)
         except pats.StaleIdentity:
             raise HTTPException(401, STALE_DETAIL, headers={"WWW-Authenticate": "Bearer"}) from None
         except (ValueError, LookupError):
@@ -181,7 +185,7 @@ def current_principal(
     settings: Annotated[Settings, Depends(get_app_settings)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    p = resolve_principal(session, jwks, settings, authorization)
+    p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
         raise HTTPException(403, "insufficient scope")
     return p
