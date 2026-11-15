@@ -30,7 +30,7 @@ of truth for language packages: `backend/uv.lock`, `frontend/pnpm-lock.yaml`.
 Runtime: fastapi, uvicorn[standard], sqlalchemy ≥ 2, psycopg[binary] ≥ 3, alembic, pydantic-settings,
 pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch ≥ 8, openai (client for
 the OpenAI-spec endpoint), mcp (official SDK), datasketch (MinHash), docling-core (chunker),
-tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), pypdf (page count), bleach/nh3
+tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), bleach/nh3
 (sanitizing). Dev: pytest, ruff.
 
 ## npm (registry mirror via `NPM_CONFIG_REGISTRY`)

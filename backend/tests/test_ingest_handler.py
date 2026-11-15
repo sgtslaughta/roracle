@@ -453,17 +453,3 @@ def test_office_without_gotenberg_goes_to_docling(
     v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "")
     assert seen["convert"][1] == "Report.DOCX" and seen["convert"][0] != b"%PDF-1.7 rendition"
     assert not s3.exists(f"derived/{v.id}/rendition.pdf")
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("office", [True, False])
-def test_page_cap_rejects_before_convert(
-    db_session, session_factory, cfg, store, es, user, monkeypatch, s3, office
-):
-    monkeypatch.setattr(pipeline, "convert", lambda *a, **k: pytest.fail("convert must not run"))
-    monkeypatch.setattr(pipeline, "to_pdf", lambda *a, **k: b"%PDF-1.7 rendition")
-    monkeypatch.setattr(pipeline, "pdf_page_count", lambda d: 3)
-    v = make_version(db_session, store, user, name="Report.DOCX" if office else "r.pdf")
-    c = cfg.model_copy(update={"gotenberg_url": "http://g" if office else "", "max_pdf_pages": 2})
-    job = _run(db_session, session_factory, c, store, es, v, expect_failed=True)
-    assert "exceeds 2 pages" in job.last_error

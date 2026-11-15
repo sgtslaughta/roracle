@@ -4,9 +4,8 @@ import zipfile
 
 import httpx
 import pytest
-from pypdf import PdfWriter
 
-from roracle.ingest.office import is_office, pdf_page_count, rendition_key, to_pdf
+from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.queue import NonRetryable
 
 GOT = os.environ.get("ROR_GOTENBERG_URL") or "http://localhost:3300"
@@ -52,17 +51,16 @@ def test_to_pdf_stream_under_cap():
     assert to_pdf(b"x", "a.docx", "http://g", client=_client(body=body), max_bytes=1000) == body
 
 
-def _pdf(pages: int) -> bytes:
-    w, buf = PdfWriter(), io.BytesIO()
-    for _ in range(pages):
-        w.add_blank_page(72, 72)
-    w.write(buf)
-    return buf.getvalue()
+class _Boom(httpx.SyncByteStream):
+    def __iter__(self):
+        raise AssertionError("error body must not be read")
+        yield b""
 
 
-def test_pdf_page_count():
-    assert pdf_page_count(_pdf(3)) == 3
-    assert pdf_page_count(b"not a pdf") is None
+def test_to_pdf_4xx_does_not_read_body():
+    c = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(422, stream=_Boom())))
+    with pytest.raises(NonRetryable, match="could not be converted"):
+        to_pdf(b"x", "a.docx", "http://g", client=c, max_bytes=1000)
 
 
 @pytest.mark.parametrize(

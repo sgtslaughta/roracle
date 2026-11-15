@@ -19,7 +19,7 @@ from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.embed import doc_prompt, embed
 from roracle.ingest.neardup import find_near_duplicate, minhash
-from roracle.ingest.office import is_office, pdf_page_count, rendition_key, to_pdf
+from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
@@ -83,8 +83,6 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
         )
         store.put_bytes(rendition_key(v.id), data, "application/pdf")
         name, is_pdf = f"{name.rsplit('.', 1)[0]}.pdf", True
-    if is_pdf and (pages := pdf_page_count(data)) and pages > settings.max_pdf_pages:
-        raise NonRetryable(f"document exceeds {settings.max_pdf_pages} pages")
     doc = convert(data, name, settings.docling_url, timeout=settings.docling_timeout_s)
     store.put_bytes(docling_key(v.id), json.dumps(doc).encode(), "application/json")
     meta, refs = {}, []

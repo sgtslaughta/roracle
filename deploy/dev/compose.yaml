@@ -63,6 +63,10 @@ services:
       retries: 40
   docling:
     image: ${REGISTRY_MIRROR:-}quay.io/docling-project/docling-serve-cpu:latest
+    environment:
+      # takes effect on next restart
+      DOCLING_SERVE_MAX_NUM_PAGES: "2000"
+      DOCLING_SERVE_MAX_FILE_SIZE: "629145600"  # 600 MB
     ports: ["5001:5001"]
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:5001/health"]
@@ -83,6 +87,7 @@ services:
       - --webhook-disable
       - --chromium-disable-routes
       - --pdfengines-disable-routes
+      - --api-timeout=300s
     networks: [gotenberg]
     ports: ["127.0.0.1:${ROR_GOTENBERG_PORT:-3300}:3000"]
     healthcheck:

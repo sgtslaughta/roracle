@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     gotenberg_url: str = ""
     gotenberg_timeout_s: float = 300.0
     max_rendition_bytes: int = 524288000
-    max_pdf_pages: int = 2000
     clamav_host: str = ""
     rerank_url: str = ""
     rerank_model: str = ""

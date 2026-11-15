@@ -1,10 +1,8 @@
 """Office -> PDF rendition via Gotenberg (LibreOffice)."""
 
-import io
 from uuid import UUID
 
 import httpx
-from pypdf import PdfReader
 
 from roracle.ingest.parse import _check
 from roracle.queue import NonRetryable
@@ -18,14 +16,6 @@ def is_office(filename: str) -> bool:
 
 def rendition_key(version_id: UUID | str) -> str:
     return f"derived/{version_id}/rendition.pdf"
-
-
-def pdf_page_count(data: bytes) -> int | None:
-    """Page count, or None when pypdf cannot parse it (no cap; docling decides)."""
-    try:
-        return len(PdfReader(io.BytesIO(data)).pages)
-    except Exception:  # noqa: BLE001 - any parse failure means "unknown"
-        return None
 
 
 def to_pdf(
@@ -46,16 +36,17 @@ def to_pdf(
             "POST", f"{url.rstrip('/')}/forms/libreoffice/convert", files={"files": (filename, data)}
         ) as r:
             if r.status_code >= 400:
-                r.read()
                 _check(r, "document could not be converted (unsupported or invalid file)")
-            buf = bytearray()
+            chunks, total = [], 0
             for chunk in r.iter_bytes():
-                buf += chunk
-                if len(buf) > max_bytes:
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > max_bytes:
                     raise NonRetryable("converted PDF exceeds size limit")
     finally:
         if client is None:
             c.close()
-    if not buf.startswith(b"%PDF-"):
+    pdf = b"".join(chunks)
+    if not pdf.startswith(b"%PDF-"):
         raise ValueError("gotenberg returned a non-PDF response")
-    return bytes(buf)
+    return pdf
