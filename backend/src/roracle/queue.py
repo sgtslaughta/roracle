@@ -91,7 +91,11 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
             log.exception("job %s (%s) failed", job.id, job.kind)
             msg = str(exc) or type(exc).__name__
             user_safe = isinstance(exc, NonRetryable)
-            fail(session, job, (USER_PREFIX + msg) if user_safe else msg, retryable=not user_safe)
+            if user_safe:
+                msg = USER_PREFIX + msg
+            elif msg.startswith(USER_PREFIX):
+                msg = "err:" + msg  # only NonRetryable may produce a leading "user:"
+            fail(session, job, msg, retryable=not user_safe)
         else:
             complete(session, job.id)
         session.commit()

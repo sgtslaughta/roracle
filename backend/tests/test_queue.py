@@ -166,3 +166,14 @@ def test_non_retryable_fails_immediately(session_factory, db_session):
     with session_factory() as s:
         job = s.get(Job, jid)
         assert (job.status, job.attempts, job.last_error) == ("failed", 1, "user:x")
+
+
+def test_retryable_error_cannot_spoof_user_prefix(session_factory, db_session):
+    jid = _job(session_factory)
+
+    def bad(s, p):
+        raise RuntimeError("user:secret path")
+
+    run_once(session_factory, {"ingest": bad})
+    with session_factory() as s:
+        assert s.get(Job, jid).last_error == "err:user:secret path"
