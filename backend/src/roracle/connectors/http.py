@@ -52,11 +52,11 @@ def links(path: str, base: str) -> list[str]:
     out = []
     for href in doc.xpath("//a/@href"):
         try:
-            url, _ = urldefrag(urljoin(base, href.strip()))
+            url, _ = urldefrag(netguard.check_url(urljoin(base, href.strip())))
             u = urlsplit(url)
             if u.scheme in ("http", "https") and u.hostname and u.username is None and u.password is None:
                 out.append(url)
-        except ValueError:
+        except (ValueError, netguard.Blocked):
             continue
     return out
 
