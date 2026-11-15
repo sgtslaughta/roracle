@@ -1,0 +1,34 @@
+import pytest
+from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
+
+from roracle.models import Document, DocumentVersion
+
+
+def test_migrations_create_all_tables(db_session):
+    names = set(inspect(db_session.get_bind()).get_table_names())
+    assert {"users", "blobs", "documents", "document_versions", "document_shares", "jobs"} <= names
+
+
+def test_visibility_is_constrained(db_session, user):
+    db_session.add(Document(owner_id=user.id, title="t", org_unit="/", visibility="public"))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_version_numbers_are_unique_per_document(db_session, document, blob):
+    db_session.add_all(
+        [
+            DocumentVersion(
+                document_id=document.id,
+                version=1,
+                blob_sha256=blob.sha256,
+                filename="a",
+                content_type="x",
+                size=1,
+            )
+            for _ in range(2)
+        ]
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
