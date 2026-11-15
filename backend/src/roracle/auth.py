@@ -24,6 +24,7 @@ LEEWAY_S = 30
 REFETCH_MIN_INTERVAL_S = 60
 KEYS_MAX_AGE_S = 600
 KEYS_HARD_MAX_AGE_S = 3600
+STALE_DETAIL = "token owner session stale \u2014 sign in again"
 
 
 @dataclass(frozen=True)
@@ -166,7 +167,9 @@ def resolve_principal(
     if token.startswith(pats.PREFIX):
         try:
             return pats.principal_from_pat(session, settings, token)
-        except Exception:  # noqa: BLE001 - uniform 401
+        except pats.StaleIdentity:
+            raise HTTPException(401, STALE_DETAIL, headers={"WWW-Authenticate": "Bearer"}) from None
+        except (ValueError, LookupError):
             raise _unauthorized() from None
     return _jwt_principal(session, jwks, settings, token)
 
@@ -205,7 +208,12 @@ def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token:
     except Exception:  # noqa: BLE001 - any validation/fetch failure -> uniform 401, no detail leaked
         raise _unauthorized() from None
     stmt = insert(User).values(
-        sub=sub, username=username, email=email, groups=list(groups), is_admin=ADMIN_ROLE in roles
+        sub=sub,
+        username=username,
+        email=email,
+        groups=list(groups),
+        is_admin=ADMIN_ROLE in roles,
+        last_login_at=func.now(),
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[User.sub],
@@ -214,6 +222,7 @@ def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token:
             "email": func.coalesce(stmt.excluded.email, User.email),
             "groups": stmt.excluded.groups,
             "is_admin": stmt.excluded.is_admin,
+            "last_login_at": func.now(),
         },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()

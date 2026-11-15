@@ -22,9 +22,17 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 - rOracle validates `iss`, `aud=roracle`, `exp`, signature against Keycloak JWKS. Unknown `kid` →
   one JWKS refetch, then reject (handles key rotation, prevents refetch amplification).
 - rOracle services **never** trust identity headers; only tokens.
-- PATs (agents): 32 random bytes, shown once, stored as SHA-256 hash with a server pepper, mandatory
-  expiry (default 30 days, max 365), scopes `read` / `write`, revocable, globally disableable, every use
-  audited with client name.
+- PATs (agents): `ror_pat_` + 32 random bytes, shown once, stored only as SHA-256 hash, mandatory
+  expiry (default 30 days, max 365), scopes `read` / `write`, revocable, globally disableable
+  (`ROR_PATS_ENABLED`). Token management requires an interactive JWT (a PAT cannot mint PATs).
+  - A PAT is **never admin**, even for an admin owner.
+  - Groups = snapshot at creation intersected with the owner's current groups: access can narrow
+    but never widen after minting.
+  - Owner sign-in bound: a PAT is rejected (401 "token owner session stale") unless its owner
+    signed in via JWT within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30). This bounds how long a
+    disabled/removed Keycloak user keeps PAT access.
+  - Admins revoke all of a user's PATs at once: `DELETE /admin/users/{id}/pats`.
+  - `last_used_at` is updated at most once a minute and never blocks requests.
 
 ## 3. Authorization
 

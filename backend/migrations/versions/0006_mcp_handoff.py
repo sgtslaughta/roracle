@@ -23,6 +23,7 @@ def _jsonb(name: str, default: str) -> sa.Column:
 
 
 def upgrade() -> None:
+    op.add_column("users", sa.Column("last_login_at", TZ))
     op.create_table(
         "personal_access_tokens",
         sa.Column("id", UUID, primary_key=True),
@@ -31,6 +32,7 @@ def upgrade() -> None:
         sa.Column("prefix", sa.String(12), nullable=False),
         sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
         _jsonb("scopes", '["read"]'),
+        _jsonb("groups", "[]"),
         sa.Column("expires_at", TZ, nullable=False),
         sa.Column("revoked_at", TZ),
         sa.Column("last_used_at", TZ),
@@ -86,6 +88,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_column("users", "last_login_at")
     op.drop_table("audit_log")
     op.drop_table("handoff_shares")
     op.drop_table("handoffs")

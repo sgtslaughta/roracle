@@ -38,6 +38,7 @@ class User(Base):
     groups: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class Blob(Base):
@@ -257,6 +258,7 @@ class PersonalAccessToken(Base):
     prefix: Mapped[str] = mapped_column(String(12))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     scopes: Mapped[list[Any]] = mapped_column(JSONB, default=lambda: ["read"], server_default='["read"]')
+    groups: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     expires_at: Mapped[datetime] = mapped_column(TZ)
     revoked_at: Mapped[datetime | None] = mapped_column(TZ)
     last_used_at: Mapped[datetime | None] = mapped_column(TZ)

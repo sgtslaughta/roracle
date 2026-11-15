@@ -1,8 +1,11 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from conftest import bearer
+from sqlalchemy import func, text
 
+from roracle import pats
 from roracle.auth import get_app_settings
 from roracle.models import PersonalAccessToken, User
 
@@ -153,3 +156,113 @@ def test_jwt_principal_is_full_scope(client, as_ana):
     # JWT path unchanged: POST works and token management allowed
     assert client.post("/collections", json={"name": "x"}, headers=as_ana).status_code == 201
     assert client.get("/me/tokens", headers=as_ana).status_code == 200
+
+
+# --- fix round 1: identity bounds, admin, non-blocking usage writes ---
+
+ZERO = "00000000-0000-0000-0000-000000000000"
+
+
+def _set_user(db_session, **vals):
+    db_session.query(User).update(vals)
+    db_session.flush()
+    db_session.expire_all()
+
+
+def test_read_pat_scope_on_patch_put_and_head(client, as_ana):
+    tok = bearer(mint(client, as_ana)["token"])
+    assert client.patch(f"/documents/{ZERO}", json={}, headers=tok).status_code == 403
+    assert client.put(f"/collections/{ZERO}/items/{ZERO}", headers=tok).status_code == 403
+    assert client.head("/me", headers=tok).status_code in (200, 405)
+    assert client.head("/me", headers=tok).status_code != 403
+
+
+def test_expires_at_now_rejected(client, as_ana, db_session):
+    t = mint(client, as_ana)
+    db_session.query(PersonalAccessToken).update({"expires_at": func.now()})
+    db_session.flush()
+    assert client.get("/me", headers=bearer(t["token"])).status_code == 401
+
+
+def test_failed_auth_leaves_last_used_null(client, as_ana, db_session):
+    t = mint(client, as_ana)
+    client.delete(f"/me/tokens/{t['id']}", headers=as_ana)
+    assert client.get("/me", headers=bearer(t["token"])).status_code == 401
+    assert db_session.query(PersonalAccessToken).one().last_used_at is None
+
+
+def test_lookup_error_is_401_other_errors_not(client, as_ana, monkeypatch):
+    tok = bearer(mint(client, as_ana)["token"])
+
+    def boom(*a):
+        raise LookupError("x")
+
+    monkeypatch.setattr(pats, "principal_for_user", boom)
+    assert client.get("/me", headers=tok).status_code == 401
+
+    def db_down(*a):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pats, "principal_for_user", db_down)
+    with pytest.raises(RuntimeError):
+        client.get("/me", headers=tok)
+
+
+def test_groups_snapshot_intersect_current(client, as_ana, db_session):
+    tok = bearer(mint(client, as_ana)["token"])
+    assert db_session.query(PersonalAccessToken).one().groups == ["/Mathematics/Spectral Theory"]
+    _set_user(db_session, groups=["/Physics", "/Mathematics/Spectral Theory"])
+    assert client.get("/me", headers=tok).json()["groups"] == ["/Mathematics/Spectral Theory"]  # no widening
+    _set_user(db_session, groups=["/Physics"])
+    assert client.get("/me", headers=tok).json()["groups"] == []  # narrowing applies
+
+
+def test_pat_never_admin(client, make_token, db_session):
+    admin = bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+    assert client.get("/admin/needs-title", headers=admin).status_code == 200
+    tok = bearer(mint(client, admin, scopes=["read", "write"])["token"])
+    assert client.get("/me", headers=tok).json()["is_admin"] is False
+    assert client.get("/admin/needs-title", headers=tok).status_code == 403
+
+
+def test_stale_and_null_login_401_with_detail(client, as_ana, db_session):
+    tok = bearer(mint(client, as_ana)["token"])
+    assert client.get("/me", headers=tok).status_code == 200  # JWT login stamped last_login_at
+    _set_user(db_session, last_login_at=datetime.now(UTC) - timedelta(days=31))
+    r = client.get("/me", headers=tok)
+    assert r.status_code == 401 and r.headers["WWW-Authenticate"] == "Bearer"
+    assert r.json()["detail"] == "token owner session stale — sign in again"
+    _set_user(db_session, last_login_at=None)
+    assert client.get("/me", headers=tok).status_code == 401
+    _set_user(db_session, last_login_at=datetime.now(UTC) - timedelta(days=29))
+    assert client.get("/me", headers=tok).status_code == 200
+    assert client.get("/me", headers=as_ana).status_code == 200  # JWT login refreshes
+    assert db_session.query(User).one().last_login_at > datetime.now(UTC) - timedelta(minutes=1)
+
+
+def test_stale_detail_only_for_valid_tokens(client, as_ana, db_session):
+    _set_user(db_session, last_login_at=None)
+    assert client.get("/me", headers=bearer("ror_pat_nope")).json()["detail"] == "invalid token"
+
+
+def test_admin_revokes_all_user_pats(client, as_ana, as_bob, make_token, db_session):
+    t1, t2 = mint(client, as_ana)["token"], mint(client, as_ana)["token"]
+    uid = client.get("/me", headers=as_ana).json()["id"]
+    assert client.delete(f"/admin/users/{uid}/pats", headers=as_bob).status_code == 403
+    assert client.get("/me", headers=bearer(t1)).status_code == 200
+    admin = bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+    assert client.delete(f"/admin/users/{uid}/pats", headers=admin).status_code == 204
+    for t in (t1, t2):
+        assert client.get("/me", headers=bearer(t)).status_code == 401
+    assert client.get("/me/tokens", headers=as_ana).json()[0]["revoked_at"]
+    # a PAT can never reach it
+    pat = bearer(mint(client, as_ana, scopes=["read", "write"])["token"])
+    assert client.delete(f"/admin/users/{uid}/pats", headers=pat).status_code == 403
+
+
+def test_last_used_does_not_block_on_locked_row(client, as_ana, session_factory):
+    tok = bearer(mint(client, as_ana)["token"])
+    with session_factory() as other:
+        other.execute(text("SELECT 1 FROM personal_access_tokens FOR UPDATE"))
+        assert client.get("/me", headers=tok).status_code == 200
+        other.rollback()
