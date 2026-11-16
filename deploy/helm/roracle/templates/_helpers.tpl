@@ -39,6 +39,9 @@ ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
 ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
 {{- end }}{{ end }}
+{{- with .Values.parsers.draftgotenberg }}{{ if .enabled }}
+ROR_DRAFT_GOTENBERG_URL: {{ printf "http://%sdraftgotenberg:%v" $pf .port | quote }}
+{{- end }}{{ end }}
 {{- with .Values.parsers.docling }}{{ if .enabled }}
 ROR_DOCLING_URL: {{ printf "http://%sdocling:%v" $pf .port | quote }}
 {{- end }}{{ end }}

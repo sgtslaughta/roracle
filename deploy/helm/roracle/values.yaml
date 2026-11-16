@@ -35,6 +35,8 @@ config:
   ROR_DOCLING_URL: ""
   ROR_GROBID_URL: ""
   ROR_GOTENBERG_URL: ""
+  ROR_DRAFT_GOTENBERG_URL: ""   # auto-filled to parsers.draftgotenberg when enabled
+  ROR_BUILD_CONCURRENCY: "2"    # concurrent draft PDF builds per api process; more = 503 busy (restart to change)
   ROR_CLAMAV_HOST: ""
   ROR_MAX_UPLOAD_BYTES: "524288000"
   ROR_EVIDENCE_MAX_BYTES: "1073741824"
@@ -246,6 +248,22 @@ parsers:
     resources:
       requests: {cpu: "1", memory: 1Gi}
       limits: {memory: 2Gi}
+  # Separate Chromium-enabled Gotenberg for paper-draft HTML -> PDF builds (called by the api only). Never share with the
+  # ingest instance above: Chromium renders attacker-influenced HTML, so it is isolated (no egress, ingress from api only).
+  draftgotenberg:
+    enabled: true
+    image: {repository: gotenberg/gotenberg, tag: "8.20.1", digest: "", pullPolicy: IfNotPresent}
+    port: 3000
+    replicas: 2
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 2Gi}, {path: /home/gotenberg, size: 1Gi}]
+    probe: {path: /health}
+    args: [gotenberg, --api-disable-download-from, --webhook-disable, --pdfengines-disable-routes, --libreoffice-disable-routes, --api-timeout=120s]
+    env: {}
+    resources:
+      requests: {cpu: "1", memory: 2Gi}
+      limits: {memory: 4Gi}
   docling:
     enabled: true
     # Upstream is unversioned in dev compose (latest); pin in mirror: verify the tag and prefer a digest.

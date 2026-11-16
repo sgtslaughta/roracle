@@ -1,6 +1,6 @@
-{{- /* Optional parser Deployments + Services (gotenberg, docling, grobid, clamav). Only the worker calls them. */ -}}
+{{- /* Optional parser Deployments + Services (gotenberg, draftgotenberg, docling, grobid, clamav). Worker calls the parsers; only the api calls draftgotenberg (draft PDF builds). */ -}}
 {{- $root := . }}
-{{- range $name := list "gotenberg" "docling" "grobid" "clamav" }}
+{{- range $name := list "gotenberg" "draftgotenberg" "docling" "grobid" "clamav" }}
 {{- $v := get $root.Values.parsers $name }}
 {{- if $v.enabled }}
 {{- $fn := printf "%s-%s" (include "roracle.fullname" $root) $name }}

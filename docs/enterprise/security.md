@@ -241,6 +241,7 @@ Cross-Origin-Opener-Policy: same-origin
 | ingress controller namespace (`ingressNamespaceSelector`) | web | 8080 | rendered when `ingress.enabled` |
 | ingress controller namespace | api | 8000 | `/mcp`, OAuth metadata |
 | web | api | 8000 | `/api/` proxy |
+| api | draftgotenberg | 3000 | no egress; ingress from api only |
 | worker | gotenberg / docling / grobid / clamav | 3000 / 5001 / 8070 / 3310 | parsers have no egress |
 | api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
 | api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |

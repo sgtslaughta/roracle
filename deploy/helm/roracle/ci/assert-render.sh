@@ -46,9 +46,17 @@ for d in nps:
         need(all(r["to"]), n + ": empty egress peer")
         for t in r["to"]:
             need(t.get("ipBlock") or t.get("namespaceSelector") or t.get("podSelector"), n + ": unrecognised peer")
+dg = [d for d in nps if d["metadata"]["name"].endswith("-parser-draftgotenberg")][0]["spec"]
+need(dg["ingress"][0]["from"][0]["podSelector"]["matchExpressions"][0]["values"] == ["api"], "draftgotenberg ingress must be from api only")
+need([e for e in nps if e["metadata"]["name"].endswith("-api-egress-draft")], "api-egress-draft missing")
+dd = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-draftgotenberg")][0]["spec"]["template"]["spec"]["containers"][0]
+need("--chromium-disable-routes" not in dd["args"], "draft gotenberg must have chromium enabled")
+need(dd["securityContext"]["readOnlyRootFilesystem"] and dd["resources"]["limits"], "draft gotenberg hardening")
+ing = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"].endswith("-env")][0]["data"]
+need(ing.get("ROR_DRAFT_GOTENBERG_URL", "").endswith("-draftgotenberg:3000") and ing.get("ROR_BUILD_CONCURRENCY") == "2", "draft env wiring")
 dns = [d for d in nps if d["metadata"]["name"].endswith("-allow-dns")][0]["spec"]["podSelector"]["matchExpressions"][0]
 need(dns["operator"] == "NotIn", "allow-dns must use NotIn")
-need(set(dns["values"]) == ({"gotenberg", "docling", "grobid"} if mirror else {"gotenberg", "docling", "grobid", "clamav"}),
+need(set(dns["values"]) == ({"gotenberg", "draftgotenberg", "docling", "grobid"} if mirror else {"gotenberg", "draftgotenberg", "docling", "grobid", "clamav"}),
      "allow-dns NotIn must cover all parsers (clamav excepted only with a mirror): %s" % dns["values"])
 print("assert-render OK: %d NetworkPolicies, clamd limits %s" % (len(nps), lims))
 '
