@@ -1,0 +1,114 @@
+{{- if eq .Values.postgres.mode "cnpg" }}
+{{- $pg := .Values.postgres }}
+{{- $name := printf "%s-pg" (include "roracle.fullname" .) }}
+{{- $bk := $pg.backup }}
+{{- $ep := default (ternary (include "roracle.minioEndpoint" .) "" (eq .Values.minio.mode "tenant")) $bk.endpointURL }}
+{{- if $bk.enabled }}
+{{- $_ := required "postgres.backup.credentialsSecret.name is required when backup is enabled" $bk.credentialsSecret.name }}
+{{- $_ := required "postgres.backup.endpointURL is required (or use minio.mode=tenant)" $ep }}
+{{- end }}
+{{- $store := dict }}
+{{- if $bk.enabled }}
+{{- /* shared S3 settings for both backup methods (no secret values, refs only) */}}
+{{- $store = dict "destinationPath" $bk.destinationPath "endpointURL" $ep "wal" (dict "compression" "gzip") "s3Credentials" (dict "accessKeyId" (dict "name" $bk.credentialsSecret.name "key" $bk.credentialsSecret.accessKeyKey) "secretAccessKey" (dict "name" $bk.credentialsSecret.name "key" $bk.credentialsSecret.secretAccessKeyKey)) }}
+{{- if $bk.endpointCA.name }}{{ $_ := set $store "endpointCA" (dict "name" $bk.endpointCA.name "key" $bk.endpointCA.key) }}{{ end }}
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  instances: {{ $pg.instances }}
+  imageName: {{ include "roracle.dataImage" (dict "root" . "img" $pg.image) }}
+  imagePullPolicy: {{ $pg.image.pullPolicy }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets: {{ toYaml . | nindent 4 }}
+  {{- end }}
+  storage:
+    size: {{ $pg.storage.size }}
+    {{- with $pg.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources: {{ toYaml $pg.resources | nindent 4 }}
+  postgresql:
+    parameters: {{ merge (dict "archive_timeout" $pg.archiveTimeout) $pg.parameters | toYaml | nindent 6 }}
+  bootstrap:
+    initdb:
+      database: roracle
+      owner: roracle
+      secret:
+        name: {{ required "postgres.appCredentialsSecret is required when postgres.mode=cnpg" $pg.appCredentialsSecret | quote }}
+  {{- if $pg.monitoring.enabled }}
+  monitoring:
+    enablePodMonitor: true
+    customQueriesConfigMap:
+      - {name: {{ $name }}-queries, key: queries}
+  {{- end }}
+  {{- if $bk.enabled }}
+  {{- if eq $bk.method "plugin" }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $name }}
+  {{- else }}
+  backup:
+    retentionPolicy: {{ $bk.retentionPolicy | quote }}
+    barmanObjectStore: {{ toYaml $store | nindent 6 }}
+  {{- end }}
+  {{- end }}
+{{- if and $bk.enabled (eq $bk.method "plugin") }}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $name }}
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+spec:
+  retentionPolicy: {{ $bk.retentionPolicy | quote }}
+  configuration: {{ toYaml $store | nindent 4 }}
+{{- end }}
+{{- if $bk.enabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $name }}-daily
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $bk.schedule | quote }}
+  cluster: {name: {{ $name }}}
+  backupOwnerReference: self
+  {{- if eq $bk.method "plugin" }}
+  method: plugin
+  pluginConfiguration: {name: barman-cloud.cloudnative-pg.io}
+  {{- else }}
+  method: barmanObjectStore
+  {{- end }}
+{{- end }}
+{{- if $pg.monitoring.enabled }}
+---
+# Queue metrics from the existing jobs table (the backend exposes no /metrics yet).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-queries
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    cnpg.io/reload: ""
+data:
+  queries: |
+    roracle_jobs:
+      query: |
+        SELECT kind, status, count(*) AS count,
+               COALESCE(EXTRACT(EPOCH FROM now() - min(run_after)) FILTER (WHERE status = 'queued'), 0) AS oldest_queued_seconds
+        FROM jobs GROUP BY kind, status
+      target_databases: [roracle]
+      metrics:
+        - kind: {usage: LABEL, description: Job kind}
+        - status: {usage: LABEL, description: Job status}
+        - count: {usage: GAUGE, description: Jobs per kind and status}
+        - oldest_queued_seconds: {usage: GAUGE, description: Age of the oldest queued job in seconds}
+{{- end }}
+{{- end }}

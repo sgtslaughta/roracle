@@ -3,7 +3,10 @@ Migrations run as a pre-install/pre-upgrade hook Job; a failure blocks the relea
 {{- if .Values.ingress.enabled }}
 URL: https://{{ .Values.ingress.host }}  (MCP: POST /mcp)
 {{- end }}
-Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.databaseUrl }}, {{ .Values.secrets.keys.s3AccessKey }}, {{ .Values.secrets.keys.s3SecretKey }}{{ if .Values.secrets.llmApiKeyEnabled }}, {{ .Values.secrets.keys.llmApiKey }}{{ end }}.
+Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.databaseUrl }}, {{ .Values.secrets.keys.elasticUrl }}, {{ .Values.secrets.keys.s3AccessKey }}, {{ .Values.secrets.keys.s3SecretKey }}{{ if .Values.secrets.llmApiKeyEnabled }}, {{ .Values.secrets.keys.llmApiKey }}{{ end }}.
 {{- if .Values.observability.otel.endpoint }}
 OTEL_* env is set, but the backend has no OTel instrumentation until P11b.
+{{- end }}
+{{- if eq .Values.elasticsearch.mode "eck" }}
+Bundled Elasticsearch: put {{ ternary "https" "http" .Values.elasticsearch.tls }}://elastic:<password from secret {{ include "roracle.fullname" . }}-es-elastic-user>@{{ include "roracle.fullname" . }}-es-http.{{ .Release.Namespace }}.svc:9200 in {{ .Values.secrets.keys.elasticUrl }}.
 {{- end }}

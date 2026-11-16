@@ -15,18 +15,18 @@ secrets:
     databaseUrl: ROR_DATABASE_URL
     s3AccessKey: ROR_S3_ACCESS_KEY
     s3SecretKey: ROR_S3_SECRET_KEY
+    elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
     llmApiKey: ROR_LLM_API_KEY
   llmApiKeyEnabled: true   # false if the inference endpoint needs no key (backend default "unused")
 
 # Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
 config:
-  ROR_S3_ENDPOINT: ""      # REQUIRED (until Task 4 auto-fills for bundled MinIO)
+  ROR_S3_ENDPOINT: ""      # REQUIRED unless minio.mode=tenant (auto-filled to the tenant service)
   ROR_S3_BUCKET: roracle
   ROR_OIDC_ISSUER: ""      # REQUIRED
   ROR_OIDC_JWKS_URL: ""    # REQUIRED
   ROR_OIDC_AUDIENCE: roracle
   ROR_PUBLIC_BASE_URL: ""  # default https://<ingress.host>
-  ROR_ELASTIC_URL: ""      # auto-filled in a later task; set for external ES
   ROR_LLM_BASE_URL: ""
   ROR_DOCLING_URL: ""
   ROR_GROBID_URL: ""
@@ -115,3 +115,76 @@ ingress:
   tlsSecretName: ""        # empty = no TLS block
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: 1100m
+
+# ---- Data services: operator CRs (CNPG, ECK, MinIO Operator must be installed by the platform) ----
+# Each can be switched to "external": nothing is rendered; point the app at your own service via
+# config / secrets.existingSecret. Credentials are always secret names + keys, never values.
+# Bundled-mode backups default to buckets on the bundled MinIO tenant; for real DR, point
+# destinations at a different cluster/site (MinIO site replication is documented, not automated).
+postgres:
+  mode: cnpg               # cnpg | external (external: ROR_DATABASE_URL in existingSecret, nothing rendered)
+  instances: 3
+  image: {repository: ghcr.io/cloudnative-pg/postgresql, tag: "16.6", digest: "", pullPolicy: IfNotPresent}
+  storage: {size: 100Gi, storageClass: ""}
+  resources:
+    requests: {cpu: "2", memory: 8Gi}
+    limits: {memory: 8Gi}
+  parameters: {}           # extra postgresql.parameters (archive_timeout is forced to <= 5min, see below)
+  archiveTimeout: 5min     # keeps RPO <= 5 min on idle clusters; do not raise above 5min
+  # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
+  # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
+  appCredentialsSecret: ""
+  monitoring: {enabled: true}   # PodMonitor (needs prometheus-operator CRDs) + roracle_jobs queue metrics
+  backup:
+    enabled: true
+    # plugin: barman-cloud plugin (ObjectStore CR, CNPG >= 1.26; plugin + cert-manager must be installed).
+    # barmanObjectStore: legacy in-tree config (deprecated upstream, still works).
+    method: plugin
+    destinationPath: s3://roracle-pg-backup/
+    endpointURL: ""        # default: bundled MinIO tenant service when minio.mode=tenant
+    credentialsSecret: {name: "", accessKeyKey: ACCESS_KEY_ID, secretAccessKeyKey: ACCESS_SECRET_KEY}  # REQUIRED when enabled
+    endpointCA: {name: "", key: ca.crt}   # optional Secret holding the CA of a TLS object store
+    retentionPolicy: 30d
+    schedule: "0 0 2 * * *"   # 6-field cron (seconds first): daily base backup 02:00
+
+elasticsearch:
+  mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)
+  version: 8.15.3
+  image: {repository: docker.elastic.co/elastic/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
+  nodeSets:                # default: one set of 3 master+data nodes
+    - {name: default, count: 3, roles: [master, data, ingest]}
+  storage: {size: 200Gi, storageClass: ""}
+  resources:
+    requests: {cpu: "2", memory: 8Gi}
+    limits: {memory: 8Gi}
+  tls: false               # HTTP TLS (ECK self-signed) off by default: plain HTTP behind NetworkPolicy; backend has no CA setting yet
+  extraConfig: {}          # extra elasticsearch.yml keys for every nodeSet
+  snapshot:
+    enabled: true          # hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily
+    bucket: roracle-es-snapshots
+    basePath: roracle
+    endpoint: ""           # host:port without scheme; default: bundled MinIO tenant service
+    protocol: http
+    pathStyleAccess: true
+    credentialsSecret: ""  # REQUIRED (eck+snapshot): Secret with keys s3.client.default.access_key / s3.client.default.secret_key
+    schedule: "0 30 1 * * ?"
+    retention: {expireAfter: 30d, minCount: 7, maxCount: 60}
+    job:
+      image: {repository: curlimages/curl, tag: "8.10.1", digest: "", pullPolicy: IfNotPresent}
+      activeDeadlineSeconds: 900
+      runAsUser: 100
+
+minio:
+  mode: tenant             # tenant | external (external: set config.ROR_S3_ENDPOINT)
+  image: {repository: quay.io/minio/minio, tag: RELEASE.2024-10-13T13-34-11Z, digest: "", pullPolicy: IfNotPresent}
+  # REQUIRED (tenant): Secret with config.env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) supplied by the operator/platform.
+  configurationSecret: ""
+  servers: 4
+  volumesPerServer: 4      # 16 drives -> erasure coding
+  storage: {size: 250Gi, storageClass: ""}
+  requestAutoCert: false   # in-cluster plain HTTP behind NetworkPolicy; true -> operator-issued TLS, set https endpoints
+  buckets: [roracle, roracle-pg-backup, roracle-es-snapshots]
+  runAsUser: 1000
+  resources:
+    requests: {cpu: "1", memory: 4Gi}
+    limits: {memory: 4Gi}

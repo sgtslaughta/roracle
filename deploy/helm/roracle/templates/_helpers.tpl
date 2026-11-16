@@ -32,6 +32,21 @@ app.kubernetes.io/component: {{ .comp }}
 {{- if .Values.ingress.host }}
 ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- end }}
+{{- if eq .Values.minio.mode "tenant" }}
+ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* S3 endpoint of the bundled MinIO tenant (operator creates Service "minio" in the tenant namespace). */}}
+{{- define "roracle.minioEndpoint" -}}
+{{ ternary "https" "http" .Values.minio.requestAutoCert }}://minio.{{ .Release.Namespace }}.svc
+{{- end -}}
+
+{{/* Operator-managed image ref: like roracle.image but the tag is mandatory (no appVersion default). args: root, img */}}
+{{- define "roracle.dataImage" -}}
+{{- $r := .img.repository -}}
+{{- with .root.Values.global.imageRegistry }}{{ $r = printf "%s/%s" (trimSuffix "/" .) $r }}{{ end -}}
+{{- if .img.digest }}{{ printf "%s@%s" $r .img.digest }}{{ else }}{{ printf "%s:%s" $r (required "image tag is required" .img.tag) }}{{ end -}}
 {{- end -}}
 
 {{/* Final ROR_* map: user config + computed defaults, empties dropped, required keys enforced. */}}
@@ -57,6 +72,7 @@ ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 - {name: ROR_DATABASE_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.databaseUrl | quote }}}}}
 - {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
 - {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
+- {name: ROR_ELASTIC_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.elasticUrl | quote }}}}}
 {{- if .Values.secrets.llmApiKeyEnabled }}
 - {name: ROR_LLM_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.llmApiKey | quote }}}}}
 {{- end }}

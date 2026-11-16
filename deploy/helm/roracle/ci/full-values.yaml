@@ -5,10 +5,8 @@ image:
   backend: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
 secrets: {existingSecret: roracle-secrets}
 config:
-  ROR_S3_ENDPOINT: https://minio.example.internal:9000
   ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
   ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
-  ROR_ELASTIC_URL: https://es.example.internal:9200
   ROR_LLM_BASE_URL: https://llm.example.internal/v1
 observability: {otel: {endpoint: "http://otel-collector.observability:4317"}}
 web: {autoscaling: {enabled: true}}
@@ -17,3 +15,10 @@ ingress:
   className: nginx
   host: roracle.example.internal
   tlsSecretName: roracle-tls
+postgres:
+  appCredentialsSecret: roracle-pg-app
+  backup: {credentialsSecret: {name: roracle-pg-backup-s3}}
+elasticsearch:
+  snapshot: {credentialsSecret: roracle-es-s3}
+minio:
+  configurationSecret: roracle-minio-config

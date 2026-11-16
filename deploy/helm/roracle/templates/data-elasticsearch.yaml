@@ -1,0 +1,67 @@
+{{- if eq .Values.elasticsearch.mode "eck" }}
+{{- $es := .Values.elasticsearch }}
+{{- $sn := $es.snapshot }}
+{{- $snEp := default (trimPrefix "http://" (trimPrefix "https://" (include "roracle.minioEndpoint" .))) $sn.endpoint }}
+{{- if $sn.enabled }}
+{{- $_ := required "elasticsearch.snapshot.credentialsSecret is required when snapshots are enabled" $sn.credentialsSecret }}
+{{- end }}
+{{- $img := merge (deepCopy $es.image) (dict "tag" $es.version) }}
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: {{ include "roracle.fullname" . }}
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch
+spec:
+  version: {{ $es.version | quote }}
+  {{- if .Values.global.imageRegistry }}
+  image: {{ include "roracle.dataImage" (dict "root" . "img" $img) }}
+  {{- end }}
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: {{ not $es.tls }}
+  {{- if $sn.enabled }}
+  secureSettings:
+    - secretName: {{ $sn.credentialsSecret | quote }}
+  {{- end }}
+  nodeSets:
+    {{- range $ns := $es.nodeSets }}
+    - name: {{ $ns.name }}
+      count: {{ $ns.count }}
+      config:
+        node.roles: {{ toJson $ns.roles }}
+        {{- if $sn.enabled }}
+        s3.client.default.endpoint: {{ $snEp | quote }}
+        s3.client.default.protocol: {{ $sn.protocol | quote }}
+        s3.client.default.path_style_access: {{ $sn.pathStyleAccess }}
+        {{- end }}
+        {{- with $es.extraConfig }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      podTemplate:
+        spec:
+          automountServiceAccountToken: false
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: elasticsearch
+              imagePullPolicy: {{ $es.image.pullPolicy }}
+              resources: {{ toYaml $es.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+      volumeClaimTemplates:
+        - metadata: {name: elasticsearch-data}
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources: {requests: {storage: {{ $es.storage.size }}}}
+            {{- with $es.storage.storageClass }}
+            storageClassName: {{ . }}
+            {{- end }}
+    {{- end }}
+{{- end }}
