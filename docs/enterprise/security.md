@@ -247,7 +247,7 @@ Cross-Origin-Opener-Policy: same-origin
 | api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4318 (configurable) | empty = denied |
 | worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
 | all pods | DNS (`networkPolicy.dns`) | 53 | |
-| `monitoringNamespace` | api/worker | 8000 | only if `scrape.enabled` (backend has no `/metrics` yet) |
+| `monitoringNamespace` | api/worker | 8000 (api), 8001 (worker) | only if `scrape.enabled` (default true; `/metrics` on both) |
 
 Data tier (always rendered for bundled modes): see section 11 (ES 9200 from app pods and the ECK operator, 9300 between ES pods;
 Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring; MinIO 9000 from app, CNPG, ES, peers, MinIO operator).

@@ -9,7 +9,9 @@ from sqlalchemy.pool import NullPool
 
 
 def make_session_factory(url: str) -> sessionmaker[Session]:
-    return sessionmaker(create_engine(url, pool_pre_ping=True), expire_on_commit=False)
+    return sessionmaker(
+        create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 2}), expire_on_commit=False
+    )
 
 
 def get_session(request: Request) -> Iterator[Session]:

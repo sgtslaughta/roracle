@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     chat_note_min_ratio: float = 0.6
     rerank_depth: int = 50
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
-    rate_limit_per_minute: int = 0  # stored only; enforced at ingress in P11
+    rate_limit_per_minute: int = 0  # per-token, per replica; 0 = off (ratelimit.py)
     connector_fs_roots: Annotated[list[str], NoDecode] = []  # fs connectors may only read under these
     connector_max_items: int = 1000  # per run
     connector_max_run_s: int = 3600

@@ -19,6 +19,10 @@ from roracle.storage import BlobStore, StagedBlob, TmpUpload
 FIELD_MAX = 64 * 1024
 FIELDS_TOTAL_MAX = 1 << 20
 MAX_PARTS = 100
+HEADER_MAX = 8 * 1024  # bytes of header names+values per part
+HEADERS_PER_PART = 16
+HEADER_DETAIL = "form part header too large"
+BODY_ALLOWANCE = 2 * FIELDS_TOTAL_MAX  # non-file bytes (fields, boundaries, headers) on top of the file limit
 
 
 def _bad(detail: str) -> HTTPException:
@@ -51,6 +55,7 @@ class _Sink:
         self._part = _Part()
         self._hname = self._hvalue = b""
         self._parts = 0
+        self._hbytes = 0
         self._field_bytes = 0
 
     def _dec(self, b: bytes) -> str:
@@ -61,14 +66,24 @@ class _Sink:
         if self._parts > MAX_PARTS:
             raise _bad("too many form parts")
         self._part = _Part()
+        self._hbytes = 0
+
+    def _hgrow(self, n: int) -> None:
+        self._hbytes += n
+        if self._hbytes > HEADER_MAX:
+            raise HTTPException(400, HEADER_DETAIL)
 
     def on_header_field(self, data: bytes, start: int, end: int) -> None:
+        self._hgrow(end - start)
         self._hname += data[start:end]
 
     def on_header_value(self, data: bytes, start: int, end: int) -> None:
+        self._hgrow(end - start)
         self._hvalue += data[start:end]
 
     def on_header_end(self) -> None:
+        if len(self._part.headers) >= HEADERS_PER_PART:
+            raise HTTPException(400, HEADER_DETAIL)
         self._part.headers.append((self._hname.lower(), self._hvalue))
         self._hname = self._hvalue = b""
 
@@ -138,9 +153,15 @@ async def receive(
             "on_header_end": sink.on_header_end,
             "on_headers_finished": sink.on_headers_finished,
         },
+        max_header_size=HEADER_MAX,
+        max_header_count=HEADERS_PER_PART,
     )
     try:
+        total = 0
         async for chunk in request.stream():
+            total += len(chunk)
+            if total > max_bytes + BODY_ALLOWANCE:
+                raise HTTPException(413, "request body too large")
             parser.write(chunk)
             while sink.upload is not None and sink.upload.ready:
                 await run_in_threadpool(sink.upload.flush)
@@ -157,6 +178,8 @@ async def receive(
             with anyio.CancelScope(shield=True):
                 await run_in_threadpool(sink.upload.abort)
         if isinstance(e, FormParserError):
+            if "header" in str(e).lower():  # the parser's own header limits, same answer as ours
+                raise HTTPException(400, HEADER_DETAIL) from None
             raise _bad("invalid multipart data") from None
         raise
 

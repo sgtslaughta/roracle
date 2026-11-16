@@ -155,3 +155,21 @@ def test_otel_not_wrapped_without_endpoint_or_binary(monkeypatch):
     m.maybe_wrap_otel(["api"])
     m.maybe_wrap_otel(["migrate"])
     assert not calls
+
+
+def test_db_connect_timeout_bounded(monkeypatch):
+    from roracle import db
+
+    seen = {}
+    monkeypatch.setattr(db, "create_engine", lambda url, **kw: seen.update(kw))
+    db.make_session_factory("postgresql+psycopg://x/y")
+    assert seen["connect_args"]["connect_timeout"] <= 3  # bounds /readyz DB check and the metrics collector
+
+
+def test_readyz_s3_client_has_short_timeouts(app):
+    from roracle.api.routes import health
+
+    checks = health._default_checks(app)
+    assert "s3" in checks
+    cfg = health.s3_check_config()
+    assert cfg.connect_timeout <= 3 and cfg.read_timeout <= 3 and cfg.retries["max_attempts"] == 1

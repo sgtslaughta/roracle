@@ -324,3 +324,23 @@ def test_scan_missing_object_failed_and_body_closed(scan_env, db_session, monkey
     monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: None)
     ev.handle_evidence_scan(db_session, {"evidence_id": str(e.id)}, settings=s, store=Store2())
     assert e.scan_status == "clean" and closed
+
+
+def test_upload_leaves_no_tmp_object_on_success_and_failure(client, as_ana, note, s3):
+    assert post(client, as_ana, note).status_code == 201
+    assert post(client, as_ana, note, uri="https://x.org/p").status_code == 422  # file and uri
+    assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118
+
+
+def test_session_committed_before_evidence_body_read(client, as_ana, note, db_session, monkeypatch):
+    from roracle.upload_stream import Received
+
+    seen = []
+
+    async def rcv(request, store, max_bytes, **kw):
+        seen.append(db_session.in_transaction())
+        return Received({}, None)
+
+    monkeypatch.setattr("roracle.api.routes.evidence.receive", rcv)
+    post(client, as_ana, note)
+    assert seen == [False]

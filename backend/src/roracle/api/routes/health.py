@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 
+from botocore.config import Config
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
@@ -18,10 +19,20 @@ def healthz() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
+def s3_check_config() -> Config:
+    """Short timeouts so a hung S3 cannot pin a readyz pool thread for the boto default 60 s."""
+    return Config(
+        s3={"addressing_style": "path"},
+        connect_timeout=2,
+        read_timeout=2,
+        retries={"max_attempts": 1},
+    )
+
+
 def _default_checks(app) -> dict:
     s = app.state.settings
     es = clients.es(s)  # clients are built once and cached with the checks on app.state
-    store = blob_store_from(s)
+    store = blob_store_from(s, config=s3_check_config())
 
     def db() -> bool:
         with app.state.session_factory() as session:

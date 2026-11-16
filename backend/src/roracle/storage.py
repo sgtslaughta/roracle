@@ -149,24 +149,19 @@ class BlobStore:
         )
 
     def promote(self, staged: StagedBlob, content_type: str) -> None:
-        """Server-side copy tmp -> content key unless it exists (dedup), then delete tmp."""
-        key, c = self.key(staged.sha256), self.client
-        try:
-            c.head_object(Bucket=self.bucket, Key=key)
-        except c.exceptions.ClientError as e:
-            if e.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey", "NotFound"):
-                raise
-            c.copy(
-                {"Bucket": self.bucket, "Key": staged.upload.key},
-                self.bucket,
-                key,
-                ExtraArgs={
-                    "ContentType": content_type,
-                    "Metadata": {"sha256": staged.sha256},
-                    "MetadataDirective": "REPLACE",
-                },
-            )
-        staged.upload.abort()
+        """Server-side copy tmp -> content key. Always copies, even if the key exists: a head_object skip
+        would make upload latency a content-existence oracle (ADR-0008). Dedup lives in the DB only.
+        The caller owns tmp cleanup (`staged.upload.abort()` in its finally)."""
+        self.client.copy(
+            {"Bucket": self.bucket, "Key": staged.upload.key},
+            self.bucket,
+            self.key(staged.sha256),
+            ExtraArgs={
+                "ContentType": content_type,
+                "Metadata": {"sha256": staged.sha256},
+                "MetadataDirective": "REPLACE",
+            },
+        )
 
     def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
@@ -182,14 +177,14 @@ class BlobStore:
         return self.client.get_object(Bucket=self.bucket, Key=self.key(sha256))["Body"]
 
 
-def blob_store_from(settings) -> BlobStore:
+def blob_store_from(settings, config: Config | None = None) -> BlobStore:
     client = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint,
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name="us-east-1",
-        config=Config(s3={"addressing_style": "path"}),
+        config=config or Config(s3={"addressing_style": "path"}),
         verify=settings.s3_ca_bundle or None,
     )
     return BlobStore(client, settings.s3_bucket)

@@ -58,6 +58,7 @@ async def _received(
     note = get_readable(session, p, note_id)  # checked before the body is read
     if note.kind != "finding":
         raise HTTPException(422, "evidence requires a finding note")
+    session.commit()  # release the user-upsert row lock / pooled tx before the (long) body stream
     try:
         return note, await receive(request, store, settings.evidence_max_bytes, field_max=ev.META_MAX)
     except EmptyFile:

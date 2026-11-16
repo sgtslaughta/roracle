@@ -128,7 +128,7 @@ def test_duplicate_content_creates_no_second_blob_object(client, as_ana, as_bob,
 
     assert post(client, as_ana, b"same", visibility="private").status_code == 201
     assert post(client, as_bob, b"same").status_code == 201
-    assert fake.calls.count("copy") == 1 and len(fake.objects) == 1
+    assert fake.calls.count("copy") == 2 and len(fake.objects) == 1  # ADR-0008: always copy, dedup in DB only
     assert db_session.scalar(select(Blob.refcount)) == 2
 
 
@@ -230,3 +230,116 @@ def test_body_streams_through_middleware_without_buffering(app, as_ana, fake):
     assert out[0]["status"] == 201, out
     assert seen_at_first_part and seen_at_first_part[0] < len(msgs) // 2  # first 8 MiB part flushed early
     assert json.loads(out[1]["body"])["sha256"]
+
+
+def _raw(client, headers, body, boundary="B"):
+    h = {**headers, "Content-Type": f"multipart/form-data; boundary={boundary}"}
+    return client.post("/documents", headers=h, content=body)
+
+
+FILE_PART = b'--B\r\nContent-Disposition: form-data; name="file"; filename="a"\r\n\r\nabc\r\n'
+
+
+def test_part_header_bytes_capped(client, as_ana, fake):
+    body = FILE_PART.replace(b"\r\n\r\n", b"\r\nX-Big: " + b"a" * 9000 + b"\r\n\r\n", 1) + b"--B--\r\n"
+    r = _raw(client, as_ana, body)
+    assert r.status_code == 400 and r.json() == {"detail": "form part header too large"}
+    assert fake.objects == {}
+
+
+def test_part_header_count_capped(client, as_ana, fake):
+    extra = b"".join(b"X-%d: v\r\n" % i for i in range(17))
+    body = FILE_PART.replace(b"\r\n\r\n", b"\r\n" + extra + b"\r\n", 1) + b"--B--\r\n"
+    r = _raw(client, as_ana, body)
+    assert r.status_code == 400 and r.json() == {"detail": "form part header too large"}
+
+
+def test_part_count_capped(client, as_ana, fake):
+    body = b"".join(b'--B\r\nContent-Disposition: form-data; name="f%d"\r\n\r\nv\r\n' % i for i in range(101))
+    r = _raw(client, as_ana, body + b"--B--\r\n")
+    assert r.status_code == 422 and r.json() == {"detail": "too many form parts"}
+
+
+def test_total_body_capped(client, as_ana, fake, settings_small_limit):
+    body = FILE_PART + b"--B--\r\n" + b"x" * (3 * 1024 * 1024 + 1)  # 1 MiB limit + 2 MiB allowance
+    r = _raw(client, as_ana, body)
+    assert r.status_code == 413 and r.json() == {"detail": "request body too large"}
+    assert fake.objects == {}
+
+
+def _staged(store, sha="ab" + "0" * 62):
+    from roracle.storage import StagedBlob
+
+    up = TmpUpload(store, "x", 100)
+    store.client.objects[up.key] = b"data"
+    return StagedBlob(up, sha, 4, "f", "x")
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_promote_always_copies(exists):
+    f = FakeS3()
+    st = BlobStore(f, "b")
+    sha = "ab" + "0" * 62
+    if exists:
+        f.objects[st.key(sha)] = b"data"
+    staged = _staged(st, sha)
+    st.promote(staged, "x")
+    assert f.calls == ["copy"] and "head_object" not in f.calls  # ADR-0008: no existence timing oracle
+    assert staged.upload.key in f.objects  # promote does not own tmp cleanup; the route does
+
+
+def test_duplicate_409_and_quota_413_leave_no_tmp(client, as_ana, fake, settings, app):
+    from roracle.auth import get_app_settings
+
+    assert post(client, as_ana, b"same").status_code == 201
+    assert post(client, as_ana, b"same").status_code == 409
+    assert not [k for k in fake.objects if k.startswith("tmp/")]
+    app.dependency_overrides[get_app_settings] = lambda: settings.model_copy(update={"upload_quota_bytes": 1})
+    assert post(client, as_ana, b"other-bytes").status_code == 413
+    assert not [k for k in fake.objects if k.startswith("tmp/")]
+    assert fake.calls.count("delete_object") == 3  # one abort per upload: single owner (route)
+
+
+def test_empty_filename_falls_back_to_upload(client, as_ana, fake, db_session):
+    r = _raw(client, as_ana, FILE_PART.replace(b'filename="a"', b'filename=""') + b"--B--\r\n")
+    assert r.status_code == 201
+    from sqlalchemy import select
+
+    from roracle.models import DocumentVersion
+
+    assert db_session.scalar(select(DocumentVersion.filename)) == "upload"
+
+
+def test_client_disconnect_aborts_tmp():
+    from starlette.requests import ClientDisconnect
+
+    from roracle.upload_stream import receive
+
+    f = FakeS3()
+
+    class Req:
+        headers = {"content-type": "multipart/form-data; boundary=B"}  # noqa: RUF012
+
+        async def stream(self):
+            yield FILE_PART + b"more"
+            raise ClientDisconnect
+
+    with pytest.raises(ClientDisconnect):
+        asyncio.run(receive(Req(), BlobStore(f, "b"), 1000))
+    assert "delete_object" in f.calls and f.objects == {}
+
+
+def test_request_session_committed_before_body_read(client, as_ana, fake, db_session, monkeypatch):
+    """Real JWT user upsert has run; its row lock must be released before the body streams."""
+    from roracle.models import User
+    from roracle.upload_stream import Received
+
+    seen = []
+
+    async def rcv(request, store, max_bytes, **kw):
+        seen.append(db_session.in_transaction())
+        return Received({}, None)
+
+    monkeypatch.setattr("roracle.api.routes.documents.receive", rcv)
+    client.post("/documents", headers=as_ana, files={"file": ("a", b"1")})
+    assert seen == [False] and db_session.query(User).count() == 1

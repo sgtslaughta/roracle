@@ -36,9 +36,11 @@ class UploadForm(BaseModel):
 async def _received(
     request: Request,
     p: Annotated[Principal, Depends(current_principal)],
+    session: Annotated[Session, Depends(get_session)],
     store: Annotated[BlobStore, Depends(get_blob_store)],
     settings: Annotated[Settings, Depends(get_app_settings)],
 ) -> Received:
+    session.commit()  # release the user-upsert row lock / pooled tx before the (long) body stream
     try:
         return await receive(request, store, settings.max_upload_bytes)
     except TooLarge:
@@ -86,7 +88,7 @@ def upload(
             raise HTTPException(422, "file is required")
         return accept(
             p, session, store, settings, staged, form,
-            filename=staged.filename, content_type=staged.content_type,
+            filename=staged.filename or "upload", content_type=staged.content_type,
         )  # fmt: skip
     finally:
         if staged is not None:
