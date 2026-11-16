@@ -1,0 +1,38 @@
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+  client_max_body_size 512m;
+
+  include /tmp/nginx/security-headers.conf;
+
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    include /tmp/nginx/security-headers.conf;
+    add_header Cache-Control "no-store" always;
+    return 200 "ok\n";
+  }
+
+  # /api/ proxy (prefix stripped) when API_UPSTREAM is set, else 404; written at start by 25-api-proxy.sh
+  include /tmp/nginx/api.inc;
+
+  # hashed build output; JS carries the OIDC placeholders substituted per request
+  location /assets/ {
+    try_files $uri =404;
+    include /tmp/nginx/security-headers.conf;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    sub_filter_types application/javascript text/javascript;
+    sub_filter_once off;
+    sub_filter '__ROR_OIDC_AUTHORITY__' '${ROR_OIDC_AUTHORITY}';
+    sub_filter '__ROR_OIDC_CLIENT_ID__' '${ROR_OIDC_CLIENT_ID}';
+  }
+
+  # index.html, public files and SPA fallback
+  location / {
+    try_files $uri /index.html;
+    include /tmp/nginx/security-headers.conf;
+    add_header Cache-Control "no-cache" always;
+  }
+}

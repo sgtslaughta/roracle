@@ -1,0 +1,15 @@
+# Sourced by the nginx entrypoint before envsubst. Validates input: values land in nginx config.
+ror_fail() { echo "ror-web: $1" >&2; exit 1; }
+
+: "${ROR_OIDC_AUTHORITY:?ror-web: ROR_OIDC_AUTHORITY is required}"
+export ROR_OIDC_CLIENT_ID="${ROR_OIDC_CLIENT_ID:-roracle-web}"
+export ROR_OIDC_ORIGIN="${ROR_OIDC_ORIGIN:-$(printf '%s' "$ROR_OIDC_AUTHORITY" | sed -nE 's#^(https?://[^/]+).*#\1#p')}"
+
+printf '%s' "$ROR_OIDC_AUTHORITY" | grep -qE '^https?://[A-Za-z0-9._~:/%@+-]+$' || ror_fail "invalid ROR_OIDC_AUTHORITY"
+printf '%s' "$ROR_OIDC_CLIENT_ID" | grep -qE '^[A-Za-z0-9._:@-]+$' || ror_fail "invalid ROR_OIDC_CLIENT_ID"
+printf '%s' "$ROR_OIDC_ORIGIN" | grep -qE '^https?://[A-Za-z0-9._:-]+$' || ror_fail "invalid ROR_OIDC_ORIGIN"
+if [ -n "${API_UPSTREAM:-}" ]; then
+  printf '%s' "$API_UPSTREAM" | grep -qE '^https?://[A-Za-z0-9._:/-]+$' || ror_fail "invalid API_UPSTREAM"
+fi
+export ROR_OIDC_AUTHORITY
+mkdir -p /tmp/nginx/conf.d

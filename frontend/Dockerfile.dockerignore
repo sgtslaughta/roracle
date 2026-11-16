@@ -1,0 +1,6 @@
+# Used by `docker build -f frontend/Dockerfile .` (context = repo root); only frontend/ and nothing else is copied.
+**
+!frontend
+frontend/node_modules
+frontend/dist
+frontend/.env*
