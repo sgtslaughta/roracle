@@ -37,6 +37,7 @@ config:
 
 serviceAccount:
   create: true
+  name: ""                 # override; empty = fullname if create else "default"
   annotations: {}
 
 # Tokens only; the backend has no OTel/metrics instrumentation yet (P11b). Env is emitted when endpoint is set.

@@ -39,7 +39,7 @@ ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- $m := merge (deepCopy .Values.config) (include "roracle.endpoints" . | fromYaml) -}}
 {{- range $k := list "ROR_S3_ENDPOINT" "ROR_OIDC_ISSUER" "ROR_OIDC_JWKS_URL" }}{{ $_ := required (printf "config.%s is required" $k) (get $m $k) }}{{ end -}}
 {{- $out := dict -}}
-{{- range $k, $v := $m }}{{ if $v }}{{ $_ := set $out $k (toString $v) }}{{ end }}{{ end -}}
+{{- range $k, $v := $m }}{{ if and (not (kindIs "invalid" $v)) (ne (toString $v) "") }}{{ $_ := set $out $k (kindIs "slice" $v | ternary (join "," $v) (toString $v)) }}{{ end }}{{ end -}}
 {{- toYaml $out -}}
 {{- end -}}
 
@@ -104,7 +104,7 @@ spec:
       annotations:
         checksum/config: {{ include "roracle.config" $root | sha256sum }}
     spec:
-      serviceAccountName: {{ include "roracle.fullname" $root }}
+      serviceAccountName: {{ include "roracle.saName" $root }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ default 30 .v.terminationGracePeriodSeconds }}
       securityContext:
@@ -172,4 +172,12 @@ spec:
   ports:
     - {name: http, port: {{ .port }}, targetPort: http}
 {{- end }}
+{{- end -}}
+
+{{- define "roracle.saName" -}}
+{{- if .Values.serviceAccount.name }}{{ .Values.serviceAccount.name }}{{ else if .Values.serviceAccount.create }}{{ include "roracle.fullname" . }}{{ else }}default{{ end -}}
+{{- end -}}
+
+{{- define "roracle.extraEnv" -}}
+{{- with .extraEnv }}{{ toYaml . | nindent 0 }}{{ end -}}
 {{- end -}}
