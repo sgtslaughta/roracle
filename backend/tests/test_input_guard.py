@@ -64,3 +64,10 @@ def test_missing_content_type_still_capped(client, as_ana):
 def test_merge_patch_json_nul_is_422(client, as_ana):
     h = {**as_ana, "content-type": "application/merge-patch+json"}
     assert client.post("/collections", headers=h, content=b'{"name": "a\\u0000b"}').status_code == 422
+
+
+def test_streaming_response_receive_does_not_recurse(client, as_ana):
+    # a GET with no body: later receive() calls (disconnect polling) must reach the real receive
+    assert (
+        client.get("/documents/00000000-0000-4000-8000-000000000000/file", headers=as_ana).status_code == 404
+    )

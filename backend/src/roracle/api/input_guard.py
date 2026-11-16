@@ -57,12 +57,12 @@ class InputGuard:
             body = b"".join(chunks)
             if _JSON_NUL.search(body):
                 bad = _reply(422, "NUL characters are not allowed")
-            sent = False
+            sent, orig = False, receive
 
             async def replay() -> Message:
                 nonlocal sent
                 if sent:
-                    return await receive()
+                    return await orig()
                 sent = True
                 return {"type": "http.request", "body": body, "more_body": False}
 
