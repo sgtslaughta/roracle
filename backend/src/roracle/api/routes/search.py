@@ -28,7 +28,7 @@ from roracle.search_index import file_type as ext_of
 router = APIRouter()
 MAX_DOCS = 200  # R15: browse cap; the query path is bounded by the fused lists (~100+ docs)
 FACET_MAX = 50
-FACETS = ("tags", "year", "file_type", "org_unit", "collection", "author")
+FACETS = ("tags", "year", "file_type", "org_unit", "collection", "author", "label")
 Who = Annotated[Principal, Depends(current_principal)]
 Q_MAX, LIST_MAX, VALUE_MAX = 1000, 50, 200
 Multi = Annotated[list[Annotated[str, Query(max_length=VALUE_MAX)]] | None, Query(max_length=LIST_MAX)]
@@ -85,6 +85,7 @@ class Row:
             "org_unit": [self.doc.org_unit],
             "collection": [c for c, _ in self.colls],
             "author": list(self.meta.get("authors") or []),
+            "label": [str(self.doc.label_id)],
         }
 
 
@@ -101,6 +102,14 @@ def _votes(session: Session, ids: list[UUID], uid: UUID) -> dict[str, tuple[int,
         .group_by(Vote.document_id)
     ).all()
     return {str(d): (u, n, m) for d, u, n, m in rows}
+
+
+def _is_uuid(x: str) -> bool:
+    try:
+        UUID(x)
+    except ValueError:
+        return False
+    return True
 
 
 def _file_type_clause(want: set[str]):
@@ -152,6 +161,8 @@ def _load(
             stmt = stmt.where(exists().where(Tag.document_id == Document.id, Tag.tag.in_(want)))
         elif name == "author":
             stmt = stmt.where(DocumentVersion.meta["authors"].has_any(array(sorted(want))))
+        elif name == "label":
+            stmt = stmt.where(Document.label_id.in_([UUID(x) for x in want if _is_uuid(x)]))
         elif name == "file_type":
             stmt = stmt.where(_file_type_clause(want))
         elif name == "collection":
@@ -299,6 +310,7 @@ def _query_rows(
             settings,
             p,
             q,
+            policy=Policy.load(session),
             filters=filters,
             doc_ids=coll_docs,
             size=100,
@@ -343,6 +355,7 @@ def search(
     org_unit: Multi = None,
     collection: Multi = None,
     author: Multi = None,
+    label: Multi = None,
     sort: Literal["relevance", "newest", "votes", "title"] = "relevance",
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=50)] = 20,
@@ -354,6 +367,7 @@ def search(
         "file_type": file_type or [],
         "org_unit": org_unit or [],
         "author": author or [],
+        "label": [x for x in label or [] if _is_uuid(x)],
     }
     wanted = {k: {str(v) for v in vs} for k, vs in es_filters.items()}
     coll_docs = None
@@ -384,5 +398,7 @@ def search(
     for h in out["results"]:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
         h["label"] = label_json(policy.get(h["label"]))
+    for f in out["facets"]["label"]:  # counts come from post-filtered rows only
+        f["label"] = label_json(policy.get(f["value"]))
     attach_notes(session, p, out["results"], notes)
     return out

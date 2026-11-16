@@ -13,7 +13,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from roracle.access import org_units, readable_documents
+from roracle.access import agent_visible, org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
@@ -50,7 +50,7 @@ def _iso(d: datetime | None) -> str | None:
 
 
 def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
-    """`ids` (any order, dupes ok) filtered to documents p can see; input order kept."""
+    """`ids` (any order, dupes ok) filtered to documents p can see; input order kept. Gate (b) applies to every loader."""
     uuids = []
     for i in ids:
         try:
@@ -59,7 +59,9 @@ def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
             continue
     ok = {
         str(x)
-        for x in session.scalars(select(Document.id).where(Document.id.in_(uuids), readable_documents(p)))
+        for x in session.scalars(
+            select(Document.id).where(Document.id.in_(uuids), readable_documents(p), agent_visible())
+        )
     }
     return list(dict.fromkeys(str(u) for u in uuids if str(u) in ok))
 
@@ -76,7 +78,7 @@ def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
         )
     )
     cites = [c for m in msgs for c in m.citations if isinstance(c, dict)]
-    ok = visible_versions(session, p, cites)
+    ok = visible_versions(session, p, cites, agent_gate=True)
     transcript = [
         {
             "role": m.role,
@@ -227,7 +229,7 @@ def _loadable(session: Session, p: Principal, code: str) -> Handoff:
 def view(session: Session, p: Principal, h: Handoff) -> dict:
     """Manifest for p, no audit. Redacted: hidden docs/passages dropped and only counted in `withheld`."""
     shown = _visible_doc_ids(session, p, h.doc_ids)
-    ok = visible_versions(session, p, h.passages)
+    ok = visible_versions(session, p, h.passages, agent_gate=True)
     passages = recheck(h.passages, ok, drop=True, notes=frozenset())
     every = set(map(str, h.doc_ids)) | {str(x.get("doc_id")) for x in h.passages}
     mine = h.creator_id == p.user_id
@@ -286,7 +288,7 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
     items = rows[(page - 1) * PAGE : page * PAGE]
     if part == "transcript":
         cites = [c for m in items for c in m.get("citations", [])]
-        ok = visible_versions(session, p, cites)
+        ok = visible_versions(session, p, cites, agent_gate=True)
         items = [
             {**m, "citations": recheck(m.get("citations", []), ok, drop=False, notes=frozenset())}
             for m in items

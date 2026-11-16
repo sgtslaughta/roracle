@@ -5,8 +5,9 @@ from uuid import UUID
 from sqlalchemy import Integer, and_, case, cast, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
+from roracle.access import llm_allowed
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationReport, AnnotationVote, DocumentVersion, User
+from roracle.models import Annotation, AnnotationReport, AnnotationVote, Document, DocumentVersion, User
 from roracle.notes.access import readable_notes
 from roracle.retrieval import Passage
 
@@ -87,6 +88,13 @@ def community_notes(
     )
     mine = A.author_id == p.user_id
     if strict:
+        docs = [
+            d
+            for d in docs
+            if d in set(session.scalars(select(Document.id).where(Document.id.in_(docs), llm_allowed())))
+        ]
+        if not docs:
+            return {}
         gate = or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1]))
     else:
         gate = and_(A.visibility == "everyone", score >= MIN_SCORE)

@@ -14,11 +14,13 @@ from starlette.responses import Response
 from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
+from roracle.audit import audit
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, visible_versions
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, User
+from roracle.labels.policy import Policy, export_exempt
+from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, Document, User
 from roracle.notes.community import readable_note_ids
 
 MAX_MESSAGES = 1000  # per chat read/export; the newest are kept
@@ -184,9 +186,30 @@ def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
     return _shares(session, chat.id)
 
 
-def _reference(c: dict) -> str:
+def _withheld(session: Session, p: Principal, msgs: list[dict]) -> dict[str, str]:
+    """Gate (c): doc id -> label name for cited documents the caller may not export (owner/admin exempt)."""
+    ids = set()
+    for m in msgs:
+        for c in m["citations"]:
+            try:
+                ids.add(UUID(str(c.get("doc_id"))))
+            except ValueError:
+                pass
+    if not ids:
+        return {}
+    policy = Policy.load(session)
+    return {
+        str(d.id): policy.get(d.label_id).name
+        for d in session.scalars(select(Document).where(Document.id.in_(ids)))
+        if policy.has(d.label_id, "block_export") and not export_exempt(p, d)
+    }
+
+
+def _reference(c: dict, withheld: dict[str, str]) -> str:
     if not c.get("available"):
         return f"[{c['n']}] Source not available"
+    if c.get("doc_id") in withheld:
+        return f"[{c['n']}] [withheld: {withheld[c['doc_id']]}]"
     parts = [", ".join(c.get("authors") or []), c.get("title") or "", str(c["year"]) if c.get("year") else ""]
     parts.append(f"p. {c['page']}" if c.get("page") else "")
     return f"[{c['n']}] " + ", ".join(x for x in parts if x)
@@ -196,10 +219,14 @@ def _reference(c: dict) -> str:
 def export_chat(chat_id: UUID, p: Who, session: Db) -> Response:
     chat = readable_chat(session, p, chat_id)
     lines = [f"# {chat.title or 'Chat'}", ""]
-    for m in _messages(session, p, chat):
+    msgs = _messages(session, p, chat)
+    withheld = _withheld(session, p, msgs)
+    if withheld:
+        audit(session, p, "label.export_blocked", str(chat.id), {"route": "chat.export"})
+    for m in msgs:
         lines += [f"**{'You' if m['role'] == 'user' else 'rOracle'}:** {m['content']}", ""]
         if m["role"] == "assistant" and m["citations"]:
-            lines += ["References", "", *(_reference(c) for c in m["citations"]), ""]
+            lines += ["References", "", *(_reference(c, withheld) for c in m["citations"]), ""]
     return Response(
         "\n".join(lines),
         media_type="text/markdown",

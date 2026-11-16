@@ -8,6 +8,7 @@ from sqlalchemy import select
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.ingest.chunking import Chunk
+from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.search_acl import acl_filter
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
@@ -30,12 +31,12 @@ def _shared(uid, *groups):
 
 
 def test_admin_matches_all():
-    assert acl_filter(_p(admin=True)) == {"match_all": {}}
+    assert acl_filter(_p(admin=True), Policy([])) == {"match_all": {}}
 
 
 def test_groupless_shape_has_no_share_groups_clause():
     p = _p()
-    f = acl_filter(p)
+    f = acl_filter(p, Policy([]))
     assert f["bool"]["minimum_should_match"] == 1
     assert f["bool"]["should"] == [
         {"term": {"visibility": "everyone"}},
@@ -48,7 +49,7 @@ def test_groupless_shape_has_no_share_groups_clause():
 
 def test_groups_add_share_groups_and_ancestor_terms():
     p = _p(["/A/B"])
-    f = acl_filter(p)
+    f = acl_filter(p, Policy([]))
     should = f["bool"]["should"]
     assert _shared(str(p.user_id), "/A/B") in should
     assert should[-1]["bool"]["must"][1] == {"terms": {"org_unit": ["/", "/A", "/A/B"]}}
@@ -145,7 +146,7 @@ def test_sql_es_parity(es, model, db_session, blob):
         sql = {str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))}
         hits = es.search(
             index=index_name(model),
-            query={"bool": {"filter": [acl_filter(p), {"term": {"is_latest": True}}]}},
+            query={"bool": {"filter": [acl_filter(p, Policy([])), {"term": {"is_latest": True}}]}},
             size=100,
         )["hits"]["hits"]
         assert {h["_source"]["doc_id"] for h in hits} == sql, who
@@ -159,4 +160,4 @@ def test_sql_es_parity(es, model, db_session, blob):
 
 def test_share_groups_normalised_like_sql():
     p = _p(["Physics", "/Chem/", "/", ""])
-    assert _shared(str(p.user_id), "/Physics", "/Chem") in acl_filter(p)["bool"]["should"]
+    assert _shared(str(p.user_id), "/Physics", "/Chem") in acl_filter(p, Policy([]))["bool"]["should"]

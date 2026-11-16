@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from roracle.config import Settings
+from roracle.labels.policy import Policy
 from roracle.retrieval import (
     Passage,
     _filters,
@@ -82,8 +83,8 @@ def test_rerank_failure_keeps_order():
 def test_filters_shape():
     from types import SimpleNamespace
 
-    p = SimpleNamespace(user_id="u", is_admin=True, groups=())
-    f = _filters(p, {"author": ["A"], "year": [2020, 2021], "tags": []}, ["d1"])
+    p = SimpleNamespace(user_id="u", is_admin=True, groups=(), via="jwt")
+    f = _filters(p, Policy([]), {"author": ["A"], "year": [2020, 2021], "tags": []}, ["d1"], False)
     assert f[1] == {"term": {"is_latest": True}}
     assert f[2:] == [
         {"terms": {"authors": ["A"]}},
@@ -138,7 +139,7 @@ def _knn_calls(**kw):
 
     p = Principal(uuid.uuid4(), "s", "u", (), False)
     s = Settings(embed_dims=1)
-    search_chunks(ES(), llm, s, p, "q", filters={}, **kw)
+    search_chunks(ES(), llm, s, p, "q", policy=Policy([]), filters={}, **kw)
     return [c["knn"] for c in calls if "knn" in c]
 
 
@@ -178,7 +179,7 @@ def _run_search(es):
     )
     s = _settings().model_copy(update={"rerank_url": "", "embed_dims": 4})
     p = Principal(user_id=None, sub="s", username="u", groups=(), is_admin=True)
-    return search_chunks(es, llm, s, p, "q", filters={})
+    return search_chunks(es, llm, s, p, "q", policy=Policy([]), filters={})
 
 
 def _hit(c):

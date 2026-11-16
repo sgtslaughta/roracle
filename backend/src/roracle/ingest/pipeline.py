@@ -31,6 +31,7 @@ from roracle.ingest.state import (
     update_version,
 )
 from roracle.ingest.summary import summarize
+from roracle.labels.policy import Policy
 from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
 from roracle.queue import NonRetryable, payload_uuid
@@ -247,7 +248,8 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
             update_document(sf, d.id, title=title)
             session.refresh(d)
         text = document_text(doc)
-        summary = summarize(llm, settings.summary_model, title, text)
+        llm_ok = not Policy.load(session).has(d.label_id, "exclude_llm")  # gate (a), label at ingest time
+        summary = summarize(llm, settings.summary_model, title, text) if llm_ok else ""
         vec = (
             embed(llm, settings.embed_model, [doc_prompt(title, summary)], settings.embed_dims)[0]
             if summary.strip()

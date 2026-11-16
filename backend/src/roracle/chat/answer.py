@@ -119,8 +119,9 @@ class AnswerStream:
     def __init__(
         self, session: Session, llm, chat_id: UUID, model: str | None, messages: list[dict],
         passages: list[Passage], versions: dict[str, int] | None = None, canned: str | None = None,
-        notes: list[Passage] | None = None,
+        notes: list[Passage] | None = None, excluded: list[dict] | None = None,
     ):  # fmt: skip
+        self.excluded = excluded or []
         v = versions or {}
         self.items = [citation_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
         self.retrieved = [retrieved_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
@@ -168,6 +169,8 @@ class AnswerStream:
     def _run(self):
         stream = None
         try:
+            if self.excluded:  # gate (a): requested context withheld by label
+                yield frame("meta", {"excluded_by_label": self.excluded})
             if self.canned is not None:
                 self.parts.append(self.canned)
                 yield frame("token", {"text": self.canned})
@@ -199,6 +202,6 @@ class AnswerStream:
 def stream_answer(
     session: Session, llm, chat_id: UUID, model: str | None, messages: list[dict],
     passages: list[Passage], versions: dict[str, int] | None = None, canned: str | None = None,
-    notes: list[Passage] | None = None,
+    notes: list[Passage] | None = None, excluded: list[dict] | None = None,
 ) -> AnswerStream:  # fmt: skip
-    return AnswerStream(session, llm, chat_id, model, messages, passages, versions, canned, notes)
+    return AnswerStream(session, llm, chat_id, model, messages, passages, versions, canned, notes, excluded)

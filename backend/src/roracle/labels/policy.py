@@ -4,9 +4,14 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from fastapi.responses import JSONResponse
+from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
+from roracle.audit import audit
+from roracle.auth import Principal
+from roracle.models import Document
 from roracle.models_labels import GATES, Label
 
 
@@ -83,3 +88,47 @@ class Policy:
     @property
     def default(self) -> LabelInfo:
         return next(x for x in self.labels if x.is_default)
+
+
+class ExportBlocked(Exception):
+    def __init__(self, label: str):
+        super().__init__(label)
+        self.label = label
+
+
+def export_blocked_handler(_request, exc: ExportBlocked) -> JSONResponse:
+    return JSONResponse({"detail": "export blocked by label", "label": exc.label}, status_code=403)
+
+
+# ---- gate (c): export / download ------------------------------------------------------------------
+def export_exempt(p: Principal, doc: Document) -> bool:
+    """R9: the owner holds the original and admins can relabel anyway."""
+    return p.is_admin or doc.owner_id == p.user_id
+
+
+def export_block(session: Session, p: Principal, doc: Document, note_label_id=None) -> LabelInfo | None:
+    """The blocking label (effective = max(doc, note)), or None when `p` may export `doc`."""
+    if export_exempt(p, doc):
+        return None
+    lab = Policy.load(session).effective(doc.label_id, note_label_id)
+    return lab if lab.block_export else None
+
+
+def require_exportable(session: Session, p: Principal, doc: Document, route: str, note_label_id=None) -> None:
+    """403 (+ audit, committed so the 403 does not roll it back) when the label blocks export for `p`.
+
+    Call only after normal visibility passed: invisible stays 404, so naming the label leaks nothing."""
+    lab = export_block(session, p, doc, note_label_id)
+    if lab is None:
+        return
+    audit(session, p, "label.export_blocked", str(doc.id), {"route": route})
+    session.commit()
+    raise ExportBlocked(lab.name)
+
+
+def exportable_clause(p: Principal) -> ColumnElement[bool]:
+    """SQL mirror of `export_block is None` for Document rows (bibtex silently omits the rest)."""
+    if p.is_admin:
+        return true()
+    blocked = select(Label.id).where(Label.block_export.is_(True))
+    return or_(Document.owner_id == p.user_id, Document.label_id.not_in(blocked))

@@ -8,7 +8,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import group_path, org_units
+from roracle.access import agent_visible, group_path, org_units
 from roracle.api.routes.search import get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
@@ -61,7 +61,9 @@ def list_drafts(p: Who, session: Db) -> dict:
     rows = session.execute(
         select(Draft, Document)
         .join(Document, Document.id == Draft.document_id)
-        .where(Document.deleted_at.is_(None), or_(*mine))
+        .where(
+            Document.deleted_at.is_(None), or_(*mine), *((agent_visible(),) if p.via == "pat" else ())
+        )  # gate (b)
         .order_by(Draft.updated_at.desc(), Draft.document_id)
         .limit(LIMIT)
     ).all()

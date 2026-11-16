@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from roracle.access import group_path, org_units
 from roracle.audit import audit
 from roracle.auth import Principal
+from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentShare, User
 from roracle.models_writing import Draft, DraftVersion
 from roracle.writing import profiles
@@ -28,6 +29,11 @@ def _can_read(p: Principal, doc: Document, d: Draft) -> bool:
     )
 
 
+def _agent_blocked(session: Session, p: Principal, doc: Document) -> bool:
+    """Gate (b): an agent/PAT principal sees a draft labelled `block_agents` as non-existent."""
+    return p.via == "pat" and Policy.load(session).has(doc.label_id, "block_agents")
+
+
 def readable_draft(
     session: Session, p: Principal, doc_id: UUID, lock: bool = False
 ) -> tuple[Document, Draft]:
@@ -35,7 +41,13 @@ def readable_draft(
     q = select(Draft).where(Draft.document_id == doc_id)
     d = session.scalar(q.with_for_update() if lock else q)
     doc = session.get(Document, doc_id) if d else None
-    if d is None or doc is None or doc.deleted_at is not None or not _can_read(p, doc, d):
+    if (
+        d is None
+        or doc is None
+        or doc.deleted_at is not None
+        or not _can_read(p, doc, d)
+        or _agent_blocked(session, p, doc)
+    ):
         raise HTTPException(404, "not found")
     return doc, d
 

@@ -64,7 +64,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             scope=scope,
             pins=[],
             excludes=[],
-        )
+        )  # gate (a): retrieve_for_chat applies exclude_llm in ES and Postgres
         passages, notes = split_notes(passages)
         if not passages:
             return {"answer": NO_PASSAGES, "citations": []}

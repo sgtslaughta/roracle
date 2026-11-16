@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import org_units, visible_documents
+from roracle.access import agent_visible, llm_allowed, org_units, visible_documents
 from roracle.auth import Principal
 from roracle.models import Chat, ChatShare, Document, DocumentVersion
 
@@ -34,11 +34,13 @@ def owned_chat(session: Session, p: Principal, chat_id: UUID) -> Chat:
     return chat
 
 
-def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[tuple[str, str]]:
+def visible_versions(
+    session: Session, p: Principal, items: list[dict], *, agent_gate: bool = False, exclude_llm: bool = False
+) -> set[tuple[str, str]]:
     """(doc_id, version_id) pairs among `items` the caller may still see (one query).
 
     Non-owners (non-admin) only see `searchable` versions; older versions of a visible doc are allowed
-    (same doc, `detail` lists them)."""
+    (same doc, `detail` lists them). `agent_gate` applies gate (b) whoever the caller is (handoffs); `exclude_llm` drops docs whose CURRENT label excludes LLM context (ES label_id may lag)."""
     docs: set[UUID] = set()
     vers: set[UUID] = set()
     for x in items:
@@ -57,6 +59,8 @@ def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[t
             DocumentVersion.id.in_(vers),
             DocumentVersion.stage.notin_(("rejected", "cancelled")),
             visible_documents(p),
+            *((agent_visible(),) if agent_gate else ()),
+            *((llm_allowed(),) if exclude_llm else ()),
             *(
                 ()
                 if p.is_admin

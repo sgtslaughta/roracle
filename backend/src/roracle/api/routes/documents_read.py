@@ -19,7 +19,7 @@ from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
-from roracle.labels.policy import Policy, label_json
+from roracle.labels.policy import Policy, label_json, require_exportable
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.search_index import ALIAS, file_type
@@ -57,6 +57,10 @@ def _version(session: Session, p: Principal, doc_id: UUID, n: int) -> DocumentVe
     if v is None or v.stage in HIDDEN_STAGES or (not _privileged(doc, p) and v.stage != "searchable"):
         raise HTTPException(404, "not found")
     return v
+
+
+def _gate(session: Session, p: Principal, doc_id: UUID, route: str) -> None:
+    require_exportable(session, p, _doc(session, p, doc_id), route)  # gate (c); 404 came first
 
 
 def _sharing(session: Session, doc: Document) -> dict:
@@ -174,6 +178,7 @@ def download(
     inline: bool = False,
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
+    _gate(session, p, doc_id, "document.file")
     try:
         body = store.open(v.blob_sha256)
     except ClientError as e:
@@ -236,6 +241,7 @@ def pdf(
     store: Annotated[BlobStore, Depends(get_blob_store)],
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
+    _gate(session, p, doc_id, "document.pdf")
     body, head, size = _open_pdf(store, v)
     stem = v.filename.rsplit(".", 1)[0] if "." in v.filename else v.filename
     return StreamingResponse(
@@ -265,6 +271,7 @@ def docling(
     es: Annotated[Elasticsearch, Depends(get_es)],
 ) -> dict:
     v = _version(session, p, doc_id, n)
+    _gate(session, p, doc_id, "document.docling")
     try:
         raw = json.loads(store.get_bytes(f"derived/{v.id}/docling.json"))
     except ClientError as e:

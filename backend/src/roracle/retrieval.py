@@ -15,6 +15,7 @@ from elasticsearch import BadRequestError
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest.embed import embed, query_prompt
+from roracle.labels.policy import Policy
 from roracle.search_acl import acl_filter
 from roracle.search_index import active_index
 
@@ -28,6 +29,7 @@ FACET_FIELDS = {
     "file_type": "file_type",
     "org_unit": "org_unit",
     "author": "authors",
+    "label": "label_id",
 }
 _SOURCE = ["chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title", "authors", "year"]
 
@@ -74,8 +76,12 @@ def vote_multiplier(up: int, down: int) -> float:
     return 1 + 0.15 * max(-1.0, min(1.0, (vote_ratio(up, down) - 0.5) * 2))
 
 
-def _filters(p: Principal, filters: dict, doc_ids: list[str] | None) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = [acl_filter(p), {"term": {"is_latest": True}}]
+def _filters(
+    p: Principal, policy: Policy, filters: dict, doc_ids: list[str] | None, exclude_llm: bool
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = [acl_filter(p, policy), {"term": {"is_latest": True}}]
+    if exclude_llm and (ids := policy.ids("exclude_llm")):  # gate (a): never let these chunks near a prompt
+        out.append({"bool": {"must_not": [{"terms": {"label_id": sorted(ids)}}]}})
     for key, values in filters.items():
         if key not in FACET_FIELDS:
             raise ValueError(f"unknown filter: {key}")
@@ -146,6 +152,7 @@ def search_chunks(
     p: Principal,
     query: str,
     *,
+    policy: Policy,
     filters: dict,
     doc_ids: list[str] | None = None,
     size: int = LIST_SIZE,
@@ -153,15 +160,17 @@ def search_chunks(
     qvec: list[float] | None = None,
     min_similarity: float | None = None,
     summary_knn: bool = True,
+    exclude_llm: bool = False,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
     summary_knn adds a third kNN list on the document summary vector (doc-level recall for search);
     only chunk 0 carries it, so a hit means "this document", not "this passage".
+    exclude_llm=True drops chunks whose label has the `exclude_llm` gate (every LLM-bound caller sets it).
     """
     if not query.strip():
         raise ValueError("empty query")
-    flt = _filters(p, filters, doc_ids)
+    flt = _filters(p, policy, filters, doc_ids, exclude_llm)
     index = active_index(settings)
     bm25 = es.search(
         index=index,

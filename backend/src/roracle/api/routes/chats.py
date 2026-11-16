@@ -132,6 +132,7 @@ def post_message(
     history = list(reversed(list(recent)))
     canned = None
     passages = []
+    excluded: list[dict] = []
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         canned, model = NO_OPEN_DOCS, None
     else:
@@ -139,6 +140,7 @@ def post_message(
             passages = retrieve_for_chat(
                 session, es, llm, settings, p, body.content, body.viewer, chat.scope,
                 list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
+                excluded=excluded,
             )  # fmt: skip
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
@@ -161,7 +163,7 @@ def post_message(
             select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
         )
     }
-    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes)
+    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded)
     return ClosingStreamingResponse(
         _frames(gen),
         media_type="text/event-stream",

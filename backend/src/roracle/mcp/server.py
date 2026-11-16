@@ -18,6 +18,7 @@ from roracle.api.routes.search import BadInput
 from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
+from roracle.labels.policy import Policy
 from roracle.mcp import tools_notes, tools_writing
 from roracle.mcp.auth import current, dep, open_session
 from roracle.mcp.tools_write import digest, register
@@ -88,7 +89,11 @@ def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], cont
             index=ALIAS,
             size=len(wanted),
             source=_SOURCE,
-            query={"bool": {"filter": [acl_filter(p), {"terms": {"chunk_id": sorted(wanted)}}]}},
+            query={
+                "bool": {
+                    "filter": [acl_filter(p, Policy.load(session)), {"terms": {"chunk_id": sorted(wanted)}}]
+                }
+            },
         )["hits"]["hits"]
     except NotFoundError:
         return []

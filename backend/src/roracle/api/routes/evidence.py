@@ -17,7 +17,8 @@ from roracle.auth import Principal, current_principal, get_app_settings, require
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.ingest.intake import ref_blob
-from roracle.models import Blob, Evidence, EvidenceReproduction
+from roracle.labels.policy import require_exportable
+from roracle.models import Annotation, Blob, Document, Evidence, EvidenceReproduction
 from roracle.notes import evidence as ev
 from roracle.notes.access import get_readable
 from roracle.notes.service import NOT_FOUND
@@ -140,6 +141,9 @@ def get_evidence(evidence_id: UUID, session: Session_, p: Who) -> dict:
 @router.get("/evidence/{evidence_id}/file")
 def download(evidence_id: UUID, session: Session_, p: Who, store: Store) -> StreamingResponse:
     e = _load(session, p, evidence_id)
+    note = session.get(Annotation, e.annotation_id)
+    doc = session.get(Document, note.document_id)
+    require_exportable(session, p, doc, "evidence.file", note.label_id)  # effective label
     if e.blob_sha256 is None or e.scan_status not in ("clean", "unscanned"):
         raise HTTPException(409, "not available")
     body = store.open(e.blob_sha256)

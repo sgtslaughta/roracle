@@ -62,7 +62,7 @@ def test_all_invisible_is_empty_everywhere(client, as_ana, bob, db_session, fes)
     body = get(client, as_ana, q="alpha").json()
     assert body == {
         "total": 0, "page": 1, "results": [],
-        "facets": {k: [] for k in ("tags", "year", "file_type", "org_unit", "collection", "author")},
+        "facets": {k: [] for k in ("tags", "year", "file_type", "org_unit", "collection", "author", "label")},
     }  # fmt: skip
 
 

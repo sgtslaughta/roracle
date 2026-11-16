@@ -234,8 +234,10 @@ def test_retrieval_reads_active_index(db_session, base):
             seen.append(index)
             return {"hits": {"hits": []}}
 
-    p = SimpleNamespace(user_id="u", groups=(), is_admin=True)
-    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", filters={}, qvec=[0.0, 0.0])
+    p = SimpleNamespace(user_id="u", groups=(), is_admin=True, via="jwt")
+    from roracle.labels.policy import Policy
+
+    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", policy=Policy([]), filters={}, qvec=[0.0, 0.0])
     assert seen and set(seen) == {"chunks-new-3"}
 
 
