@@ -77,7 +77,7 @@ export default function PdfView({ tab, version }: { tab: ReaderTab; version: num
   useEffect(() => {
     if (!adding) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || document.querySelector('[role="dialog"]') || (e.target as Element | null)?.closest?.('[role="dialog"]')) return;
       e.preventDefault(); e.stopPropagation();
       notesUi.set((s) => ({ ...s, adding: null }));
     };
@@ -108,7 +108,7 @@ export default function PdfView({ tab, version }: { tab: ReaderTab; version: num
       const page = await pdf.data!.getPage(pageNo);
       if (page.getTextContent) quote = quoteIn((await page.getTextContent()).items, c.bbox, h);
     } catch { /* no text layer: the composer asks for the quote */ }
-    notesUi.set((s) => ({ ...s, adding: null, draft: { docId: tab.docId, quote, page: pageNo, bbox: c.bbox } }));
+    notesUi.set((s) => ({ ...s, adding: null, draft: { docId: tab.docId, version, quote, page: pageNo, bbox: c.bbox } }));
     setView("notes");
   };
 
@@ -120,6 +120,10 @@ export default function PdfView({ tab, version }: { tab: ReaderTab; version: num
       {adding && (
         <div className="pickbar">
           <span role="status">Click the passage you want to note. Esc cancels.</span>
+          <Button variant="ghost" onClick={() => {
+            notesUi.set((s) => ({ ...s, adding: null, draft: { docId: tab.docId, version, quote: "", page: current, bbox: null } }));
+            setView("notes");
+          }}>Write without picking</Button>
           <Button variant="ghost" onClick={() => notesUi.set((s) => ({ ...s, adding: null }))}>Cancel</Button>
         </div>
       )}

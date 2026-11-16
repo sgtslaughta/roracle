@@ -82,7 +82,7 @@ export function NoteMenu({ note, docId, me, docOwnerId, onEdit }: MenuProps) {
           m.mutate(note.id, { onSuccess: () => { setConfirm(null); toast(confirm === "remove" ? "Note removed." : "Note deleted."); }, onError: fail("Deleting") });
         }}
       >
-        {confirm === "remove" ? "It disappears for everyone, including its author. The removal is audited." : "This can't be undone. Replies to it are deleted too."}
+        {confirm === "remove" ? "It disappears for everyone, including its author. The removal is audited." : `This can't be undone.${note.parent_id ? "" : " Replies to it are deleted too."}`}
       </ConfirmDialog>
     </>
   );

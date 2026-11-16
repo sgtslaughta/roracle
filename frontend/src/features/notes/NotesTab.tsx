@@ -18,7 +18,7 @@ export function threads(notes: Note[]): { note: Note; replies: Note[] }[] {
   return notes.filter((n) => !n.parent_id).map((note) => ({ note, replies: byParent.get(note.id) ?? [] }));
 }
 
-export function NotesTab({ docId, docOwnerId, version }: { docId: string; docOwnerId: string; version: number }) {
+export function NotesTab({ docId, docOwnerId, version, latest }: { docId: string; docOwnerId: string; version: number; latest: number }) {
   const { data, isLoading, isError } = useNotes(docId);
   const { data: me } = useMe();
   const draft = notesUi.use((s) => (s.draft?.docId === docId ? s.draft : null));
@@ -33,14 +33,19 @@ export function NotesTab({ docId, docOwnerId, version }: { docId: string; docOwn
 
   // a marker click: make the card visible, scroll to it, flash it briefly
   useEffect(() => {
-    if (!flash || !flashRoot) return;
+    if (!flash) return;
+    if (!flashRoot) { if (data) notesUi.set((s) => ({ ...s, flash: null })); return; } // not (or no longer) readable
     if (kind && flashRoot.note.kind !== kind) setKind("");
     const i = all.indexOf(flashRoot);
     if (i >= limit) setLimit(i + 1);
-    const raf = requestAnimationFrame(() => document.getElementById(`note-${flash}`)?.scrollIntoView({ block: "center" }));
+    const raf = requestAnimationFrame(() => {
+      const root = document.getElementById(`note-${flashRoot.note.id}`);
+      document.getElementById(`note-${flash}`)?.scrollIntoView({ block: "center" });
+      root?.focus({ preventScroll: true }); // keyboard users land on the card the marker pointed to
+    });
     const t = setTimeout(() => notesUi.set((s) => ({ ...s, flash: null })), 2000);
     return () => { cancelAnimationFrame(raf); clearTimeout(t); };
-  }, [flash, flashRoot]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [flash, flashRoot, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = composing || !!draft;
   const close = () => { setComposing(false); notesUi.set((s) => ({ ...s, draft: null })); };
@@ -56,7 +61,7 @@ export function NotesTab({ docId, docOwnerId, version }: { docId: string; docOwn
         {!open && <Button onClick={() => setComposing(true)}><Plus aria-hidden />New note</Button>}
       </div>
       <div className="ntray">
-        {open && <NoteComposer key={draft ? `${draft.page}:${draft.quote}` : "new"} docId={docId} draft={draft} onDone={close} />}
+        {open && <NoteComposer key={draft ? `${draft.page}:${draft.quote}` : "new"} docId={docId} draft={draft} latest={latest} onDone={close} />}
         {isLoading && <p className="empty" role="status">Loading notes…</p>}
         {isError && <p className="empty" role="alert">Notes couldn't be loaded. Try again later.</p>}
         {data && !list.length && <p className="empty">{kind ? `No ${KIND_LABEL[kind].toLowerCase()} notes.` : "No notes yet. Choose Add note and click a passage, or write a note for the whole document."}</p>}

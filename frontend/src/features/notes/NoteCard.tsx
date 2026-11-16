@@ -16,6 +16,7 @@ import { NoteMenu, NoteVote } from "./NoteActions";
 import { NoteComposer } from "./NoteComposer";
 
 export const REPLIES_SHOWN = 3;
+const REPLIES_STEP = 20;
 const VIS_ICON = { everyone: Globe, shared: Users, private: Lock } as const;
 
 interface Ctx { docId: string; me: Me | undefined; docOwnerId: string }
@@ -91,14 +92,15 @@ function ReplyBox({ note, docId, onDone }: { note: Note; docId: string; onDone: 
 }
 
 export const NoteCard = forwardRef<HTMLDivElement, Props>(function NoteCard({ note, replies, viewedVersion, flash, expand, onGoTo, evidence, ...ctx }, ref) {
-  const [more, setMore] = useState(false);
-  const all = more || !!expand;
+  const [limit, setLimit] = useState(REPLIES_SHOWN);
+  const all = !!expand || limit >= replies.length;
   const [replying, setReplying] = useState(false);
   const VisIcon = VIS_ICON[note.visibility];
   const a = note.anchor;
-  const shown = all ? replies : replies.slice(0, REPLIES_SHOWN);
+  const shown = all ? replies : replies.slice(0, limit);
+  const step = Math.min(REPLIES_STEP, replies.length - limit);
   return (
-    <article ref={ref} id={`note-${note.id}`} className={cn("ncard", flash && "flash")} aria-label={`${KIND_LABEL[note.kind]} by ${note.author.username}`}>
+    <article ref={ref} id={`note-${note.id}`} tabIndex={-1} className={cn("ncard", flash && "flash")} aria-label={`${KIND_LABEL[note.kind]} by ${note.author.username}`}>
       <div className="nhead">
         <KindPill kind={note.kind} />
         <b>{note.author.username}</b>
@@ -126,8 +128,8 @@ export const NoteCard = forwardRef<HTMLDivElement, Props>(function NoteCard({ no
               <NoteBody note={r} {...ctx} />
             </li>
           ))}
-          {!all && replies.length > REPLIES_SHOWN && (
-            <li><button className="btn-link" onClick={() => setMore(true)}>Show {replies.length - REPLIES_SHOWN} more {replies.length - REPLIES_SHOWN === 1 ? "reply" : "replies"}</button></li>
+          {!all && (
+            <li><button className="btn-link" onClick={() => setLimit(limit + REPLIES_STEP)}>Show {step} more {step === 1 ? "reply" : "replies"}</button></li>
           )}
           {replying && <li><ReplyBox note={note} docId={ctx.docId} onDone={() => setReplying(false)} /></li>}
         </ol>

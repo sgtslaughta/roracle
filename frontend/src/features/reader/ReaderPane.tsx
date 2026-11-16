@@ -68,7 +68,9 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
             brief: `Goal: work with “${d.title}”. I'm reading page ${tab.page} of version ${version}.`,
             summary: "Hands this document to an agent, with its notes, references and cited-by links.",
           })} />
-          <Button aria-pressed={adding} title="Then click a passage on the page" onClick={() => {
+          <Button
+            aria-pressed={adding} disabled={!adding && version !== latest}
+            title={version !== latest ? "Switch to the latest version to anchor a note" : "Then click a passage on the page"} onClick={() => {
             notesUi.set((s) => ({ ...s, adding: adding ? null : d.id }));
             if (!adding) setView("doc");
           }}><MessageSquarePlus aria-hidden />Add note</Button>
@@ -90,7 +92,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
       )}
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
-      {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} />}
+      {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} latest={latest} />}
       <TagBar docId={d.id} tags={d.tags} ownerId={d.owner.id} />
     </>
   );

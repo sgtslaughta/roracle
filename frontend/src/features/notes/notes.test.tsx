@@ -210,6 +210,24 @@ describe("notes tab", () => {
     expect(await within(mine).findByText("Rewritten")).toBeInTheDocument();
   });
 
+  it("reveals long reply threads 20 at a time", async () => {
+    const mk = (id: string, parent_id: string | null) => ({
+      id, document_id: D1, version_id: "v", version: 2, parent_id, author: { id: `u-${id}`, username: `user ${id}` }, kind: "comment",
+      body: `body ${id}`, anchor: null, relation: null, visibility: "everyone", shares: [], status: "visible", agent_assisted: false,
+      may_not_apply_to_version: null, votes: { up: 0, down: 0, mine: 0, score: 0.5 }, evidence: { supports: 0, refutes: 0, inconclusive: 0 }, created_at: "", updated_at: "",
+    });
+    const items = [mk("root", null), ...Array.from({ length: 25 }, (_, i) => mk(`r${i}`, "root"))];
+    server.use(http.get(`${API_BASE}/documents/:id/annotations`, () => HttpResponse.json({ items })));
+    await openNotes();
+    const c = await card("Comment by user root");
+    const replies = () => within(c).getAllByRole("listitem").filter((li) => li.classList.contains("nreply"));
+    expect(replies()).toHaveLength(3);
+    await userEvent.click(within(c).getByRole("button", { name: "Show 20 more replies" }));
+    expect(replies()).toHaveLength(23);
+    await userEvent.click(within(c).getByRole("button", { name: "Show 2 more replies" }));
+    expect(replies()).toHaveLength(25);
+  });
+
   it("replies with POST /replies {body}", async () => {
     await openNotes();
     const f = await card("Finding by J. Ruiz");
@@ -280,6 +298,45 @@ describe("anchors in the document view", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Note by J. Ruiz: Finding" }));
     expect(within(reader()).getByRole("tab", { name: /Notes/ })).toHaveAttribute("aria-selected", "true");
     expect(await card("Finding by J. Ruiz")).toHaveClass("flash");
+    await waitFor(() => expect(screen.getByRole("article", { name: "Finding by J. Ruiz" })).toHaveFocus());
+  });
+
+  it("clears a flash whose note isn't in the list", async () => {
+    notesUi.set((s) => ({ ...s, flash: "gone" }));
+    await openNotes();
+    await card("Finding by J. Ruiz");
+    await waitFor(() => expect(notesUi.get().flash).toBeNull());
+  });
+
+  it("Add note is disabled on an older version", async () => {
+    await renderApp(`/d/${D1}/v/1`);
+    const add = await within(reader()).findByRole("button", { name: "Add note" });
+    expect(add).toBeDisabled();
+    expect(add).toHaveAttribute("title", "Switch to the latest version to anchor a note");
+  });
+
+  it("drops the box of a passage picked on an older version (notes attach to the latest)", async () => {
+    notesUi.set((s) => ({ ...s, draft: { docId: D1, version: 1, quote: "old text", page: 3, bbox: CHUNK.bbox } }));
+    const r = await openNotes();
+    const c = within(r.getByRole("group", { name: "New note" }));
+    await userEvent.type(c.getByRole("textbox", { name: "Note" }), "x");
+    await userEvent.click(c.getByRole("button", { name: "Post note" }));
+    expect(await sent("POST", `/documents/${D1}/annotations`)).toMatchObject({ anchor: { quote: "old text", page: 3, bbox: null } });
+  });
+
+  it("hints when a picked passage has no quote text", async () => {
+    notesUi.set((s) => ({ ...s, draft: { docId: D1, version: 2, quote: "", page: 3, bbox: CHUNK.bbox } }));
+    await openNotes();
+    expect(screen.getByText("Type the passage to keep the anchor.")).toBeInTheDocument();
+  });
+
+  it("Write without picking opens the composer on the current page", async () => {
+    await renderApp(`/d/${D1}`);
+    await userEvent.click(within(reader()).getByRole("button", { name: "Add note" }));
+    await userEvent.click(screen.getByRole("button", { name: "Write without picking" }));
+    const c = within(await screen.findByRole("group", { name: "New note" }));
+    expect(c.getByRole("spinbutton", { name: "Page" })).toHaveValue(1);
+    expect(screen.queryByText(/Click the passage you want to note/)).toBeNull();
   });
 
   it("Add note: clicking a passage opens the composer with its quote, page and box; Esc cancels the mode", async () => {

@@ -24,10 +24,12 @@ interface Props {
   note?: Note;
   /** picked passage from "Add note" mode */
   draft?: NoteDraft | null;
+  /** latest version number: new notes attach to it, so a box picked on another version is dropped */
+  latest?: number;
   onDone: () => void;
 }
 
-export function NoteComposer({ docId, note, draft, onDone }: Props) {
+export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
   const create = useCreateNote(docId), patch = usePatchNote(docId);
   const editing = !!note;
   const [kind, setKind] = useState<NoteKind>(note?.kind ?? "comment");
@@ -70,7 +72,7 @@ export function NoteComposer({ docId, note, draft, onDone }: Props) {
     if (!s) return;
     const q = quote.trim().slice(0, QUOTE_MAX);
     // the picked box only describes the picked page
-    const bbox = draft?.bbox && pageNo === draft.page ? anchorBbox(draft.bbox) : null;
+    const bbox = draft?.bbox && pageNo === draft.page && draft.version === latest ? anchorBbox(draft.bbox) : null;
     const b: NoteIn = { kind, body, visibility: vis, ...(vis === "shared" && { shares: s }) };
     if (q) b.anchor = { quote: q, prefix: "", suffix: "", page: pageNo, bbox };
     if (kind === "relation" && target) b.relation = { type: relType, target_document_id: target.id };
@@ -108,6 +110,7 @@ export function NoteComposer({ docId, note, draft, onDone }: Props) {
           {quote && <button type="button" className="icon-btn" aria-label="Remove quote" onClick={() => { setQuote(""); notesUi.set((s) => ({ ...s, draft: null })); }}><X aria-hidden /></button>}
         </div>
       )}
+      {!editing && draft?.bbox && !quote.trim() && <p className="chipin-help">Type the passage to keep the anchor.</p>}
       <label>{reply ? "Reply" : "Note"}
         <textarea className="ta" value={body} maxLength={NOTE_BODY_MAX} onChange={(e) => setBody(e.target.value)} placeholder="Write your note. Markdown links and lists work." />
       </label>

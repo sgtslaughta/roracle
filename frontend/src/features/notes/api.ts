@@ -40,6 +40,7 @@ export function useVoteNote(docId: string) {
 }
 
 /** Reader <-> notes hand-off: "Add note" mode, the picked passage, the page in view, and the card to flash. */
-export interface NoteDraft { docId: string; quote: string; page: number; bbox: Bbox | null }
+/** `version`: the version the passage was picked on; new notes attach to the latest version, so only then is `bbox` kept. */
+export interface NoteDraft { docId: string; version: number; quote: string; page: number; bbox: Bbox | null }
 interface NotesUi { adding: string | null; draft: NoteDraft | null; page: number; flash: string | null }
 export const notesUi = createStore<NotesUi>({ adding: null, draft: null, page: 1, flash: null });
