@@ -51,7 +51,9 @@ def resolve_keys(session: Session, p: Principal, keys: list[str]) -> dict[str, d
                 select(Document.id).where(
                     Document.id.in_(cand),
                     Document.id.in_(readable_doc_ids(p)),
-                    Document.id.notin_(select(Draft.document_id)),  # drafts are never library documents
+                    Document.id.notin_(
+                        select(Draft.document_id).where(Draft.status != "submitted")
+                    ),  # unpublished drafts
                 )
             )
         )

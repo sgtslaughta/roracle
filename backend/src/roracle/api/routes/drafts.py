@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -27,10 +27,9 @@ LIMIT = 100
 
 
 class CreateIn(BaseModel):
-    title: Annotated[str, Field(min_length=1, max_length=500)]
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     content: str | None = None
     profile: Annotated[str, Field(max_length=100)] | None = None
-    model_config = {"str_strip_whitespace": True}
 
 
 class SaveIn(BaseModel):

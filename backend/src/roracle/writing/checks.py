@@ -1,7 +1,7 @@
 """Pure draft checks: `check_<rule>(parsed, profile) -> list[Finding]`. No I/O, no LLM."""
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from roracle.writing.cite_check import parse_key
 from roracle.writing.markdown import Parsed, norm_title
@@ -13,9 +13,10 @@ class Finding:
     rule: str
     message: str
     line: int | None = None
+    soft: bool = False  # never blocking (e.g. style check unavailable); not reported
 
     def dict(self) -> dict:
-        return asdict(self)
+        return {"rule": self.rule, "message": self.message, "line": self.line}
 
 
 def check_structure(p: Parsed, prof: Profile) -> list[Finding]:
@@ -57,6 +58,7 @@ def check_limits(p: Parsed, prof: Profile) -> list[Finding]:
 
 
 _SYMBOL = re.compile(r"(?:[A-Za-z]|\\[A-Za-z]+)(?:_(?:\{\w+\}|\w))?(?:\^(?:\{\w+\}|\w))?")
+MAX_FINDINGS = 50  # per rule for notation/acronyms
 _CUE = re.compile(r"\b(?:let|where|denote[sd]?|defin(?:e|es|ed)|is the|are the|be the)\b", re.IGNORECASE)
 
 
@@ -68,10 +70,15 @@ def check_notation(p: Parsed, prof: Profile) -> list[Finding]:
         seen.add(m.expr)
         if not _CUE.search(p.sentence_at(m.pos)):
             out.append(Finding("notation", f"symbol ${m.expr}$ is used before it is defined", m.line))
+            if len(out) >= MAX_FINDINGS:
+                break
     return out
 
 
 _ACR = re.compile(r"\b[A-Z][A-Z0-9]{1,6}s?\b")
+
+
+_OPEN = re.compile(r"\s*\(")
 
 
 def check_acronyms(p: Parsed, prof: Profile) -> list[Finding]:
@@ -82,10 +89,14 @@ def check_acronyms(p: Parsed, prof: Profile) -> list[Finding]:
         if a in seen or a in allow or m.group() in allow:
             continue
         seen.add(a)
-        before, after = text[: m.start()].rstrip(), text[m.end() :]
-        if before.endswith("(") or re.match(r"\s*\(", after) or re.match(r"\)", after):
+        j = m.start() - 1
+        while j >= 0 and text[j].isspace():
+            j -= 1
+        if (j >= 0 and text[j] == "(") or _OPEN.match(text, m.end()) or text.startswith(")", m.end()):
             continue
         out.append(Finding("acronyms", f"acronym {a} is not defined at first use", p.line_at(m.start())))
+        if len(out) >= MAX_FINDINGS:
+            break
     return out
 
 
@@ -137,12 +148,16 @@ def check_ai_disclosure(p: Parsed, prof: Profile) -> list[Finding]:
     return []
 
 
-def check_citations(p: Parsed, prof: Profile, resolved: dict[str, object | None]) -> list[Finding]:
+def check_citations(
+    p: Parsed, prof: Profile, resolved: dict[str, object | None], limit: int = 200
+) -> list[Finding]:
     """`resolved` = cite_check.resolve_keys for the draft's keys. Same wording for invisible and missing."""
     out, seen = [], set()
     for c in p.citations:
         if c.key in seen:
             continue
+        if len(seen) >= limit:
+            break
         seen.add(c.key)
         if parse_key(c.key) is None:
             out.append(

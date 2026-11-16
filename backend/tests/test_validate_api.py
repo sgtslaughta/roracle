@@ -9,7 +9,7 @@ from sqlalchemy import select
 from test_mcp_tools import fes, llm, mc, pat  # noqa: F401
 
 from roracle.api.routes.search import get_llm
-from roracle.models_writing import DraftVersion, WritingProfile
+from roracle.models_writing import Draft, DraftVersion, WritingProfile
 from roracle.writing import profiles
 
 BASE = (
@@ -62,7 +62,7 @@ def test_report_shape_stored_and_style(client, as_ana, ana, db_session, fake):
     assert [w["message"] for w in rep["warnings"] if w["rule"] == "style"] == ["too passive"]
     assert next(w for w in rep["warnings"] if w["rule"] == "style")["line"] == 13
     assert {f["rule"] for f in rep["blocking"]} == {"structure"} and rep["ok"] is False
-    assert fake.calls[0]["model"] == "qwen2.5:14b" and fake.calls[0]["messages"][1]["content"] == BASE.strip()
+    assert fake.calls[0]["model"] == "qwen2.5:14b" and fake.calls[0]["messages"][1]["content"] == BASE
     v = db_session.scalar(select(DraftVersion).where(DraftVersion.document_id == uuid.UUID(i)))
     assert v.validation == rep
     client.put(f"/drafts/{i}/content", headers=as_ana, json={"content": BASE + "x"})
@@ -88,6 +88,7 @@ def test_style_blocking_and_outage(client, as_ana, db_session, fake):
         client.app.dependency_overrides[get_llm] = lambda bad=bad: bad
         rep = client.post(f"/drafts/{i}/validate", headers=as_ana).json()
         assert rep["ok"] is True and [w["message"] for w in rep["warnings"]] == ["style check unavailable"]
+        assert rep["style_unavailable"] is True
 
 
 def test_citations_resolution_in_report(client, as_ana, as_bob, ana, bob, db_session, fake):
@@ -150,3 +151,43 @@ def test_mcp_validate(mc, ana, bob, db_session, fes, llm):  # noqa: F811
     err, text = call(mc, pat(db_session, bob, ["read"]), "validate_draft", draft_id=out["draft_id"])
     assert err and "not found" in text
     assert call(mc, h, "validate_draft", draft_id="zzz")[0]
+
+
+def test_submitted_draft_is_citable(client, as_bob, as_ana, ana, db_session, fake):
+    profile(db_session, {"citations": "blocking", "style": "off"})
+    pub, _ = seed(db_session, ana, title="paper", visibility="everyone")  # a published paper with a draft row
+    d = Draft(document_id=pub.id, status="draft")
+    db_session.add(d)
+    db_session.commit()
+    j = mk(client, as_bob, BASE + f"\nA [@doc:{pub.id}].\n", profile="p1")
+    assert client.post(f"/drafts/{j}/validate", headers=as_bob).json()["ok"] is False
+    d.status = "submitted"
+    db_session.commit()
+    assert client.post(f"/drafts/{j}/validate", headers=as_bob).json()["ok"] is True
+
+
+def test_create_keeps_content_verbatim(client, as_ana):
+    i = mk(client, as_ana, "hello\n\n")
+    assert client.get(f"/drafts/{i}", headers=as_ana).json()["content"] == "hello\n\n"
+
+
+def test_too_many_citations_blocks(client, as_ana, db_session, fake):
+    profile(db_session, {"citations": "warning", "style": "off", "structure": "off", "metadata": "off"})
+    cites = " ".join(f"[@doc:{uuid.uuid4()}]" for _ in range(201))
+    i = mk(client, as_ana, BASE + cites + "\n", profile="p1")
+    rep = client.post(f"/drafts/{i}/validate", headers=as_ana).json()
+    assert [b["message"] for b in rep["blocking"]] == ["too many citations (max 200)"] and not rep["ok"]
+    assert len(rep["warnings"]) == 100  # per-rule cap
+
+
+def test_time_budget_fails_closed(client, as_ana, db_session, fake, monkeypatch):
+    from roracle.writing import validate as v
+
+    ticks = iter(range(0, 10000, 100))
+    monkeypatch.setattr(v, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+    i = mk(client, as_ana)
+    rep = client.post(f"/drafts/{i}/validate", headers=as_ana).json()
+    assert rep["ok"] is False and rep["blocking"] == [
+        {"rule": "limits", "message": "validation exceeded time budget", "line": None}
+    ]
+    assert fake.calls == []
