@@ -65,7 +65,7 @@ def _gate(session: Session, p: Principal, doc_id: UUID, route: str, *, download:
     viewing (reader) stays allowed. 404 came first, so naming the label leaks nothing."""
     doc = _doc(session, p, doc_id)
     require_text(session, p, doc)
-    if download:
+    if download or p.via == "pat":  # inline viewing is the human reader only; agents always download
         require_exportable(session, p, doc, route)
 
 

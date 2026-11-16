@@ -384,3 +384,20 @@ def test_pat_cannot_read_or_list_blocked_draft_nor_uploads(client, as_ana, ana, 
     label(db_session, up, sec)
     mine = lambda h: {x["document_id"] for x in client.get("/me/uploads", headers=h).json()["items"]}
     assert str(up.id) in mine(as_ana) and str(up.id) not in mine(tok)
+
+
+def test_pat_never_gets_bytes_of_export_blocked_docs(client, as_ana, ana, bob, make_token, db_session, store):
+    admin = bearer(make_token(sub="root", username="root", roles=("roracle-admin",)))
+    r = client.post(
+        "/admin/labels",
+        json={"name": "NoExp", "colour": "#aabbcc", "rank": 2, "gates": {"block_export": True}},
+        headers=admin,
+    )
+    d, v = seed(db_session, ana, title="X")
+    put(store, v, b"%PDF-bytes")
+    d.label_id = r.json()["id"]
+    d.visibility = "everyone"
+    db_session.commit()
+    tok = pat(db_session, bob, ["read"])
+    for url in ("file?inline=true", "pdf", "docling"):
+        assert client.get(f"/documents/{d.id}/versions/1/{url}", headers=tok).status_code == 403, url

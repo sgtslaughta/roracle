@@ -80,13 +80,15 @@ def withhold_messages(items: list[dict], gated: dict[str, str], docs_of) -> None
 def replay_history(session: Session, p: Principal, history: list) -> list:
     """Drop assistant turns (and the user turn before each) whose sources are now `exclude_llm`, or
     agent-blocked when the caller is a PAT: stale answers must not feed the LLM again."""
-    ids = {str(c["doc_id"]) for m in history for c in (*m.citations, *m.retrieved) if c.get("doc_id")}
+    ids = doc_ids_of(c for m in history for c in (*m.citations, *m.retrieved))
     gated = gated_docs(session, p, ids, llm=True)
     if not gated:
         return history
     drop: set[int] = set()
     for i, m in enumerate(history):
-        if m.role == "assistant" and any(str(c.get("doc_id")) in gated for c in (*m.citations, *m.retrieved)):
+        if m.role == "assistant" and any(
+            isinstance(c, dict) and str(c.get("doc_id")) in gated for c in (*m.citations, *m.retrieved)
+        ):
             drop.add(i)
             if i and history[i - 1].role == "user":
                 drop.add(i - 1)
