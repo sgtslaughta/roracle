@@ -255,3 +255,15 @@ def test_browse_author_file_type_sql_semantics(client, as_ana, ana, db_session, 
     assert t(file_type=["pdf", "docx"]) == ["A", "B"]
     assert t(file_type=["other"]) == ["C"]
     assert t(author=["Bo"], file_type=["pdf"]) == ["A"]
+
+
+def test_library_query_applies_similarity_floor(client, as_ana, ana, db_session, fes, app, settings):
+    d, v = seed(db_session, ana)
+    fes.hits = [hit(d, v)]
+    assert get(client, as_ana, q="alpha").status_code == 200
+    knn = [c["knn"] for c in fes.calls if "knn" in c]
+    assert knn and all(k["similarity"] == settings.search_min_similarity == 0.35 for k in knn)
+    app.state.settings = settings.model_copy(update={"search_min_similarity": 0})
+    fes.calls.clear()
+    get(client, as_ana, q="alpha")
+    assert all("similarity" not in c["knn"] for c in fes.calls if "knn" in c)

@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     near_dup_threshold: float = 0.85
     near_dup_summary_threshold: float = 0.97
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
+    search_min_similarity: float = (
+        0.35  # kNN cosine floor for library search; 0 disables (relevant ~0.4-0.75, unrelated <=0.3)
+    )
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
     writing_max_citations: int = 200  # distinct citation keys a draft may use
     writing_validate_budget_s: float = 10  # deterministic checks wall-clock budget (fail closed)

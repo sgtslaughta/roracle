@@ -292,7 +292,16 @@ def _query_rows(
         return []
     try:
         passages = search_chunks(
-            es, llm, settings, p, q, filters=filters, doc_ids=coll_docs, size=100, qvec=qvec
+            es,
+            llm,
+            settings,
+            p,
+            q,
+            filters=filters,
+            doc_ids=coll_docs,
+            size=100,
+            qvec=qvec,
+            min_similarity=settings.search_min_similarity or None,
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []
