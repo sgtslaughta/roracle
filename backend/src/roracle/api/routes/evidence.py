@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete as sa_delete
@@ -112,13 +112,21 @@ def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depe
 
 
 @router.get("/annotations/{note_id}/evidence")
-def list_evidence(note_id: UUID, session: Session_, p: Who) -> dict:
+def list_evidence(
+    note_id: UUID,
+    session: Session_,
+    p: Who,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
     get_readable(session, p, note_id)
     rows = list(
         session.scalars(
             select(Evidence)
             .where(Evidence.annotation_id == note_id)
             .order_by(Evidence.created_at, Evidence.id)
+            .limit(limit)
+            .offset(offset)
         )
     )
     return {"items": ev.to_json(session, p, rows)}

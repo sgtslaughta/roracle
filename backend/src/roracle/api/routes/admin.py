@@ -22,13 +22,17 @@ router = APIRouter()
 def needs_title(
     p: Admin,
     session: Annotated[Session, Depends(get_session)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[dict]:
     rows = session.execute(
         select(DocumentVersion, Document, User.username)
         .join(Document, Document.id == DocumentVersion.document_id)
         .join(User, User.id == Document.owner_id)
         .where(DocumentVersion.stage == "needs_title", Document.deleted_at.is_(None))
-        .order_by(DocumentVersion.created_at)
+        .order_by(DocumentVersion.created_at, DocumentVersion.id)
+        .limit(limit)
+        .offset(offset)
     ).all()
     return [
         {

@@ -175,3 +175,13 @@ def test_read_pat_cannot_mutate_and_outsider_note_404(client, as_ana, as_bob, an
     assert client.patch(f"/handoffs/{c}", json={"title": "x"}, headers=tok).status_code == 403
     assert client.delete(f"/handoffs/{c}", headers=tok).status_code == 403
     assert client.post(f"/handoffs/{c}/notes", json={"text": "x"}, headers=as_bob).status_code == 404
+
+
+def test_list_mine_is_bounded_and_pages(client, as_ana, ana):
+    codes = [mk(client, as_ana, title=str(i))["code"] for i in range(3)]
+    page = client.get("/handoffs?limit=2", headers=as_ana).json()
+    assert [r["code"] for r in page] == codes[::-1][:2]
+    rest = client.get("/handoffs?limit=2&offset=2", headers=as_ana).json()
+    assert [r["code"] for r in rest] == codes[::-1][2:]
+    assert client.get("/handoffs?limit=0", headers=as_ana).status_code == 422
+    assert client.get("/handoffs?limit=100000", headers=as_ana).status_code == 422

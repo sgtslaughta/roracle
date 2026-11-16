@@ -21,6 +21,8 @@ from roracle.db import get_session
 from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, User
 from roracle.notes.community import readable_note_ids
 
+MAX_MESSAGES = 1000  # per chat read/export; the newest are kept
+
 router = APIRouter()
 Who = Annotated[Principal, Depends(current_principal)]
 Db = Annotated[Session, Depends(get_session)]
@@ -66,9 +68,10 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
         session.scalars(
             select(ChatMessage)
             .where(ChatMessage.chat_id == chat.id)
-            .order_by(ChatMessage.created_at, ChatMessage.id)
+            .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+            .limit(MAX_MESSAGES)
         )
-    )
+    )[::-1]  # the newest MAX_MESSAGES, oldest first
     seen = [x for m in msgs for x in (*m.citations, *m.retrieved)]
     ok = visible_versions(session, p, seen)
     notes = readable_note_ids(session, p, note_ids(seen))

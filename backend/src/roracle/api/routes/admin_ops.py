@@ -122,6 +122,9 @@ def retry_job(job_id: int, p: Admin, session: Annotated[Session, Depends(get_ses
     return _job(j)
 
 
+RETRY_BATCH = 1000  # bound the FOR UPDATE; call again for the rest ("retried" says how many moved)
+
+
 class RetryFailed(BaseModel):
     kind: str | None = None
 
@@ -131,7 +134,7 @@ def retry_failed(
     p: Admin, session: Annotated[Session, Depends(get_session)], body: RetryFailed | None = None
 ) -> dict:
     kind = body.kind if body else None
-    q = select(Job).where(Job.status == "failed").with_for_update()
+    q = select(Job).where(Job.status == "failed").order_by(Job.id).limit(RETRY_BATCH).with_for_update()
     if kind:
         q = q.where(Job.kind == kind)
     jobs = []

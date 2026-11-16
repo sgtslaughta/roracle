@@ -365,11 +365,13 @@ def update(session: Session, p: Principal, code: str, **f) -> Handoff:
     return h
 
 
-def list_mine(session: Session, p: Principal) -> list[dict]:
+def list_mine(session: Session, p: Principal, limit: int = 100, offset: int = 0) -> list[dict]:
     q = (
         select(Handoff)
         .where(Handoff.creator_id == p.user_id)
         .order_by(Handoff.created_at.desc(), Handoff.code)
+        .limit(limit)
+        .offset(offset)
     )
     return [
         {

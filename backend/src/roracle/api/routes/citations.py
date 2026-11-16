@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -92,7 +92,13 @@ def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
 
 
 @router.get("/documents/{doc_id}/cited-by")
-def cited_by(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
+def cited_by(
+    doc_id: UUID,
+    p: Who,
+    session: Session_,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
     _readable(session, p, doc_id)
     bt = best_targets(p)
     rows = session.execute(
@@ -107,6 +113,8 @@ def cited_by(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
             visible_documents(p),
         )
         .order_by(DocumentVersion.created_at.desc(), Document.id)
+        .limit(limit)
+        .offset(offset)
     ).all()
     out: dict[UUID, dict] = {}
     for d, v in rows:

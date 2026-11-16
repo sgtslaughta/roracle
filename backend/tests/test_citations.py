@@ -286,3 +286,15 @@ def test_reference_target_title_falls_back(client, as_ana, ana, db_session):
     resolve_references(db_session, v)
     got = client.get(f"/documents/{d.id}/references", headers=as_ana).json()
     assert [r["target"]["title"] for r in got] == ["Meta Title", "b-paper.pdf"]
+
+
+def test_cited_by_limit_param(client, as_bob, ana, db_session):
+    t, _ = lib(db_session, ana, "Target Work Of Interest", year=2020)
+    ref = [{"title": "Target Work Of Interest", "year": 2020}]
+    for _ in range(2):
+        _, v = citing(db_session, ana, ref)
+        resolve_references(db_session, v)
+    url = f"/documents/{t.id}/cited-by"
+    assert len(client.get(url, headers=as_bob).json()) == 2
+    assert len(client.get(url + "?limit=1", headers=as_bob).json()) == 1
+    assert client.get(url + "?limit=0", headers=as_bob).status_code == 422
