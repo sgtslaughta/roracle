@@ -111,9 +111,7 @@ approve/reject, share/visibility change, admin actions, PAT create/revoke, `mcp.
 MCP tool call (MCP PAT use is audited this way, REST PAT use as `pat.use` with method and path; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
 
-### Sensitivity labels
-
-Block download/export is a deterrent: in-app viewing transfers content to the browser; it is not DRM. Inline reads of block-export documents by non-owners and non-admins are audited as `label.view` (one row per user, document and UTC day).
+Sensitivity-label events (`label.*`, `document.label`, `annotation.label`) are listed in [section 13](#13-sensitivity-labels).
 
 ## 7. Platform hardening
 
@@ -302,3 +300,78 @@ if below `ROR_MAX_UPLOAD_BYTES`/`ROR_EVIDENCE_MAX_BYTES`), `AlertExceedsMax yes`
 Readiness and startup probes check the effective limits with `clamconf` plus a clamd PING, so a pod with fail-open config never becomes ready.
 An over-limit stream ends in a scanner error and the backend treats it as non-retryable (no partial scan). Signatures: `parsers.clamav.mirrorUrl`;
 without a mirror only baked-in signatures exist.
+
+## 13. Sensitivity labels
+
+> rOracle sensitivity labels are handling markers enforced only inside rOracle. They are not a security classification system, do not implement clearance or need-to-know, and must not be relied on to protect classified, export-controlled or otherwise regulated data. Access is governed solely by visibility and shares; labels can only restrict.
+
+Design: [ADR-0014](../adr/0014-sensitivity-labels.md). Admins define up to 20 labels ordered by `rank`
+(higher = more sensitive; admin page **Labels**, `/admin/labels*`). Every document, draft included, has one
+label (default: the label flagged `is_default`, seeded as `General`); a note may carry its own label and its
+**effective label** is `max(document, note)`; replies use their thread root's. Labels are per document, not
+per version. Gates are monotonic: a gate set on a label is set on all higher-ranked labels, enforced on
+every admin write (422 `gates must not decrease with rank`). Every label check is an extra AND on top of
+visibility; labels never grant access.
+
+### Gates
+
+| Gate | Effect | Applies to |
+|---|---|---|
+| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
+| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
+| `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner and admins, **including their PATs** |
+| `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
+
+Export routes under `block_export`: `GET /documents/{id}/versions/{n}/file` (attachment), the same
+`file`/`pdf`/`docling` for non-owner PATs, `GET /export/bibtex` and MCP `export_bibtex` (gated documents are
+silently omitted), `GET /chats/{id}/export.md` (passage text and answers derived from gated documents become
+`[withheld: <label>]`), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block
+is audited `label.export_blocked` (detail `{route}`). Invisible stays 404, so naming the label leaks nothing.
+
+### Deterrent, not DRM
+
+- **Owner and admin PATs are exempt from `block_export`** (the owner holds the original and admins can
+  relabel). Non-owner PATs are always treated as downloads: they get no inline reader view of a
+  `block_export` document.
+- Non-owner humans can still **read inline in the reader**; only download/export is blocked. In-app viewing
+  transfers the content to the browser, so copying, screenshots and printing are not prevented. Each inline
+  read (`/file`, `/pdf`, `/docling`) by a non-owner non-admin is audited `label.view`, one row per user,
+  document and UTC day.
+- `exclude_llm` binds LLM *context*, not embeddings: chunks are still embedded, and summaries written before
+  a label was raised are not deleted. Past chat answers are not redacted for their owner, but replaying an
+  old turn into an LLM drops it.
+- A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
+  job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak).
+- Handoff transcripts of chats are redacted for agents only (`block_agents` citations are dropped or marked unavailable for all
+  loaders, but assistant message text is replaced only for PAT loaders). Passages that came from notes are always
+  dropped from handoff manifests.
+- Pending hardening (tracked, not yet in this document's guarantees): draft text and PDF of an `exclude_llm`
+  document are still readable through the owner's own PAT.
+
+### Who may change a label
+
+| Target | Raise or keep | Lower |
+|---|---|---|
+| Document | Owner or admin | Admin only (403 `only admins can lower a label`); reason required when the current label has `reason_on_lower` |
+| Note (thread root) | Author or admin | Admin only, same reason rule; never below the document label (422) |
+| Upload / connector / draft submit | Upload may choose any label ranking at or above the default (lower: admin); connector docs get the connector label or the default; submit and near-duplicate `new_version` merge only raise (`max`) | n/a |
+
+All label write routes are human-only (PAT: 403 `agents must propose`). Agents use MCP `propose_label`; a
+human approves it and the **approver's** rights apply (an owner approving a lowering gets 403; an admin
+supplies the reason). A label in use by any document, note or connector, or the default, cannot be deleted
+(409 `label in use`). Someone else changing your document's or note's label sends you a `label.changed`
+notification.
+
+### Audit events
+
+`label.create`, `label.update`, `label.delete`, `label.reorder` (admin actions); `document.label` and
+`annotation.label` with `{from, to, via, reason?}` (label ids; `via` is `user`, `proposal`, `near_dup` or
+`submit`; notes also `own_from`/`own_to`); `label.export_blocked` `{route}`; `label.view` `{route}`. Details
+never contain document or note text. Query with `GET /admin/audit?action=label.` or `document.label`.
+
+### Elasticsearch projection and backfill
+
+Chunks carry `label_id` (keyword) via `search_index.acl_fields`. Gate sets resolve at query time from the
+current labels, so reorder and gate edits need no reindex; only a document's label change needs `acl_sync`.
+Migration `0012` enqueues one `acl_sync` job per non-deleted document to backfill the field (see the
+runbook). `search_acl.acl_filter` adds `must_not terms label_id` for PAT principals.

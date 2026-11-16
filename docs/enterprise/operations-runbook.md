@@ -151,12 +151,46 @@ on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplet
 - Keycloak signing keys: rotate in Keycloak; rOracle refetches JWKS on unknown `kid` automatically.
 - PAT pepper: rotating invalidates all PATs — announce first.
 
+### Sensitivity labels
+
+Background: [security, section 13](security.md#13-sensitivity-labels).
+
+- **Admin.** Web app, Admin, **Labels** (API `GET/POST /admin/labels`, `PATCH/DELETE /admin/labels/{id}`,
+  `PUT /admin/labels/order {ids}` with every label id, least sensitive first). Max 20 labels; a gate must
+  be on for every label ranked above one that has it (422 otherwise). Exactly one default (setting a new
+  one unsets the old one). A label in use or the default cannot be deleted (409). Reordering or editing
+  gates needs no reindex and takes effect on the next request. Each admin change is audited
+  (`label.create|update|delete|reorder`).
+- **Rename the seeded `General`** label rather than deleting it; it is the default and holds every
+  pre-existing document.
+- **Connector default.** A connector may name a label; otherwise its documents get the global default.
+- **Export-blocked and inline-view audit queries** (`audit_log.detail` is JSONB):
+
+```sql
+-- blocked download attempts, last 7 days
+SELECT at, user_id, target AS document_id, detail->>'route' AS route
+FROM audit_log WHERE action = 'label.export_blocked' AND at > now() - interval '7 days' ORDER BY at DESC;
+-- inline reads of block_export documents (one row per user, document and UTC day)
+SELECT at, user_id, target AS document_id, detail->>'route' AS route
+FROM audit_log WHERE action = 'label.view' ORDER BY at DESC LIMIT 200;
+-- label changes for one document
+SELECT at, user_id, detail FROM audit_log WHERE action IN ('document.label','annotation.label') AND target = '<id>' ORDER BY at;
+```
+
+  The same events are reachable via `GET /admin/audit?action=label.`. For `document.label`, `from`/`to`
+  are label ids.
+- **Elasticsearch drift.** After a label change `acl_sync` converges the index; a stuck job shows as a
+  failed `acl_sync` in `GET /admin/jobs?status=failed&kind=acl_sync` (retry with `retry-failed`). Until it
+  converges the Postgres post-filter enforces the new label.
+
 ### Release upgrade
 1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` before a minor/major upgrade.
 3. Bump `/VERSION` (SemVer); `scripts/check-version.sh` (CI `helm` job) requires it to equal Chart `version` and `appVersion`. Tag `vX.Y.Z`; CI builds backend and web images.
 4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first: `roracle migrate --wait SECONDS` retries the DB connection every 5 s and then exits non-zero with a password-free message (without `--wait` it fails at once). With `backoffLimit: 0` a failed migration blocks the rollout and leaves the old pods running; then api/worker/web roll.
 5. Verify `/healthz` version, upload + search + chat smoke test.
 Migration 0011 backfills `document_coauthors` from the drafts of already-published papers, repairs `document_versions.is_latest` (one per document: its highest searchable version) and queues one `acl_sync` job per backfilled document, so Elasticsearch gains `coauthor_users` once the worker drains the queue. No manual step; re-running is idempotent. Separately, the API rejects JSON bodies above `max(3 MiB, 2 x ROR_DRAFT_MAX_BYTES + 64 KiB)`.
+
+Migration 0012 (sensitivity labels) runs as one transaction: it creates `labels`, seeds `General`, adds `label_id` to `documents` (backfilled and set NOT NULL, plus an index), `annotations` and `connectors`, and widens the proposals kind check. The `documents` changes hold an exclusive lock until the migration commits, so reads and writes on `documents` block for a time that grows with the row count. Run the upgrade in a maintenance window (or at least off-peak) and size the `migrate` hook timeout accordingly. It also inserts one `acl_sync` job per non-deleted document in the same transaction. Until those jobs drain, Elasticsearch lacks `label_id` and the Postgres post-filter is authoritative (search may over-fetch briefly, never leaks). After the upgrade watch the drain: `SELECT status, count(*) FROM jobs WHERE kind='acl_sync' GROUP BY 1;` (or `roracle_jobs{kind="acl_sync"}` and `roracle_jobs_oldest_queued_seconds`) until `queued` is 0 and `failed` stays empty; scale workers if it is slow, and retry failures with `POST /admin/jobs/retry-failed {"kind":"acl_sync"}`. Downgrading drops all labels and label proposals.
 
 Rollback: `helm rollback` restores manifests but does NOT revert database migrations. Migrations are additive within a minor line, so the previous release normally still runs;
 otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is `POST /admin/reindex`).
