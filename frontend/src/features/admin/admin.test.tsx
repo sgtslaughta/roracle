@@ -46,13 +46,13 @@ describe("admin shell", () => {
     expect(seen.some((r) => new URL(r.url).pathname.includes("/admin/"))).toBe(false);
   });
 
-  it("admins get the sidebar entry; /admin redirects to connectors; not-yet-built sections are disabled", async () => {
+  it("admins get the sidebar entry; /admin redirects to connectors, every section is linked", async () => {
     const router = await renderAdmin("/admin", "Group share");
     expect(router.state.location.pathname).toBe("/admin/connectors");
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Admin" })).toBeInTheDocument();
     const sub = screen.getByRole("navigation", { name: "Admin sections" });
     expect(within(sub).getAllByText(/./).map((e) => e.textContent)).toEqual(["Connectors", "Jobs", "Review", "Needs title", "Settings", "Tags", "Audit", "Users", "Stats", "Health"]);
-    expect(within(sub).queryByRole("link", { name: "Health" })).toBeNull();
+    expect(within(sub).getByRole("link", { name: "Health" })).toBeInTheDocument();
   });
 });
 

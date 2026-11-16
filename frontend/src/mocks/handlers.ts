@@ -7,6 +7,7 @@ import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "
 import { state } from "./state";
 import { adminHandlers } from "./admin";
 import { adminOpsHandlers } from "./adminOps";
+import { adminDataHandlers } from "./adminData";
 import { chatHandlers } from "./chat";
 import { agentHandlers } from "./agents";
 import { noteHandlers, withCommunityNotes } from "./notes";
@@ -113,6 +114,7 @@ export const handlers = [
   }),
   ...adminHandlers,
   ...adminOpsHandlers,
+  ...adminDataHandlers,
   ...chatHandlers,
   ...agentHandlers,
   ...noteHandlers,

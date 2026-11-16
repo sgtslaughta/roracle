@@ -8,12 +8,12 @@ export const ADMIN_SECTIONS: { to: string; label: string; ready: boolean }[] = [
   { to: "/admin/jobs", label: "Jobs", ready: true },
   { to: "/admin/review", label: "Review", ready: true },
   { to: "/admin/needs-title", label: "Needs title", ready: true },
-  { to: "/admin/settings", label: "Settings", ready: false },
-  { to: "/admin/tags", label: "Tags", ready: false },
-  { to: "/admin/audit", label: "Audit", ready: false },
-  { to: "/admin/users", label: "Users", ready: false },
-  { to: "/admin/stats", label: "Stats", ready: false },
-  { to: "/admin/health", label: "Health", ready: false },
+  { to: "/admin/settings", label: "Settings", ready: true },
+  { to: "/admin/tags", label: "Tags", ready: true },
+  { to: "/admin/audit", label: "Audit", ready: true },
+  { to: "/admin/users", label: "Users", ready: true },
+  { to: "/admin/stats", label: "Stats", ready: true },
+  { to: "/admin/health", label: "Health", ready: true },
 ];
 
 /** Admin shell: non-admins get a notice and the child pages never mount, so no admin request is sent. */

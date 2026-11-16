@@ -25,3 +25,4 @@
 .pager { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
 .admin-form > label.ck { flex-direction: row; font-weight: 400; }
 .admin-form input[type="checkbox"] { border: 0; padding: 0; }
+.admin-page ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }

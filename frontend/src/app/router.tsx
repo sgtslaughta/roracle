@@ -16,6 +16,12 @@ import { AdminLayout } from "@/features/admin/AdminLayout";
 import { ConnectorsPage } from "@/features/admin/ConnectorsPage";
 import { JobsPage } from "@/features/admin/JobsPage";
 import { ReviewPage } from "@/features/admin/ReviewPage";
+import { SettingsPage } from "@/features/admin/SettingsPage";
+import { TagsPage } from "@/features/admin/TagsPage";
+import { AuditPage } from "@/features/admin/AuditPage";
+import { UsersPage } from "@/features/admin/UsersPage";
+import { StatsPage } from "@/features/admin/StatsPage";
+import { HealthPage } from "@/features/admin/HealthPage";
 import { NeedsTitlePage } from "@/features/admin/NeedsTitlePage";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
@@ -32,6 +38,12 @@ const adminTree = adminRoute.addChildren([
   a("jobs", JobsPage),
   a("review", ReviewPage),
   a("needs-title", NeedsTitlePage),
+  a("settings", SettingsPage),
+  a("tags", TagsPage),
+  a("audit", AuditPage),
+  a("users", UsersPage),
+  a("stats", StatsPage),
+  a("health", HealthPage),
 ]);
 
 const routeTree = rootRoute.addChildren([

@@ -40,3 +40,18 @@ export interface ReviewItem {
   document_id: string; version_id: string; filename: string; owner: string; connector_id: string | null;
   uploaded_at: string; match: { document_id: string; title: string } | null;
 }
+
+export type SettingValue = boolean | number | string | string[];
+export type SettingsMap = Record<string, { value: SettingValue; source: "env" | "override" }>;
+export interface TagCount { tag: string; documents: number }
+export interface AuditEntry { id: number; at: string; user_id: string | null; username: string | null; action: string; target: string; client: string | null; detail: unknown }
+export interface AdminUser { id: string; username: string; email: string | null; groups: string[]; is_admin: boolean; created_at: string; last_login_at: string | null; documents: number; bytes: number }
+export interface GroupCount { group: string; members: number }
+export interface AdminStats {
+  documents: { live: number; deleted: number }; versions: Record<string, number>; blobs: { count: number; bytes: number };
+  users: number; chats: number; connectors: number; top_uploaders: { user_id: string; username: string; documents: number; bytes: number }[];
+}
+export interface AdminHealth {
+  status: "ok" | "degraded"; checks: Record<string, string>;
+  queue: { queued: number; running: number; failed: number; oldest_queued_s: number | null } | null; scheduler: { tick_queued: boolean } | null;
+}
