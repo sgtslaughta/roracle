@@ -6,7 +6,7 @@ from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.auth import Principal
-from roracle.models import Document, DocumentShare, DocumentVersion
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
 
 
 def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
@@ -16,6 +16,12 @@ def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
             DocumentShare.principal_kind == kind,
             DocumentShare.principal.in_(principals),
         )
+    )
+
+
+def _coauthor(uid) -> ColumnElement[bool]:
+    return exists(
+        select(1).where(DocumentCoauthor.document_id == Document.id, DocumentCoauthor.user_id == uid)
     )
 
 
@@ -77,6 +83,7 @@ def visible_documents(p: Principal) -> ColumnElement[bool]:
         or_(
             Document.visibility == "everyone",
             Document.owner_id == p.user_id,
+            _coauthor(p.user_id),  # published-paper co-authors keep read access whatever the visibility
             and_(
                 Document.visibility == "shared",  # stale share rows under other visibilities are inert
                 or_(_share("user", [str(p.user_id)]), _share("group", groups) if groups else false()),

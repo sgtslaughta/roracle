@@ -16,7 +16,7 @@ from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
 from roracle.api.routes.library import get_es, get_session_factory
-from roracle.models import Document, DocumentShare, DocumentVersion, User
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.queue import enqueue
 
@@ -34,6 +34,7 @@ class PatchBody(BaseModel):
     org_unit: Path_ | None = None  # R20: any normalized path, no membership check (same as share_groups)
     share_users: Annotated[list[UUID], Field(max_length=500)] | None = None
     share_groups: Annotated[list[Path_], Field(max_length=500)] | None = None
+    coauthors: Annotated[list[UUID], Field(max_length=100)] | None = None  # removal only: subset of current
     model_config = {"str_strip_whitespace": True}
 
     @model_validator(mode="after")
@@ -50,6 +51,25 @@ def _set_shares(session: Session, doc: Document, kind: str, principals: list[str
     session.add_all(
         DocumentShare(document_id=doc.id, principal_kind=kind, principal=x) for x in sorted(set(principals))
     )
+
+
+def _remove_coauthors(session: Session, doc: Document, keep: set[UUID]) -> None:
+    """Owner/admin may drop co-authors (never add: they come from the draft at publish)."""
+    have = set(
+        session.scalars(select(DocumentCoauthor.user_id).where(DocumentCoauthor.document_id == doc.id))
+    )
+    if not keep <= have:
+        raise HTTPException(422, "can only remove co-authors")
+    session.execute(
+        delete(DocumentCoauthor).where(
+            DocumentCoauthor.document_id == doc.id, DocumentCoauthor.user_id.in_(have - keep)
+        )
+    )
+    if d := session.get(Draft, doc.id):  # a later re-publish must not bring them back
+        d.coauthors = {
+            **d.coauthors,
+            "users": sorted(u for u in d.coauthors.get("users", []) if UUID(u) in keep),
+        }
 
 
 def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
@@ -96,6 +116,8 @@ def patch_document(
         if found != ids:
             raise HTTPException(422, "unknown user")
         users = [str(u) for u in ids]
+    if body.coauthors is not None:
+        _remove_coauthors(session, doc, set(body.coauthors))
     if body.title is not None:
         doc.title = body.title
     if body.visibility is not None:

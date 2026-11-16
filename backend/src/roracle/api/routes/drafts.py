@@ -125,6 +125,22 @@ def get_version(doc_id: UUID, n: Ver, p: Who, session: Db) -> dict:
     }
 
 
+@router.get("/drafts/{doc_id}/checks")
+def get_checks(doc_id: UUID, p: Who, session: Db) -> dict:
+    """The caller's own stored reports for the latest version (never another co-author's)."""
+    svc.readable_draft(session, p, doc_id)
+    v = svc.latest_version(session, doc_id)
+
+    def mine(rep: dict | None) -> dict | None:
+        return rep if rep and rep.get("checked_by") == str(p.user_id) else None
+
+    return {
+        "version": v.version if v else 0,
+        "validation": mine(v.validation) if v else None,
+        "citations": mine(v.citations) if v else None,
+    }
+
+
 @router.put("/drafts/{doc_id}/content")
 def save_content(doc_id: UUID, body: SaveIn, p: Who, session: Db, cfg: Cfg) -> dict:
     v = svc.save(session, p, doc_id, body.content, body.base_version, cfg.draft_max_bytes)

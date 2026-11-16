@@ -68,7 +68,13 @@ document version (`nothing_to_submit` if the latest version was already submitte
 `review_required: true` park the draft `in_review`: admins decide at `GET /admin/drafts/reviews` and
 `POST /admin/drafts/{id}/review` `{decision: approve|reject, note?}`; approval rebuilds from the frozen
 submitted version, the owner is notified (`draft.approved`/`draft.rejected`). Visibility is the target plus
-the co-authors. The AI disclosure is returned as `ai_disclosure` by `GET /documents/{id}`.
+the co-authors; named co-author users additionally keep read access to the published paper whatever its
+visibility (co-author groups do not). The AI disclosure is returned as `ai_disclosure` by `GET /documents/{id}`.
+`GET /drafts/{id}/checks` returns the caller's own stored validation and citation reports for the latest version
+(`null` when none, or run by another author).
+
+Pickers (any authenticated caller, `q` of 2-100 chars, at most 10 items): `GET /directory/users?q=` returns
+`{items: [{id, username}]}`; `GET /directory/groups?q=` returns `{items: ["/Org/Unit", ...]}` (groups seen in user tokens).
 
 `upload` sends the file base64-encoded in the JSON body, so it is capped at the decoded size
 `ROR_MCP_MAX_UPLOAD_BYTES` (default 25 MiB); larger files use `POST /documents` (REST limit

@@ -19,7 +19,7 @@ from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
-from roracle.models import Document, DocumentVersion, User
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.search_index import ALIAS, file_type
 from roracle.storage import BlobStore
@@ -58,6 +58,33 @@ def _version(session: Session, p: Principal, doc_id: UUID, n: int) -> DocumentVe
     return v
 
 
+def _sharing(session: Session, doc: Document) -> dict:
+    """Owner/admin only: who the document is shared with and its published co-authors."""
+    rows = session.execute(
+        select(DocumentShare.principal_kind, DocumentShare.principal).where(
+            DocumentShare.document_id == doc.id
+        )
+    ).all()
+    uids = sorted(p for k, p in rows if k == "user")
+    cos = sorted(
+        str(u)
+        for u in session.scalars(
+            select(DocumentCoauthor.user_id).where(DocumentCoauthor.document_id == doc.id)
+        )
+    )
+    ids = [UUID(i) for i in {*uids, *cos}]
+    names = {u: n for u, n in session.execute(select(User.id, User.username).where(User.id.in_(ids)))}
+
+    def who(i: str) -> dict:
+        return {"id": i, "username": names.get(UUID(i), "")}
+
+    return {
+        "share_users": [who(i) for i in uids],
+        "share_groups": sorted(p for k, p in rows if k == "group"),
+        "coauthors": [who(i) for i in cos],
+    }
+
+
 @router.get("/documents/{doc_id}")
 def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
     doc = _doc(session, p, doc_id)
@@ -80,6 +107,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
     owner = session.get(User, doc.owner_id)
     draft = session.get(Draft, doc_id)
     return {
+        **(_sharing(session, doc) if _privileged(doc, p) else {}),
         "id": str(doc.id),
         "title": doc.title or meta.get("title") or (latest.filename if latest else ""),
         "authors": list(meta.get("authors") or []),

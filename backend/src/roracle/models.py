@@ -110,6 +110,18 @@ class DocumentShare(Base):
     principal: Mapped[str] = mapped_column(String, primary_key=True)
 
 
+class DocumentCoauthor(Base):
+    """Published-paper co-author: read access regardless of visibility (written at draft publish)."""
+
+    __tablename__ = "document_coauthors"
+    __table_args__ = (Index("ix_document_coauthors_user_id", "user_id"),)
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (

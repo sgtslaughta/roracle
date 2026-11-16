@@ -46,6 +46,13 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
   documents and say only how many were withheld; links to documents a user cannot see show a
   request-access page with no title or metadata.
 - MCP tools run as the token's user; no tool bypasses the ACL path.
+- **Co-authors of a published paper** keep read access whatever its visibility. At publish the draft's co-author
+  *users* are written to `document_coauthors` (a dedicated grant, not share rows: shares stay inert unless
+  `visibility == shared` and are never revived). Co-author *groups* grant nothing after publication. The grant is in
+  `visible_documents`/`readable_documents` and in the Elastic filter (`coauthor_users`, kept in sync by
+  `acl_sync`). The owner or an admin can drop co-authors with `PATCH /documents/{id}` `{coauthors: [ids to keep]}`
+  (removal only; 422 for ids that are not current co-authors). `GET /documents/{id}` returns `share_users`,
+  `share_groups` and `coauthors` to the owner/admin only.
 - **Notes (annotations)**: readable only if the note is not `removed` (`hidden` only for its author, the
   document owner and admins), its document passes the document ACL (non-owner non-admins also need a
   `searchable` version), any relation target does too, and the reader is the author/an admin or the note

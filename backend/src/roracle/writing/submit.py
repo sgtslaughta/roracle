@@ -19,7 +19,7 @@ from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest import intake
-from roracle.models import Document, DocumentShare, User
+from roracle.models import Document, DocumentCoauthor, DocumentShare, User
 from roracle.models_writing import Draft, DraftVersion
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, stage
@@ -143,6 +143,12 @@ def publish(
         vis = "shared" if users or groups else "private"
     doc.visibility = vis
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
+    # co-authors (named users only; groups never) keep read access to the paper whatever its visibility
+    session.execute(delete(DocumentCoauthor).where(DocumentCoauthor.document_id == doc.id))
+    session.add_all(
+        DocumentCoauthor(document_id=doc.id, user_id=UUID(u))
+        for u in sorted(set(co.get("users", [])) - {str(doc.owner_id)})
+    )
     if (
         vis == "shared"
     ):  # shares are inert otherwise; never store them (a later PATCH->shared must not revive)

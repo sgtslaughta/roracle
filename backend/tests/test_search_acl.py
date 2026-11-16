@@ -8,7 +8,7 @@ from sqlalchemy import select
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.ingest.chunking import Chunk
-from roracle.models import Document, DocumentShare, DocumentVersion, User
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.search_acl import acl_filter
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
 
@@ -40,6 +40,7 @@ def test_groupless_shape_has_no_share_groups_clause():
     assert f["bool"]["should"] == [
         {"term": {"visibility": "everyone"}},
         {"term": {"owner_id": str(p.user_id)}},
+        {"term": {"coauthor_users": str(p.user_id)}},
         _shared(str(p.user_id)),
         {"bool": {"must": [{"term": {"visibility": "org_unit"}}, {"terms": {"org_unit": ["/"]}}]}},
     ]
@@ -96,7 +97,11 @@ def test_sql_es_parity(es, model, db_session, blob):
         "org_stale_share": (eve, "org_unit", "/Zoology", [("user", str(carol.id)), ("group", "/Physics")]),
         "everyone_with_shares": (eve, "everyone", "/", [("user", str(carol.id))]),
         "deleted": (eve, "everyone", "/", []),
+        "co_private": (eve, "private", "/", []),
+        "co_org_elsewhere": (eve, "org_unit", "/Zoology", []),
+        "co_shared_other": (eve, "shared", "/", [("user", str(carol.id))]),
     }
+    coauthors = {"co_private": [bob], "co_org_elsewhere": [bob, dave], "co_shared_other": [dave]}
     docs: dict[str, Document] = {}
     for name, (owner, vis, ou, shares) in specs.items():
         d = Document(owner_id=owner.id, title=name, visibility=vis, org_unit=ou)
@@ -106,6 +111,9 @@ def test_sql_es_parity(es, model, db_session, blob):
         db_session.flush()
         db_session.add_all(DocumentShare(document_id=d.id, principal_kind=k, principal=v) for k, v in shares)
         docs[name] = d
+    db_session.add_all(
+        DocumentCoauthor(document_id=docs[n].id, user_id=u.id) for n, us in coauthors.items() for u in us
+    )
     db_session.flush()
 
     ensure_index(es, model, 4)

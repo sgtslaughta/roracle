@@ -16,6 +16,7 @@ def acl_filter(p: Principal) -> dict[str, Any]:
     should: list[dict[str, Any]] = [
         {"term": {"visibility": "everyone"}},
         {"term": {"owner_id": uid}},
+        {"term": {"coauthor_users": uid}},  # published-paper co-authors: any visibility
     ]
     # shares grant access only while visibility == "shared" (stale rows under other visibilities are inert)
     grants: list[dict[str, Any]] = [{"term": {"share_users": uid}}]

@@ -51,3 +51,16 @@ def test_org_unit_and_title(client, as_ana, as_bob, doc):
     assert found(client, as_bob) == []
     patch(client, as_ana, doc, visibility="everyone", title="Renamed marsupial")
     assert found(client, as_bob) == ["Renamed marsupial"]
+
+
+def test_coauthor_search_any_visibility_and_removal(client, as_ana, as_bob, bob, doc, db_session, es, wired):  # noqa: F811
+    from roracle.models import DocumentCoauthor
+
+    patch(client, as_ana, doc, visibility="org_unit", org_unit="/Chemistry")
+    assert found(client, as_bob) == []
+    db_session.add(DocumentCoauthor(document_id=doc.id, user_id=bob))
+    db_session.flush()
+    patch(client, as_ana, doc, visibility="private")  # any PATCH re-syncs the ACL fields
+    assert found(client, as_bob) == ["Quokka paper"]
+    patch(client, as_ana, doc, coauthors=[])
+    assert found(client, as_bob) == []

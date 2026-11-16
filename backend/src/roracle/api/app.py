@@ -19,6 +19,7 @@ from roracle.api.routes import (
     chats,
     chats_read,
     citations,
+    directory,
     documents,
     documents_manage,
     documents_read,
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_index.router)
     app.include_router(admin_ops.router)
     app.include_router(admin_writing.router)
+    app.include_router(directory.router)
     app.include_router(drafts.router)
     app.include_router(drafts_build.router)
     app.include_router(drafts_checks.router)

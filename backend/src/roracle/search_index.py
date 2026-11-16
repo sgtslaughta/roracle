@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime
-from roracle.models import Document, DocumentShare, DocumentVersion
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
 from roracle.queue import NonRetryable
 
 if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeline -> here)
@@ -56,6 +56,7 @@ def _mapping(dims: int) -> dict[str, Any]:
             "org_unit": kw,
             "share_users": kw,
             "share_groups": kw,
+            "coauthor_users": kw,
             "title": {"type": "text", "analyzer": "english"},
             "authors": kw,
             "tags": kw,
@@ -174,8 +175,12 @@ def acl_fields(session: Session, document: Document) -> dict[str, Any]:
             DocumentShare.document_id == document.id
         )
     ).all()
+    coauthors = session.scalars(
+        select(DocumentCoauthor.user_id).where(DocumentCoauthor.document_id == document.id)
+    )
     return {
         "owner_id": str(document.owner_id),
+        "coauthor_users": sorted(str(u) for u in coauthors),
         "visibility": document.visibility,
         "org_unit": document.org_unit,
         "share_users": sorted(p for k, p in shares if k == "user"),
@@ -329,7 +334,7 @@ def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]"
 _ACL_SCRIPT = (
     "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
     "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
-    "ctx._source.share_groups = params.share_groups; "
+    "ctx._source.share_groups = params.share_groups; ctx._source.coauthor_users = params.coauthor_users; "
     "if (params.title != null) { ctx._source.title = params.title; } "
     "if (params.tags != null) { ctx._source.tags = params.tags; }"
 )
