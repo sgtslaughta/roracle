@@ -17,8 +17,10 @@ ingress:
   tlsSecretName: roracle-tls
 postgres:
   appCredentialsSecret: roracle-pg-app
-  backup: {credentialsSecret: {name: roracle-pg-backup-s3}}
+  backup: {credentialsSecret: {name: roracle-pg-backup-s3}, endpointCA: {name: roracle-minio-ca}}
 elasticsearch:
+  appUserSecret: roracle-es-app
   snapshot: {credentialsSecret: roracle-es-s3}
 minio:
   configurationSecret: roracle-minio-config
+  users: {app: roracle-minio-app, pgBackup: roracle-minio-pg, esSnapshot: roracle-minio-es}

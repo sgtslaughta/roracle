@@ -8,5 +8,5 @@ Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.d
 OTEL_* env is set, but the backend has no OTel instrumentation until P11b.
 {{- end }}
 {{- if eq .Values.elasticsearch.mode "eck" }}
-Bundled Elasticsearch: put {{ ternary "https" "http" .Values.elasticsearch.tls }}://elastic:<password from secret {{ include "roracle.fullname" . }}-es-elastic-user>@{{ include "roracle.fullname" . }}-es-http.{{ .Release.Namespace }}.svc:9200 in {{ .Values.secrets.keys.elasticUrl }}.
+Bundled Elasticsearch: put (user roracle_app from secret {{ .Values.elasticsearch.appUserSecret }}, never elastic) {{ ternary "https" "http" .Values.elasticsearch.tls }}://roracle_app:<password>@{{ include "roracle.fullname" . }}-es-http.{{ .Release.Namespace }}.svc:9200 in {{ .Values.secrets.keys.elasticUrl }}.
 {{- end }}

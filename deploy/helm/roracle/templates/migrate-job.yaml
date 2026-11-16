@@ -22,6 +22,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
         runAsUser: {{ .Values.migrate.runAsUser }}
       {{- include "roracle.pullSecrets" . | nindent 6 }}
+      {{- include "roracle.caInit" . | nindent 6 }}
       containers:
         - name: migrate
           image: {{ include "roracle.image" (dict "root" . "img" .Values.image.backend) }}
@@ -30,10 +31,13 @@ spec:
           env:
             {{- include "roracle.configEnv" . | nindent 12 }}
             {{- include "roracle.secretEnv" . | nindent 12 }}
+            {{- include "roracle.caEnv" . | nindent 12 }}
           resources: {{ toYaml .Values.migrate.resources | nindent 12 }}
           securityContext: {{ toYaml .Values.containerSecurityContext | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- include "roracle.caMounts" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 1Gi}
+        {{- include "roracle.caVolumes" . | nindent 8 }}

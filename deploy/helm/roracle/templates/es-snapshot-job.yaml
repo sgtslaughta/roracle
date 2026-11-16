@@ -35,10 +35,11 @@ spec:
           command: [sh, -ec]
           args:
             - |
-              C="curl -fsS -u elastic:${ES_PASSWORD} {{ if .Values.elasticsearch.tls }}--cacert /certs/ca.crt {{ end }}-H Content-Type:application/json"
-              until $C "{{ $url }}/_cluster/health?wait_for_status=yellow&timeout=30s" >/dev/null; do echo waiting for elasticsearch; sleep 10; done
-              $C -X PUT "{{ $url }}/_snapshot/roracle-s3" -d '{{ toJson $repo }}'
-              $C -X PUT "{{ $url }}/_slm/policy/roracle-daily" -d '{{ toJson $slm }}'
+              # credentials go through a curl config on stdin (printf is a builtin), never argv
+              C() { printf 'user = "elastic:%s"\n' "$ES_PASSWORD" | curl -fsS -K - {{ if .Values.elasticsearch.tls }}--cacert /certs/ca.crt {{ end }}-H Content-Type:application/json "$@"; }
+              until C "{{ $url }}/_cluster/health?wait_for_status=yellow&timeout=30s" >/dev/null; do echo waiting for elasticsearch; sleep 10; done
+              C -X PUT "{{ $url }}/_snapshot/roracle-s3" -d '{{ toJson $repo }}'
+              C -X PUT "{{ $url }}/_slm/policy/roracle-daily" -d '{{ toJson $slm }}'
           env:
             - name: ES_PASSWORD
               valueFrom: {secretKeyRef: {name: {{ $es }}-es-elastic-user, key: elastic}}

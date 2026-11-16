@@ -145,6 +145,7 @@ spec:
       {{- with .v.tolerations }}
       tolerations: {{ toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .ca }}{{ include "roracle.caInit" $root | nindent 6 }}{{ end }}
       containers:
         - name: {{ .comp }}
           image: {{ include "roracle.image" (dict "root" $root "img" .img) }}
@@ -152,8 +153,9 @@ spec:
           {{- with .command }}
           command: {{ toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .env }}
-          env: {{ . | nindent 12 }}
+          {{- $env := print (.env | default "") (ternary (include "roracle.caEnv" $root) "" (default false .ca)) }}
+          {{- if $env }}
+          env: {{ $env | nindent 12 }}
           {{- end }}
           {{- if .configMap }}
           envFrom:
@@ -172,9 +174,11 @@ spec:
           securityContext: {{ toYaml $root.Values.containerSecurityContext | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- if .ca }}{{ include "roracle.caMounts" $root | nindent 12 }}{{ end }}
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: {{ .tmp }}}
+        {{- if .ca }}{{ include "roracle.caVolumes" $root | nindent 8 }}{{ end }}
 {{- if .port }}
 ---
 apiVersion: v1
@@ -196,4 +200,82 @@ spec:
 
 {{- define "roracle.extraEnv" -}}
 {{- with .extraEnv }}{{ toYaml . | nindent 0 }}{{ end -}}
+{{- end -}}
+
+{{/* ---- Interim CA bundle (see values caBundle). Empty output unless a TLS CA is in play. ---- */}}
+{{- define "roracle.caEnabled" -}}
+{{- if or (and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls) (and (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert) .Values.caBundle.extraSecrets }}true{{ end -}}
+{{- end -}}
+
+{{/* Init container + volumes + mounts + env. Main containers get the merged bundle over certifi's cacert.pem. */}}
+{{- define "roracle.caInit" -}}
+{{- if include "roracle.caEnabled" . }}
+initContainers:
+  - name: ca-bundle
+    image: {{ include "roracle.image" (dict "root" . "img" .Values.image.backend) }}
+    imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+    command: [sh, -ec, '{ cat "$(python -c "import certifi;print(certifi.where())")"; for f in /ca/*.crt; do [ ! -f "$f" ] || cat "$f"; done; } > /bundle/ca-bundle.pem']
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {memory: 128Mi}
+    securityContext: {{ toYaml .Values.containerSecurityContext | nindent 6 }}
+    volumeMounts:
+      - {name: ca-src, mountPath: /ca, readOnly: true}
+      - {name: ca-bundle, mountPath: /bundle}
+{{- end }}
+{{- end -}}
+
+{{- define "roracle.caVolumes" -}}
+{{- if include "roracle.caEnabled" . }}
+- name: ca-bundle
+  emptyDir: {sizeLimit: 1Mi}
+- name: ca-src
+  projected:
+    sources:
+      {{- if and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls }}
+      - secret: {name: {{ include "roracle.fullname" . }}-es-http-certs-public, optional: true, items: [{key: ca.crt, path: es.crt}]}
+      {{- end }}
+      {{- if and .Values.caBundle.kubeRootCa (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert }}
+      - configMap: {name: kube-root-ca.crt, optional: true, items: [{key: ca.crt, path: kube-root.crt}]}
+      {{- end }}
+      {{- range $i, $x := .Values.caBundle.extraSecrets }}
+      - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
+      {{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "roracle.caMounts" -}}
+{{- if include "roracle.caEnabled" . }}
+- {name: ca-bundle, mountPath: {{ .Values.caBundle.certifiPath | quote }}, subPath: ca-bundle.pem, readOnly: true}
+{{- end }}
+{{- end -}}
+
+{{- define "roracle.caEnv" -}}
+{{- if include "roracle.caEnabled" . }}
+{{- range $k := list "SSL_CERT_FILE" "REQUESTS_CA_BUNDLE" "AWS_CA_BUNDLE" }}
+- {name: {{ $k }}, value: {{ $.Values.caBundle.certifiPath | quote }}}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/* NetworkPolicy peers: app pods (api/worker/migrate/es-snapshot/minio-policy jobs) in this release. */}}
+{{- define "roracle.appPeer" -}}
+- podSelector:
+    matchLabels: {app.kubernetes.io/name: {{ .Chart.Name }}, app.kubernetes.io/instance: {{ .Release.Name | quote }}}
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: In, values: [api, worker, migrate, es-snapshot, minio-policy]}
+{{- end -}}
+
+{{- define "roracle.nsPeer" -}}
+- namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ . | quote }}}}
+{{- end -}}
+
+{{/* Bucket name from an s3:// destination path. */}}
+{{- define "roracle.pgBucket" -}}
+{{ .Values.postgres.backup.destinationPath | trimPrefix "s3://" | splitList "/" | first }}
+{{- end -}}
+
+{{/* ES S3 client protocol: explicit value, else follows the bundled MinIO TLS setting (https for external S3). */}}
+{{- define "roracle.snapProtocol" -}}
+{{- default (ternary (ternary "https" "http" .Values.minio.requestAutoCert) "https" (eq .Values.minio.mode "tenant")) .Values.elasticsearch.snapshot.protocol -}}
 {{- end -}}

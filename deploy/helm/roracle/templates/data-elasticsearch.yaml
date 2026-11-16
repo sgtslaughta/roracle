@@ -22,8 +22,15 @@ spec:
       selfSignedCertificate:
         disabled: {{ not $es.tls }}
   {{- if $sn.enabled }}
+  auth:
+    fileRealm:
+      - secretName: {{ required "elasticsearch.appUserSecret is required when elasticsearch.mode=eck" $es.appUserSecret | quote }}
+    roles:
+      - secretName: {{ include "roracle.fullname" . }}-es-roles
+  {{- if $sn.enabled }}
   secureSettings:
     - secretName: {{ $sn.credentialsSecret | quote }}
+  {{- end }}
   {{- end }}
   nodeSets:
     {{- range $ns := $es.nodeSets }}
@@ -33,7 +40,7 @@ spec:
         node.roles: {{ toJson $ns.roles }}
         {{- if $sn.enabled }}
         s3.client.default.endpoint: {{ $snEp | quote }}
-        s3.client.default.protocol: {{ $sn.protocol | quote }}
+        s3.client.default.protocol: {{ include "roracle.snapProtocol" $ | quote }}
         s3.client.default.path_style_access: {{ $sn.pathStyleAccess }}
         {{- end }}
         {{- with $es.extraConfig }}
@@ -47,14 +54,12 @@ spec:
           {{- end }}
           securityContext:
             runAsNonRoot: true
+            fsGroup: 1000
             seccompProfile: {type: RuntimeDefault}
           containers:
             - name: elasticsearch
               imagePullPolicy: {{ $es.image.pullPolicy }}
               resources: {{ toYaml $es.resources | nindent 16 }}
-              securityContext:
-                allowPrivilegeEscalation: false
-                capabilities: {drop: [ALL]}
       volumeClaimTemplates:
         - metadata: {name: elasticsearch-data}
           spec:
@@ -64,4 +69,18 @@ spec:
             storageClassName: {{ . }}
             {{- end }}
     {{- end }}
+---
+# Non-sensitive role for the app user; the user itself (fileRealm) is the operator-supplied appUserSecret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "roracle.fullname" . }}-es-roles
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+stringData:
+  roles.yml: |
+    roracle_app:
+      cluster: [monitor]
+      indices:
+        - names: ["chunks*"]
+          privileges: [create_index, manage, read, write, view_index_metadata]
 {{- end }}

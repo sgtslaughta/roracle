@@ -129,12 +129,13 @@ postgres:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  parameters: {}           # extra postgresql.parameters (archive_timeout is forced to <= 5min, see below)
-  archiveTimeout: 5min     # keeps RPO <= 5 min on idle clusters; do not raise above 5min
+  parameters: {}           # extra postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters)
   # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
   # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
   appCredentialsSecret: ""
-  monitoring: {enabled: true}   # PodMonitor (needs prometheus-operator CRDs) + roracle_jobs queue metrics
+  # PodMonitor + roracle_jobs queue metrics. Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated
+  # upstream (still works); if it is removed, create the PodMonitor from the observability values instead.
+  monitoring: {enabled: true}
   backup:
     enabled: true
     # plugin: barman-cloud plugin (ObjectStore CR, CNPG >= 1.26; plugin + cert-manager must be installed).
@@ -157,21 +158,28 @@ elasticsearch:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  tls: false               # HTTP TLS (ECK self-signed) off by default: plain HTTP behind NetworkPolicy; backend has no CA setting yet
-  extraConfig: {}          # extra elasticsearch.yml keys for every nodeSet
+  tls: true                # ECK self-signed HTTP TLS; CA reaches the app via caBundle (interim, see below)
+  # REQUIRED (eck): basic-auth Secret (username roracle_app, password, roles: roracle_app) for the app's fileRealm user.
+  # ROR_ELASTIC_URL must use this user, never `elastic`. The role (chunks* only) is rendered by the chart.
+  appUserSecret: ""
+  # elasticsearch.yml for every nodeSet. allow_mmap=false avoids ECK's privileged sysctl init container; drop it if a
+  # node-tuning DaemonSet sets vm.max_map_count>=262144 (mmap is faster).
+  extraConfig: {node.store.allow_mmap: false}
   snapshot:
     enabled: true          # hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily
     bucket: roracle-es-snapshots
     basePath: roracle
     endpoint: ""           # host:port without scheme; default: bundled MinIO tenant service
-    protocol: http
+    protocol: ""           # "" = https when minio.mode=tenant with requestAutoCert, http for tenant without, else https
+    # NOTE: ES trusts only its JVM truststore. A MinIO auto-cert / private CA must be added to it by the operator
+    # (custom image or ES_JAVA_OPTS truststore); not automatable here. A public-CA S3 endpoint needs nothing.
     pathStyleAccess: true
     credentialsSecret: ""  # REQUIRED (eck+snapshot): Secret with keys s3.client.default.access_key / s3.client.default.secret_key
     schedule: "0 30 1 * * ?"
     retention: {expireAfter: 30d, minCount: 7, maxCount: 60}
     job:
       image: {repository: curlimages/curl, tag: "8.10.1", digest: "", pullPolicy: IfNotPresent}
-      activeDeadlineSeconds: 900
+      activeDeadlineSeconds: 1800
       runAsUser: 100
 
 minio:
@@ -182,9 +190,39 @@ minio:
   servers: 4
   volumesPerServer: 4      # 16 drives -> erasure coding
   storage: {size: 250Gi, storageClass: ""}
-  requestAutoCert: false   # in-cluster plain HTTP behind NetworkPolicy; true -> operator-issued TLS, set https endpoints
-  buckets: [roracle, roracle-pg-backup, roracle-es-snapshots]
+  requestAutoCert: true    # operator-issued TLS (signed by the cluster CA, trusted via caBundle.kubeRootCa); ROR_S3_ENDPOINT -> https
+  # Bucket names come from config.ROR_S3_BUCKET, postgres.backup.destinationPath and elasticsearch.snapshot.bucket;
+  # the two backup buckets get objectLock (=> versioning). Replicate backups to a separate site (MinIO site replication).
+  # Least-privilege users (REQUIRED, tenant): operator-supplied Secrets with CONSOLE_ACCESS_KEY / CONSOLE_SECRET_KEY.
+  # The operator creates users as consoleAdmin; the policy hook Job (mc) detaches that and attaches a one-bucket RW policy.
+  # The app user's keys must also be in secrets.existingSecret (ROR_S3_ACCESS_KEY/SECRET_KEY); the others in the backup secrets.
+  users: {app: "", pgBackup: "", esSnapshot: ""}
+  policyJob:
+    image: {repository: quay.io/minio/mc, tag: RELEASE.2024-10-08T09-37-26Z, digest: "", pullPolicy: IfNotPresent}
+    activeDeadlineSeconds: 1800
+    runAsUser: 1000
   runAsUser: 1000
   resources:
     requests: {cpu: "1", memory: 4Gi}
     limits: {memory: 4Gi}
+
+# Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
+# certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
+# ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
+# Active only when ES TLS (eck), MinIO auto-cert (tenant) or extraSecrets are in play.
+caBundle:
+  certifiPath: /app/backend/.venv/lib/python3.12/site-packages/certifi/cacert.pem   # coupled to the backend image layout
+  kubeRootCa: true         # kube-root-ca.crt (signs MinIO operator auto-cert)
+  extraSecrets: []         # [{name: my-ca, key: ca.crt}] operator CAs for external ES/S3/etc.
+
+# Data-tier policies (data-postgres/es/minio) are always rendered for bundled modes.
+# Namespace values are matched by label kubernetes.io/metadata.name.
+networkPolicy:
+  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system, minio: minio-operator}
+  monitoringNamespace: monitoring
+  # Instance managers / operators need the kube-apiserver. Empty cidrs = allow these ports to any destination; tighten.
+  kubeAPI: {cidrs: [], ports: [443, 6443]}
+  s3Cidrs: []              # egress CIDRs (port 443/9000) for backups/snapshots when minio.mode=external
+  dns:
+    namespace: kube-system
+    podLabels: {k8s-app: kube-dns}

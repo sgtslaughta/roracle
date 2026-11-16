@@ -174,3 +174,10 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
   information never surfaces, which can leave invisible duplicates in the corpus (accepted).
 - Blob object written before the DB commit can orphan on failure; a GC job removes objects without
   a `blobs` row (plan 2).
+
+## 11. Data-tier network and credential controls (Helm chart)
+
+- NetworkPolicies for bundled Postgres/ES/MinIO are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`; MinIO 9000 from app, CNPG, ES, peers and the MinIO operator. Egress is limited to peers, MinIO, DNS and (instance managers/MinIO) the kube-apiserver (`networkPolicy.kubeAPI`; tighten with CIDRs).
+- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) until the backend gains CA settings.
+- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. MinIO users are limited to one bucket each (app, Postgres backups, ES snapshots); backup buckets have object lock (versioning).
+- Backups should be replicated to a separate site; a single-cluster MinIO does not protect against loss of the cluster.

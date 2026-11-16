@@ -129,3 +129,13 @@ SemVer: patch = drop-in; minor = additive migrations, rolling upgrade; major = r
 manual steps. Always snapshot Postgres and Elastic before a minor/major upgrade.
 
 P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.
+
+## 8. Bundled data services (Helm chart, `deploy/helm/roracle`)
+
+Each of `postgres`, `elasticsearch`, `minio` has `mode: <operator>|external`; bundled modes render CNPG / ECK / MinIO Operator CRs (operators are installed by the platform) plus data-tier NetworkPolicies. Credentials are always Secret names, never values.
+
+- Required Secrets (bundled): `postgres.appCredentialsSecret` (basic-auth, user `roracle`), `postgres.backup.credentialsSecret`, `postgres.backup.endpointCA` (CA of MinIO auto-cert: Secret from `kube-root-ca.crt`), `elasticsearch.appUserSecret` (basic-auth `roracle_app`, `roles: roracle_app`), `elasticsearch.snapshot.credentialsSecret` (keys `s3.client.default.access_key|secret_key`), `minio.configurationSecret` (`config.env`), `minio.users.{app,pgBackup,esSnapshot}` (`CONSOLE_ACCESS_KEY`/`CONSOLE_SECRET_KEY`).
+- App Secret `secrets.existingSecret`: `ROR_DATABASE_URL` (`postgresql+psycopg://`), `ROR_S3_ACCESS_KEY/SECRET_KEY` (= the `minio.users.app` keys), `ROR_ELASTIC_URL` = `https://roracle_app:<password>@<release>-roracle-es-http.<ns>.svc:9200` (never the `elastic` user).
+- TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, cluster CA) are on by default. The backend has no CA setting yet, so api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`) mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the image layout). Replace with `ROR_*_CA` settings once P11b lands.
+- Not automatable: ES snapshots to a private-CA S3 need that CA in ES's JVM truststore (custom image / `ES_JAVA_OPTS`), or a public-CA endpoint. The MinIO operator creates users as `consoleAdmin`; the `minio-policy` hook Job swaps in one-bucket policies on each install/upgrade and a later operator reconcile may re-assert admin until the next upgrade.
+- Backups land on the bundled MinIO by default: for DR, replicate the backup buckets to a separate site (MinIO site replication) or point `postgres.backup.*`/`elasticsearch.snapshot.*` at an external store.

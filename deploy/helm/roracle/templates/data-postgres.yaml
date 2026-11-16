@@ -7,6 +7,9 @@
 {{- $_ := required "postgres.backup.credentialsSecret.name is required when backup is enabled" $bk.credentialsSecret.name }}
 {{- $_ := required "postgres.backup.endpointURL is required (or use minio.mode=tenant)" $ep }}
 {{- end }}
+{{- if and $bk.enabled (not $bk.endpointURL) (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert (not $bk.endpointCA.name) }}
+{{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
+{{- end }}
 {{- $store := dict }}
 {{- if $bk.enabled }}
 {{- /* shared S3 settings for both backup methods (no secret values, refs only) */}}
@@ -33,7 +36,7 @@ spec:
     {{- end }}
   resources: {{ toYaml $pg.resources | nindent 4 }}
   postgresql:
-    parameters: {{ merge (dict "archive_timeout" $pg.archiveTimeout) $pg.parameters | toYaml | nindent 6 }}
+    parameters: {{ set (deepCopy $pg.parameters) "archive_timeout" "5min" | toYaml | nindent 6 }}
   bootstrap:
     initdb:
       database: roracle
@@ -80,6 +83,7 @@ metadata:
 spec:
   schedule: {{ $bk.schedule | quote }}
   cluster: {name: {{ $name }}}
+  immediate: true
   backupOwnerReference: self
   {{- if eq $bk.method "plugin" }}
   method: plugin
@@ -102,7 +106,7 @@ data:
     roracle_jobs:
       query: |
         SELECT kind, status, count(*) AS count,
-               COALESCE(EXTRACT(EPOCH FROM now() - min(run_after)) FILTER (WHERE status = 'queued'), 0) AS oldest_queued_seconds
+               COALESCE(EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE status = 'queued' AND run_after <= now())), 0) AS oldest_queued_seconds
         FROM jobs GROUP BY kind, status
       target_databases: [roracle]
       metrics:
