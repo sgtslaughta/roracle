@@ -58,3 +58,12 @@ def test_clamav_port_default(settings):
 def test_password_without_username_rejected(settings):
     with pytest.raises(ValueError):
         mk(settings, database_url="postgresql:///d?host=/run/postgresql", database_password="pw")
+
+
+def test_validation_errors_hide_secret_inputs(settings):
+    with pytest.raises(ValueError) as e:
+        mk(settings, database_url="postgresql:///d?host=/x", database_password="Sup3rSecretPw")
+    assert "Sup3rSecretPw" not in str(e.value)
+    with pytest.raises(ValueError) as e:
+        mk(settings, elastic_password="Sup3rSecretPw", connector_max_items="not-an-int")
+    assert "Sup3rSecretPw" not in str(e.value) and "not-an-int" not in str(e.value)

@@ -26,7 +26,7 @@ UNALLOWABLE = [ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/3
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="ROR_")
+    model_config = SettingsConfigDict(env_prefix="ROR_", hide_input_in_errors=True)
 
     database_url: str
     database_password: str = ""  # injected into database_url when set (keeps the secret out of the URL)
@@ -94,6 +94,7 @@ class Settings(BaseSettings):
         list[str], NoDecode
     ] = []  # http crawl may reach these private ranges
     connector_http_timeout_s: int = 60  # per HTTP request (connect to last byte)
+    worker_health_port: int = 8001  # worker /healthz + /metrics; 0 = off
 
     @model_validator(mode="after")
     def _database_url(self):

@@ -28,7 +28,7 @@ Name = Annotated[str, Field(min_length=1, max_length=200)]
 class SettingsIn(BaseModel):
     """PUT body: every field optional; explicit null deletes the override."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
 
     chat_models: Annotated[list[Name], Field(min_length=1, max_length=20)] | None = None
     chat_default_model: Name | None = None
