@@ -3,7 +3,8 @@ import {
 } from "@tanstack/react-router";
 import { Shell } from "./Shell";
 import { LibraryRoute } from "@/routes/LibraryRoute";
-import { AskRoute, DraftsRoute, ProposalsRoute } from "@/routes/placeholders";
+import { DraftsRoute, ProposalsRoute } from "@/routes/placeholders";
+import { AskRoute } from "@/routes/AskRoute";
 import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
@@ -16,6 +17,7 @@ const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/library" }); } }),
   createRoute({ getParentRoute: () => rootRoute, path: "/library", component: LibraryRoute, validateSearch: validateLibrarySearch }),
   r("/ask", AskRoute),
+  r("/ask/$chatId", AskRoute),
   r("/uploads", UploadsRoute),
   r("/proposals", ProposalsRoute),
   r("/drafts", DraftsRoute),

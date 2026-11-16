@@ -1,12 +1,13 @@
-import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Lock, Users } from "lucide-react";
+import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Lock, Pencil, Users } from "lucide-react";
 import type { UploadItem } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { NearDupPrompt } from "./NearDupPrompt";
+import { TitlePrompt } from "./TitlePrompt";
 import { fmtSize, pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
 
-const PILL_ICON = { done: Check, running: Loader, failed: CircleAlert, review: GitCompare } as const;
+const PILL_ICON = { done: Check, running: Loader, failed: CircleAlert, review: GitCompare, title: Pencil } as const;
 const VIS_ICON = { everyone: Globe, private: Lock, org_unit: Users, shared: Users } as const;
-const CELL = { running: "run", failed: "err", review: "wait", done: "" } as const;
+const CELL = { running: "run", failed: "err", review: "wait", title: "wait", done: "" } as const;
 
 export function UploadRow({ u }: { u: UploadItem }) {
   const st = viewStatus(u);
@@ -19,7 +20,8 @@ export function UploadRow({ u }: { u: UploadItem }) {
       <div className="fname">
         <span className="ft"><Type aria-hidden /></span>
         <div style={{ minWidth: 0 }}>
-          <b title={u.filename}>{u.filename}</b>
+          <b title={u.title ?? u.filename}>{u.title ?? u.filename}</b>
+          {u.title && <small className="fn" title={u.filename}>{u.filename}</small>}
           <small>{fmtSize(u.size)}. {new Date(u.uploaded_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small>
         </div>
       </div>
@@ -32,6 +34,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
         <div className="tdet failed"><span className="msg"><CircleAlert aria-hidden />{u.error ?? "Processing failed."}</span></div>
       )}
       {st === "review" && <NearDupPrompt u={u} />}
+      {st === "title" && <TitlePrompt u={u} />}
     </div>
   );
 }

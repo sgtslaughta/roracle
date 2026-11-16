@@ -4,17 +4,18 @@ import { ApiError } from "@/api/client";
 import { isDuplicate, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
-import { FILTERS, MAX_UPLOAD_BYTES, viewStatus, type ViewStatus } from "./status";
+import { FILTERS, inFilter, MAX_UPLOAD_BYTES, type FilterKey } from "./status";
+import { NeedsTitleQueue } from "./NeedsTitleQueue";
 import { UploadRow } from "./UploadRow";
 
 export function UploadsPage() {
   const { data } = useUploads();
   const upload = useUpload();
-  const [filter, setFilter] = useState<ViewStatus | "all">("all");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [dups, setDups] = useState<File[]>([]);
   const items = data?.items ?? [];
-  const count = (k: ViewStatus | "all") => (k === "all" ? items.length : items.filter((u) => viewStatus(u) === k).length);
-  const rows = items.filter((u) => filter === "all" || viewStatus(u) === filter);
+  const count = (k: FilterKey) => items.filter((u) => inFilter(u, k)).length;
+  const rows = items.filter((u) => inFilter(u, filter));
 
   const send = async (file: File, force = false) => {
     try {
@@ -52,6 +53,7 @@ export function UploadsPage() {
         {rows.map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}
       </div>
+      <NeedsTitleQueue />
       <DuplicateDialog
         file={dups[0] ?? null}
         onCancel={() => setDups((d) => d.slice(1))}

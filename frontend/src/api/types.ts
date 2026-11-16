@@ -16,28 +16,30 @@ export interface VoteRequest { value: 1 | -1 | 0; reason?: DownvoteReason; super
 /** Docling bbox: PDF points. Docling's default origin is BOTTOMLEFT. */
 export interface Bbox { l: number; t: number; r: number; b: number; coord_origin: "BOTTOMLEFT" | "TOPLEFT" }
 
-export interface Passage { page: number; chunk_id: string; text: string; bbox?: Bbox | null }
+/** `highlight` is server HTML: escaped text with <em> around matches only. Always render via safeHighlight. */
+export interface Passage { page: number; chunk_id: string; text: string; highlight?: string; bbox?: Bbox | null }
 
 export interface SearchHit {
   doc_id: string;
   title: string;
   authors: string[];
-  year: number;
+  year: number | null;
   score: number;
   passages: Passage[];
   tags: string[];
   votes: Votes;
   file_type: string;
   version: number;
-  venue?: string; // ui
-  org_unit?: string; // ui
-  flag?: string | null; // ui: e.g. "Marked outdated by 11 readers"
-  cited_by_count?: number; // ui
-  owner_id?: string; // ui: lets the card offer "Remove tag" to the owner
+  venue: string | null;
+  org_unit: string;
+  flag: string | null; // always null today; render when present
+  cited_by_count: number;
+  owner_id: string;
 }
 
 export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author";
-export interface FacetValue { value: string; count: number }
+/** `label` is set for the collection facet only (value is the collection id). */
+export interface FacetValue { value: string; count: number; label?: string }
 export interface SearchResponse {
   total: number;
   page: number;
@@ -50,8 +52,8 @@ export interface DocumentDetail {
   id: string;
   title: string;
   authors: string[];
-  year: number;
-  venue?: string;
+  year: number | null;
+  venue: string | null;
   org_unit: string;
   visibility: Visibility;
   owner: { id: string; username: string };
@@ -62,8 +64,11 @@ export interface DocumentDetail {
   file_type: string;
   versions: DocVersion[];
   page_count: number;
-  flag?: string | null;
+  flag: string | null;
 }
+
+export interface DocumentPatch { title?: string; visibility?: Visibility; org_unit?: string; share_users?: string[]; share_groups?: string[] }
+export interface TagsResponse { tag: string; tags: string[] }
 
 /** GET /documents/{id}/versions/{n}/docling: page sizes + chunk boxes for passage highlighting. */
 export interface DoclingDoc {
@@ -71,30 +76,36 @@ export interface DoclingDoc {
   chunks: { chunk_id: string; page_no: number; bbox: Bbox }[];
 }
 
-export interface ReferenceItem { ref_no: number; raw: string; target: { doc_id: string; title: string } | null }
-export interface CitedByItem { doc_id: string; title: string; authors: string[]; year: number; venue?: string }
+export interface ReferenceItem { ref_no: number; raw: string; target: { doc_id: string; title: string } | null } // target.title may be ""
+export interface CitedByItem { doc_id: string; title: string; authors: string[]; year: number | null; venue?: string }
 export interface Collection { id: string; name: string; count: number }
+/** PUT|DELETE /collections/{id}/items/{doc} */
+export interface CollectionCount { id: string; count: number }
 
 // ---- uploads (P1 Task 6/7, P2) ----
 export const STAGES = ["uploaded", "scanned", "parsed", "summarized", "deduped", "chunked", "embedded", "searchable"] as const;
-export type Stage = (typeof STAGES)[number] | "review" | "rejected" | "cancelled";
+export type Stage = (typeof STAGES)[number] | "review" | "needs_title" | "rejected" | "cancelled";
 export type JobStatus = "queued" | "running" | "done" | "failed";
 
+export interface NearDupOf { document_id: string; title: string | null }
 export interface UploadItem {
   document_id: string;
   version_id: string;
-  title: string;
+  title: string | null; // null until set; UI falls back to filename
   filename: string;
   size: number;
   visibility: Visibility;
   status: JobStatus;
   error: string | null;
   uploaded_at: string;
-  stage: Stage; // P2
-  page_count?: number | null; // P2
-  near_dup_of?: string | null; // P2 (version id)
-  near_dup?: { document_id: string; title: string; version: number; similarity: number } | null; // ui: resolved match for the decision prompt
+  stage: Stage;
+  stage_label: string;
+  page_count: number | null;
+  near_dup_of: NearDupOf | null;
 }
+export interface NearDupResult { version_id: string; document_id: string; stage: Stage }
+export type TitleResult = NearDupResult;
+export interface NeedsTitleItem { document_id: string; version_id: string; filename: string; owner: string; uploaded_at: string }
 export interface UploadsResponse { items: UploadItem[]; total: number }
 export interface UploadCreated { document_id: string; version_id: string; sha256: string }
 export interface DuplicateDetail { code: "duplicate"; document_id: string }

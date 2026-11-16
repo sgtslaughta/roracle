@@ -1,10 +1,13 @@
-import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquareQuote, Quote } from "lucide-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
+import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect } from "react";
 import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
+import { CiteLine } from "@/components/CiteLine";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoteControl } from "@/features/library/VoteControl";
+import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
 import { useCitedBy, useDoc, useReferences } from "./api";
 const PdfView = lazy(() => import("./PdfView"));
@@ -16,6 +19,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const { data: d, isError } = useDoc(tab.docId);
   const refs = useReferences(tab.docId).data;
   const cited = useCitedBy(tab.docId).data;
+  const navigate = useNavigate();
+  const onAskRoute = useLocation({ select: (l) => l.pathname === "/ask" || l.pathname.startsWith("/ask/") });
 
   useEffect(() => { if (d) addRecent({ id: d.id, title: d.title }); }, [d?.id, d?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -41,8 +46,11 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
     <>
       <div className="rhead">
         <h2 title={d.title}>{d.title}</h2>
-        <p className="citeline trunc" title={`${d.authors.join(", ")}. ${d.year}`}>{d.authors.join(", ")}. {d.venue && <i>{d.venue}</i>}{d.venue && ", "}{d.year}. {d.org_unit}.</p>
+        <CiteLine authors={d.authors} venue={d.venue} year={d.year} org={d.org_unit} />
         <div className="rtools">
+          <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
+            <Sparkles aria-hidden />Ask about this
+          </Button>
           <VoteControl docId={d.id} votes={d.votes} row />
           <select className="sel" aria-label="Version" value={version} onChange={(e) => setVersion(d.id, Number(e.target.value))}>
             {d.versions.map((v) => <option key={v.id} value={v.version}>Version {v.version}{v.is_latest ? " (latest)" : ""}</option>)}

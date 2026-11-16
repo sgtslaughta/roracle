@@ -77,6 +77,15 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 | Prompt injection from documents | Retrieved text is passed as quoted context, never as instructions; tools available to chat are read-only; agents can only *propose* annotations — humans approve. Community notes are user-written and so untrusted: notes reach an LLM (chat, MCP `ask`, MCP `search`) only if written by the asking user or upvoted ≥ `ROR_CHAT_NOTE_MIN_UPVOTES` times with ratio > `ROR_CHAT_NOTE_MIN_RATIO`; they are placed in a separate labelled block, never numbered or citable, and the system prompt tells the model not to follow them. Authors cannot vote on their own notes (and such votes are ignored), and editing a note's body resets its votes |
 | Shared chats | Sharing a chat (user or group) is read-only; recipients see answer text, but every citation and retrieved passage is re-checked against the reader's own document visibility on each read/export (hidden ones become "source not available"). Admins have no implicit access to others' chats; ratings are visible to admins via `/admin/ratings` |
 
+### Web app Content-Security-Policy
+
+The SPA ships a meta CSP limited to `img-src 'self' data: blob:` (so Vite dev keeps working). Production
+nginx must send a full CSP header with at least: `default-src 'self'; img-src 'self' data: blob:;
+script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' <OIDC authority origin>;
+frame-ancestors 'none'; base-uri 'self'; object-src 'none'`. Chat answers never render images and only
+render http(s), same-site relative or fragment links, so prompt-injected documents cannot exfiltrate data
+through image or link URLs.
+
 ## 5. Data protection
 
 - TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/MinIO).
