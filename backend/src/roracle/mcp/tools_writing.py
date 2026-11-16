@@ -8,10 +8,11 @@ from mcp.server import MCPServer
 from pydantic import Field
 from sqlalchemy.orm import Session
 
+from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.mcp.auth import dep
 from roracle.mcp.tools_write import Run, _need_write
-from roracle.writing import drafts
+from roracle.writing import drafts, validate
 
 
 def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
@@ -44,3 +45,19 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
             return {"draft_id": str(doc_id), "version": ver, "url": f"/drafts/{doc_id}"}
 
         return run(app, "save_draft", go, draft_id or "")
+
+    @mcp.tool()
+    def validate_draft(draft_id: Annotated[str, Field(max_length=100)]) -> dict:
+        """Check a draft you may read against its writing profile (structure, limits, notation, acronyms,
+        cross-references, units, AI disclosure, citation keys, LLM style). Returns {version, profile, ok,
+        blocking, warnings}; each finding is {rule, message, line}. Blocking findings must be fixed."""
+
+        def go(session: Session, p: Principal) -> dict:
+            try:
+                doc_id = UUID(draft_id)
+            except ValueError:
+                raise HTTPException(404, "not found") from None
+            cfg = dep(app, get_app_settings, session)
+            return validate.validate(session, dep(app, search_routes.get_llm), cfg, p, doc_id)
+
+        return run(app, "validate_draft", go, draft_id)

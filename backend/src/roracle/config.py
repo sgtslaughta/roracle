@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     near_dup_summary_threshold: float = 0.97
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
+    writing_model: str = ""  # P9 style check / citation judge; empty = first chat model
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6

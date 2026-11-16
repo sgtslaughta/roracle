@@ -9,12 +9,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from roracle.access import normalize_path, org_units
+from roracle.api.routes.search import get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import Document
 from roracle.models_writing import Draft, DraftVersion
 from roracle.writing import drafts as svc
+from roracle.writing import validate as validator
 
 router = APIRouter()
 Who = Annotated[Principal, Depends(current_principal)]
@@ -114,3 +116,10 @@ def put_coauthors(doc_id: UUID, body: CoauthorsIn, p: Who, session: Db) -> dict:
 @router.delete("/drafts/{doc_id}", status_code=204)
 def delete_draft(doc_id: UUID, p: Who, session: Db) -> None:
     svc.delete_draft(session, p, doc_id)
+
+
+@router.post("/drafts/{doc_id}/validate")
+def validate_draft(
+    doc_id: UUID, p: Who, session: Db, cfg: Cfg, llm: Annotated[object, Depends(get_llm)]
+) -> dict:
+    return validator.validate(session, llm, cfg, p, doc_id)
