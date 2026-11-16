@@ -7,9 +7,9 @@ from sqlalchemy import and_, exists, false, func, or_, select, true
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
-from roracle.access import visible_documents
+from roracle.access import org_units, readable_documents
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationShare, Document, DocumentVersion
+from roracle.models import Annotation, AnnotationShare, Document
 
 
 def _b(v: bool) -> ColumnElement[bool]:
@@ -17,15 +17,8 @@ def _b(v: bool) -> ColumnElement[bool]:
 
 
 def readable_doc_ids(p: Principal):
-    """Documents the caller may annotate/read; non-owner non-admins need a searchable version (library._visible)."""
-    searchable = exists(
-        select(1).where(DocumentVersion.document_id == Document.id, DocumentVersion.stage == "searchable")
-    )
-    return (
-        select(Document.id)
-        .where(visible_documents(p), or_(_b(p.is_admin), Document.owner_id == p.user_id, searchable))
-        .correlate(None)
-    )
+    """Documents the caller may annotate/read (R16)."""
+    return select(Document.id).where(readable_documents(p)).correlate(None)
 
 
 def doc_readable(session: Session, p: Principal, doc_id: UUID) -> bool:
@@ -53,7 +46,7 @@ def readable_notes(p: Principal) -> ColumnElement[bool]:
                 and_(AnnotationShare.principal_kind == "user", AnnotationShare.principal == str(p.user_id)),
                 and_(
                     AnnotationShare.principal_kind == "group",
-                    AnnotationShare.principal.in_(list(p.groups)) if p.groups else false(),
+                    AnnotationShare.principal.in_(org_units(p.groups)) if p.groups else false(),
                 ),
             ),
         )

@@ -13,7 +13,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
@@ -59,7 +59,7 @@ def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
             continue
     ok = {
         str(x)
-        for x in session.scalars(select(Document.id).where(Document.id.in_(uuids), visible_documents(p)))
+        for x in session.scalars(select(Document.id).where(Document.id.in_(uuids), readable_documents(p)))
     }
     return list(dict.fromkeys(str(u) for u in uuids if str(u) in ok))
 
@@ -199,7 +199,9 @@ def _in_audience(session: Session, p: Principal, h: Handoff) -> bool:
         return False
     conds = [(HandoffShare.principal_kind == "user") & (HandoffShare.principal == str(p.user_id))]
     if p.groups:
-        conds.append((HandoffShare.principal_kind == "group") & (HandoffShare.principal.in_(list(p.groups))))
+        conds.append(
+            (HandoffShare.principal_kind == "group") & (HandoffShare.principal.in_(org_units(p.groups)))
+        )
     q = select(HandoffShare.principal).where(
         HandoffShare.handoff_code == h.code, conds[0] if len(conds) == 1 else conds[0] | conds[1]
     )

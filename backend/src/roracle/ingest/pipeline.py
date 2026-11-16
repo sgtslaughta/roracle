@@ -122,7 +122,6 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
                     "version_id": str(v.id),
                     "filename": v.filename,
                     "match_document_id": str(match.document_id),
-                    "match_title": session.get(Document, match.document_id).title,
                 },
             )
         return True

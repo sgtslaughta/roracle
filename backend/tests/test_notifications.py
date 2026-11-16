@@ -81,7 +81,6 @@ def test_near_dup_emits(db_session, session_factory, cfg, user):
         "version_id": str(v2.id),
         "filename": "p.pdf",
         "match_document_id": str(d1.id),
-        "match_title": "Original",
     }
 
 

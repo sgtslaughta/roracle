@@ -127,6 +127,11 @@ def test_stage_label_page_count_and_near_dup_visibility(client, as_ana, as_bob, 
     db_session.execute(update(Document).where(Document.id == other_pub["document_id"]).values(title="Public"))
     db_session.execute(
         update(DocumentVersion)
+        .where(DocumentVersion.id == other_pub["version_id"])
+        .values(stage="searchable")
+    )
+    db_session.execute(
+        update(DocumentVersion)
         .where(DocumentVersion.id == mine["version_id"])
         .values(stage="review", page_count=7, near_dup_of=other_pub["version_id"])
     )

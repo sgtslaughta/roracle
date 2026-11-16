@@ -60,10 +60,10 @@ def test_put_title_rules(client, as_ana, as_bob, admin, db_session):
     }
 
 
-def test_put_title_visible_non_owner_forbidden_admin_allowed(client, as_ana, as_bob, admin, db_session):
+def test_put_title_non_owner_hidden_admin_allowed(client, as_ana, as_bob, admin, db_session):
     b = _up(client, as_ana, visibility="everyone")
     _stage(db_session, b["version_id"], "needs_title")
-    assert client.put(_title_url(b), headers=as_bob, json={"title": "T"}).status_code == 403
+    assert client.put(_title_url(b), headers=as_bob, json={"title": "T"}).status_code == 404  # R16
     assert client.put(_title_url(b), headers=admin, json={"title": "T"}).status_code == 200
 
 

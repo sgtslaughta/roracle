@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from roracle import clients
-from roracle.access import visible_documents
+from roracle.access import readable_documents
 from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
@@ -47,15 +47,9 @@ def normalize_tag(s: str) -> str:
 
 
 def _visible(session: Session, p: Principal, doc_id: UUID) -> Document:
-    """Visible document; non-owners/non-admins only reach it once a version is searchable (R16)."""
-    doc = session.scalar(select(Document).where(Document.id == doc_id, visible_documents(p)))
+    """Readable document (visible + R16), else 404."""
+    doc = session.scalar(select(Document).where(Document.id == doc_id, readable_documents(p)))
     if doc is None:
-        raise HTTPException(404, "not found")
-    if not (p.is_admin or doc.owner_id == p.user_id) and not session.scalar(
-        select(DocumentVersion.id).where(
-            DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
-        )
-    ):
         raise HTTPException(404, "not found")
     return doc
 
@@ -95,7 +89,7 @@ def put_vote(doc_id: UUID, body: VoteBody, p: Who, session: Session_) -> dict:
     else:
         if body.superseded_by is not None:
             target = session.scalar(
-                select(Document.id).where(Document.id == body.superseded_by, visible_documents(p))
+                select(Document.id).where(Document.id == body.superseded_by, readable_documents(p))
             )
             if target is None or target == doc_id:
                 raise HTTPException(422, "superseded_by not found")
@@ -212,7 +206,7 @@ def _count(session: Session, p: Principal, cid: UUID) -> int:
             select(func.count())
             .select_from(CollectionItem)
             .join(Document, Document.id == CollectionItem.document_id)
-            .where(CollectionItem.collection_id == cid, visible_documents(p))
+            .where(CollectionItem.collection_id == cid, readable_documents(p))
         )
         or 0
     )
@@ -231,7 +225,7 @@ def list_collections(p: Who, session: Session_) -> list[dict]:
     rows = session.execute(
         select(Collection, n)
         .outerjoin(CollectionItem, CollectionItem.collection_id == Collection.id)
-        .outerjoin(Document, and_(Document.id == CollectionItem.document_id, visible_documents(p)))
+        .outerjoin(Document, and_(Document.id == CollectionItem.document_id, readable_documents(p)))
         .where(Collection.owner_id == p.user_id)
         .group_by(Collection.id)
         .order_by(Collection.name, Collection.id)

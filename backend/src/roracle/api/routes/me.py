@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import String, cast, exists, func, select, true
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import readable_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, DocumentVersion, Job
@@ -99,7 +99,7 @@ def my_uploads(
             for vid, did, title in session.execute(
                 select(DocumentVersion.id, Document.id, Document.title)
                 .join(Document, Document.id == DocumentVersion.document_id)
-                .where(DocumentVersion.id.in_(match_ids), visible_documents(p))
+                .where(DocumentVersion.id.in_(match_ids), readable_documents(p))
             )
         }
     items = [

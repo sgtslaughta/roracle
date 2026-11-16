@@ -83,6 +83,7 @@ def find_near_duplicate(
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             visible_documents(principal),
+            or_(Document.owner_id == principal.user_id, DocumentVersion.stage == "searchable"),  # R16
             DocumentVersion.is_latest.is_(True),
             or_(DocumentVersion.minhash.is_not(None), DocumentVersion.summary_embedding.is_not(None)),
             DocumentVersion.document_id != version.document_id,

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import org_units, visible_documents
 from roracle.auth import Principal
 from roracle.models import Chat, ChatShare, Document, DocumentVersion
 
@@ -16,7 +16,7 @@ def _readable(session: Session, p: Principal, chat: Chat) -> bool:
         return True
     conds = [(ChatShare.principal_kind == "user") & (ChatShare.principal == str(p.user_id))]
     if p.groups:
-        conds.append((ChatShare.principal_kind == "group") & (ChatShare.principal.in_(list(p.groups))))
+        conds.append((ChatShare.principal_kind == "group") & (ChatShare.principal.in_(org_units(p.groups))))
     return bool(session.scalar(select(exists().where(ChatShare.chat_id == chat.id, or_(*conds)))))
 
 

@@ -6,7 +6,7 @@ from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.auth import Principal
-from roracle.models import Document, DocumentShare
+from roracle.models import Document, DocumentShare, DocumentVersion
 
 
 def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
@@ -70,7 +70,7 @@ def visible_documents(p: Principal) -> ColumnElement[bool]:
     live = Document.deleted_at.is_(None)
     if p.is_admin:
         return and_(live, true())
-    groups = list(p.groups)
+    groups = org_units(p.groups)
     org = and_(Document.visibility == "org_unit", Document.org_unit.in_(org_ancestors(groups)))
     return and_(
         live,
@@ -81,4 +81,17 @@ def visible_documents(p: Principal) -> ColumnElement[bool]:
             _share("group", groups) if groups else false(),
             org,
         ),
+    )
+
+
+def readable_documents(p: Principal) -> ColumnElement[bool]:
+    """visible_documents + R16: non-owner non-admins need a `searchable` version. Use wherever ids/titles/counts leave."""
+    searchable = exists(
+        select(1)
+        .where(DocumentVersion.document_id == Document.id, DocumentVersion.stage == "searchable")
+        .correlate(Document)
+    )
+    return and_(
+        visible_documents(p),
+        or_(true() if p.is_admin else false(), Document.owner_id == p.user_id, searchable),
     )

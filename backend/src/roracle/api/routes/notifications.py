@@ -1,13 +1,15 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from roracle.access import readable_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
-from roracle.models import Notification
+from roracle.models import Document, Notification
 
 router = APIRouter()
 
@@ -42,13 +44,37 @@ def list_notifications(
         select(func.count()).select_from(Notification).where(mine, Notification.read_at.is_(None))
     )
     max_id = session.scalar(select(func.max(Notification.id)).where(mine))
+    ids = {
+        UUID(str(n.payload["match_document_id"]))
+        for n in page
+        if n.kind == "upload.near_dup" and n.payload.get("match_document_id")
+    }
+    titles = (
+        dict(
+            session.execute(
+                select(Document.id, Document.title).where(Document.id.in_(ids), readable_documents(p))
+            ).all()
+        )
+        if ids
+        else {}
+    )
+
+    def payload(n: Notification) -> dict:
+        if n.kind != "upload.near_dup":
+            return n.payload
+        mid = n.payload.get("match_document_id")
+        return {
+            **{k: v for k, v in n.payload.items() if k != "match_title"},
+            "match_title": titles.get(UUID(str(mid))) if mid else None,
+        }
+
     return {
         "max_id": max_id,
         "items": [
             {
                 "id": n.id,
                 "kind": n.kind,
-                "payload": n.payload,
+                "payload": payload(n),
                 "created_at": n.created_at,
                 "read_at": n.read_at,
             }
