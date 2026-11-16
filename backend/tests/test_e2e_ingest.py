@@ -1,15 +1,14 @@
+# ruff: noqa: F811
 """End-to-end ingest on the real local stack (MinIO, Docling, ES, model endpoint).
 
 Run: ROR_E2E=1 pytest -m e2e. Settings come from ROR_* env; only the GPU-tunnel LLM URL and
 summary model differ from Settings defaults, so those are defaulted here when unset.
 """
 
-import os
 import time
-from pathlib import Path
 
 import pytest
-from elasticsearch import Elasticsearch
+from e2e_support import E2E_MARKS, FIXTURES, MAX_WAIT_S, e2e_settings, es  # noqa: F401
 from openai import OpenAI
 from sqlalchemy import select
 
@@ -19,38 +18,7 @@ from roracle.queue import run_once
 from roracle.search_index import index_name
 from roracle.worker import build_handlers
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.skipif(os.environ.get("ROR_E2E") != "1", reason="set ROR_E2E=1 to run"),
-    pytest.mark.usefixtures("_blob_store_override"),
-]
-
-FIXTURES = Path(__file__).parent / "fixtures"
-MAX_WAIT_S = 180  # brief says 60; first docling/LLM calls are slow
-
-
-@pytest.fixture
-def e2e_settings(settings, test_bucket):
-    tunnel = {"llm_base_url": "http://localhost:21434/v1", "summary_model": "qwen2.5:14b"}
-    overrides = {k: v for k, v in tunnel.items() if f"ROR_{k.upper()}" not in os.environ}
-    return settings.model_copy(
-        update={
-            **overrides,
-            "s3_bucket": test_bucket,  # same bucket as the API store override
-            "grobid_url": "",
-            "clamav_host": "",
-        }
-    )
-
-
-@pytest.fixture
-def es(e2e_settings):
-    """ES client; the index name is fixed per model, so remove only this test's chunks afterwards."""
-    c = Elasticsearch(e2e_settings.elastic_url)
-    c.created_versions = []
-    yield c
-    for vid in c.created_versions:
-        c.delete_by_query(index="chunks", query={"term": {"version_id": vid}}, refresh=True)
+pytestmark = E2E_MARKS
 
 
 @pytest.mark.parametrize(

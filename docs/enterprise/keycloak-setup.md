@@ -63,3 +63,10 @@ curl -s -H "Authorization: Bearer $TOKEN" https://roracle.<domain>/me
 # → {"id": "...", "username": "...", "groups": ["/Physics/Computational"], "is_admin": false}
 ```
 Expected failures: wrong audience, expired token or unknown key → `401 invalid token`.
+
+## 7. Disabling users and personal access tokens
+
+Disabling or removing a user in Keycloak stops their JWTs, but their rOracle PATs keep working until
+the owner's last sign-in is older than `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30). To cut access
+immediately, an admin calls `DELETE /admin/users/{user_id}/pats` (revokes all of that user's PATs).
+

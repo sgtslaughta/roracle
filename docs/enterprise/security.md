@@ -22,9 +22,17 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 - rOracle validates `iss`, `aud=roracle`, `exp`, signature against Keycloak JWKS. Unknown `kid` →
   one JWKS refetch, then reject (handles key rotation, prevents refetch amplification).
 - rOracle services **never** trust identity headers; only tokens.
-- PATs (agents): 32 random bytes, shown once, stored as SHA-256 hash with a server pepper, mandatory
-  expiry (default 30 days, max 365), scopes `read` / `write`, revocable, globally disableable, every use
-  audited with client name.
+- PATs (agents): `ror_pat_` + 32 random bytes, shown once, stored only as SHA-256 hash, mandatory
+  expiry (default 30 days, max 365), scopes `read` / `write`, revocable, globally disableable
+  (`ROR_PATS_ENABLED`). Token management requires an interactive JWT (a PAT cannot mint PATs).
+  - A PAT is **never admin**, even for an admin owner.
+  - Groups = snapshot at creation intersected with the owner's current groups: access can narrow
+    but never widen after minting.
+  - Owner sign-in bound: a PAT is rejected (401 "token owner session stale") unless its owner
+    signed in via JWT within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30). This bounds how long a
+    disabled/removed Keycloak user keeps PAT access.
+  - Admins revoke all of a user's PATs at once: `DELETE /admin/users/{id}/pats`.
+  - `last_used_at` is updated at most once a minute and never blocks requests.
 
 ## 3. Authorization
 
@@ -67,7 +75,8 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
 
 Append-only `audit_log` table (who, when, action, target, client, request id): sign-in, search,
 document view/download, chat question (text hash + cited doc ids), handoff create/load, proposal
-approve/reject, share/visibility change, admin actions, PAT create/use/revoke. Ship to the SIEM via
+approve/reject, share/visibility change, admin actions, PAT create/revoke, `mcp.<tool>` for every
+MCP tool call (MCP PAT use is audited this way, REST PAT use as `pat.use` with method and path; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 7. Platform hardening
@@ -80,8 +89,9 @@ Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 8. Abuse and rate limits
 
-Per-user rate limits on search, chat, upload, MCP calls; max 50 pending agent proposals per session;
-handoff loads audited and rate-limited; PAT misuse alerts (use from new client, burst rate).
+Handoff loads are audited. Planned: per-user rate limits on search, chat, upload and MCP calls and
+rate-limited handoff loads (P11); PAT misuse alerts, i.e. use from a new client or burst rate (P11);
+max 50 pending agent proposals per session (P8).
 
 ## 9. Residual risks / review items
 

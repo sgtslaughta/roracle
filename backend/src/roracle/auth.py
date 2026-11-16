@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
@@ -13,17 +13,18 @@ import jwt
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import User
+from roracle.models import AuditLog, User
 
 ADMIN_ROLE = "roracle-admin"
 LEEWAY_S = 30
 REFETCH_MIN_INTERVAL_S = 60
 KEYS_MAX_AGE_S = 600
 KEYS_HARD_MAX_AGE_S = 3600
+STALE_DETAIL = "token owner session stale \u2014 sign in again"
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ class Principal:
     username: str
     groups: tuple[str, ...]
     is_admin: bool
+    scopes: frozenset[str] = frozenset({"read", "write"})
+    client: str = ""
+    via: Literal["jwt", "pat"] = "jwt"
 
 
 def httpx_fetch(url: str) -> dict:
@@ -150,17 +154,61 @@ def _verify(token: str, jwks: JwksCache, settings: Settings) -> dict:
     return claims
 
 
+def resolve_principal(
+    session: Session,
+    jwks: JwksCache,
+    settings: Settings,
+    authorization: str | None,
+    session_factory: sessionmaker | None = None,
+) -> Principal:
+    """Bearer PAT (`ror_pat_`) or Keycloak JWT -> Principal. Every failure is the same 401."""
+    scheme, _, token = (authorization or "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        raise _unauthorized()
+    from roracle import pats  # lazy: pats imports this module
+
+    if token.startswith(pats.PREFIX):
+        try:
+            return pats.principal_from_pat(session, settings, token, session_factory)
+        except pats.StaleIdentity:
+            raise HTTPException(401, STALE_DETAIL, headers={"WWW-Authenticate": "Bearer"}) from None
+        except ValueError:
+            raise _unauthorized() from None
+    return _jwt_principal(session, jwks, settings, token)
+
+
 def current_principal(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     jwks: Annotated[JwksCache, Depends(get_jwks)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise _unauthorized()
+    p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
+    if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(403, "insufficient scope")
+    if p.via == "pat":
+        session.add(
+            AuditLog(
+                user_id=p.user_id,
+                action="pat.use",
+                target=f"{request.method} {request.url.path}"[:200],
+                client=p.client,
+            )
+        )
+    return p
+
+
+def require_jwt(p: Annotated[Principal, Depends(current_principal)]) -> Principal:
+    if p.via != "jwt":
+        raise HTTPException(403, "personal access tokens cannot manage tokens")
+    return p
+
+
+def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token: str) -> Principal:
     try:
-        claims = _verify(token.strip(), jwks, settings)
+        claims = _verify(token, jwks, settings)
         sub = claims["sub"]
         if not isinstance(sub, str) or not sub:
             raise ValueError("bad sub")
@@ -173,7 +221,12 @@ def current_principal(
     except Exception:  # noqa: BLE001 - any validation/fetch failure -> uniform 401, no detail leaked
         raise _unauthorized() from None
     stmt = insert(User).values(
-        sub=sub, username=username, email=email, groups=list(groups), is_admin=ADMIN_ROLE in roles
+        sub=sub,
+        username=username,
+        email=email,
+        groups=list(groups),
+        is_admin=ADMIN_ROLE in roles,
+        last_login_at=func.now(),
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=[User.sub],
@@ -182,10 +235,11 @@ def current_principal(
             "email": func.coalesce(stmt.excluded.email, User.email),
             "groups": stmt.excluded.groups,
             "is_admin": stmt.excluded.is_admin,
+            "last_login_at": func.now(),
         },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()
-    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles)
+    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=str(claims.get("azp", "")))
 
 
 def principal_for_user(session: Session, user_id: UUID) -> Principal:

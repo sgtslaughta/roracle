@@ -35,7 +35,10 @@ def owned_chat(session: Session, p: Principal, chat_id: UUID) -> Chat:
 
 
 def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[tuple[str, str]]:
-    """(doc_id, version_id) pairs among `items` the caller may still see (one query)."""
+    """(doc_id, version_id) pairs among `items` the caller may still see (one query).
+
+    Non-owners (non-admin) only see `searchable` versions; older versions of a visible doc are allowed
+    (same doc, `detail` lists them)."""
     docs: set[UUID] = set()
     vers: set[UUID] = set()
     for x in items:
@@ -54,6 +57,11 @@ def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[t
             DocumentVersion.id.in_(vers),
             DocumentVersion.stage.notin_(("rejected", "cancelled")),
             visible_documents(p),
+            *(
+                ()
+                if p.is_admin
+                else (or_(Document.owner_id == p.user_id, DocumentVersion.stage == "searchable"),)
+            ),
         )
     )
     return {(str(d), str(v)) for d, v in rows}

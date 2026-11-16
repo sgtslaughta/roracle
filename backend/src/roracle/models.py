@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -37,6 +38,7 @@ class User(Base):
     groups: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class Blob(Base):
@@ -245,3 +247,69 @@ class AnswerRating(Base):
     value: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class PersonalAccessToken(Base):
+    __tablename__ = "personal_access_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String)
+    prefix: Mapped[str] = mapped_column(String(12))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    scopes: Mapped[list[Any]] = mapped_column(JSONB, default=lambda: ["read"], server_default='["read"]')
+    groups: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    expires_at: Mapped[datetime] = mapped_column(TZ)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Handoff(Base):
+    __tablename__ = "handoffs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('chat','collection','search','document','agent')", name="ck_handoffs_kind"),
+        CheckConstraint("audience IN ('creator','shared','authenticated')", name="ck_handoffs_audience"),
+        CheckConstraint("created_via IN ('ui','mcp')", name="ck_handoffs_created_via"),
+        Index("ix_handoffs_creator_id_created_at", "creator_id", "created_at"),
+    )
+
+    code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    creator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String)
+    title: Mapped[str] = mapped_column(String, default="", server_default="")
+    goal: Mapped[str] = mapped_column(Text, default="", server_default="")
+    brief: Mapped[str] = mapped_column(Text, default="", server_default="")
+    source: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    doc_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    passages: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    transcript: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    notes: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    audience: Mapped[str] = mapped_column(String, default="creator", server_default="creator")
+    created_via: Mapped[str] = mapped_column(String, default="ui", server_default="ui")
+    expires_at: Mapped[datetime] = mapped_column(TZ)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class HandoffShare(Base):
+    __tablename__ = "handoff_shares"
+    __table_args__ = (CheckConstraint("principal_kind IN ('user','group')", name="ck_handoff_shares_kind"),)
+
+    handoff_code: Mapped[str] = mapped_column(
+        ForeignKey("handoffs.code", ondelete="CASCADE"), primary_key=True
+    )
+    principal_kind: Mapped[str] = mapped_column(String, primary_key=True)
+    principal: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String)
+    target: Mapped[str] = mapped_column(String, default="", server_default="")
+    client: Mapped[str] = mapped_column(String, default="", server_default="")
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
