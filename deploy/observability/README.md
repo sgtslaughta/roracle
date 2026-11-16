@@ -9,7 +9,7 @@ helm upgrade -i otel open-telemetry/opentelemetry-collector -n observability -f 
 helm upgrade -i roracle ../helm/roracle ... --set observability.grafanaDashboard.enabled=true --set postgres.monitoring.enabled=true
 ```
 
-Create the Loki buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) in MinIO first with `mc mb` (the roracle chart only creates its own buckets).
+Loki points at an external S3 placeholder (`s3.example.com`, credentials from Secret `loki-s3`); create the buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) there first. Using the bundled MinIO tenant instead is not provided: it needs an extra MinIO NetworkPolicy ingress rule for the observability namespace and a dedicated Loki user/policy.
 
 CI: empty `KUBECONFORM_SCHEMA_LOCATION` validates against online GitHub schemas; air-gapped runners must set it to a mirror including CRDs.
 

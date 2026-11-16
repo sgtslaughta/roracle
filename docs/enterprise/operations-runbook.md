@@ -80,7 +80,7 @@ version (admin → Maintenance → *Rebuild index*). Search stays on the old ali
 - PAT pepper: rotating invalidates all PATs — announce first.
 
 ### Release upgrade
-1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup roracle-pg` before a minor/major upgrade.
+1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` before a minor/major upgrade.
 3. Bump `/VERSION` (SemVer); `scripts/check-version.sh` (CI `helm` job) requires it to equal Chart `version` and `appVersion`. Tag `vX.Y.Z`; CI builds backend and web images.
 4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first (`backoffLimit: 0`: a failed migration blocks the rollout and leaves the old pods running); then api/worker/web roll.
 5. Verify `/healthz` version, upload + search + chat smoke test.
@@ -94,47 +94,28 @@ Also: after ECK CA rotation restart api/worker; update ClamAV signatures by refr
 
 | Store | Mechanism (chart defaults) | RPO | Restore |
 |---|---|---|---|
-| Postgres | CNPG WAL archiving to MinIO via barman-cloud plugin; `archive_timeout` forced to 5 min; immediate base backup at install + daily 02:00 (`postgres.backup.schedule`); retention 30d | <= 5 min (when WAL is being produced) | PITR into a new `Cluster` (3.1) |
+| Postgres | CNPG WAL archiving to MinIO via barman-cloud plugin; `archive_timeout` forced to 5 min; immediate base backup at install + daily 02:00 (`postgres.backup.schedule`); retention 30d | <= 5 min (when WAL is being produced) | PITR in place via `postgres.recovery` (3.1) |
 | Elasticsearch | SLM `roracle-daily` 01:30 to repo `roracle-s3`, expire 30d (min 7, max 60) | <= 24 h; index is rebuildable from Postgres + MinIO | snapshot restore (3.2) or rebuild |
 | MinIO | versioning; backup buckets with GOVERNANCE retention; site replication to a DR site (manual setup) | near-zero with replication, else loss of the cluster = loss of originals | 3.3 |
 | Keycloak | your Keycloak policy | | |
 
 RTO target <= 4 h. Order: Postgres -> MinIO (if lost) -> Elastic -> scale api/worker up. Alert on WAL archive age (Grafana panel, 300 s line).
+After the first install verify that a base backup exists (`kubectl get backup`; else trigger one with the command in section 2, Release upgrade): the immediate backup can run before the `minio-policy` hook has created the MinIO user. WAL archiving retries automatically.
+
 A single-cluster MinIO also holds the backups: without replication to another site, a cluster loss loses data and backups together.
 
-### 3.1 Postgres PITR into a new cluster
+### 3.1 Postgres PITR (in place, Helm-managed name)
 
-Restore never overwrites the live cluster. The new cluster reads the old one's backups (read-only) and must archive under a different `serverName`.
+Under the default-deny NetworkPolicy only the Helm-managed cluster `<fullname>-pg` is reachable, so the restore reuses that name. The chart bootstraps it from the backups (`postgres.recovery`) instead of `initdb`. The new cluster must archive under a new `serverName`, otherwise it collides with the old WAL archive.
 
-```yaml
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata: {name: roracle-pg-restore}
-spec:
-  instances: 3
-  storage: {size: 100Gi}
-  bootstrap:
-    recovery:
-      source: origin
-      recoveryTarget: {targetTime: "2026-11-15 09:30:00+00"}   # omit recoveryTarget for latest
-  externalClusters:
-    - name: origin
-      plugin:
-        name: barman-cloud.cloudnative-pg.io
-        parameters: {barmanObjectName: roracle-pg, serverName: roracle-pg}   # ObjectStore + original cluster name
-  plugins:
-    - name: barman-cloud.cloudnative-pg.io
-      isWALArchiver: true
-      parameters: {barmanObjectName: roracle-pg, serverName: roracle-pg-restore}
-```
+1. Confirm the backups exist and are recent: `kubectl get backup`, `kubectl cnpg status <fullname>-pg`. Deleting the Cluster deletes its PVCs.
+2. Stop writers (disable the HPA first, or it scales back): `kubectl scale deploy/<fullname>-api deploy/<fullname>-worker --replicas=0`.
+3. `kubectl delete cluster <fullname>-pg`.
+4. `helm upgrade <release> deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m --set postgres.recovery.enabled=true --set-string postgres.recovery.targetTime="2026-11-15 09:30:00+00" --set postgres.backup.serverName=<fullname>-pg-r1` (omit `targetTime` for latest; `postgres.recovery.sourceServerName` defaults to `<fullname>-pg`). The `migrate` hook runs after the cluster is up.
+5. Verify: `kubectl cnpg status <fullname>-pg`, row counts of `documents`, `jobs`, `kubectl get backup`.
+6. Keep `postgres.backup.serverName` (the new archive path) in your values permanently; set `postgres.recovery.enabled=false` again so a later cluster re-creation does not replay old backups. Scale api/worker back up.
 
-Add the same `imageName`, `postgresql.parameters`, `imagePullSecrets` and resources as the original (`kubectl get cluster roracle-pg -o yaml`).
-If the app credentials Secret is not in the target namespace, restore it too (initdb is skipped: roles come from the backup).
-Then:
-1. Wait for `kubectl cnpg status roracle-pg-restore` healthy. Scale api/worker to 0 first (`kubectl scale deploy/roracle-api deploy/roracle-worker --replicas=0`; the HPA must be disabled or it scales back).
-2. Update `ROR_DATABASE_URL` in `secrets.existingSecret` to `roracle-pg-restore-rw`, then `kubectl rollout restart` and scale back. (Or, once verified, delete the old cluster and recreate `roracle-pg` from the restore; keep a single owner of the Helm-managed name.)
-3. Migrations are only needed when restoring across versions: `helm upgrade` runs them.
-Rows written after the target time are lost; blobs in MinIO newer than the target are orphans (the GC job removes objects without a `blobs` row).
+Each further restore needs another new `serverName` (`-r2`, ...). Rows written after the target time are lost; blobs in MinIO newer than the target are orphans (the GC job removes objects without a `blobs` row). Migrations run on the upgrade when restoring across versions.
 
 ### 3.2 Elasticsearch restore
 
@@ -158,7 +139,7 @@ Elastic holds no unique data, so when no usable snapshot exists use that same pr
 
 ### 3.4 Quarterly drill checklist
 
-- [ ] Restore Postgres PITR to a time 1 h ago into a scratch namespace; compare row counts of `documents`, `jobs`.
+- [ ] Restore Postgres PITR (3.1) to a time 1 h ago in a scratch namespace/release; compare row counts of `documents`, `jobs`.
 - [ ] Restore the latest ES snapshot into a scratch ES; run a known query, compare hit counts.
 - [ ] Verify MinIO replication status (`mc admin replicate status`) and open a replicated object.
 - [ ] Point a scratch api/worker at the restored stores; smoke test upload, search, chat, citation.

@@ -10,6 +10,11 @@
 {{- if and $bk.enabled (not $bk.endpointURL) (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert (not $bk.endpointCA.name) }}
 {{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
 {{- end }}
+{{- $rc := $pg.recovery }}
+{{- if $rc.enabled }}
+{{- if not $bk.enabled }}{{ fail "postgres.recovery.enabled requires postgres.backup.enabled" }}{{ end }}
+{{- if or (not $bk.serverName) (eq $bk.serverName (default $name $rc.sourceServerName)) }}{{ fail "postgres.backup.serverName must be set and differ from the recovery source serverName (a new WAL archive path)" }}{{ end }}
+{{- end }}
 {{- $store := dict }}
 {{- if $bk.enabled }}
 {{- /* shared S3 settings for both backup methods (no secret values, refs only) */}}
@@ -38,11 +43,30 @@ spec:
   postgresql:
     parameters: {{ set (deepCopy $pg.parameters) "archive_timeout" "5min" | toYaml | nindent 6 }}
   bootstrap:
+    {{- if $rc.enabled }}
+    recovery:
+      source: origin
+      {{- if $rc.targetTime }}
+      recoveryTarget: {targetTime: {{ $rc.targetTime | quote }}}
+      {{- end }}
+    {{- else }}
     initdb:
       database: roracle
       owner: roracle
       secret:
         name: {{ required "postgres.appCredentialsSecret is required when postgres.mode=cnpg" $pg.appCredentialsSecret | quote }}
+    {{- end }}
+  {{- if $rc.enabled }}
+  externalClusters:
+    - name: origin
+      {{- if eq $bk.method "plugin" }}
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: {barmanObjectName: {{ $name }}, serverName: {{ default $name $rc.sourceServerName | quote }}}
+      {{- else }}
+      barmanObjectStore: {{ toYaml (merge (dict "serverName" (default $name $rc.sourceServerName)) $store) | nindent 8 }}
+      {{- end }}
+  {{- end }}
   {{- if $pg.monitoring.enabled }}
   monitoring:
     enablePodMonitor: true
@@ -56,10 +80,13 @@ spec:
       isWALArchiver: true
       parameters:
         barmanObjectName: {{ $name }}
+        {{- with $bk.serverName }}
+        serverName: {{ . | quote }}
+        {{- end }}
   {{- else }}
   backup:
     retentionPolicy: {{ $bk.retentionPolicy | quote }}
-    barmanObjectStore: {{ toYaml $store | nindent 6 }}
+    barmanObjectStore: {{ toYaml (merge (ternary (dict "serverName" $bk.serverName) (dict) (ne $bk.serverName "")) $store) | nindent 6 }}
   {{- end }}
   {{- end }}
 {{- if and $bk.enabled (eq $bk.method "plugin") }}

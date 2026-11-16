@@ -188,6 +188,8 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
 
 `ROR_OIDC_ORIGIN` is derived from `ROR_OIDC_AUTHORITY` at pod start.
 
+Upload size: nginx `client_max_body_size` is 1100m (>= `ROR_EVIDENCE_MAX_BYTES`, 1 GiB); any proxy or ingress in front must be at least that large.
+
 ```
 Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; connect-src 'self' ${ROR_OIDC_ORIGIN}; frame-src 'self' ${ROR_OIDC_ORIGIN}; frame-ancestors 'self'; base-uri 'self'; form-action 'self' ${ROR_OIDC_ORIGIN}; object-src 'none'
 X-Content-Type-Options: nosniff

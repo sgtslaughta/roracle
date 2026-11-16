@@ -150,6 +150,9 @@ postgres:
     endpointCA: {name: "", key: ca.crt}   # optional Secret holding the CA of a TLS object store
     retentionPolicy: 30d
     schedule: "0 0 2 * * *"   # 6-field cron (seconds first): daily base backup 02:00
+    serverName: ""         # archive path name; "" = cluster name. MUST be new (differs from the source) after a recovery
+  # PITR: bootstrap the Helm-managed cluster from backups instead of initdb (runbook 3.1). Needs backup.enabled + a new backup.serverName.
+  recovery: {enabled: false, targetTime: "", sourceServerName: ""}   # targetTime "" = latest; sourceServerName "" = cluster name
 
 elasticsearch:
   mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)

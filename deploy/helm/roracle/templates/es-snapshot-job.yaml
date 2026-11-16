@@ -38,7 +38,8 @@ spec:
               # credentials go through a curl config on stdin (printf is a builtin), never argv
               C() { printf 'user = "elastic:%s"\n' "$ES_PASSWORD" | curl -fsS -K - {{ if .Values.elasticsearch.tls }}--cacert /certs/ca.crt {{ end }}-H Content-Type:application/json "$@"; }
               until C "{{ $url }}/_cluster/health?wait_for_status=yellow&timeout=30s" >/dev/null; do echo waiting for elasticsearch; sleep 10; done
-              C -X PUT "{{ $url }}/_snapshot/roracle-s3" -d '{{ toJson $repo }}'
+              # repo verification needs the MinIO user + bucket: retry (30 x 10s)
+              n=0; until C -X PUT "{{ $url }}/_snapshot/roracle-s3" -d '{{ toJson $repo }}'; do n=$((n+1)); [ "$n" -lt 30 ] || exit 1; echo "repo registration failed, retry $n"; sleep 10; done
               C -X PUT "{{ $url }}/_slm/policy/roracle-daily" -d '{{ toJson $slm }}'
           env:
             - name: ES_PASSWORD

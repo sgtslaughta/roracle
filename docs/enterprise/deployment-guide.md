@@ -101,6 +101,8 @@ First-install ordering:
 | `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it. api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
 | `external` | `pre-install,pre-upgrade`: failure blocks the release. |
 
+Post hooks run in weight order: `minio-policy` (-10, creates users, policies, retention) then ES snapshot repo + SLM (0, retries repository registration up to 5 min until the MinIO user exists). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
+
 Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
 `helm test` is not provided.
 
@@ -249,8 +251,10 @@ Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bund
 - ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`); `ES_JAVA_OPTS` points at it.
   The post-install hook Job registers repository `roracle-s3` and SLM policy `roracle-daily`.
 - `minio-policy` hook Job: creates the three MinIO users (not Tenant `users:`, which grants consoleAdmin), attaches one-bucket policies,
-  enables versioning/object lock on the backup buckets with GOVERNANCE retention `minio.backupRetentionDays` (keep >= backup/snapshot retention). It runs on every upgrade.
+  sets GOVERNANCE default retention `minio.backupRetentionDays` on the backup buckets (keep >= backup/snapshot retention). Versioning and object lock come from the Tenant `buckets[].objectLock` (set at bucket creation, not changeable later). It runs on every upgrade, first (hook weight -10).
 - api/worker wait for the ECK CA Secret; after ECK CA rotation run `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
 - ES nodes run with `node.store.allow_mmap: false` (avoids ECK's privileged sysctl init container); drop it if a node-tuning DaemonSet sets `vm.max_map_count>=262144`.
+- Proxies in front of the web pod must allow bodies >= the evidence cap (`ROR_EVIDENCE_MAX_BYTES`, 1 GiB); the web pod's nginx allows 1100m. Ingress annotations: `nginx.ingress.kubernetes.io/proxy-body-size: 1100m`.
+- Pre-GA checklist: against the mirrored MinIO release, test that the ES S3 repository (repository verification and a snapshot) and barman-cloud (base backup + WAL) can write into the object-lock buckets (they require Content-MD5/checksum headers on PUTs).
 - Backups land on the bundled MinIO by default. For DR replicate the backup buckets to another site (MinIO site replication, not automated by the chart)
   or point `postgres.backup.*` / `elasticsearch.snapshot.*` at an external store. See the [runbook](operations-runbook.md) section 3.
