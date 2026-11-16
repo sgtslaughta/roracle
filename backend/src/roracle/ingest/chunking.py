@@ -26,8 +26,8 @@ def _chunker(tokenizer: str, max_tokens: int) -> HybridChunker:
 
 def chunk(doc: dict, title: str, tokenizer: str, max_tokens: int = 480) -> list[Chunk]:
     """Chunk a DoclingDocument dict. Token cap applies to `contextual`; doc_prompt's prefix
-    adds ~10 + title tokens (fine for 2k-context embedders). `pages` may be [] for chunks
-    without provenance. The cached tokenizer is shared: the worker is single-threaded per
+    adds ~10 + title tokens plus the summary (up to ~250 tokens): still fits 2k-context embedders.
+    `pages` may be [] for chunks without provenance. The cached tokenizer is shared: the worker is single-threaded per
     process (run_forever), so no lock is needed."""
     dl = DoclingDocument.model_validate(doc)
     ch = _chunker(tokenizer, max_tokens)

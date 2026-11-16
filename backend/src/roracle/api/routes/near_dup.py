@@ -107,5 +107,11 @@ def _merge_library(session: Session, old: UUID, new: UUID) -> None:
     )
     session.execute(delete(CollectionItem).where(CollectionItem.document_id == old))
     session.execute(delete(Vote).where(Vote.document_id == old))
-    session.execute(update(Vote).where(Vote.superseded_by == old).values(superseded_by=None))
+    # Votes on `new` that pointed at `old` would become self-referential: clear them first.
+    session.execute(
+        update(Vote)
+        .where(Vote.superseded_by == old, Vote.document_id == new)
+        .values(superseded_by=None, reason=None)
+    )
+    session.execute(update(Vote).where(Vote.superseded_by == old).values(superseded_by=new))
     enqueue(session, "acl_sync", {"doc_id": str(new)})  # ES tags follow the merged set

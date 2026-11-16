@@ -111,3 +111,10 @@ def test_root_org_unit_visible_to_groupless(db_session, user, other):
 def test_org_ancestors():
     assert org_ancestors([]) == ["/"]
     assert org_ancestors(["/A/B/C", "/A/D/", "/A/B"]) == ["/", "/A", "/A/B", "/A/B/C", "/A/D"]
+
+
+def test_org_ancestors_normalizes_like_stored_values():
+    assert org_ancestors(["/Math/"]) == ["/", "/Math"]
+    assert org_ancestors(["Math"]) == ["/", "/Math"]
+    assert org_ancestors([""]) == ["/"]
+    assert org_ancestors(["/"]) == ["/"]

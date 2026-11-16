@@ -31,10 +31,14 @@ class Settings(BaseSettings):
     docling_timeout_s: float = 300.0
     grobid_timeout_s: float = 120.0
     grobid_url: str = ""
+    gotenberg_url: str = ""
+    gotenberg_timeout_s: float = 300.0
+    max_rendition_bytes: int = 524288000
     clamav_host: str = ""
     rerank_url: str = ""
     rerank_model: str = ""
     near_dup_threshold: float = 0.85
+    near_dup_summary_threshold: float = 0.97
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
     chat_passages: int = 8  # clamped 4-12 at use

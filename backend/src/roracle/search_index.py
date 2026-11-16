@@ -25,6 +25,13 @@ def index_name(model: str) -> str:
 
 def _mapping(dims: int) -> dict[str, Any]:
     kw = {"type": "keyword"}
+    vec = {
+        "type": "dense_vector",
+        "dims": dims,
+        "index": True,
+        "similarity": "cosine",
+        "index_options": {"type": "int8_hnsw"},
+    }
     return {
         "properties": {
             "doc_id": kw,
@@ -48,13 +55,9 @@ def _mapping(dims: int) -> dict[str, Any]:
             "pages": {"type": "integer"},
             "bboxes": {"type": "object", "enabled": False},
             "embedding_model": kw,
-            "embedding": {
-                "type": "dense_vector",
-                "dims": dims,
-                "index": True,
-                "similarity": "cosine",
-                "index_options": {"type": "int8_hnsw"},
-            },
+            "prompt_sha": kw,
+            "embedding": vec,
+            "summary_embedding": vec,
         }
     }
 
@@ -69,13 +72,18 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
             if e.error != "resource_already_exists_exception":
                 raise
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
-    missing = {
-        f: t for f, t in _mapping(dims)["properties"].items() if f not in props and t == {"type": "keyword"}
-    }
-    if missing:  # backfill handles keyword fields only (R9); fields added after the index was created (R9)
-        es.indices.put_mapping(index=name, properties=missing)
-    if props.get("embedding", {}).get("dims") != dims:
+    if (
+        props.get("embedding", {}).get("dims") != dims
+        or props.get("summary_embedding", {}).get("dims", dims) != dims
+    ):
         raise NonRetryable("search index dimension mismatch: reindex required")
+    missing = {
+        f: t
+        for f, t in _mapping(dims)["properties"].items()
+        if f not in props and t["type"] in ("keyword", "dense_vector")
+    }
+    if missing:  # fields added after the index was created (R9)
+        es.indices.put_mapping(index=name, properties=missing)
     if not es.indices.exists_alias(name=alias, index=name):
         es.indices.put_alias(index=name, name=alias)
     return name
@@ -114,6 +122,8 @@ def index_chunks(
     title: str,
     is_latest: bool | None = None,
     tags: list[str] | None = None,
+    summary_vector: list[float] | None = None,
+    prompt_shas: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -143,14 +153,48 @@ def index_chunks(
                 "pages": c.pages,
                 "bboxes": c.bboxes,
                 "embedding": v,
+                **({"prompt_sha": prompt_shas[i]} if prompt_shas else {}),
+                **({"summary_embedding": summary_vector} if c.n == 0 and summary_vector else {}),
             },
         }
-        for c, v in zip(chunks, vectors, strict=True)
+        for i, (c, v) in enumerate(zip(chunks, vectors, strict=True))
     ]
     ok, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
     if errors:
         raise RuntimeError(f"bulk indexing failed for {len(errors)} chunks: {errors[0]}")
     return ok
+
+
+def cached_vectors(
+    es: Elasticsearch, model: str, doc_id, shas: list[str], dims: int
+) -> dict[str, list[float]]:
+    """Embeddings already indexed for this document under the same prompt hash. Scope is the one
+    document only: cross-document reuse would leak content existence via timing."""
+    out: dict[str, list[float]] = {}
+    for i in range(0, len(shas), 1000):
+        batch = shas[i : i + 1000]
+        try:
+            r = es.search(
+                index=index_name(model),
+                query={
+                    "bool": {"filter": [{"term": {"doc_id": str(doc_id)}}, {"terms": {"prompt_sha": batch}}]}
+                },
+                source=["prompt_sha", "embedding"],
+                collapse={"field": "prompt_sha"},
+                size=10000,
+            )
+        except NotFoundError:
+            return {}
+        except BadRequestError as e:
+            if "no mapping found" in str(e):
+                return {}
+            raise
+        for h in r["hits"]["hits"]:
+            src = h["_source"]
+            vec = src.get("embedding")
+            if vec and len(vec) == dims:
+                out[src["prompt_sha"]] = vec
+    return out
 
 
 def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = ALIAS) -> None:

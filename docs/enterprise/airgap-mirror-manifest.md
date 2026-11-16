@@ -18,7 +18,7 @@ of truth for language packages: `backend/uv.lock`, `frontend/pnpm-lock.yaml`.
 | `quay.io/keycloak/keycloak:26.x` | dev only | prod uses your Keycloak |
 | `quay.io/docling-project/docling-serve` | parsing | CPU or CUDA variant |
 | `lfoppiano/grobid:0.8.x` | metadata/references | |
-| `gotenberg/gotenberg:8` | office → PDF, HTML → PDF | |
+| `gotenberg/gotenberg:8.20.1` | office → PDF (ingest); HTML → PDF needs a separate instance for drafts | |
 | `clamav/clamav:1.4` | malware scan | needs signature mirror (freshclam private mirror) |
 | `texlive/texlive` (full) | latex-builder | ~5 GB |
 | `pandoc/core` | Markdown drafts | |

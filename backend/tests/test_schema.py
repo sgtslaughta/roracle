@@ -97,6 +97,7 @@ def test_ingest_defaults(db_session, document, blob):
     db_session.refresh(v)
     assert (v.stage, v.page_count, v.summary, v.meta, v.references) == ("uploaded", None, None, {}, [])
     assert (v.minhash, v.near_dup_of, v.is_latest, v.ingest_attempts) == (None, None, True, 0)
+    assert v.summary_embedding is None
 
 
 def test_user_defaults(db_session, user):

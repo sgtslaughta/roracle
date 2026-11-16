@@ -1,5 +1,7 @@
 """Document visibility rule. P3 mirrors this for Elastic filters."""
 
+import re
+
 from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -17,11 +19,31 @@ def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
     )
 
 
-def org_ancestors(groups: list[str]) -> list[str]:
-    """Each group plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
-    out = {"/"}
+def normalize_path(s: str) -> str:
+    """R7: leading "/", no "//", no trailing "/" (except root)."""
+    s = re.sub(r"/{2,}", "/", s.strip())
+    if not s.startswith("/"):
+        raise ValueError("path must start with '/'")
+    return s.rstrip("/") or "/"
+
+
+def org_units(groups: list[str]) -> list[str]:
+    """Rooted, normalized org units from token groups; blank/root-only groups are skipped (never widen to "/")."""
+    out: list[str] = []
     for g in groups:
-        g = g.rstrip("/")
+        g = g.strip()
+        if not g.strip("/"):
+            continue
+        u = normalize_path(g if g.startswith("/") else "/" + g)
+        if u not in out:
+            out.append(u)
+    return out
+
+
+def org_ancestors(groups: list[str]) -> list[str]:
+    """Each org unit plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
+    out = {"/"}
+    for g in org_units(groups):
         while g:
             out.add(g)
             g = g.rpartition("/")[0]

@@ -17,8 +17,9 @@ from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
-from roracle.ingest.embed import doc_prompt, embed
+from roracle.ingest.embed import doc_prompt, embed, from_bytes, prompt_sha, to_bytes
 from roracle.ingest.neardup import find_near_duplicate, minhash
+from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
@@ -70,10 +71,21 @@ def _scan(session: Session, v: DocumentVersion, settings: Settings, store: BlobS
 
 def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict:
     data = store.open(v.blob_sha256).read()
-    doc = convert(data, v.filename, settings.docling_url, timeout=settings.docling_timeout_s)
+    name = v.filename
+    is_pdf = name.lower().endswith(".pdf") or v.content_type == "application/pdf"
+    if settings.gotenberg_url and is_office(name):
+        data = to_pdf(
+            data,
+            name,
+            settings.gotenberg_url,
+            settings.max_rendition_bytes,
+            timeout=settings.gotenberg_timeout_s,
+        )
+        store.put_bytes(rendition_key(v.id), data, "application/pdf")
+        name, is_pdf = f"{name.rsplit('.', 1)[0]}.pdf", True
+    doc = convert(data, name, settings.docling_url, timeout=settings.docling_timeout_s)
     store.put_bytes(docling_key(v.id), json.dumps(doc).encode(), "application/json")
     meta, refs = {}, []
-    is_pdf = v.filename.lower().endswith(".pdf") or v.content_type == "application/pdf"
     if is_pdf and settings.grobid_url:
         try:
             meta, refs = grobid_metadata(data, settings.grobid_url, timeout=settings.grobid_timeout_s)
@@ -90,7 +102,11 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
     update_version(sf, v.id, minhash=minhash(text))
     session.refresh(v)
     match = find_near_duplicate(
-        session, principal_for_user(session, d.owner_id), v, settings.near_dup_threshold
+        session,
+        principal_for_user(session, d.owner_id),
+        v,
+        settings.near_dup_threshold,
+        settings.near_dup_summary_threshold,
     )
     if match is not None:
         update_version(sf, v.id, near_dup_of=match.id, stage="review")
@@ -107,11 +123,14 @@ def _index(
     if not chunks:
         raise NonRetryable("no text extracted")
     set_stage(sf, v.id, "chunked")
-    vectors = embed(
-        llm, settings.embed_model, [doc_prompt(title, c.contextual) for c in chunks], settings.embed_dims
-    )
-    set_stage(sf, v.id, "embedded")
+    prompts = [doc_prompt(title, c.contextual, v.summary) for c in chunks]
+    shas = [prompt_sha(p) for p in prompts]
     search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
+    cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims)
+    miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
+    fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
+    vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
+    set_stage(sf, v.id, "embedded")
     acl = search_index.acl_fields(session, d)
     session.refresh(v)
     newest = session.scalar(
@@ -119,9 +138,16 @@ def _index(
     )
     tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
+    sv = from_bytes(v.summary_embedding).tolist() if v.summary_embedding else None
+    if (sv is None or len(sv) != settings.embed_dims) and (v.summary or "").strip():
+        sv = embed(llm, settings.embed_model, [doc_prompt(title, v.summary)], settings.embed_dims)[0]
+        update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
+    elif sv is not None and len(sv) != settings.embed_dims:
+        sv = None
     search_index.index_chunks(
-        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
-    )
+        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
+        summary_vector=sv, prompt_shas=shas,
+    )  # fmt: skip
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
@@ -177,8 +203,14 @@ def handle_ingest(
             update_document(sf, d.id, title=title)
             session.refresh(d)
         text = document_text(doc)
+        summary = summarize(llm, settings.summary_model, title, text)
+        vec = (
+            embed(llm, settings.embed_model, [doc_prompt(title, summary)], settings.embed_dims)[0]
+            if summary.strip()
+            else None
+        )
         update_version(
-            sf, vid, summary=summarize(llm, settings.summary_model, title, text), stage="summarized"
+            sf, vid, summary=summary, summary_embedding=to_bytes(vec) if vec else None, stage="summarized"
         )
         session.refresh(v)
     if v.stage == "summarized":

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from elasticsearch import BadRequestError
 
 from roracle.auth import Principal
 from roracle.config import Settings
@@ -151,8 +152,13 @@ def search_chunks(
     http: httpx.Client | None = None,
     qvec: list[float] | None = None,
     min_similarity: float | None = None,
+    summary_knn: bool = True,
 ) -> list[Passage]:
-    """Fused passages, best first. Raises ValueError on an empty query (callers browse instead)."""
+    """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
+
+    summary_knn adds a third kNN list on the document summary vector (doc-level recall for search);
+    only chunk 0 carries it, so a hit means "this document", not "this passage".
+    """
     if not query.strip():
         raise ValueError("empty query")
     flt = _filters(p, filters, doc_ids)
@@ -170,19 +176,28 @@ def search_chunks(
         highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
     )["hits"]["hits"]
     vec = qvec if qvec is not None else embed_query(llm, settings, query)
-    knn_q: dict[str, Any] = {
-        "field": "embedding",
-        "query_vector": vec,
-        "k": size,
-        "num_candidates": 4 * size,
-        "filter": flt,
-    }
-    if min_similarity:
-        knn_q["similarity"] = min_similarity
-    knn = es.search(index=index, size=size, source=_SOURCE, knn=knn_q)["hits"]["hits"]
-    by_id = {h["_source"]["chunk_id"]: h for h in knn}
+
+    def knn_search(field: str) -> list[dict]:
+        knn_q: dict[str, Any] = {
+            "field": field,
+            "query_vector": vec,
+            "k": size,
+            "num_candidates": 4 * size,
+            "filter": flt,
+        }
+        if min_similarity:
+            knn_q["similarity"] = min_similarity
+        return es.search(index=index, size=size, source=_SOURCE, knn=knn_q)["hits"]["hits"]
+
+    knn = knn_search("embedding")
+    try:
+        sknn = knn_search("summary_embedding") if summary_knn else []
+    except BadRequestError as e:  # index predates summary_embedding and ensure_index has not run yet
+        log.warning("summary kNN skipped: %s", e)
+        sknn = []
+    by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn]}
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight
-    fused = rrf([[h["_source"]["chunk_id"] for h in bm25], [h["_source"]["chunk_id"] for h in knn]])
+    fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25, knn, sknn)])
     ranked = sorted(fused, key=lambda c: -fused[c])
     out = [_passage(by_id[c], fused[c]) for c in ranked]
     if settings.rerank_url:

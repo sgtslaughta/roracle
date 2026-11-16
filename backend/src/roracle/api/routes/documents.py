@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import org_units, visible_documents
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
@@ -37,6 +37,9 @@ def upload(
     visibility: Annotated[Literal["private", "shared", "org_unit", "everyone"], Form()] = "everyone",
     force: Annotated[bool, Form()] = False,
 ) -> dict:
+    units = org_units(list(p.groups))
+    if visibility == "org_unit" and not units:
+        raise HTTPException(422, "cannot determine org unit; choose another visibility")
     try:
         staged = stage(file.file, settings.max_upload_bytes)
     except EmptyFile:
@@ -67,7 +70,7 @@ def upload(
         doc = Document(
             owner_id=p.user_id,
             title=title or None,
-            org_unit=p.groups[0] if p.groups else "/",
+            org_unit=units[0] if units else "",  # "" matches no ancestor (fail closed)
             visibility=visibility,
         )
         session.add(doc)

@@ -40,7 +40,7 @@ operators/instances. NetworkPolicies: default deny; allow only the edges above.
 | web | 2 | 0.25 vCPU, 128 MiB | static |
 | Docling | 2–4 | 4 vCPU, 16 GiB (or GPU) | ~200k pages/day ≈ 2.3 pages/s sustained; GPU or the inference endpoint's granite-docling model recommended |
 | GROBID | 2 | 4 vCPU, 8 GiB | |
-| Gotenberg | 2 | 2 vCPU, 4 GiB | |
+| Gotenberg | 2 | 2 vCPU, 4 GiB | LibreOffice conversion of office uploads; one conversion at a time per pod |
 | ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required; set `StreamMaxLength`, `MaxFileSize`, `MaxScanSize` to 600M (> the 500 MB upload limit) and `AlertExceedsMax yes` (fail closed: oversize files are reported FOUND, never partially scanned), else large uploads fail permanently |
 | latex-builder | 2 | 2 vCPU, 2 GiB per build | job concurrency limited |
 | Postgres | 3 (1 primary + 2 sync/async replicas) | 8 vCPU, 32 GiB, 500 GiB SSD | metadata ≈ 100 GiB at target |
@@ -84,7 +84,10 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_CHAT_MODELS` | `qwen2.5:14b` | Comma-separated allowlist of chat models; the first is the default |
 | `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
-| `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_GOTENBERG_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
+| `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
+| `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down or 5xx = retryable (fails after retries are exhausted); invalid file = permanent failure |
+| `ROR_NEAR_DUP_SUMMARY_THRESHOLD` | `0.97` | Cosine similarity of document summary embeddings at or above which a new upload is parked for a near-duplicate decision (in addition to the MinHash `ROR_NEAR_DUP_THRESHOLD`); only visible documents are compared |
+| `ROR_MAX_RENDITION_BYTES` | `524288000` | Cap on the Gotenberg PDF rendition (streamed, aborted when exceeded); over = permanent failure. Page/size caps are enforced by Docling itself: set `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` on the docling-serve container (over-limit documents fail; the error is not distinguishable, so they surface as a conversion failure). The ingest Gotenberg is a dedicated, isolated instance with chromium routes disabled (office → PDF only); the later paper-drafts HTML/Markdown → PDF build (spec §8) needs its own separate Chromium-enabled instance. Deploy Gotenberg isolated: own namespace, deny-all egress NetworkPolicy (ingress from worker only), no secrets, read-only root FS, command `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s` |
 
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
 Postgres, not env.
@@ -104,3 +107,5 @@ Postgres, not env.
 
 SemVer: patch = drop-in; minor = additive migrations, rolling upgrade; major = release notes with
 manual steps. Always snapshot Postgres and Elastic before a minor/major upgrade.
+
+P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.

@@ -1,34 +1,19 @@
 import json
-import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
-from elasticsearch import Elasticsearch
 from ingest_helpers import FakeLLM, docling_doc, fake_convert, handler, make_version
 from sqlalchemy import select
 
 from roracle.ingest import pipeline
+from roracle.ingest.embed import from_bytes
 from roracle.ingest.neardup import minhash
 from roracle.models import Document, DocumentShare, DocumentVersion, Job
 from roracle.queue import enqueue, run_once
 from roracle.search_index import index_name
 
 DIMS = 4
-
-
-@pytest.fixture
-def cfg(settings):
-    return settings.model_copy(
-        update={"embed_model": f"fake-embed-{uuid.uuid4().hex[:8]}", "embed_dims": DIMS, "grobid_url": ""}
-    )
-
-
-@pytest.fixture
-def es(cfg):
-    c = Elasticsearch(cfg.elastic_url)
-    yield c
-    c.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
 
 
 def _run(db_session, session_factory, cfg, store, es, v, expect_failed=False):
@@ -62,7 +47,7 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     _run(db_session, session_factory, cfg, store, es, v)
     db_session.expire_all()
     v = db_session.get(DocumentVersion, v.id)
-    assert v.stage == "searchable" and v.summary == "A fixed summary." and v.page_count == 1
+    assert v.stage == "searchable" and v.summary.startswith("A summary ") and v.page_count == 1
     assert db_session.get(Document, v.document_id).title == "A Study of Retrieval"
     assert s3.exists(f"derived/{v.id}/docling.json")
     hits = _chunks(es, cfg, v)
@@ -323,7 +308,7 @@ def test_llm_down_is_retryable_and_stage_unchanged(
     db_session.expire_all()
     job = db_session.scalars(select(Job)).first()
     assert job.status == "queued" and not job.last_error.startswith("user:")
-    assert _stage(db_session, v) == "chunked"
+    assert _stage(db_session, v) == "parsed"  # summary embedding fails in the summarize block
 
 
 @pytest.mark.integration
@@ -420,3 +405,69 @@ def test_tag_added_between_read_and_index_converges(
     _run(db_session, session_factory, cfg, store, es, v)
     hits = _chunks(es, cfg, v)
     assert hits and {tuple(h["_source"]["tags"]) for h in hits} == {("late",)}
+
+
+def _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, url):
+    seen = {}
+
+    def conv(data, filename, *a, **k):
+        seen["convert"] = (data, filename)
+        return json.loads(json.dumps(docling_doc()))
+
+    monkeypatch.setattr(pipeline, "convert", conv)
+    monkeypatch.setattr(pipeline, "to_pdf", lambda data, filename, *a, **k: b"%PDF-1.7 rendition")
+    v = make_version(db_session, store, user, name="Report.DOCX")
+    _run(db_session, session_factory, cfg.model_copy(update={"gotenberg_url": url}), store, es, v)
+    return v, seen
+
+
+@pytest.mark.integration
+def test_office_converted_to_pdf_rendition(
+    db_session, session_factory, cfg, store, es, user, monkeypatch, s3
+):
+    v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "http://g")
+    assert seen["convert"] == (b"%PDF-1.7 rendition", "Report.pdf")
+    assert s3.exists(f"derived/{v.id}/rendition.pdf")
+    assert store.open(v.blob_sha256).read() != b"%PDF-1.7 rendition"  # original untouched
+
+
+@pytest.mark.integration
+def test_office_without_gotenberg_goes_to_docling(
+    db_session, session_factory, cfg, store, es, user, monkeypatch, s3
+):
+    v, seen = _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, "")
+    assert seen["convert"][1] == "Report.DOCX" and seen["convert"][0] != b"%PDF-1.7 rendition"
+    assert not s3.exists(f"derived/{v.id}/rendition.pdf")
+
+
+def test_summary_embedding_persisted(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    db_session.expire_all()
+    b = db_session.get(DocumentVersion, v.id).summary_embedding
+    assert b is not None and len(from_bytes(b)) == DIMS
+
+
+def test_empty_summary_has_no_embedding(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "summarize", lambda *a, **k: "  ")
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, v.id).summary_embedding is None
+
+
+def test_different_docs_not_summary_near_dup(db_session, session_factory, cfg, store, user, monkeypatch):
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    stages = []
+    for title, topic in (("Alpha Paper", "alpha"), ("Beta Study", "beta")):
+        monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(title=title, topic=topic)))
+        v = make_version(db_session, store, user)
+        _run(db_session, session_factory, cfg, store, MagicMock(), v)
+        db_session.query(DocumentVersion).filter_by(id=v.id).update({"stage": "searchable"})
+        db_session.commit()
+        stages.append(db_session.get(DocumentVersion, v.id).near_dup_of)
+    assert stages == [None, None]

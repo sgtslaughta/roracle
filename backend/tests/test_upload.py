@@ -94,3 +94,37 @@ def test_group_shared_doc_triggers_409_for_group_member(client, as_ana, as_bob, 
 
 def test_overlong_title_is_422(client, as_ana):
     assert _up(client, as_ana, title="x" * 501).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "groups,want",
+    [
+        (("/Math/",), "/Math"),
+        (("Math",), "/Math"),
+        (("//Math//Sub/",), "/Math/Sub"),
+        (("", "/Bio"), "/Bio"),
+        ((), ""),
+        (("/",), ""),
+    ],
+)
+def test_upload_org_unit_normalized(client, make_token, db_session, groups, want):
+    from conftest import bearer
+
+    hdr = bearer(make_token(sub="zed", username="zed", groups=groups))
+    visibility = "org_unit" if want else "private"
+    assert _up(client, hdr, visibility=visibility).status_code == 201
+    assert db_session.scalar(select(Document.org_unit)) == want
+
+
+@pytest.mark.parametrize("groups", [(), ("/",), ("",)])
+def test_upload_org_unit_without_unit_is_422_and_writes_nothing(client, make_token, db_session, s3, groups):
+    from conftest import bearer
+
+    hdr = bearer(make_token(sub="zed", username="zed", groups=groups))
+    before = s3.keys()
+    r = _up(client, hdr, visibility="org_unit")
+    assert r.status_code == 422
+    assert r.json() == {"detail": "cannot determine org unit; choose another visibility"}
+    assert s3.keys() == before
+    for m in (Document, Blob, Job):
+        assert db_session.scalar(select(func.count()).select_from(m)) == 0
