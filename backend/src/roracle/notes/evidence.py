@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from roracle.config import Settings
 from roracle.ingest.scan import scan
-from roracle.models import Evidence, EvidenceReproduction
+from roracle.models import Evidence, EvidenceReproduction, User
 from roracle.queue import NonRetryable
 from roracle.storage import BlobStore
 
@@ -227,6 +227,15 @@ def to_json(session: Session, p, rows: list[Evidence]) -> list[dict]:
             counts[(eid, outcome)] += 1
             if uid == p.user_id:
                 mine[eid] = outcome
+    names = (
+        dict(
+            session.execute(
+                select(User.id, User.username).where(User.id.in_({e.creator_id for e in rows}))
+            ).all()
+        )
+        if rows
+        else {}
+    )
     return [
         {
             "id": str(e.id),
@@ -249,6 +258,7 @@ def to_json(session: Session, p, rows: list[Evidence]) -> list[dict]:
                 "mine": mine.get(e.id),
             },
             "created_by": str(e.creator_id),
+            "created_by_name": names.get(e.creator_id, ""),
             "created_at": e.created_at.isoformat() if isinstance(e.created_at, datetime) else None,
         }
         for e in rows

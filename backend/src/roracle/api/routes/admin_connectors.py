@@ -16,7 +16,7 @@ from roracle.connectors import fs
 from roracle.connectors.netguard import Blocked, check_url
 from roracle.connectors.run import active_run_job
 from roracle.db import get_session
-from roracle.models import Connector, ConnectorRun, Document
+from roracle.models import Connector, ConnectorRun, Document, Job
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -153,7 +153,20 @@ def _out(c: Connector) -> dict:
 
 def _with_last(session: Session, c: Connector) -> dict:
     last = _last_run(session, c.id)
-    return {**_out(c), "last_run": _run(last) if last else None}
+    out = _run(last) if last else None
+    queued = session.scalar(
+        select(Job.id)
+        .where(
+            Job.kind == "connector_run",
+            Job.status == "queued",
+            Job.payload["connector_id"].astext == str(c.id),
+        )
+        .limit(1)
+    )
+    if queued is not None:  # a trigger waiting for the worker outranks the previous run's status
+        out = {"id": None, "started_at": None, "finished_at": None, "stats": {}, **(out or {})}
+        out |= {"status": "queued", "job_id": queued}
+    return {**_out(c), "last_run": out}
 
 
 def _run(r: ConnectorRun, log: bool = False) -> dict:

@@ -45,12 +45,16 @@ def my_proposals(
     p: Who,
     session: Session_,
     status: Annotated[Literal["pending", "approved", "rejected"] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=LIST_MAX)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     q = select(Proposal).where(Proposal.user_id == p.user_id)
     if status:
         q = q.where(Proposal.status == status)
     total = session.scalar(select(func.count()).select_from(q.subquery()))
-    rows = list(session.scalars(q.order_by(Proposal.created_at.desc(), Proposal.id).limit(LIST_MAX)))
+    rows = list(
+        session.scalars(q.order_by(Proposal.created_at.desc(), Proposal.id).limit(limit).offset(offset))
+    )
     wanted = {r.payload.get("document_id") for r in rows}
     docs = {
         str(i): t
@@ -61,6 +65,16 @@ def my_proposals(
         )
     }
     return {"total": total, "items": [view(r, docs) for r in rows]}
+
+
+@router.get("/me/proposals/count")
+def my_proposals_count(p: Who, session: Session_) -> dict:
+    n = session.scalar(
+        select(func.count())
+        .select_from(Proposal)
+        .where(Proposal.user_id == p.user_id, Proposal.status == "pending")
+    )
+    return {"pending": n}
 
 
 @router.post("/proposals/bulk-approve")

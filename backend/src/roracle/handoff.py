@@ -236,15 +236,37 @@ def view(session: Session, p: Principal, h: Handoff) -> dict:
         src = {}  # creator's private handles
     withheld = len(every - set(shown) - {x["doc_id"] for x in passages})
     author = session.get(User, h.creator_id)
-    return {
+    titles = dict(
+        session.execute(
+            select(Document.id, Document.title).where(Document.id.in_([UUID(d) for d in shown]))
+        ).all()
+    )
+    out = {
         "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
         "uri": "roracle://handoff/" + h.code, "kind": h.kind, "title": h.title, "goal": h.goal,
-        "brief": h.brief, "source": src, "doc_ids": shown, "passages": passages,
+        "brief": h.brief, "source": src, "doc_ids": shown,
+        "documents": [{"id": d, "title": titles.get(UUID(d))} for d in shown], "passages": passages,
         "notes": h.notes[-PAGE:], "withheld": withheld,
         "parts": {"transcript": ceil(len(h.transcript) / PAGE), "notes": ceil(len(h.notes) / PAGE)},
         "audience": h.audience, "expires_at": _iso(h.expires_at), "created_at": _iso(h.created_at),
         "created_by": author.username if author else "", "created_via": h.created_via,
     }  # fmt: skip
+    if mine or p.is_admin:  # recipients never see who else it is shared with
+        out["shares"] = [
+            {"kind": s.principal_kind, "principal": s.principal}
+            for s in session.scalars(
+                select(HandoffShare)
+                .where(HandoffShare.handoff_code == h.code)
+                .order_by(HandoffShare.principal_kind, HandoffShare.principal)
+            )
+        ]
+    return out
+
+
+def absolute(m: dict, base: str) -> dict:
+    """`url` made absolute when a public base URL is configured."""
+    base = base.rstrip("/")
+    return {**m, "url": base + m["url"]} if base else m
 
 
 def load(session: Session, p: Principal, code: str) -> dict:
@@ -349,7 +371,8 @@ def list_mine(session: Session, p: Principal) -> list[dict]:
     )
     return [
         {
-            "code": h.code, "display": display(h.code), "kind": h.kind, "title": h.title,
+            "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
+            "kind": h.kind, "title": h.title,
             "audience": h.audience, "expires_at": _iso(h.expires_at), "revoked_at": _iso(h.revoked_at),
             "created_at": _iso(h.created_at), "created_via": h.created_via,
         }

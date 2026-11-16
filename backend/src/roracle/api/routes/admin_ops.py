@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import extract, func, select, text, update
 from sqlalchemy.orm import Session
@@ -147,7 +147,11 @@ def retry_failed(
 
 
 @router.get("/admin/stats")
-def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
+def stats(
+    p: Admin,
+    session: Annotated[Session, Depends(get_session)],
+    top: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict:
     """top_uploaders bytes skip rejected/cancelled versions (quota semantics); connector docs count."""
     live, deleted = session.execute(
         select(
@@ -167,7 +171,7 @@ def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
         .where(Document.deleted_at.is_(None), DocumentVersion.stage.not_in(("rejected", "cancelled")))
         .group_by(User.id, User.username)
         .order_by(size.desc(), User.username)
-        .limit(10)
+        .limit(top)
     ).all()
 
     def count(model) -> int:

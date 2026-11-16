@@ -41,7 +41,7 @@ def test_users_and_groups(client, adm, as_ana, db_session, user, store):
         "id", "username", "email", "groups", "is_admin", "created_at", "last_login_at", "documents", "bytes"
     }  # fmt: skip
     assert client.get("/admin/users", headers=adm).json()["total"] >= 2
-    groups = {g["group"]: g["members"] for g in client.get("/admin/groups", headers=adm).json()}
+    groups = {g["group"]: g["members"] for g in client.get("/admin/groups", headers=adm).json()["items"]}
     assert groups["/Mathematics/Spectral Theory"] == 1
 
 
@@ -95,12 +95,16 @@ def test_tag_merge(client, adm, db_session, user, store):
     db_session.add_all([Tag(document_id=a, tag="ml"), Tag(document_id=a, tag="machine-learning")])
     db_session.add_all([Tag(document_id=b, tag="ml"), Tag(document_id=c, tag="other")])
     db_session.commit()
-    tags = client.get("/admin/tags", headers=adm).json()
+    tags = client.get("/admin/tags", headers=adm).json()["items"]
     assert tags[0] == {"tag": "ml", "documents": 2}
     r = client.post(
         "/admin/tags/merge", json={"sources": ["ML", "ml "], "target": "Machine Learning"}, headers=adm
     )
-    assert r.json() == {"documents": 2}
+    assert r.json() == {
+        "documents": 2,
+        "document_ids": sorted([str(a), str(b)]),
+        "target": "machine-learning",
+    }
     db_session.expire_all()
     got = {(t.document_id, t.tag) for t in db_session.scalars(select(Tag))}
     assert got == {(a, "machine-learning"), (b, "machine-learning"), (c, "other")}

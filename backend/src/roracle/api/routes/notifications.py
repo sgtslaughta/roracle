@@ -23,6 +23,7 @@ def list_notifications(
     session: Annotated[Session, Depends(get_session)],
     unread_only: bool = False,
     before_id: int | None = None,
+    since_id: int | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict:
     mine = Notification.user_id == p.user_id
@@ -31,12 +32,16 @@ def list_notifications(
         q = q.where(Notification.read_at.is_(None))
     if before_id is not None:
         q = q.where(Notification.id < before_id)
+    if since_id is not None:
+        q = q.where(Notification.id > since_id)
     rows = list(session.scalars(q))
     page = rows[:limit]
     unread = session.scalar(
         select(func.count()).select_from(Notification).where(mine, Notification.read_at.is_(None))
     )
+    max_id = session.scalar(select(func.max(Notification.id)).where(mine))
     return {
+        "max_id": max_id,
         "items": [
             {
                 "id": n.id,

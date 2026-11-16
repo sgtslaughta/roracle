@@ -153,8 +153,23 @@ def attach_notes(
         if on
         else {}
     )
+    total = notes_total(session, p, [h["doc_id"] for h in hits])
     for h in hits:
         h["notes"] = found.get(h["doc_id"], [])
+        h["notes_total"] = total.get(h["doc_id"], 0)
+
+
+def notes_total(session: Session, p: Principal, doc_ids) -> dict[str, int]:
+    """doc id -> number of notes the caller may read (one grouped query; PG rules, like the notes list)."""
+    docs = _uuids(doc_ids)
+    if not docs:
+        return {}
+    rows = session.execute(
+        select(Annotation.document_id, func.count())
+        .where(Annotation.document_id.in_(docs), readable_notes(p))
+        .group_by(Annotation.document_id)
+    )
+    return {str(d): n for d, n in rows}
 
 
 def note_passages(session: Session, p: Principal, passages: list, strict: tuple[int, float]) -> list:

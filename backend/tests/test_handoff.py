@@ -358,6 +358,7 @@ def test_list_mine_newest_first(client, as_ana, ana):
     assert set(rows[0]) == {
         "code",
         "display",
+        "url",
         "kind",
         "title",
         "audience",

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, func, literal, select, text, update
+from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
@@ -117,15 +117,30 @@ def list_users(
     return {"items": items, "total": total}
 
 
+def _like(q: str) -> str:
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 @router.get("/admin/groups")
-def list_groups(p: Admin, session: Annotated[Session, Depends(get_session)]) -> list[dict]:
+def list_groups(
+    p: Admin,
+    session: Annotated[Session, Depends(get_session)],
+    q: str = "",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    grp = select(func.jsonb_array_elements_text(User.groups).label("grp")).select_from(User).subquery()
+    where = [grp.c.grp.ilike(_like(q), escape="\\")] if q else []
+    total = session.scalar(select(func.count(func.distinct(grp.c.grp))).where(*where)) or 0
     rows = session.execute(
-        text(
-            "SELECT g AS grp, count(*) AS members FROM users, jsonb_array_elements_text(groups) AS g"
-            " GROUP BY g ORDER BY g"
-        )
+        select(grp.c.grp, func.count())
+        .where(*where)
+        .group_by(grp.c.grp)
+        .order_by(grp.c.grp)
+        .limit(limit)
+        .offset(offset)
     ).all()
-    return [{"group": g, "members": n} for g, n in rows]
+    return {"items": [{"group": g, "members": n} for g, n in rows], "total": total}
 
 
 @router.get("/admin/review")
@@ -176,11 +191,24 @@ def review_queue(
 
 
 @router.get("/admin/tags")
-def list_tags(p: Admin, session: Annotated[Session, Depends(get_session)]) -> list[dict]:
+def list_tags(
+    p: Admin,
+    session: Annotated[Session, Depends(get_session)],
+    q: str = "",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    where = [Tag.tag.ilike(_like(q), escape="\\")] if q else []
+    total = session.scalar(select(func.count(func.distinct(Tag.tag))).where(*where)) or 0
     rows = session.execute(
-        select(Tag.tag, func.count()).group_by(Tag.tag).order_by(func.count().desc(), Tag.tag)
+        select(Tag.tag, func.count())
+        .where(*where)
+        .group_by(Tag.tag)
+        .order_by(func.count().desc(), Tag.tag)
+        .limit(limit)
+        .offset(offset)
     ).all()
-    return [{"tag": t, "documents": n} for t, n in rows]
+    return {"items": [{"tag": t, "documents": n} for t, n in rows], "total": total}
 
 
 class TagMerge(BaseModel):
@@ -221,7 +249,7 @@ def merge_tags(body: TagMerge, p: Admin, session: Annotated[Session, Depends(get
         body.target,
         {"sources": sources, "target": body.target, "documents": len(docs)},
     )
-    return {"documents": len(docs)}
+    return {"documents": len(docs), "document_ids": sorted(str(d) for d in docs), "target": body.target}
 
 
 @router.get("/admin/audit")
