@@ -11,8 +11,8 @@ import { readAi, withAi } from "./frontMatter";
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 /** Submit: the backend reads AI disclosure from the front matter, so the form writes it there (a new version) before submitting. */
-export function SubmitDialog({ draft, open, onOpenChange }: { draft: DraftDetail; open: boolean; onOpenChange: (o: boolean) => void }) {
-  const ai0 = readAi(draft.content);
+export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { draft: DraftDetail; base: { version: number; content: string }; onSaved: (content: string, version: number) => void; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const ai0 = readAi(base.content);
   const [used, setUsed] = useState(ai0?.used ?? false);
   const [tools, setTools] = useState(ai0?.tools.join(", ") ?? "");
   const [description, setDescription] = useState(ai0?.description ?? "");
@@ -31,7 +31,11 @@ export function SubmitDialog({ draft, open, onOpenChange }: { draft: DraftDetail
     const ai = { used, tools: used ? list(tools).slice(0, 20) : [], description: used ? description.trim() : "" };
     try {
       const same = ai0 && ai0.used === ai.used && ai0.description === ai.description && ai0.tools.join(",") === ai.tools.join(",");
-      if (!same) await save.mutateAsync({ content: withAi(draft.content, ai), base_version: draft.latest_version });
+      if (!same) {
+        const content = withAi(base.content, ai);
+        const r = await save.mutateAsync({ content, base_version: base.version });
+        onSaved(content, r.version);
+      }
       const r = await submit.mutateAsync({ visibility, share_users: visibility === "shared" ? list(users) : [], share_groups: visibility === "shared" ? list(groups) : [] });
       setResult(r.status === "in_review" ? "Submitted for review. An admin will approve it before it is published." : "Submitted and published.");
     } catch (err) {
@@ -43,7 +47,7 @@ export function SubmitDialog({ draft, open, onOpenChange }: { draft: DraftDetail
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(520px,calc(100vw-32px))]">
         <DialogTitle>Submit draft</DialogTitle>
-        <DialogDescription>Latest saved version (v{draft.latest_version}) must pass validation and the citation check.</DialogDescription>
+        <DialogDescription>Latest saved version (v{base.version}) must pass validation and the citation check.</DialogDescription>
         {result ? (
           <>
             <p role="status">{result}</p>

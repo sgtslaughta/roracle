@@ -1,6 +1,6 @@
 import { Link, useBlocker, useParams } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import type { DraftDetail } from "@/api/drafts";
@@ -18,14 +18,23 @@ import { StatusBadge } from "./StatusBadge";
 import { SubmitDialog } from "./SubmitDialog";
 import { VersionsPanel } from "./VersionsPanel";
 
-function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Promise<string | undefined> }) {
+function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Promise<DraftDetail | undefined> }) {
   const me = useMe().data;
+  // `base` = the server version the editor text started from; saves send its version so a newer remote save 409s
+  const [base, setBase] = useState({ version: draft.latest_version, content: draft.content });
   const [text, setText] = useState(draft.content);
   const [submitting, setSubmitting] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState("");
+  const [tab, setTab] = useState("checks");
   const save = useSaveDraft(draft.id);
-  const dirty = text !== draft.content;
+  const dirty = text !== base.content;
+  useEffect(() => {
+    if (draft.latest_version === base.version && draft.content === base.content) return;
+    if (text === base.content) { setBase({ version: draft.latest_version, content: draft.content }); setText(draft.content); } // clean: adopt remote changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to fetched data only; a dirty editor keeps its base
+  }, [draft.latest_version, draft.content]);
+  const adopt = (content: string, version: number) => { setBase({ version, content }); setText(content); };
   const owner = me?.id === draft.owner.id;
   const author = owner || (!!me && draft.coauthors.users.includes(me.id));
   const locked = draft.status === "in_review";
@@ -37,12 +46,13 @@ function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Prom
 
   const doSave = () => {
     setError(""); setConflict(false);
-    save.mutate({ content: text, base_version: draft.latest_version }, {
-      onSuccess: () => toast("Saved."),
+    const sent = text;
+    save.mutate({ content: sent, base_version: base.version }, {
+      onSuccess: (r) => { setBase({ version: r.version, content: sent }); toast("Saved."); },
       onError: (e) => (detailCode(e) === "draft_changed" ? setConflict(true) : setError(draftError(e))),
     });
   };
-  const loadLatest = async () => { const c = await refetch(); if (c !== undefined) setText(c); setConflict(false); };
+  const loadLatest = async () => { const c = await refetch(); if (c) adopt(c.content, c.latest_version); setConflict(false); };
 
   return (
     <section className="view">
@@ -65,7 +75,7 @@ function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Prom
       )}
       {error && <p className="derr" role="alert">{error}</p>}
       <DraftEditor text={text} onChange={setText} readOnly={locked} />
-      <Tabs defaultValue="checks">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList aria-label="Draft tools">
           <TabsTrigger value="checks">Checks</TabsTrigger>
           <TabsTrigger value="pdf">PDF</TabsTrigger>
@@ -73,11 +83,11 @@ function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Prom
           <TabsTrigger value="coauthors">Co-authors</TabsTrigger>
         </TabsList>
         <TabsContent value="checks"><ChecksPanel draft={draft} author={author} /></TabsContent>
-        <TabsContent value="pdf"><BuildPanel id={draft.id} title={draft.title} author={author} /></TabsContent>
-        <TabsContent value="versions"><VersionsPanel draft={draft} locked={locked} dirty={dirty} onRestored={setText} /></TabsContent>
+        <TabsContent value="pdf" forceMount hidden={tab !== "pdf"}><BuildPanel id={draft.id} title={draft.title} author={author} /></TabsContent>
+        <TabsContent value="versions"><VersionsPanel draft={draft} locked={locked} dirty={dirty} base={base} onRestored={adopt} /></TabsContent>
         <TabsContent value="coauthors"><CoauthorsPanel draft={draft} owner={owner} /></TabsContent>
       </Tabs>
-      {submitting && <SubmitDialog draft={draft} open onOpenChange={setSubmitting} />}
+      {submitting && <SubmitDialog draft={draft} base={base} onSaved={adopt} open onOpenChange={setSubmitting} />}
     </section>
   );
 }
@@ -88,5 +98,5 @@ export function DraftPage() {
   if (!isUuid(id) || (q.error instanceof ApiError && q.error.status === 404)) return <NotFound />;
   if (q.isError) return <section className="view"><div className="empty" role="alert"><p>Couldn't load this draft.</p></div></section>;
   if (!q.data) return <section className="view"><p className="sub" role="status">Loading draft…</p></section>;
-  return <DraftView key={q.data.id} draft={q.data} refetch={async () => (await q.refetch()).data?.content} />;
+  return <DraftView key={q.data.id} draft={q.data} refetch={async () => (await q.refetch()).data} />;
 }

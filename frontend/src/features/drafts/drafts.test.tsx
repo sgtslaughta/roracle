@@ -18,8 +18,9 @@ const url = (p: string) => `${API_BASE}${p}`;
 async function open(path: string) {
   const router = createAppRouter([path]);
   await router.load();
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>);
-  return router;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>);
+  return qc;
 }
 const editor = () => screen.findByLabelText("Draft content") as Promise<HTMLTextAreaElement>;
 const tab = (name: string) => userEvent.click(screen.getByRole("tab", { name }));
@@ -32,6 +33,17 @@ describe("front matter", () => {
     expect(readAi(out)).toEqual(ai);
     expect(withAi("# T", ai).startsWith("---\nai_assistance:")).toBe(true);
     expect(readAi("# T")).toBeNull();
+  });
+});
+
+describe("front matter (backend parity)", () => {
+  it("does not stack a second block for ---<space> delimiters or an empty block, and escapes C1 controls", () => {
+    const ai = { used: true, tools: [], description: "a\u0085b" };
+    const once = withAi("--- \ndoc_type: x\n---  \nbody", ai);
+    expect(once.match(/^---/gm)).toHaveLength(2);
+    expect(withAi("---\n---\nbody", ai).match(/^---/gm)).toHaveLength(2);
+    expect(once).toContain("\\u0085");
+    expect(readAi(once)?.description).toBe("a\u0085b");
   });
 });
 
@@ -116,6 +128,40 @@ describe("draft editor", () => {
     await open(`/drafts/${D3}`);
     expect(await screen.findByText(/Reviewer note: Tighten the aims/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Submit/ })).not.toBeInTheDocument(); // co-author, not owner
+  });
+});
+
+describe("stale base", () => {
+  it("a remote save while editing keeps the base, so Save 409s instead of overwriting", async () => {
+    const user = userEvent.setup();
+    let sent: number | undefined;
+    server.use(http.put(url(`/drafts/${D1}/content`), async ({ request }) => { sent = ((await request.json()) as { base_version: number }).base_version; return HttpResponse.json({ detail: { code: "draft_changed", version: 3 } }, { status: 409 }); }));
+    const qc = await open(`/drafts/${D1}`);
+    const ta = await editor();
+    await user.type(ta, "x");
+    // a co-author's save lands and the draft refetches (window focus / invalidation)
+    const { state } = await import("@/mocks/state");
+    state.drafts!.find((d) => d.id === D1)!.vers.push({ version: 3, author: { id: "u2", username: "ana" }, created_at: "2026-11-15T00:00:00Z", content: "remote" });
+    state.drafts!.find((d) => d.id === D1)!.latest_version = 3;
+    void qc.invalidateQueries({ queryKey: ["draft", D1], exact: true });
+    await waitFor(() => expect(screen.getByText(/version 3/)).toBeInTheDocument());
+    expect(ta.value.endsWith("x")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Someone saved a newer version/)).toBeInTheDocument();
+    expect(sent).toBe(2);
+  });
+
+  it("a clean editor adopts remote changes, and the PDF result survives a tab switch", async () => {
+    const user = userEvent.setup();
+    await open(`/drafts/${D1}`);
+    const ta = await editor();
+    await tab("PDF");
+    await user.click(screen.getByRole("button", { name: "Build PDF" }));
+    await screen.findByRole("link", { name: /Download PDF/ });
+    await tab("Versions");
+    await tab("PDF");
+    expect(screen.getByRole("link", { name: /Download PDF/ })).toBeInTheDocument();
+    expect(ta.value).toContain("Second pass");
   });
 });
 

@@ -10,7 +10,7 @@ import { draftError, useDraftVersion, useSaveDraft } from "./api";
 import { stripFrontMatter } from "./frontMatter";
 
 /** Version history. The API has no restore endpoint: restore = GET that version, then PUT its text as a new version. */
-export function VersionsPanel({ draft, locked, dirty, onRestored }: { draft: DraftDetail; locked: boolean; dirty: boolean; onRestored: (content: string) => void }) {
+export function VersionsPanel({ draft, base, locked, dirty, onRestored }: { draft: DraftDetail; base: { version: number }; locked: boolean; dirty: boolean; onRestored: (content: string, version: number) => void }) {
   const [viewing, setViewing] = useState<number | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -21,8 +21,8 @@ export function VersionsPanel({ draft, locked, dirty, onRestored }: { draft: Dra
     setError("");
     try {
       const v = await apiFetch<VersionBody>(`/drafts/${seg(draft.id)}/versions/${seg(n)}`);
-      await save.mutateAsync({ content: v.content, base_version: draft.latest_version });
-      onRestored(v.content);
+      const r = await save.mutateAsync({ content: v.content, base_version: base.version });
+      onRestored(v.content, r.version);
     } catch (e) { setError(draftError(e)); }
     setRestoring(null);
   };

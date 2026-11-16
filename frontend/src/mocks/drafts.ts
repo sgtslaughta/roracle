@@ -114,6 +114,7 @@ export const draftHandlers = [
   http.delete(url("/drafts/:id/citations/ack"), async ({ params, request }) => {
     const d = find(params.id);
     if (!d) return err(404, "not found");
+    if (d.reports.citations?.version !== d.latest_version) return err(409, { code: "checks_required" });
     const b = (await request.json()) as { key: string; sentence_hash: string };
     d.acks = d.acks.filter((a) => a !== `${b.key}:${b.sentence_hash}`);
     return HttpResponse.json((d.reports.citations = citations(d)));

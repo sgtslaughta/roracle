@@ -46,10 +46,8 @@ export function ChecksPanel({ draft, author }: { draft: DraftDetail; author: boo
           {stale(v, draft) && <Stale v={v.version} latest={draft.latest_version} />}
           <p><span className={`pill ${v.ok ? "done" : "failed"}`}>{v.ok ? "No blocking findings" : `${v.blocking.length} blocking`}</span> <small>profile {v.profile.name}</small></p>
           {v.style_unavailable && <p className="sub">Style checks were unavailable for this run.</p>}
-          <ul className="flist">
-            {v.blocking.map((f, i) => <li key={`b${i}`}><b>Blocking</b> {f.rule}: {f.message}{f.line != null && ` (line ${f.line})`}</li>)}
-            {v.warnings.map((f, i) => <li key={`w${i}`}>Warning {f.rule}: {f.message}{f.line != null && ` (line ${f.line})`}</li>)}
-          </ul>
+          <OverflowList className="flist" items={[...v.blocking.map((f) => ({ f, b: true })), ...v.warnings.map((f) => ({ f, b: false }))]} max={8} menuLabel="More findings" moreLabel={(n) => `+${n} more findings`}
+            renderItem={({ f, b }, i) => <p key={i} className="fitem">{b ? <b>Blocking </b> : "Warning "}{f.rule}: {f.message}{f.line != null && ` (line ${f.line})`}</p>} />
         </div>
       )}
       <h3>Citation check</h3>
