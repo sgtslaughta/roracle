@@ -178,7 +178,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: {{ .tmp }}}
-        {{- if .ca }}{{ include "roracle.caVolumes" $root | nindent 8 }}{{ end }}
+        {{- if .ca }}{{ include "roracle.caVolumes" (dict "root" $root "optional" false) | nindent 8 }}{{ end }}
 {{- if .port }}
 ---
 apiVersion: v1
@@ -225,7 +225,10 @@ initContainers:
 {{- end }}
 {{- end -}}
 
+{{/* args: root, optional. The ES CA secret is optional only in the migrate hook (it may not exist yet); api/worker wait for it. */}}
 {{- define "roracle.caVolumes" -}}
+{{- $o := .optional -}}
+{{- with .root }}
 {{- if include "roracle.caEnabled" . }}
 - name: ca-bundle
   emptyDir: {sizeLimit: 1Mi}
@@ -233,7 +236,7 @@ initContainers:
   projected:
     sources:
       {{- if and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls }}
-      - secret: {name: {{ include "roracle.fullname" . }}-es-http-certs-public, optional: true, items: [{key: ca.crt, path: es.crt}]}
+      - secret: {name: {{ include "roracle.fullname" . }}-es-http-certs-public, optional: {{ $o }}, items: [{key: ca.crt, path: es.crt}]}
       {{- end }}
       {{- if and .Values.caBundle.kubeRootCa (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert }}
       - configMap: {name: kube-root-ca.crt, optional: true, items: [{key: ca.crt, path: kube-root.crt}]}
@@ -241,6 +244,7 @@ initContainers:
       {{- range $i, $x := .Values.caBundle.extraSecrets }}
       - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
       {{- end }}
+{{- end }}
 {{- end }}
 {{- end -}}
 

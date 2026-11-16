@@ -2,6 +2,7 @@
 {{- $m := .Values.minio }}
 {{- $name := include "roracle.fullname" . }}
 {{- $tls := $m.requestAutoCert }}
+{{- $ca := and $tls (or .Values.caBundle.kubeRootCa .Values.caBundle.extraSecrets) }}
 {{- range $k := list "app" "pgBackup" "esSnapshot" }}{{ $_ := required (printf "minio.users.%s is required when minio.mode=tenant" $k) (get $m.users $k) }}{{ end }}
 {{- $grants := list (list $m.users.app .Values.config.ROR_S3_BUCKET "app") (list $m.users.pgBackup (include "roracle.pgBucket" .) "pg-backup") (list $m.users.esSnapshot .Values.elasticsearch.snapshot.bucket "es-snapshot") }}
 # Users are created here (not via Tenant users:, which grants consoleAdmin): one user + one-bucket RW policy each.
@@ -37,8 +38,10 @@ spec:
             - |
               # root creds come from the operator config.env (sourced, never on argv); MC_HOST_* is env-only
               . /cfg/config.env
-              export MC_HOST_local="{{ ternary "https" "http" $tls }}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio.{{ .Release.Namespace }}.svc"
-              until mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
+              until mc alias set local "{{ ternary "https" "http" $tls }}://minio.{{ .Release.Namespace }}.svc" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 && mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
+              for b in {{ .Values.config.ROR_S3_BUCKET }} {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
+                n=0; until mc stat "local/$b" >/dev/null 2>&1; do n=$((n+1)); [ $n -le 60 ] || { echo "bucket $b missing"; exit 1; }; sleep 10; done
+              done
               # user secrets are read from mounted files; mc takes them as args (visible only inside this container, never logged)
               grant() { # user-secret-dir bucket policy-name
                 key=$(cat "/users/$1/CONSOLE_ACCESS_KEY")
@@ -54,12 +57,13 @@ spec:
               {{- range $i, $g := $grants }}
               grant u{{ $i }} {{ index $g 1 }} {{ index $g 2 }}
               {{- end }}
-              mc version enable "local/{{ include "roracle.pgBucket" . }}"
-              mc version enable "local/{{ .Values.elasticsearch.snapshot.bucket }}"
+              for b in {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
+                mc retention set --default GOVERNANCE "{{ $m.backupRetentionDays }}d" "local/$b"
+              done
           env:
             - {name: HOME, value: /tmp}
-            {{- if $tls }}
-            - {name: SSL_CERT_FILE, value: /ca/ca.crt}
+            {{- if $ca }}
+            - {name: SSL_CERT_DIR, value: /ca}
             {{- end }}
           resources:
             requests: {cpu: 50m, memory: 64Mi}
@@ -71,7 +75,7 @@ spec:
             {{- range $i, $g := $grants }}
             - {name: u{{ $i }}, mountPath: /users/u{{ $i }}, readOnly: true}
             {{- end }}
-            {{- if $tls }}
+            {{- if $ca }}
             - {name: ca, mountPath: /ca, readOnly: true}
             {{- end }}
       volumes:
@@ -83,8 +87,15 @@ spec:
         - name: u{{ $i }}
           secret: {secretName: {{ index $g 0 | quote }}}
         {{- end }}
-        {{- if $tls }}
+        {{- if $ca }}
         - name: ca
-          configMap: {name: kube-root-ca.crt}
+          projected:
+            sources:
+              {{- if .Values.caBundle.kubeRootCa }}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: kube-root.crt}]}
+              {{- end }}
+              {{- range $i, $x := .Values.caBundle.extraSecrets }}
+              - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
+              {{- end }}
         {{- end }}
 {{- end }}

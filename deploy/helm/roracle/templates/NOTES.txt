@@ -1,5 +1,5 @@
 rOracle {{ .Chart.AppVersion }} installed as {{ .Release.Name }}.
-Migrations run as a pre-install/pre-upgrade hook Job; a failure blocks the release.
+Install/upgrade with `--timeout 30m` (hooks wait for operator-managed services). Migrations run as a pre-install/pre-upgrade hook Job; a failure blocks the release.
 {{- if .Values.ingress.enabled }}
 URL: https://{{ .Values.ingress.host }}  (MCP: POST /mcp)
 {{- end }}

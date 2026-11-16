@@ -5,7 +5,8 @@ metadata:
   labels: {{ include "roracle.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
+    # cnpg: the database does not exist before install, so run post-install (api/worker may restart until it finishes)
+    "helm.sh/hook": {{ ternary "post-install,pre-upgrade" "pre-install,pre-upgrade" (eq .Values.postgres.mode "cnpg") }}
     "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
@@ -27,7 +28,25 @@ spec:
         - name: migrate
           image: {{ include "roracle.image" (dict "root" . "img" .Values.image.backend) }}
           imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          {{- if eq .Values.postgres.mode "cnpg" }}
+          # bounded wait (<= 10 min) for the database, then migrate
+          command: [sh, -ec]
+          args:
+            - |
+              python -c "
+              import os, sys, time
+              from sqlalchemy import create_engine
+              e = create_engine(os.environ['ROR_DATABASE_URL'])
+              for _ in range(120):
+                  try:
+                      e.connect().close(); sys.exit(0)
+                  except Exception:
+                      time.sleep(5)
+              sys.exit('database not reachable after 10 minutes')"
+              exec python -m roracle migrate
+          {{- else }}
           command: [python, -m, roracle, migrate]
+          {{- end }}
           env:
             {{- include "roracle.configEnv" . | nindent 12 }}
             {{- include "roracle.secretEnv" . | nindent 12 }}
@@ -40,4 +59,4 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 1Gi}
-        {{- include "roracle.caVolumes" . | nindent 8 }}
+        {{- include "roracle.caVolumes" (dict "root" . "optional" true) | nindent 8 }}

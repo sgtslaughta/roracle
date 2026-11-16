@@ -64,7 +64,7 @@ Vector math (per embedding model index, 1 replica):
    Elastic credentials.
 5. **Helm** (`deploy/helm/roracle`, delivered in roadmap plan 11):
    ```bash
-   helm upgrade --install roracle deploy/helm/roracle -n roracle -f values-prod.yaml
+   helm upgrade --install roracle deploy/helm/roracle -n roracle -f values-prod.yaml --timeout 30m
    ```
    The chart runs `python -m roracle migrate` as a pre-upgrade hook Job before rolling `api`/`worker`.
 6. **Reverse proxy**: forward `/mcp` and `/.well-known/oauth-protected-resource` to the api (not the SPA),
@@ -138,4 +138,5 @@ Each of `postgres`, `elasticsearch`, `minio` has `mode: <operator>|external`; bu
 - App Secret `secrets.existingSecret`: `ROR_DATABASE_URL` (`postgresql+psycopg://`), `ROR_S3_ACCESS_KEY/SECRET_KEY` (= the `minio.users.app` keys), `ROR_ELASTIC_URL` = `https://roracle_app:<password>@<release>-roracle-es-http.<ns>.svc:9200` (never the `elastic` user).
 - TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, cluster CA) are on by default. The backend has no CA setting yet, so api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`) mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the image layout). Replace with `ROR_*_CA` settings once P11b lands.
 - ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`) and `ES_JAVA_OPTS` points at it. The `minio-policy` hook Job creates the three MinIO users itself (not Tenant `users:`, which grants consoleAdmin), attaches one-bucket policies and enables versioning on the backup buckets.
+- Hooks and ordering: with bundled CNPG the migrate Job is a post-install hook (the DB does not exist earlier; it waits up to 10 min), so on first install api/worker may restart until migrations finish; use `--timeout 30m` on install/upgrade. api/worker wait for the ECK CA secret; after ECK CA rotation run a rollout restart of api/worker. The MinIO policy hook trusts `kube-root-ca.crt` (+ `caBundle.extraSecrets`); clusters whose CSR signer differs from the kube root CA (e.g. EKS) must add the signer CA via `caBundle.extraSecrets`. Backup buckets get GOVERNANCE default retention (`minio.backupRetentionDays`).
 - Backups land on the bundled MinIO by default: for DR, replicate the backup buckets to a separate site (MinIO site replication) or point `postgres.backup.*`/`elasticsearch.snapshot.*` at an external store.

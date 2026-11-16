@@ -97,11 +97,12 @@ web:
   nodeSelector: {}
   tolerations: []
 
-# Pre-install/pre-upgrade hook Job: `python -m roracle migrate`. Failure blocks the release.
+# Pre-upgrade hook Job (pre-install too for external Postgres; post-install for bundled CNPG, which waits <= 10 min for the DB
+# so api/worker may restart until it finishes): `python -m roracle migrate`. Failure blocks the release. Use `helm --timeout 30m`.
 # Env is inlined (the ConfigMap does not exist yet on pre-install). Runs as the namespace default
 # ServiceAccount (no token mounted) because the chart ServiceAccount is not yet created either.
 migrate:
-  activeDeadlineSeconds: 900
+  activeDeadlineSeconds: 1500
   resources:
     requests: {cpu: 500m, memory: 512Mi}
     limits: {memory: 512Mi}
@@ -198,6 +199,7 @@ minio:
   # The policy hook Job (mc) creates these users with the root creds and attaches one-bucket RW policies (not Tenant users:).
   # The app user's keys must also be in secrets.existingSecret (ROR_S3_ACCESS_KEY/SECRET_KEY); the others in the backup secrets.
   users: {app: "", pgBackup: "", esSnapshot: ""}
+  backupRetentionDays: 30  # GOVERNANCE default retention on the backup buckets; keep >= backup/snapshot retention
   policyJob:
     image: {repository: quay.io/minio/mc, tag: RELEASE.2024-10-08T09-37-26Z, digest: "", pullPolicy: IfNotPresent}
     activeDeadlineSeconds: 1800

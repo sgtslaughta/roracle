@@ -22,7 +22,6 @@ spec:
     tls:
       selfSignedCertificate:
         disabled: {{ not $es.tls }}
-  {{- if $sn.enabled }}
   auth:
     fileRealm:
       - secretName: {{ required "elasticsearch.appUserSecret is required when elasticsearch.mode=eck" $es.appUserSecret | quote }}
@@ -31,7 +30,6 @@ spec:
   {{- if $sn.enabled }}
   secureSettings:
     - secretName: {{ $sn.credentialsSecret | quote }}
-  {{- end }}
   {{- end }}
   nodeSets:
     {{- range $ns := $es.nodeSets }}
