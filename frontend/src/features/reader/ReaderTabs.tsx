@@ -6,7 +6,7 @@ import { closeReader, closeTab, setActive, type ReaderState } from "./useReaderS
 
 function DocTab({ docId, active }: { docId: string; active: boolean }) {
   const { data } = useDoc(docId);
-  const Icon = data?.file_type === "Word" ? FileType2 : FileText;
+  const Icon = ["doc", "docx"].includes(data?.file_type?.toLowerCase() ?? "") ? FileType2 : FileText;
   const label = data ? tabLabel({ ...data, filename: data.versions.at(-1)?.filename }) : docId;
   return (
     <div className="rtab" data-active={active}>

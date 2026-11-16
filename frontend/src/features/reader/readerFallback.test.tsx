@@ -58,6 +58,13 @@ describe("reader rendition", () => {
     expect(pre.querySelector("b")).toBeNull();
   });
 
+  it("a text file over 2 MB offers the download instead", async () => {
+    noPdf(); named("big.md");
+    server.use(http.get(`${API_BASE}/documents/:id/versions/:n/file`, () => new HttpResponse("x".repeat(2 * 1024 * 1024 + 1), { headers: { "Content-Type": "text/markdown" } })));
+    await open();
+    expect(await screen.findByText(/Preview not available/)).toBeInTheDocument();
+  });
+
   it("404 on anything else shows Preview not available and downloads on demand", async () => {
     noPdf(); named("data.bin");
     let fetched = 0;
@@ -94,7 +101,37 @@ describe("sharing dialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
     await userEvent.selectOptions(screen.getByLabelText("Visible to"), "private");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(body).toEqual({ visibility: "private" }));
+    await waitFor(() => expect(body).toEqual({ visibility: "private", share_users: [], share_groups: [] }));
+  });
+
+  it("sends only the edited list", async () => {
+    let body: unknown;
+    server.use(http.patch(`${API_BASE}/documents/:id`, async ({ request }) => { body = await request.json(); return HttpResponse.json({}); }));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
+    await userEvent.selectOptions(screen.getByLabelText("Visible to"), "shared");
+    expect(screen.getByText(/Existing shares aren't listed here/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Share with groups"), "/Math{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(body).toEqual({ visibility: "shared", share_groups: ["/Math"] }));
+  });
+
+  it("emptying a list on an already shared doc needs a second Save", async () => {
+    const bodies: unknown[] = [];
+    server.use(http.patch(`${API_BASE}/documents/:id`, async ({ request }) => { bodies.push(await request.json()); return HttpResponse.json({}); }));
+    server.use(http.get(`${API_BASE}/documents/:id`, ({ params }) => HttpResponse.json({
+      id: params.id, title: "Lower bounds on the spectral gap", authors: [], year: 2021, venue: null, org_unit: "/A", visibility: "shared", owner: { id: "u-me", username: "researcher" },
+      summary: null, stage: "searchable", tags: [], votes: { up: 0, down: 0, mine: 0 }, file_type: "PDF", page_count: 1, flag: null, share_groups: ["/Math"],
+      versions: [{ id: "v1", version: 1, filename: "a.pdf", uploaded_at: "2026-10-01T10:00:00Z", is_latest: true }],
+    })));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove /Math" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Press Save again/)).toBeInTheDocument();
+    expect(bodies).toEqual([]);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodies).toEqual([{ visibility: "shared", share_groups: [] }]));
   });
 
   it("non-owner sees no Sharing button", async () => {

@@ -17,8 +17,13 @@ const groupError = (v: string) => (v.startsWith("/") ? null : "Group paths start
 export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   const [vis, setVis] = useState<Visibility>(doc.visibility);
-  const [users, setUsers] = useState<string[]>([]);
-  const [groups, setGroups] = useState<string[]>([]);
+  const [users, setUsersRaw] = useState<string[]>(doc.share_users ?? []);
+  const [groups, setGroupsRaw] = useState<string[]>(doc.share_groups ?? []);
+  const [edited, setEdited] = useState({ users: false, groups: false });
+  const [confirm, setConfirm] = useState(false);
+  const setUsers = (v: string[]) => { setUsersRaw(v); setEdited((e) => ({ ...e, users: true })); setConfirm(false); };
+  const setGroups = (v: string[]) => { setGroupsRaw(v); setEdited((e) => ({ ...e, groups: true })); setConfirm(false); };
+  const known = doc.share_users !== undefined || doc.share_groups !== undefined;
   const save = useMutation({
     mutationFn: (body: DocumentPatch) => apiFetch(`/documents/${seg(doc.id)}`, { method: "PATCH", json: body }),
     onSuccess: () => {
@@ -33,7 +38,18 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
       <DialogContent>
         <DialogTitle>Sharing</DialogTitle>
         <DialogDescription>Choose who can see “{doc.title}”.</DialogDescription>
-        <form style={{ display: "grid", gap: 10 }} onSubmit={(e) => { e.preventDefault(); save.mutate({ visibility: vis, ...(vis === "shared" ? { share_users: users, share_groups: groups } : {}) }); }}>
+        <form style={{ display: "grid", gap: 10 }} onSubmit={(e) => {
+          e.preventDefault();
+          const body: DocumentPatch = { visibility: vis };
+          if (vis === "private") { body.share_users = []; body.share_groups = []; }
+          if (vis === "shared") {
+            if (edited.users) body.share_users = users;
+            if (edited.groups) body.share_groups = groups;
+            const clears = (edited.users && !users.length) || (edited.groups && !groups.length);
+            if (clears && doc.visibility === "shared" && !confirm) { setConfirm(true); return; }
+          }
+          save.mutate(body);
+        }}>
           <label>Visible to
             <select className="inp" value={vis} onChange={(e) => setVis(e.target.value as Visibility)}>
               {VIS_ORDER.map((v) => <option key={v} value={v}>{VIS_LABEL[v]}</option>)}
@@ -42,10 +58,12 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
           <p className="sub">Shares only apply when visibility is “Shared”. Switching to “Only me” clears all shares.</p>
           {vis === "shared" && (
             <>
+              {!known && <p className="sub">Existing shares aren't listed here; entries you add replace that list.</p>}
               <ChipInput label="Share with users" help="User ids; replaces the current list." values={users} onChange={setUsers} validate={userError} />
               <ChipInput label="Share with groups" help="Group paths; replaces the current list." values={groups} onChange={setGroups} validate={groupError} />
             </>
           )}
+          {confirm && <p role="alert">This empties a share list and removes everyone on it. Press Save again to confirm.</p>}
           <Button variant="primary" type="submit" disabled={save.isPending}>Save</Button>
         </form>
       </DialogContent>

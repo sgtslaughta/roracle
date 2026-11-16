@@ -5,6 +5,7 @@ import { SafeMarkdown } from "@/components/SafeMarkdown";
 import { Button } from "@/components/ui/button";
 
 const MD = /\.(md|markdown)$/i;
+const MAX_TEXT = 2 * 1024 * 1024;
 const TXT = /\.(txt|text)$/i;
 
 /** No PDF rendition (404): Markdown and plain text render from the original file, anything else offers a download. */
@@ -15,12 +16,15 @@ export function TextFallback({ docId, version, filename, onDownload }: { docId: 
     queryKey: ["doc-text", docId, version],
     enabled: textual,
     staleTime: Infinity,
-    queryFn: async () => (await apiFetch<Blob>(`/documents/${seg(docId)}/versions/${seg(version)}/file`)).text(),
+    queryFn: async () => {
+      const blob = await apiFetch<Blob>(`/documents/${seg(docId)}/versions/${seg(version)}/file`);
+      return blob.size > MAX_TEXT ? null : blob.text(); // too large to render: offer the download
+    },
   });
   if (textual && text.data != null) {
     return <div className="pages"><div className="doctext">{md ? <SafeMarkdown text={text.data} /> : <pre>{text.data}</pre>}</div></div>;
   }
-  if (textual && !text.isError) return <div className="pages"><p className="sub" role="status">Loading document…</p></div>;
+  if (textual && text.data === undefined && !text.isError) return <div className="pages"><p className="sub" role="status">Loading document…</p></div>;
   return (
     <div className="pages">
       <div className="empty" role="alert">
