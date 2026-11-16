@@ -218,6 +218,7 @@ def test_profile_default_label(client, ana, admin, db_session):
     assert str(d.label_id) == mid
 
 
+@pytest.mark.usefixtures("_blob_store_override")
 def test_document_and_search_json_carry_label(client, as_ana, ana, admin, db_session, fes):
     sec = mklabel(client, admin, "Secret", 5)
     d, _ = seed(db_session, ana)
@@ -226,8 +227,10 @@ def test_document_and_search_json_carry_label(client, as_ana, ana, admin, db_ses
     assert lab["id"] == sec and lab["gates"]["exclude_llm"] is False
     hits = client.get("/search", headers=as_ana).json()["results"]
     assert hits[0]["label"]["name"] == "Secret"
+    up = _up(client, as_ana, sec, data=b"%PDF-mine")
+    assert up.status_code == 201, up.text
     mine = client.get("/me/uploads", headers=as_ana).json()["items"]
-    assert not mine or mine[0]["label"]["name"] == "Secret"
+    assert [m["label"]["name"] for m in mine if m["document_id"] == up.json()["document_id"]] == ["Secret"]
 
 
 def test_acl_fields_has_label_id(db_session, ana):
