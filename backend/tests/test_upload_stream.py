@@ -171,7 +171,7 @@ def test_openapi_documents_multipart_fields(app):
     schema = app.openapi()["paths"]["/documents"]["post"]["requestBody"]["content"]["multipart/form-data"][
         "schema"
     ]
-    assert set(schema["properties"]) == {"file", "title", "visibility", "force"}
+    assert set(schema["properties"]) == {"file", "title", "visibility", "force", "label_id"}
     ev = app.openapi()["paths"]["/annotations/{note_id}/evidence"]["post"]["requestBody"]
     assert set(ev["content"]["multipart/form-data"]["schema"]["properties"]) == {"meta", "file"}
 

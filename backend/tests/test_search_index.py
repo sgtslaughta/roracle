@@ -2,9 +2,11 @@ import uuid
 
 import pytest
 from elasticsearch import Elasticsearch
+from sqlalchemy import select
 
 from roracle.ingest.chunking import Chunk
 from roracle.models import DocumentShare, DocumentVersion
+from roracle.models_labels import Label
 from roracle.search_index import (
     acl_fields,
     delete_stale_chunks,
@@ -63,6 +65,7 @@ def test_acl_fields(db_session, user, document):
         "coauthor_users": [],
         "share_users": ["u1"],
         "share_groups": ["/Physics"],
+        "label_id": str(db_session.scalar(select(Label.id).where(Label.is_default))),
     }
 
 

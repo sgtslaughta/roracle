@@ -19,6 +19,7 @@ from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.citations import cited_by_counts
 from roracle.config import Settings
 from roracle.db import get_session
+from roracle.labels.policy import Policy, label_json
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.notes.community import attach_notes
 from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
@@ -258,6 +259,7 @@ def _hit(r: Row) -> dict:
         "venue": r.meta.get("venue"),
         "org_unit": r.doc.org_unit,
         "owner_id": str(r.doc.owner_id),
+        "label": str(r.doc.label_id),  # id here; search() swaps in the label JSON
         "flag": None,  # outdated-flag lands later
         "cited_by_count": 0,  # filled by search() in one batched query
     }
@@ -378,7 +380,9 @@ def search(
     universe = universe + [r for r in rows if r.doc.id not in seen]
     out = _response(rows, universe, wanted, sort, page, size)
     counts = cited_by_counts(session, p, [UUID(h["doc_id"]) for h in out["results"]])
+    policy = Policy.load(session)
     for h in out["results"]:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
+        h["label"] = label_json(policy.get(h["label"]))
     attach_notes(session, p, out["results"], notes)
     return out

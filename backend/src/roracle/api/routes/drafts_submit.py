@@ -32,6 +32,7 @@ class SubmitIn(BaseModel):
     share_groups: Annotated[
         list[Annotated[str, Field(max_length=500), AfterValidator(group_path)]], Field(max_length=100)
     ] = []
+    label_id: UUID | None = None
 
 
 class ReviewIn(BaseModel):

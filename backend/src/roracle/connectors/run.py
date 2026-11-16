@@ -15,6 +15,7 @@ from roracle import notify, runtime
 from roracle.config import Settings
 from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
+from roracle.labels import service
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
 from roracle.queue import enqueue, payload_uuid
 from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
@@ -96,6 +97,7 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                     add_version(s, store, staged, doc, filename=item.filename, content_type=item.content_type)
                     result = "versions"
                 else:
+                    label_id = service.initial_label(s, None, connector=c)
                     doc, _ = add_document(
                         s,
                         store,
@@ -106,6 +108,7 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                         filename=item.filename,
                         content_type=item.content_type,
                         connector_id=cid,
+                        label_id=label_id,
                     )
                     result = "ingested"
                 doc_id = doc.id

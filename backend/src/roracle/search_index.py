@@ -54,6 +54,7 @@ def _mapping(dims: int) -> dict[str, Any]:
             "owner_id": kw,
             "visibility": kw,
             "org_unit": kw,
+            "label_id": kw,
             "share_users": kw,
             "share_groups": kw,
             "coauthor_users": kw,
@@ -185,6 +186,7 @@ def acl_fields(session: Session, document: Document) -> dict[str, Any]:
         "org_unit": document.org_unit,
         "share_users": sorted(p for k, p in shares if k == "user"),
         "share_groups": sorted(p for k, p in shares if k == "group"),
+        "label_id": str(document.label_id),
     }
 
 
@@ -335,6 +337,7 @@ _ACL_SCRIPT = (
     "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
     "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
     "ctx._source.share_groups = params.share_groups; ctx._source.coauthor_users = params.coauthor_users; "
+    "ctx._source.label_id = params.label_id; "
     "if (params.title != null) { ctx._source.title = params.title; } "
     "if (params.tags != null) { ctx._source.tags = params.tags; }"
 )

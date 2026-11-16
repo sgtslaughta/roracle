@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from roracle.api.routes.library import MAX_TAGS
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.labels.service import raise_document_label
 from roracle.models import (
     Annotation,
     Blob,
@@ -95,6 +96,8 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == target.id)
     )
     old_doc_id = v.document_id
+    if raise_document_label(session, p, target, doc.label_id, via="near_dup"):
+        enqueue(session, "acl_sync", {"doc_id": str(target.id)})
     v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, False
     session.flush()
     others = session.scalar(

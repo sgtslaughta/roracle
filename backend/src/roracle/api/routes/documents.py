@@ -12,6 +12,7 @@ from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.ingest.intake import add_document
+from roracle.labels import service
 from roracle.models import Document, DocumentVersion
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, EmptyFile, StagedBlob, StagedFile, TooLarge, blob_store_from, stage
@@ -32,6 +33,7 @@ class UploadForm(BaseModel):
     title: Annotated[str | None, Field(max_length=500)] = None
     visibility: Literal["private", "shared", "org_unit", "everyone"] = "everyone"
     force: bool = False
+    label_id: UUID | None = None
 
 
 async def _received(
@@ -65,6 +67,7 @@ async def _received(
                 "default": "everyone",
             },
             "force": {"type": "boolean", "default": False},
+            "label_id": {"type": "string", "format": "uuid"},
         },
         ["file"],
     ),
@@ -170,6 +173,7 @@ def accept(
         )
         if dup is not None:
             raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
+    label_id = service.initial_label(session, form.label_id, p=p)
     doc, version = add_document(
         session,
         store,
@@ -180,6 +184,7 @@ def accept(
         filename=filename,
         content_type=content_type,
         title=form.title or None,
+        label_id=label_id,
     )
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}

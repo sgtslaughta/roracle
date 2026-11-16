@@ -19,6 +19,7 @@ from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
+from roracle.labels.policy import Policy, label_json
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.search_index import ALIAS, file_type
@@ -115,6 +116,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "venue": meta.get("venue"),
         "org_unit": doc.org_unit,
         "visibility": doc.visibility,
+        "label": label_json(Policy.load(session).get(doc.label_id)),
         "owner": {"id": str(doc.owner_id), "username": owner.username if owner else ""},
         "summary": latest.summary if latest else None,
         "stage": latest.stage if latest else "uploaded",

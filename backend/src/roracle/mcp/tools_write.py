@@ -8,6 +8,7 @@ import mimetypes
 from collections.abc import Callable
 from io import BytesIO
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 import httpx
 import openai
@@ -81,7 +82,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     return {"answer": text, "citations": [citation_item(n, passages[n - 1]) for n in ns]}
 
 
-def _upload(app, session, p, filename, b64, title, visibility) -> dict:
+def _upload(app, session, p, filename, b64, title, visibility, label_id=None) -> dict:
     _need_write(p)
     s = dep(app, get_app_settings, session)
     if len(b64) * 3 // 4 > s.mcp_max_upload_bytes + 3:
@@ -97,7 +98,7 @@ def _upload(app, session, p, filename, b64, title, visibility) -> dict:
     try:
         return documents.upload_file(
             p, session, dep(app, documents.get_blob_store), s, f,
-            documents.UploadForm(title=title, visibility=visibility),
+            documents.UploadForm(title=title, visibility=visibility, label_id=label_id),
         )  # fmt: skip
     except HTTPException as e:
         if e.status_code == 409 and isinstance(e.detail, dict):  # already in the library: not an error
@@ -124,12 +125,13 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         content_base64: Annotated[str, Field(max_length=max_b64)],
         title: Annotated[str | None, Field(max_length=200)] = None,
         visibility: Literal["private", "shared", "org_unit", "everyone"] = "private",
+        label_id: UUID | None = None,
     ) -> dict:
         """Upload a document (base64 content; needs a write token; size-capped, larger files use
         POST /documents). Returns document_id/version_id, or {"duplicate_of": id} if already present."""
         return run(
             app, "upload",
-            lambda s, p: _upload(app, s, p, filename, content_base64, title, visibility), filename,
+            lambda s, p: _upload(app, s, p, filename, content_base64, title, visibility, label_id), filename,
         )  # fmt: skip
 
     @mcp.tool()

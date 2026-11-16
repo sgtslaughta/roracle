@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from roracle.access import readable_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.labels.policy import Policy, label_json
 from roracle.models import Document, DocumentVersion, Job
 from roracle.queue import USER_PREFIX
 
@@ -72,6 +73,7 @@ def my_uploads(
             Document.id,
             Document.title,
             Document.visibility,
+            Document.label_id,
             ver.c.id.label("version_id"),
             ver.c.filename,
             ver.c.size,
@@ -102,6 +104,7 @@ def my_uploads(
                 .where(DocumentVersion.id.in_(match_ids), readable_documents(p))
             )
         }
+    policy = Policy.load(session)
     items = [
         {
             "document_id": str(r.id),
@@ -110,6 +113,7 @@ def my_uploads(
             "filename": r.filename,
             "size": r.size,
             "visibility": r.visibility,
+            "label": label_json(policy.get(r.label_id)),
             "status": r.status or "queued",
             "stage": r.stage,
             "stage_label": STAGE_LABELS.get(r.stage, r.stage),

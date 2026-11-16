@@ -57,6 +57,7 @@ def test_owner_updates_and_es_params(client, as_ana, ana, bob, db_session, fes):
     assert call["script"]["params"] == {
         "owner_id": str(ana), "visibility": "shared", "org_unit": "/", "title": "New",
         "share_users": [str(bob)], "share_groups": ["/Math/Sub", "/Physics"], "coauthor_users": [],
+        "label_id": str(d.label_id),
     }  # fmt: skip
 
 
