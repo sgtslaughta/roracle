@@ -1,5 +1,7 @@
 import json
 import subprocess
+import threading
+import time
 import uuid
 
 import httpx
@@ -147,7 +149,7 @@ def test_cite_author_year_and_crossref_text():
 
 # ---- pandoc-backed ----
 def html(md, refs=()):
-    return build.to_html(md, list(refs), PROFILE, 30)
+    return build.to_html(md, list(refs), PROFILE, time.monotonic() + 30)
 
 
 @needs_pandoc
@@ -194,10 +196,10 @@ def test_data_image_kept_and_cites_rendered():
 @needs_pandoc
 def test_pandoc_timeout_and_failure():
     with pytest.raises(build.BuildError) as e:
-        build.run_pandoc(["-f", "markdown", "-t", "json"], b"x", 0.0001)
+        build.run_pandoc(["-f", "markdown", "-t", "json"], b"x", time.monotonic() + 0.0001)
     assert e.value.status == 503
     with pytest.raises(build.BuildError) as e:
-        build.run_pandoc(["-f", "nope"], b"x", 10)
+        build.run_pandoc(["-f", "nope"], b"x", time.monotonic() + 10)
     assert e.value.status == 422
 
 
@@ -206,11 +208,12 @@ class Cfg:
     draft_gotenberg_url = "http://g:3000"
     build_timeout_s = 5.0
     build_max_pdf_bytes = 100
+    build_concurrency = 2
 
 
 def pdf(handler, **kw):
     b = build.PandocBuilder(Cfg(), httpx.MockTransport(handler))
-    return b._pdf("<html></html>")
+    return b._pdf("<html></html>", time.monotonic() + 5)
 
 
 def test_gotenberg_ok_and_request_shape():
@@ -320,3 +323,41 @@ def test_route_builds_with_acl_refs_and_coauthor(client, as_ana, as_bob, ana, bo
     body = gotenberg[0].content.decode()
     assert "Visible Paper" in body and "SECRET TITLE" not in body and "[1, ?]" in body
     assert body.index("Content-Security-Policy") < body.index("<body")
+
+
+@needs_pandoc
+def test_deep_nesting_is_422():
+    with pytest.raises(build.BuildError) as e:
+        html("> " * 1000 + "x")
+    assert (e.value.status, e.value.message) == (422, "document too deeply nested")
+
+
+def test_deadline_spans_gotenberg_stream():
+    class Slow(httpx.SyncByteStream):
+        def __iter__(self):
+            time.sleep(0.2)
+            yield b"%PDF-1"
+
+    b = build.PandocBuilder(Cfg(), httpx.MockTransport(lambda r: httpx.Response(200, stream=Slow())))
+    with pytest.raises(build.BuildError) as e:
+        b._pdf("<html></html>", time.monotonic() + 0.05)
+    assert e.value.status == 503
+
+
+@needs_pandoc
+def test_print_css_last_and_csp_first():
+    h = html("# A\n")
+    assert (
+        h.index("Content-Security-Policy") < h.index("<style>")
+        and h.rindex("@page") > h.index("</style>") - 1
+    )
+    assert h.index("@page") > h.index("<title") and h.index("</head>") - h.index("@page") < 700
+
+
+def test_busy_is_503(monkeypatch):
+    sem = threading.BoundedSemaphore(1)
+    sem.acquire()
+    monkeypatch.setattr(build, "_sem", sem)
+    with pytest.raises(build.BuildError) as e:
+        build.PandocBuilder(Cfg()).build("x", [], PROFILE)
+    assert (e.value.status, e.value.message) == (503, "build service busy")

@@ -3,12 +3,15 @@
 pandoc (`--sandbox`, no raw HTML/TeX, no filters/templates, rlimits, empty env, fresh cwd) -> AST sanitizer ->
 pandoc HTML5 + CSP meta -> separate Chromium Gotenberg -> PDF."""
 
+import contextlib
 import json
 import re
 import resource
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -36,6 +39,8 @@ CSS = (
 )
 _HEAD = re.compile(r"<head(?:\s[^>]*)?>", re.IGNORECASE)
 _ACTIVE = re.compile(r"<\s*(?:script|iframe|object|embed|link|base|form)\b", re.IGNORECASE)
+_sem: threading.BoundedSemaphore | None = None
+_sem_lock = threading.Lock()
 _transport: httpx.BaseTransport | None = None  # test hook (httpx.MockTransport)
 
 
@@ -67,36 +72,58 @@ def pandoc_path() -> str | None:
     return str(f) if f.is_file() else None
 
 
-def _limits() -> None:  # runs in the child between fork and exec
-    resource.setrlimit(resource.RLIMIT_AS, (RLIMIT_AS, RLIMIT_AS))
-    resource.setrlimit(resource.RLIMIT_CPU, (RLIMIT_CPU_S, RLIMIT_CPU_S))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (STDOUT_CAP, STDOUT_CAP))  # stdout is a file: caps its size
+def _semaphore(n: int) -> threading.BoundedSemaphore:
+    """Process-wide cap on concurrent builds (CPU-heavy)."""
+    global _sem
+    with _sem_lock:
+        if _sem is None:
+            _sem = threading.BoundedSemaphore(max(1, n))
+        return _sem
 
 
-def run_pandoc(args: list[str], data: bytes, timeout: float) -> bytes:
+def _remaining(deadline: float) -> float:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise BuildError("build timed out", 503)
+    return left
+
+
+def run_pandoc(args: list[str], data: bytes, deadline: float) -> bytes:
     exe = pandoc_path()
     if exe is None:
         raise BuildError("build service unavailable", 503)
     with tempfile.TemporaryDirectory(prefix="ror-build-") as cwd:
         out, err = Path(cwd, ".out"), Path(cwd, ".err")
+        # No preexec_fn (unsafe after fork in a threaded server): memory via the GHC RTS, CPU/file size via
+        # prlimit right after start (tiny race accepted; the deadline and the size check still bound it).
+        cmd = [exe, "--sandbox", f"--data-dir={cwd}", *args, "+RTS", f"-M{RLIMIT_AS // 2**20}m", "-RTS"]
         try:
-            with out.open("wb") as o, err.open("wb") as e:
-                r = subprocess.run(
-                    [exe, "--sandbox", *args],
-                    check=False,
-                    input=data,
-                    stdout=o,
-                    stderr=e,
-                    cwd=cwd,
-                    env={"PATH": "/usr/bin:/bin"},
-                    timeout=timeout,
-                    preexec_fn=_limits,
-                )
-        except subprocess.TimeoutExpired:
-            raise BuildError("build timed out", 503) from None
+            with (
+                out.open("wb") as o,
+                err.open("wb") as e,
+                subprocess.Popen(
+                    cmd, stdin=subprocess.PIPE, stdout=o, stderr=e, cwd=cwd, env={"PATH": "/usr/bin:/bin"}
+                ) as proc,
+            ):
+                for res, lim in (
+                    (resource.RLIMIT_CPU, RLIMIT_CPU_S),
+                    (resource.RLIMIT_FSIZE, STDOUT_CAP),
+                ):
+                    with contextlib.suppress(OSError, ProcessLookupError):
+                        resource.prlimit(proc.pid, res, (lim, lim))
+                try:
+                    proc.communicate(data, timeout=_remaining(deadline))
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    raise BuildError("build timed out", 503) from None
+                except BaseException:
+                    proc.kill()
+                    raise
+        except BrokenPipeError:
+            pass
         if out.stat().st_size >= STDOUT_CAP:
             raise BuildError("document too large to build")
-        if r.returncode != 0:
+        if proc.returncode != 0:
             raise BuildError("document could not be converted: " + err.read_text("utf-8", "replace")[:200])
         return out.read_bytes()
 
@@ -106,20 +133,30 @@ def _title(markdown: str) -> str:
     return " ".join(t.split())[:300] if isinstance(t, str) else ""
 
 
-def to_html(markdown: str, refs: list[Ref], profile: Profile, timeout: float) -> str:
-    body = _FM.sub("", markdown.replace("\r\n", "\n"), count=1)
-    ast = json.loads(run_pandoc(["-f", FROM, "-t", "json"], body.encode(), timeout))
-    ast = sanitize(ast, refs, profile.citation_style)
-    if t := _title(markdown):  # title goes in as AST metadata (pandoc escapes it), never as a CLI string
+def ast_with_title(ast: dict, markdown: str) -> dict:
+    """Title goes in as AST metadata (pandoc escapes it), never as a CLI string."""
+    if t := _title(markdown):
         ast["meta"] = {"title": {"t": "MetaInlines", "c": words_inlines(t)}}
-    html = run_pandoc(
-        ["-f", "json", "-t", "html5", "-s", "--mathml"], json.dumps(ast).encode(), timeout
-    ).decode()
+    return ast
+
+
+def to_html(markdown: str, refs: list[Ref], profile: Profile, deadline: float) -> str:
+    body = _FM.sub("", markdown.replace("\r\n", "\n"), count=1)
+    raw = run_pandoc(["-f", FROM, "-t", "json"], body.encode(), deadline)
+    try:
+        ast = sanitize(json.loads(raw), refs, profile.citation_style)
+        payload = json.dumps(ast_with_title(ast, markdown)).encode()
+    except RecursionError:
+        raise BuildError("document too deeply nested") from None
+    html = run_pandoc(["-f", "json", "-t", "html5", "-s", "--mathml"], payload, deadline).decode()
     m = _HEAD.search(html)
     if m is None or _ACTIVE.search(html):
         raise BuildError("document could not be converted")
     meta = f'<meta http-equiv="Content-Security-Policy" content="{CSP}">'
-    return html[: m.end()] + meta + CSS + html[m.end() :]
+    end = html.lower().rfind("</head>")  # print CSS last so it wins over pandoc's default style
+    if end < m.end():
+        raise BuildError("document could not be converted")
+    return html[: m.end()] + meta + html[m.end() : end] + CSS + html[end:]
 
 
 class PandocBuilder:
@@ -129,15 +166,21 @@ class PandocBuilder:
     def build(self, markdown: str, refs: list[Ref], profile: Profile) -> bytes:
         if not self.cfg.draft_gotenberg_url:
             raise BuildError("build service not configured", 503)
-        html = to_html(markdown, refs, profile, self.cfg.build_timeout_s)
-        return self._pdf(html)
+        sem = _semaphore(self.cfg.build_concurrency)
+        if not sem.acquire(blocking=False):
+            raise BuildError("build service busy", 503)
+        try:
+            deadline = time.monotonic() + self.cfg.build_timeout_s  # one budget for the whole build
+            return self._pdf(to_html(markdown, refs, profile, deadline), deadline)
+        finally:
+            sem.release()
 
-    def _pdf(self, html: str) -> bytes:
+    def _pdf(self, html: str, deadline: float) -> bytes:
         cap, buf = self.cfg.build_max_pdf_bytes, bytearray()
         url = self.cfg.draft_gotenberg_url.rstrip("/") + "/forms/chromium/convert/html"
         try:
             with (
-                httpx.Client(transport=self.transport, timeout=self.cfg.build_timeout_s) as c,
+                httpx.Client(transport=self.transport, timeout=_remaining(deadline)) as c,
                 c.stream("POST", url, files={"files": ("index.html", html.encode(), "text/html")}) as r,
             ):
                 if r.status_code != 200:
@@ -147,6 +190,7 @@ class PandocBuilder:
                         503 if down else 422,
                     )
                 for chunk in r.iter_bytes():
+                    _remaining(deadline)
                     buf += chunk
                     if len(buf) > cap:
                         raise BuildError("built PDF is too large")
