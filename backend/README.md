@@ -5,7 +5,8 @@ FastAPI + SQLAlchemy/Alembic, managed with `uv`. CLI: `python -m roracle {api,wo
 ## Dev stack
 
 ```sh
-docker compose -f deploy/dev/compose.yaml up -d    # Postgres :55433, MinIO :9000, Keycloak :8080
+docker compose -f deploy/dev/compose.yaml up -d    # Postgres :55433, MinIO :9000, Keycloak :8080, Elasticsearch :9200, docling :5001
+# optional: --profile full up -d grobid clamav   (GROBID :8070, ClamAV :3310)
 cd backend
 cp .env.example .env
 set -a; source .env; set +a                         # required before alembic / uvicorn

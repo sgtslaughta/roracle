@@ -62,6 +62,12 @@ class BlobStore:
             ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": staged.sha256}},
         )
 
+    def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+
+    def get_bytes(self, key: str) -> bytes:
+        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
     def open(self, sha256: str) -> BinaryIO:
         return self.client.get_object(Bucket=self.bucket, Key=self.key(sha256))["Body"]
 

@@ -20,7 +20,7 @@ def test_upload_creates_document_version_blob_and_job(client, as_ana, s3, db_ses
     assert job.kind == "ingest" and job.payload == {"version_id": body["version_id"]}
     assert s3.exists(f"blobs/{body['sha256'][:2]}/{body['sha256']}")
     doc = db_session.scalar(select(Document))
-    assert doc.title == "paper.pdf" and doc.visibility == "everyone"
+    assert doc.title is None and doc.visibility == "everyone"
     assert doc.org_unit == "/Mathematics/Spectral Theory"
 
 

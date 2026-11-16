@@ -274,3 +274,17 @@ def test_real_keycloak_token_with_real_jwks(client, settings):
     r = client.get("/me", headers=bearer(_keycloak_token(settings)))
     assert r.status_code == 200
     assert r.json()["groups"] == ["/Mathematics/Spectral Theory"]
+
+
+def test_groups_and_admin_stored_each_request(client, make_token, db_session):
+    from roracle.auth import principal_for_user
+    from roracle.models import User
+
+    client.get("/me", headers=bearer(make_token(groups=("/A",), roles=("roracle-admin",))))
+    u = db_session.scalar(select(User))
+    assert u.groups == ["/A"] and u.is_admin is True
+    client.get("/me", headers=bearer(make_token(groups=("/B",))))
+    db_session.refresh(u)
+    assert u.groups == ["/B"] and u.is_admin is False
+    p = principal_for_user(db_session, u.id)
+    assert (p.user_id, p.sub, p.groups, p.is_admin) == (u.id, u.sub, ("/B",), False)
