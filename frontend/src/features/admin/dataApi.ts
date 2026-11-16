@@ -16,7 +16,7 @@ export function useSaveSetting() {
   });
 }
 
-export const useTags = () => useQuery({ queryKey: ["admin", "tags"], queryFn: () => apiFetch<TagCount[]>("/admin/tags") });
+export const useTags = () => useQuery({ queryKey: ["admin", "tags"], queryFn: async () => (await apiFetch<{ items: TagCount[]; total: number }>("/admin/tags")).items });
 
 export function useMergeTags() {
   const qc = useQueryClient();
@@ -47,7 +47,7 @@ export const useUsers = (q: string, page: number) =>
     queryFn: () => apiFetch<Paged<AdminUser>>(`/admin/users?${new URLSearchParams({ q, page: String(page), limit: String(USERS_PAGE) })}`),
   });
 
-export const useGroups = () => useQuery({ queryKey: ["admin", "groups"], queryFn: () => apiFetch<GroupCount[]>("/admin/groups") });
+export const useGroups = () => useQuery({ queryKey: ["admin", "groups"], queryFn: async () => (await apiFetch<{ items: GroupCount[]; total: number }>("/admin/groups")).items });
 
 export const useRevokePats = () => useMutation({ mutationFn: (id: string) => apiFetch<void>(`/admin/users/${seg(id)}/pats`, { method: "DELETE" }) });
 

@@ -54,7 +54,7 @@ export const adminDataHandlers = [
     d.overrides = next;
     return HttpResponse.json(view(d));
   }),
-  http.get(url("/admin/tags"), () => (state.admin ? HttpResponse.json(dataOf().tags) : forbidden())),
+  http.get(url("/admin/tags"), () => (state.admin ? HttpResponse.json({ items: dataOf().tags, total: dataOf().tags.length }) : forbidden())),
   http.post(url("/admin/tags/merge"), async ({ request }) => {
     if (!state.admin) return forbidden();
     const d = dataOf();
@@ -88,7 +88,7 @@ export const adminDataHandlers = [
     dataOf().revoked.push(String(params.id));
     return new HttpResponse(null, { status: 204 });
   }),
-  http.get(url("/admin/groups"), () => (state.admin ? HttpResponse.json([{ group: "/Mathematics", members: 27 }, { group: "/Mathematics/Spectral Theory", members: 1 }, { group: "/Staff", members: 2 }]) : forbidden())),
+  http.get(url("/admin/groups"), () => (state.admin ? HttpResponse.json({ items: [{ group: "/Mathematics", members: 27 }, { group: "/Mathematics/Spectral Theory", members: 1 }, { group: "/Staff", members: 2 }], total: 3 }) : forbidden())),
   http.get(url("/admin/stats"), () => state.admin ? HttpResponse.json({
     documents: { live: 41, deleted: 3 }, versions: { searchable: 41, review: 2, needs_title: 1, rejected: 1 }, blobs: { count: 47, bytes: 912 * MiB },
     users: dataOf().users.length, chats: 18, connectors: 3,
