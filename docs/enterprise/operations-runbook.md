@@ -77,6 +77,20 @@ only meaningful within one embedding model.
 Until each version is searchable again it is absent from search (non-owners lose visibility
 first-hand; owners only via the document list). Do not use on a production corpus.
 
+### Maintenance: retention purge, blob GC, tag reconcile (`maintenance` job)
+A self-rescheduling `maintenance` job (every `ROR_MAINTENANCE_INTERVAL_S`, default daily; created at worker start)
+runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|reconcile}` (admin JWT, audited,
+`202 {job_id}`; follow it in `GET /admin/jobs?kind=maintenance`).
+- **purge**: hard-deletes documents soft-deleted more than `ROR_RETENTION_DELETED_DAYS` days ago (ES chunks by
+  `doc_id`, versions, notes/evidence rows, shares) in batches of 100 (a full batch queues a follow-up job).
+  `0` (default) = off: the endpoint then does nothing. Irreversible; restore from backup only.
+- **gc**: deletes `blobs/` objects and `blobs` rows that no document version or evidence row references and
+  that are older than 1 day. Race-safe against concurrent uploads of the same content (row lock,
+  re-check before the S3 delete, objects written in the last day are spared). `tmp/` is never touched
+  (in-flight uploads; see "Clean up `tmp/`"). A blob shared with a live version is always kept.
+- **reconcile**: queues an `acl_sync` per live document (batches of 500, `reconcile_tags` job) so ES tags/ACLs
+  converge to Postgres; use after an ES restore or suspected tag drift.
+
 ### Rebuild the search index from scratch
 Planned (P11b): the admin *Maintenance* action does not exist yet; use the stage-reset statement above. Elastic holds no unique data. Create a fresh index and enqueue `index` jobs for every latest
 version (admin → Maintenance → *Rebuild index*). Search stays on the old alias until done.
@@ -193,6 +207,7 @@ Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, n
 | `POST /admin/jobs/{id}/retry` | Retry one failed job (409 otherwise); ingest jobs get a fresh attempt budget. |
 | `POST /admin/jobs/retry-failed {kind?}` | Requeue all failed jobs (optionally one kind) after fixing the cause, e.g. Ollama or ES outage. |
 | `GET /admin/review?source=all\|upload\|connector&page=` | Versions parked for near-duplicate review (offset paged); decide via the near-dup endpoint. |
+| `POST /admin/maintenance/{purge\|gc\|reconcile}` | Queue a one-off retention purge, blob GC or ES tag reconcile (`202 {job_id}`); see Maintenance in section 2. |
 | `GET /admin/stats` | Document/blob counts, storage bytes, top uploaders. |
 | `GET /admin/users`, `/admin/groups` | Users mirror (as of last login), per-user usage, group sizes. |
 | `GET /admin/tags`, `POST /admin/tags/merge {sources, target}` | Consolidate duplicate tags; ES tags follow via `acl_sync`. |

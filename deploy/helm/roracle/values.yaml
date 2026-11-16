@@ -38,6 +38,8 @@ config:
   ROR_CLAMAV_HOST: ""
   ROR_MAX_UPLOAD_BYTES: "524288000"
   ROR_EVIDENCE_MAX_BYTES: "1073741824"
+  ROR_RETENTION_DELETED_DAYS: "0"   # purge soft-deleted documents after N days; 0 = never
+  ROR_MAINTENANCE_INTERVAL_S: "86400"  # periodic purge + blob gc + tag reconcile
 
 # Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.
 metrics: {enabled: true}

@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     ] = []  # http crawl may reach these private ranges
     connector_http_timeout_s: int = 60  # per HTTP request (connect to last byte)
     worker_health_port: int = 8001  # worker /healthz + /metrics; 0 = off
+    retention_deleted_days: int = 0  # purge soft-deleted documents after N days; 0 = never
+    maintenance_interval_s: int = 86400  # periodic purge + blob gc + tag reconcile
 
     @model_validator(mode="after")
     def _database_url(self):

@@ -8,6 +8,7 @@ from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
 from roracle.db import make_session_factory
 from roracle.ingest import handle_ingest
+from roracle.maintenance import ensure_maintenance, handle_maintenance, handle_reconcile_tags
 from roracle.notes.evidence import handle_evidence_scan
 from roracle.queue import Handler, run_forever
 from roracle.storage import blob_store_from
@@ -36,6 +37,10 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         "citations": handle_citations,
         "evidence_scan": partial(handle_evidence_scan, settings=settings, store=blob_store_from(settings)),
         "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
+        "maintenance": partial(
+            handle_maintenance, settings=settings, store=blob_store_from(settings), es=clients.es(settings)
+        ),
+        "reconcile_tags": handle_reconcile_tags,
     }
 
 
@@ -46,5 +51,6 @@ def main() -> None:
     sf = make_session_factory(settings.database_url)
     HANDLERS.update(build_handlers(settings, sf))
     ensure_tick(sf)
+    ensure_maintenance(sf)
     worker_health.serve(settings.worker_health_port)
     run_forever(sf, HANDLERS)

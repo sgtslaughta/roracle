@@ -1,6 +1,6 @@
 """Admin operations: job queue, stats, health."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
@@ -24,6 +24,7 @@ from roracle.models import (
     Job,
     User,
 )
+from roracle.queue import enqueue
 from roracle.storage import BlobStore
 
 router = APIRouter()
@@ -144,6 +145,16 @@ def retry_failed(
             setattr(j, k, v)
     audit(session, p, "admin.jobs_retry_failed", "", {"kind": kind, "retried": len(jobs)})
     return {"retried": len(jobs)}
+
+
+@router.post("/admin/maintenance/{op}", status_code=202)
+def run_maintenance(
+    op: Literal["purge", "gc", "reconcile"], p: Admin, session: Annotated[Session, Depends(get_session)]
+) -> dict:
+    """Queue a one-off maintenance job (retention purge, blob GC or ES tag reconcile)."""
+    job_id = enqueue(session, "maintenance", {"op": op})
+    audit(session, p, f"admin.maintenance_{op}", str(job_id))
+    return {"job_id": job_id}
 
 
 @router.get("/admin/stats")
