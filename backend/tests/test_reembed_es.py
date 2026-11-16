@@ -45,7 +45,7 @@ def es(cfg):
     c.close()
 
 
-def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user, blob):
+def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user, blob, monkeypatch):
     llm = clients.llm(cfg)
     ensure_index(es, MODEL, DIMS, cfg.read_alias)
     d = Document(owner_id=user.id, title="Quokka", visibility="everyone", org_unit="/")
@@ -95,4 +95,7 @@ def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user,
     for gen in (1, 2):  # mutation alias reaches both generations
         es.indices.refresh(index=index_name(MODEL, gen))
         assert es.get(index=index_name(MODEL, gen), id=f"{v.id}:0")["_source"]["visibility"] == "private"
+    own, all_old = index_name(MODEL, 1)[:-1], reembed._old
+    # chunks-all is shared and hardcoded: only ever see (and delete) this model's generations
+    monkeypatch.setattr(reembed, "_old", lambda *a: [i for i in all_old(*a) if i.startswith(own)])
     assert reembed.drop_old(db_session, es, cfg) == [index_name(MODEL, 1)]
