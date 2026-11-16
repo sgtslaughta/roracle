@@ -45,6 +45,7 @@ def _version(
         filename=filename,
         content_type=content_type,
         size=staged.size,
+        is_latest=number == 1,  # ingest flips the flag once a newer version is searchable
     )
     session.add(version)
     session.flush()

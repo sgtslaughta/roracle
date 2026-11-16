@@ -72,7 +72,10 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         versions = [v for v in versions if v.stage == "searchable"]
         if not versions:
             raise HTTPException(404, "not found")
-    latest = next((v for v in versions if v.is_latest), versions[0] if versions else None)
+    # a rejected/in-ingest newer version may also carry the flag: prefer the newest searchable one
+    latest = next((v for v in versions if v.is_latest and v.stage == "searchable"), None) or next(
+        (v for v in versions if v.is_latest), versions[0] if versions else None
+    )
     meta = (latest.meta if latest else None) or {}
     owner = session.get(User, doc.owner_id)
     draft = session.get(Draft, doc_id)
