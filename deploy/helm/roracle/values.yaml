@@ -154,7 +154,7 @@ postgres:
 elasticsearch:
   mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)
   version: 8.15.3
-  image: {repository: docker.elastic.co/elastic/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
+  image: {repository: docker.elastic.co/elasticsearch/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
   nodeSets:                # default: one set of 3 master+data nodes
     - {name: default, count: 3, roles: [master, data, ingest]}
   storage: {size: 200Gi, storageClass: ""}

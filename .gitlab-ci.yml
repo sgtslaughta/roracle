@@ -74,7 +74,7 @@ build:
   script:
     - |
       DEST="--destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA"
-      [ -n "$CI_COMMIT_TAG" ] && DEST="$DEST --destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_TAG"
+      [ -n "$CI_COMMIT_TAG" ] && DEST="$DEST --destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_TAG --destination $CI_REGISTRY_IMAGE/backend:$(cat VERSION)"
       [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && DEST="--no-push"
       mkdir -p /kaniko/.docker
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json

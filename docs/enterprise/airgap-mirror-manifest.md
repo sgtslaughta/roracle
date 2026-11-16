@@ -15,7 +15,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 
 | Image | Tag | Used by | Digest |
 |---|---|---|---|
-| `roracle/backend` | `appVersion` (CI pushes backend as `vX.Y.Z`, not `X.Y.Z`: set `image.backend.tag` or `digest`) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
+| `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
 | `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
@@ -27,8 +27,6 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
 
-Note: the Elastic registry path is `elasticsearch/elasticsearch`; the chart default `elasticsearch.image.repository` is
-`docker.elastic.co/elastic/elasticsearch`, which does not exist upstream. Override it (or mirror under that path) until fixed.
 
 ### Build and CI
 
