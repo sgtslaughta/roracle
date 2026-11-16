@@ -1,0 +1,46 @@
+"""MCP writing tools (P9). `run` is server._run."""
+
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import FastAPI, HTTPException
+from mcp.server import MCPServer
+from pydantic import Field
+from sqlalchemy.orm import Session
+
+from roracle.auth import Principal, get_app_settings
+from roracle.mcp.auth import dep
+from roracle.mcp.tools_write import Run, _need_write
+from roracle.writing import drafts
+
+
+def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
+    @mcp.tool()
+    def save_draft(
+        content: str,
+        draft_id: Annotated[str | None, Field(max_length=100)] = None,
+        title: Annotated[str | None, Field(max_length=500)] = None,
+        profile: Annotated[str | None, Field(max_length=100)] = None,
+        base_version: Annotated[int | None, Field(ge=0, le=2**31 - 1)] = None,
+    ) -> dict:
+        """Save Markdown as a new version of a draft you may edit (needs a write token), or create a draft
+        when `draft_id` is absent (then `title` is required; `profile` optional). Pass `base_version` (the
+        version you last read) to refuse overwriting a newer save. Returns {draft_id, version, url}."""
+
+        def go(session: Session, p: Principal) -> dict:
+            _need_write(p)
+            cap = dep(app, get_app_settings, session).draft_max_bytes
+            if draft_id is None:
+                if not title or not title.strip():
+                    raise HTTPException(422, "title is required to create a draft")
+                d = drafts.create(session, p, title.strip(), content, profile, cap)
+                doc_id, ver = d.document_id, 1
+            else:
+                try:
+                    doc_id = UUID(draft_id)
+                except ValueError:
+                    raise HTTPException(404, "not found") from None
+                ver = drafts.save(session, p, doc_id, content, base_version, cap).version
+            return {"draft_id": str(doc_id), "version": ver, "url": f"/drafts/{doc_id}"}
+
+        return run(app, "save_draft", go, draft_id or "")

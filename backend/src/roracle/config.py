@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     oidc_allowed_clients: Annotated[list[str], NoDecode] = ["roracle-web", "roracle-mcp"]
     max_upload_bytes: int = 524288000
     evidence_max_bytes: int = 1073741824  # notes evidence file cap (1 GiB)
+    draft_max_bytes: int = 2 * 1024 * 1024  # P9 draft Markdown cap (UTF-8)
     mcp_max_upload_bytes: int = 25 * 1024 * 1024  # MCP upload tool: decoded file cap (base64 body)
     public_base_url: str = ""  # externally visible origin, e.g. https://roracle.example.org
     pats_enabled: bool = True

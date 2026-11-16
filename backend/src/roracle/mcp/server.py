@@ -18,7 +18,7 @@ from roracle.api.routes.search import BadInput
 from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
-from roracle.mcp import tools_notes
+from roracle.mcp import tools_notes, tools_writing
 from roracle.mcp.auth import current, dep, open_session
 from roracle.mcp.tools_write import digest, register
 from roracle.notes.community import attach_notes, strict_gate
@@ -186,4 +186,5 @@ def build_mcp(app: FastAPI) -> MCPServer:
 
     register(mcp, app, _run)
     tools_notes.register(mcp, app, _run)
+    tools_writing.register(mcp, app, _run)
     return mcp

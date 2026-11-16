@@ -17,6 +17,7 @@ from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.models import Document, DocumentShare, DocumentVersion, User
+from roracle.models_writing import Draft
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -82,6 +83,10 @@ def patch_document(
         ):
             raise HTTPException(404, "not found")  # R16
         raise HTTPException(403, "only the document owner can change this document")
+    if session.scalar(
+        select(Draft.document_id).where(Draft.document_id == doc_id, Draft.status.in_(("draft", "in_review")))
+    ):
+        raise HTTPException(409, "use the /drafts endpoints")  # after the 404/403 checks: leaks nothing
     # Serialize concurrent PATCHes per document: flush -> ES -> commit runs under this row lock.
     session.refresh(doc, with_for_update=True)
     users: list[str] | None = None
