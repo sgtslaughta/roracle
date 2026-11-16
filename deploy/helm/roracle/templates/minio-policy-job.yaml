@@ -36,16 +36,20 @@ spec:
           command: [sh, -ec]
           args:
             - |
-              # root creds come from the operator config.env (sourced, never on argv); MC_HOST_* is env-only
+              # no secret ever on argv and never `set -x`: root creds from config.env go into the MC_HOST_ env alias
+              # (mc does not URL-decode it, so the charset is restricted), user secrets go to mc on stdin.
               . /cfg/config.env
-              until mc alias set local "{{ ternary "https" "http" $tls }}://minio.{{ .Release.Namespace }}.svc" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 && mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
+              for v in "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                case "$v" in ''|*[!A-Za-z0-9._~-]*) echo "MinIO root user/password must match [A-Za-z0-9._~-]+"; exit 1;; esac
+              done
+              export MC_HOST_local="{{ ternary "https" "http" $tls }}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio.{{ .Release.Namespace }}.svc"
+              until mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
               for b in {{ .Values.config.ROR_S3_BUCKET }} {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
                 n=0; until mc stat "local/$b" >/dev/null 2>&1; do n=$((n+1)); [ $n -le 60 ] || { echo "bucket $b missing"; exit 1; }; sleep 10; done
               done
-              # user secrets are read from mounted files; mc takes them as args (visible only inside this container, never logged)
-              grant() { # user-secret-dir bucket policy-name
+              grant() { # user-secret-dir bucket policy-name; the secret key is piped on stdin (mc prompts for it)
                 key=$(cat "/users/$1/CONSOLE_ACCESS_KEY")
-                mc admin user add local "$key" "$(cat "/users/$1/CONSOLE_SECRET_KEY")" >/dev/null
+                mc admin user add local "$key" < "/users/$1/CONSOLE_SECRET_KEY" >/dev/null
                 cat > "/tmp/$3.json" <<EOP
               {"Version":"2012-10-17","Statement":[
                {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket","s3:ListBucketMultipartUploads"],"Resource":["arn:aws:s3:::$2"]},
