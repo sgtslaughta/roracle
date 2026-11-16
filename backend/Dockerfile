@@ -1,6 +1,8 @@
 ARG REGISTRY_MIRROR=""
 FROM ${REGISTRY_MIRROR}python:3.12-slim
 ARG UV_INDEX_URL=https://pypi.org/simple
+ARG VERSION=0.0.0
+LABEL org.opencontainers.image.title="roracle-backend" org.opencontainers.image.version="${VERSION}"
 ENV PYTHONUNBUFFERED=1 HOME=/tmp
 RUN pip install --no-cache-dir --index-url "$UV_INDEX_URL" uv==0.10.4
 

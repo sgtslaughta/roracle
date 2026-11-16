@@ -1,0 +1,2 @@
+{{- $env := printf "%s%s%s" (include "roracle.secretEnv" .) (include "roracle.otelEnv" (dict "root" . "comp" "api")) (include "roracle.extraEnv" .Values.api) -}}
+{{ include "roracle.workload" (dict "root" . "comp" "api" "v" .Values.api "img" .Values.image.backend "port" 8000 "command" (list "python" "-m" "roracle" "api") "configMap" true "ca" true "env" $env "tmp" .Values.api.tmpSize "probe" true "runAsUser" .Values.api.runAsUser) }}

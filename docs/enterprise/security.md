@@ -184,3 +184,88 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
   information never surfaces, which can leave invisible duplicates in the corpus (accepted).
 - Blob object written before the DB commit can orphan on failure; a GC job removes objects without
   a `blobs` row (plan 2).
+
+## 11. Data-tier network and credential controls (Helm chart)
+
+- NetworkPolicies for bundled Postgres/ES/MinIO are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`; MinIO 9000 from app, CNPG, ES, peers and the MinIO operator. Egress is limited to peers, MinIO, DNS and (instance managers/MinIO) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
+- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) until the backend gains CA settings.
+- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. MinIO users are limited to one bucket each (app, Postgres backups, ES snapshots); backup buckets are created with object lock and get a GOVERNANCE default retention (`minio.backupRetentionDays`).
+- Backups should be replicated to a separate site; a single-cluster MinIO does not protect against loss of the cluster.
+
+## 12. Web tier, pod baseline and secrets (Helm chart)
+
+### Headers sent by the web pod (`frontend/nginx/security-headers.conf`)
+
+`ROR_OIDC_ORIGIN` is derived from `ROR_OIDC_AUTHORITY` at pod start.
+
+Upload size: nginx `client_max_body_size` is 1100m (>= `ROR_EVIDENCE_MAX_BYTES`, 1 GiB); any proxy or ingress in front must be at least that large.
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; connect-src 'self' ${ROR_OIDC_ORIGIN}; frame-src 'self' ${ROR_OIDC_ORIGIN}; frame-ancestors 'self'; base-uri 'self'; form-action 'self' ${ROR_OIDC_ORIGIN}; object-src 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+X-Frame-Options: SAMEORIGIN
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Cross-Origin-Opener-Policy: same-origin
+```
+
+- `frame-ancestors 'self'` / `SAMEORIGIN` / `frame-src` OIDC origin exist for the oidc-client-ts silent-renew iframe (`/auth/silent`).
+  The Keycloak realm CSP `frame-ancestors` must allow the app origin.
+- `style-src 'unsafe-inline'` is required by the UI toolkit's inline styles; scripts stay `'self'` only.
+- HSTS is not sent by the web pod: set `Strict-Transport-Security` at the ingress or org proxy.
+- Runtime OIDC config is substituted into the JS bundle by nginx; substituted JS is cached 1 h (not immutable).
+
+### Application-tier NetworkPolicy matrix (`networkPolicy.enabled`, default-deny ingress and egress for the namespace)
+
+| Source | Destination | Port | Notes |
+|---|---|---|---|
+| ingress controller namespace (`ingressNamespaceSelector`) | web | 8080 | rendered when `ingress.enabled` |
+| ingress controller namespace | api | 8000 | `/mcp`, OAuth metadata |
+| web | api | 8000 | `/api/` proxy |
+| worker | gotenberg / docling / grobid / clamav | 3000 / 5001 / 8070 / 3310 | parsers have no egress |
+| api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
+| api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |
+| api, worker | MinIO (bundled, or `s3Cidrs`) | 9000 | |
+| api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4317 (configurable) | empty = denied |
+| worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
+| all pods | DNS (`networkPolicy.dns`) | 53 | |
+| `monitoringNamespace` | api/worker | 8000 | only if `scrape.enabled` (backend has no `/metrics` yet) |
+
+Data tier (always rendered for bundled modes): see section 11 (ES 9200 from app pods and the ECK operator, 9300 between ES pods;
+Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring; MinIO 9000 from app, CNPG, ES, peers, MinIO operator).
+Policies match after DNAT: use pod/node/LB CIDRs, never Service ClusterIPs. `kubeAPI.cidrs` empty means 443/6443 to any destination for the
+instance managers: set it in production.
+
+### Pod security baseline and exceptions
+
+All pods: `runAsNonRoot`, seccomp `RuntimeDefault`, `allowPrivilegeEscalation: false`, all capabilities dropped, read-only root filesystem
+with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate does not mount a service-account token.
+
+| Exception | Why |
+|---|---|
+| MinIO and Elasticsearch pods: root filesystem not read-only | operator-managed pods; their data paths are PVCs |
+| ES `node.store.allow_mmap: false` | avoids ECK's privileged `vm.max_map_count` sysctl init container (slower; drop when nodes are tuned) |
+| ClamAV: signature DB seeded into an emptyDir; `/init-unprivileged` entrypoint | non-root + read-only FS; the default `/init` needs root |
+| GROBID: `-XX:-UseContainerSupport -Xmx4608m` | JDK crash on cgroup v2; heap must be explicit |
+
+### Secrets handling
+
+- Credentials are only referenced by Secret name (`existingSecret`, operator Secrets); the chart renders no secret values.
+- No secret on any command line: the MinIO hook passes root credentials through the `MC_HOST_local` env alias and user secrets on stdin; the ES hook reads curl config from stdin; no `set -x`.
+- MinIO root user/password are restricted to `[A-Za-z0-9._~-]` because `mc` does not URL-decode the alias credentials.
+- The app Postgres password is in two Secrets (CNPG basic-auth and `ROR_DATABASE_URL`) because CNPG's generated URI lacks the `+psycopg` driver: rotate both.
+- `ROR_ELASTIC_URL` carries the `roracle_app` credentials as userinfo, so it lives in the app Secret.
+
+### TLS trust (interim)
+
+ES and MinIO issue TLS certificates from private CAs. The backend has no CA setting (P11b gap), so an init container concatenates certifi's
+bundle with the ECK CA, `kube-root-ca.crt` and `caBundle.extraSecrets` into an emptyDir mounted over certifi's `cacert.pem`
+(`caBundle.certifiPath`, coupled to the image's Python layout) and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE`. Verification stays on.
+
+### ClamAV fail-closed configuration
+
+`clamd.conf` comes from a read-only ConfigMap: `StreamMaxLength`, `MaxFileSize`, `MaxScanSize` and `PCREMaxFileSize` = `parsers.clamav.limits` (1100M, render fails
+if below `ROR_MAX_UPLOAD_BYTES`/`ROR_EVIDENCE_MAX_BYTES`), `AlertExceedsMax yes`, `MaxThreads 4` (`/tmp` must be >= limits x threads, guarded).
+Readiness and startup probes check the effective limits with `clamconf` plus a clamd PING, so a pod with fail-open config never becomes ready.
+An over-limit stream ends in a scanner error and the backend treats it as non-retryable (no partial scan). Signatures: `parsers.clamav.mirrorUrl`;
+without a mirror only baked-in signatures exist.

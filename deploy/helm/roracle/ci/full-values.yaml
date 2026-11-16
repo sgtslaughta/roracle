@@ -1,0 +1,44 @@
+# Everything implemented so far switched on, dummy names only.
+global: {imageRegistry: registry.example.internal}
+imagePullSecrets: [{name: regcred}]
+image:
+  backend: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+secrets: {existingSecret: roracle-secrets}
+config:
+  ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
+  ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
+  ROR_LLM_BASE_URL: https://llm.example.internal/v1
+observability: {otel: {endpoint: "http://otel-collector.observability:4317"}}
+web: {autoscaling: {enabled: true}}
+ingress:
+  enabled: true
+  className: nginx
+  host: roracle.example.internal
+  tlsSecretName: roracle-tls
+postgres:
+  appCredentialsSecret: roracle-pg-app
+  backup: {credentialsSecret: {name: roracle-pg-backup-s3}, endpointCA: {name: roracle-minio-ca}}
+elasticsearch:
+  appUserSecret: roracle-es-app
+  snapshot: {credentialsSecret: roracle-es-s3}
+minio:
+  configurationSecret: roracle-minio-config
+  users: {app: roracle-minio-app, pgBackup: roracle-minio-pg, esSnapshot: roracle-minio-es}
+parsers:
+  gotenberg: {enabled: true}
+  docling: {enabled: true}
+  grobid: {enabled: true}
+  clamav: {enabled: true, mirrorUrl: "https://clamav-mirror.example.internal", mirrorCIDRs: ["10.20.30.0/24"]}
+connectors: {egressCIDRs: ["10.40.0.0/16"], ports: [443, 8443]}
+networkPolicy:
+  kubeAPI: {cidrs: ["10.0.0.1/32"], ports: [443, 6443]}
+  s3Cidrs: ["10.50.0.0/24"]
+  externalCIDRs:
+    postgres: {cidrs: ["10.60.0.0/24"]}
+    elasticsearch: {cidrs: ["10.61.0.0/24"]}
+  egressCIDRs:
+    llm: {cidrs: ["10.70.0.0/24"], ports: [443, 8000]}
+    oidc: {cidrs: ["10.71.0.0/24"], namespaceSelector: {kubernetes.io/metadata.name: keycloak}, podSelector: {app: keycloak}}
+    parsers: {cidrs: ["10.73.0.0/24"]}
+    otel: {cidrs: ["10.72.0.0/24"]}
+  scrape: {enabled: true}

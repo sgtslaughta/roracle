@@ -1,0 +1,15 @@
+{{- range $c := list "api" "worker" "web" }}
+{{- $v := get $.Values $c }}
+{{- if and $v.pdb.enabled (or $v.autoscaling.enabled (gt (int $v.replicas) 1)) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "roracle.fullname" $ }}-{{ $c }}
+  labels: {{ include "roracle.labels" $ | nindent 4 }}
+spec:
+  minAvailable: {{ $v.pdb.minAvailable }}
+  selector:
+    matchLabels: {{ include "roracle.selector" (dict "root" $ "comp" $c) | nindent 6 }}
+{{- end }}
+{{- end }}

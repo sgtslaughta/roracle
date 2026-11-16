@@ -1,7 +1,7 @@
 # rOracle Operations Runbook
 
 Audience: on-call operators. Commands assume namespace `roracle`, Helm release `roracle`,
-CNPG cluster `roracle-pg`, ECK cluster `roracle-es`. Adjust to your names.
+CNPG cluster `roracle-pg`, ECK cluster `roracle` (service `roracle-es-http`). Adjust to your names.
 
 ## 1. Health at a glance
 
@@ -49,6 +49,7 @@ WHERE kind='evidence_scan' AND status='failed';
 For `failed` rows caused by size, raise ClamAV limits (see deployment guide) and re-queue.
 
 ### Change the embedding model (zero downtime)
+Planned flow (ADR-0006, P11b): the admin UI, `reembed` jobs and alias flip below are not implemented in the backend yet; use the downtime procedure in the next section until then.
 1. Admin → Models → Embeddings → choose model → *Start re-embed*. A new index
    `chunks-<model>-<n>` is created and filled by `reembed` jobs.
 2. Watch progress (admin dashboard or `SELECT count(*) FROM jobs WHERE kind='reembed' AND status<>'done'`).
@@ -70,7 +71,7 @@ Until each version is searchable again it is absent from search (non-owners lose
 first-hand; owners only via the document list). Do not use on a production corpus.
 
 ### Rebuild the search index from scratch
-Elastic holds no unique data. Create a fresh index and enqueue `index` jobs for every latest
+Planned (P11b): the admin *Maintenance* action does not exist yet; use the stage-reset statement above. Elastic holds no unique data. Create a fresh index and enqueue `index` jobs for every latest
 version (admin → Maintenance → *Rebuild index*). Search stays on the old alias until done.
 
 ### Rotate secrets
@@ -79,22 +80,70 @@ version (admin → Maintenance → *Rebuild index*). Search stays on the old ali
 - PAT pepper: rotating invalidates all PATs — announce first.
 
 ### Release upgrade
-1. Read release notes. 2. Snapshot Postgres (CNPG backup) and Elastic.
-3. `helm upgrade roracle … --version X.Y.Z` (pre-upgrade hook runs migrations).
-4. Verify `/healthz` version, upload + search + chat smoke test. Roll back with `helm rollback`
-   (migrations are additive within a minor line).
+1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` before a minor/major upgrade.
+3. Bump `/VERSION` (SemVer); `scripts/check-version.sh` (CI `helm` job) requires it to equal Chart `version` and `appVersion`. Tag `vX.Y.Z`; CI builds backend and web images.
+4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first (`backoffLimit: 0`: a failed migration blocks the rollout and leaves the old pods running); then api/worker/web roll.
+5. Verify `/healthz` version, upload + search + chat smoke test.
+Rollback: `helm rollback` restores manifests but does NOT revert database migrations. Migrations are additive within a minor line, so the previous release normally still runs;
+otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is P11b, see the note below).
+Also: after ECK CA rotation restart api/worker; update ClamAV signatures by refreshing the mirror (freshclam in the pod pulls from `parsers.clamav.mirrorUrl`; with no mirror configured signatures are only those baked into the image, so rebuild the image regularly).
 
 ## 3. Backup and restore
 
-| Store | Method | RPO | Restore |
-|---|---|---|---|
-| Postgres | CNPG continuous WAL archiving + nightly base backup to object storage | ≤ 5 min | CNPG `Cluster` with `bootstrap.recovery` to a target time |
-| MinIO | Bucket versioning + site replication to DR site | near-zero | fail over clients to DR endpoint |
-| Elastic | Snapshot lifecycle (daily) to S3 repository | ≤ 24 h | restore snapshot **or** rebuild index from Postgres + MinIO |
-| Keycloak | per your Keycloak backup policy | | |
+### RPO / RTO
 
-Restore order: Postgres → MinIO (if needed) → Elastic (restore or rebuild) → scale API/workers up.
-RTO target ≤ 4 h. Test a full restore into a scratch namespace every quarter.
+| Store | Mechanism (chart defaults) | RPO | Restore |
+|---|---|---|---|
+| Postgres | CNPG WAL archiving to MinIO via barman-cloud plugin; `archive_timeout` forced to 5 min; immediate base backup at install + daily 02:00 (`postgres.backup.schedule`); retention 30d | <= 5 min (when WAL is being produced) | PITR in place via `postgres.recovery` (3.1) |
+| Elasticsearch | SLM `roracle-daily` 01:30 to repo `roracle-s3`, expire 30d (min 7, max 60) | <= 24 h; index is rebuildable from Postgres + MinIO | snapshot restore (3.2) or rebuild |
+| MinIO | versioning; backup buckets with GOVERNANCE retention; site replication to a DR site (manual setup) | near-zero with replication, else loss of the cluster = loss of originals | 3.3 |
+| Keycloak | your Keycloak policy | | |
+
+RTO target <= 4 h. Order: Postgres -> MinIO (if lost) -> Elastic -> scale api/worker up. Alert on WAL archive age (Grafana panel, 300 s line).
+After the first install verify that a base backup exists (`kubectl get backup`; else trigger one with the command in section 2, Release upgrade): the immediate backup can run before the `minio-policy` hook has created the MinIO user. WAL archiving retries automatically.
+
+A single-cluster MinIO also holds the backups: without replication to another site, a cluster loss loses data and backups together.
+
+### 3.1 Postgres PITR (in place, Helm-managed name)
+
+Under the default-deny NetworkPolicy only the Helm-managed cluster `<fullname>-pg` is reachable, so the restore reuses that name. The chart bootstraps it from the backups (`postgres.recovery`) instead of `initdb`. The new cluster must archive under a new `serverName`, otherwise it collides with the old WAL archive.
+
+1. Confirm the backups exist and are recent: `kubectl get backup`, `kubectl cnpg status <fullname>-pg`. Deleting the Cluster deletes its PVCs.
+2. Stop writers (disable the HPA first, or it scales back): `kubectl scale deploy/<fullname>-api deploy/<fullname>-worker --replicas=0`.
+3. `kubectl delete cluster <fullname>-pg`.
+4. `helm upgrade <release> deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m --set postgres.recovery.enabled=true --set-string postgres.recovery.targetTime="2026-11-15 09:30:00+00" --set postgres.backup.serverName=<fullname>-pg-r1` (omit `targetTime` for latest; `postgres.recovery.sourceServerName` defaults to `<fullname>-pg`). The Cluster is re-created by this upgrade, so with recovery enabled the `migrate` hook runs as `post-upgrade` (after the cluster is up).
+5. Verify: `kubectl cnpg status <fullname>-pg`, row counts of `documents`, `jobs`; trigger a base backup `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` and confirm it completes (`kubectl get backup`).
+6. Keep `postgres.backup.serverName` (the new archive path) in your values permanently; set `postgres.recovery.enabled=false` again so a later cluster re-creation does not replay old backups. Scale api/worker back up.
+
+Each further restore needs another new `serverName` (`-r2`, ...). Rows written after the target time are lost; blobs in MinIO newer than the target are orphans (the GC job removes objects without a `blobs` row). Migrations run on the upgrade when restoring across versions.
+
+### 3.2 Elasticsearch restore
+
+Use the `elastic` superuser (secret `roracle-es-elastic-user`), not `roracle_app`.
+```bash
+curl -s -u elastic:$PW "$ES/_snapshot/roracle-s3/_all?pretty" | grep snapshot\"   # list; repo is registered by the install hook
+curl -s -u elastic:$PW -XDELETE "$ES/chunks-*"       # existing indices must be deleted/closed first
+curl -s -u elastic:$PW -XPOST "$ES/_snapshot/roracle-s3/<snapshot>/_restore" \
+  -H 'content-type: application/json' -d '{"indices":"chunks-*","include_global_state":false}'
+curl -s -u elastic:$PW "$ES/_cluster/health?wait_for_status=yellow&timeout=30m"
+```
+On a rebuilt cluster re-run the hook (`helm upgrade`) first so repository `roracle-s3` exists. Documents ingested after the snapshot are missing:
+re-queue them with the stage-reset statement of "Re-embed after embedding prompt/model change" (stops workers; no dedicated reindex CLI or job exists in the backend today).
+Elastic holds no unique data, so when no usable snapshot exists use that same procedure to rebuild everything from Postgres + MinIO (search is down until versions are searchable again).
+
+### 3.3 MinIO
+
+- Lost objects/versions: restore the previous version (`mc undo` / `mc cp --version-id`) from the versioned bucket.
+- Cluster loss: point `config.ROR_S3_ENDPOINT` (and `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint`) at the DR site, which holds the replicated `roracle` bucket via site replication. Credentials/policies are not replicated unless you replicate IAM: create the `minio.users.*` there.
+- Backup buckets (`roracle-pg-backup`, `roracle-es-snapshots`) are replicated the same way; GOVERNANCE retention blocks deletion by normal users for `minio.backupRetentionDays`.
+
+### 3.4 Quarterly drill checklist
+
+- [ ] Restore Postgres PITR (3.1) to a time 1 h ago in a scratch namespace/release; compare row counts of `documents`, `jobs`.
+- [ ] Restore the latest ES snapshot into a scratch ES; run a known query, compare hit counts.
+- [ ] Verify MinIO replication status (`mc admin replicate status`) and open a replicated object.
+- [ ] Point a scratch api/worker at the restored stores; smoke test upload, search, chat, citation.
+- [ ] Record elapsed time against RTO 4 h and WAL archive age against RPO 5 min; file gaps.
 
 ## 4. Incident playbooks
 

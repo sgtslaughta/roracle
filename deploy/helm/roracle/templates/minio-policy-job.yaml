@@ -1,0 +1,106 @@
+{{- if eq .Values.minio.mode "tenant" }}
+{{- $m := .Values.minio }}
+{{- $name := include "roracle.fullname" . }}
+{{- $tls := $m.requestAutoCert }}
+{{- $ca := and $tls (or .Values.caBundle.kubeRootCa .Values.caBundle.extraSecrets) }}
+{{- range $k := list "app" "pgBackup" "esSnapshot" }}{{ $_ := required (printf "minio.users.%s is required when minio.mode=tenant" $k) (get $m.users $k) }}{{ end }}
+{{- $grants := list (list $m.users.app .Values.config.ROR_S3_BUCKET "app") (list $m.users.pgBackup (include "roracle.pgBucket" .) "pg-backup") (list $m.users.esSnapshot .Values.elasticsearch.snapshot.bucket "es-snapshot") }}
+# Users are created here (not via Tenant users:, which grants consoleAdmin): one user + one-bucket RW policy each.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-minio-policy
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-policy
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ $m.policyJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels: {{ include "roracle.labels" . | nindent 8 }}
+        app.kubernetes.io/component: minio-policy
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ $m.policyJob.runAsUser }}
+      {{- include "roracle.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: policy
+          image: {{ include "roracle.dataImage" (dict "root" . "img" $m.policyJob.image) }}
+          imagePullPolicy: {{ $m.policyJob.image.pullPolicy }}
+          command: [sh, -ec]
+          args:
+            - |
+              # no secret ever on argv and never `set -x`: root creds from config.env go into the MC_HOST_ env alias
+              # (mc does not URL-decode it, so the charset is restricted), user secrets go to mc on stdin.
+              . /cfg/config.env
+              for v in "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                case "$v" in ''|*[!A-Za-z0-9._~-]*) echo "MinIO root user/password must match [A-Za-z0-9._~-]+"; exit 1;; esac
+              done
+              export MC_HOST_local="{{ ternary "https" "http" $tls }}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio.{{ .Release.Namespace }}.svc"
+              until mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
+              for b in {{ .Values.config.ROR_S3_BUCKET }} {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
+                n=0; until mc stat "local/$b" >/dev/null 2>&1; do n=$((n+1)); [ $n -le 60 ] || { echo "bucket $b missing"; exit 1; }; sleep 10; done
+              done
+              grant() { # user-secret-dir bucket policy-name; the secret key is piped on stdin (mc prompts for it)
+                key=$(cat "/users/$1/CONSOLE_ACCESS_KEY")
+                mc admin user add local "$key" < "/users/$1/CONSOLE_SECRET_KEY" >/dev/null
+                cat > "/tmp/$3.json" <<EOP
+              {"Version":"2012-10-17","Statement":[
+               {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket","s3:ListBucketMultipartUploads"],"Resource":["arn:aws:s3:::$2"]},
+               {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::$2/*"]}]}
+              EOP
+                mc admin policy create local "roracle-$3" "/tmp/$3.json"
+                out=$(mc admin policy attach local "roracle-$3" --user "$key" 2>&1) || case "$out" in *lready*) ;; *) echo "$out"; exit 1;; esac
+              }
+              {{- range $i, $g := $grants }}
+              grant u{{ $i }} {{ index $g 1 }} {{ index $g 2 }}
+              {{- end }}
+              for b in {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
+                mc retention set --default GOVERNANCE "{{ $m.backupRetentionDays }}d" "local/$b"
+              done
+          env:
+            - {name: HOME, value: /tmp}
+            {{- if $ca }}
+            - {name: SSL_CERT_DIR, value: /ca}
+            {{- end }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          securityContext: {{ toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cfg, mountPath: /cfg, readOnly: true}
+            {{- range $i, $g := $grants }}
+            - {name: u{{ $i }}, mountPath: /users/u{{ $i }}, readOnly: true}
+            {{- end }}
+            {{- if $ca }}
+            - {name: ca, mountPath: /ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        - name: cfg
+          secret: {secretName: {{ $m.configurationSecret | quote }}}
+        {{- range $i, $g := $grants }}
+        - name: u{{ $i }}
+          secret: {secretName: {{ index $g 0 | quote }}}
+        {{- end }}
+        {{- if $ca }}
+        - name: ca
+          projected:
+            sources:
+              {{- if .Values.caBundle.kubeRootCa }}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: kube-root.crt}]}
+              {{- end }}
+              {{- range $i, $x := .Values.caBundle.extraSecrets }}
+              - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
+              {{- end }}
+        {{- end }}
+{{- end }}

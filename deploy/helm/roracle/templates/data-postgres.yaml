@@ -1,0 +1,155 @@
+{{- if eq .Values.postgres.mode "cnpg" }}
+{{- $pg := .Values.postgres }}
+{{- $name := printf "%s-pg" (include "roracle.fullname" .) }}
+{{- $bk := $pg.backup }}
+{{- $ep := default (ternary (include "roracle.minioEndpoint" .) "" (eq .Values.minio.mode "tenant")) $bk.endpointURL }}
+{{- if $bk.enabled }}
+{{- $_ := required "postgres.backup.credentialsSecret.name is required when backup is enabled" $bk.credentialsSecret.name }}
+{{- $_ := required "postgres.backup.endpointURL is required (or use minio.mode=tenant)" $ep }}
+{{- end }}
+{{- if and $bk.enabled (not $bk.endpointURL) (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert (not $bk.endpointCA.name) }}
+{{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
+{{- end }}
+{{- $rc := $pg.recovery }}
+{{- if $rc.enabled }}
+{{- if not $bk.enabled }}{{ fail "postgres.recovery.enabled requires postgres.backup.enabled" }}{{ end }}
+{{- if or (not $bk.serverName) (eq $bk.serverName (default $name $rc.sourceServerName)) }}{{ fail "postgres.backup.serverName must be set and differ from the recovery source serverName (a new WAL archive path)" }}{{ end }}
+{{- end }}
+{{- $store := dict }}
+{{- if $bk.enabled }}
+{{- /* shared S3 settings for both backup methods (no secret values, refs only) */}}
+{{- $store = dict "destinationPath" $bk.destinationPath "endpointURL" $ep "wal" (dict "compression" "gzip") "s3Credentials" (dict "accessKeyId" (dict "name" $bk.credentialsSecret.name "key" $bk.credentialsSecret.accessKeyKey) "secretAccessKey" (dict "name" $bk.credentialsSecret.name "key" $bk.credentialsSecret.secretAccessKeyKey)) }}
+{{- if $bk.endpointCA.name }}{{ $_ := set $store "endpointCA" (dict "name" $bk.endpointCA.name "key" $bk.endpointCA.key) }}{{ end }}
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  instances: {{ $pg.instances }}
+  imageName: {{ include "roracle.dataImage" (dict "root" . "img" $pg.image) }}
+  imagePullPolicy: {{ $pg.image.pullPolicy }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets: {{ toYaml . | nindent 4 }}
+  {{- end }}
+  storage:
+    size: {{ $pg.storage.size }}
+    {{- with $pg.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources: {{ toYaml $pg.resources | nindent 4 }}
+  postgresql:
+    parameters: {{ set (deepCopy $pg.parameters) "archive_timeout" "5min" | toYaml | nindent 6 }}
+  bootstrap:
+    {{- if $rc.enabled }}
+    recovery:
+      source: origin
+      database: roracle
+      owner: roracle
+      secret:
+        name: {{ required "postgres.appCredentialsSecret is required when postgres.mode=cnpg" $pg.appCredentialsSecret | quote }}
+      {{- if $rc.targetTime }}
+      recoveryTarget: {targetTime: {{ $rc.targetTime | quote }}}
+      {{- end }}
+    {{- else }}
+    initdb:
+      database: roracle
+      owner: roracle
+      secret:
+        name: {{ required "postgres.appCredentialsSecret is required when postgres.mode=cnpg" $pg.appCredentialsSecret | quote }}
+    {{- end }}
+  {{- if $rc.enabled }}
+  externalClusters:
+    - name: origin
+      {{- if eq $bk.method "plugin" }}
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters: {barmanObjectName: {{ $name }}, serverName: {{ default $name $rc.sourceServerName | quote }}}
+      {{- else }}
+      barmanObjectStore: {{ toYaml (merge (dict "serverName" (default $name $rc.sourceServerName)) $store) | nindent 8 }}
+      {{- end }}
+  {{- end }}
+  {{- if $pg.monitoring.enabled }}
+  monitoring:
+    enablePodMonitor: true
+    customQueriesConfigMap:
+      - {name: {{ $name }}-queries, key: queries}
+  {{- end }}
+  {{- if $bk.enabled }}
+  {{- if eq $bk.method "plugin" }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $name }}
+        {{- with $bk.serverName }}
+        serverName: {{ . | quote }}
+        {{- end }}
+  {{- else }}
+  backup:
+    retentionPolicy: {{ $bk.retentionPolicy | quote }}
+    barmanObjectStore: {{ toYaml (merge (ternary (dict "serverName" $bk.serverName) (dict) (ne $bk.serverName "")) $store) | nindent 6 }}
+  {{- end }}
+  {{- end }}
+{{- if and $bk.enabled (eq $bk.method "plugin") }}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $name }}
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+spec:
+  retentionPolicy: {{ $bk.retentionPolicy | quote }}
+  configuration: {{ toYaml $store | nindent 4 }}
+{{- end }}
+{{- if $bk.enabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $name }}-daily
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $bk.schedule | quote }}
+  cluster: {name: {{ $name }}}
+  immediate: true
+  backupOwnerReference: self
+  {{- if eq $bk.method "plugin" }}
+  method: plugin
+  pluginConfiguration: {name: barman-cloud.cloudnative-pg.io}
+  {{- else }}
+  method: barmanObjectStore
+  {{- end }}
+{{- end }}
+{{- if $pg.monitoring.enabled }}
+---
+# Queue metrics from the existing jobs table (the backend exposes no /metrics yet).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-queries
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    cnpg.io/reload: ""
+data:
+  queries: |
+    roracle_jobs:
+      query: |
+        SELECT kind, status, count(*) AS count,
+               COALESCE(EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE status = 'queued' AND run_after <= now())), 0) AS oldest_queued_seconds
+        FROM jobs GROUP BY kind, status
+      target_databases: [roracle]
+      metrics:
+        - kind: {usage: LABEL, description: Job kind}
+        - status: {usage: LABEL, description: Job status}
+        - count: {usage: GAUGE, description: Jobs per kind and status}
+        - oldest_queued_seconds: {usage: GAUGE, description: Age of the oldest queued job in seconds}
+    roracle_archiver:
+      query: |
+        SELECT EXTRACT(EPOCH FROM now() - last_archived_time) AS seconds_since_last_archive FROM pg_stat_archiver
+      target_databases: [postgres]
+      metrics:
+        - seconds_since_last_archive: {usage: GAUGE, description: Seconds since the last WAL segment was archived (primary only; no sample until the first archive)}
+{{- end }}
+{{- end }}

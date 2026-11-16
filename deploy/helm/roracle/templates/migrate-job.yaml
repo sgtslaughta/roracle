@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "roracle.fullname" . }}-migrate
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # cnpg: the database does not exist before install, so run post-install (api/worker may restart until it finishes)
+    # cnpg + recovery: the upgrade re-creates the Cluster, so migrate runs post-upgrade
+    "helm.sh/hook": {{ if eq .Values.postgres.mode "cnpg" }}{{ if .Values.postgres.recovery.enabled }}post-install,post-upgrade{{ else }}post-install,pre-upgrade{{ end }}{{ else }}pre-install,pre-upgrade{{ end }}
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels: {{ include "roracle.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ .Values.migrate.runAsUser }}
+      {{- include "roracle.pullSecrets" . | nindent 6 }}
+      {{- include "roracle.caInit" . | nindent 6 }}
+      containers:
+        - name: migrate
+          image: {{ include "roracle.image" (dict "root" . "img" .Values.image.backend) }}
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          {{- if eq .Values.postgres.mode "cnpg" }}
+          # bounded wait (<= 10 min) for the database, then migrate
+          command: [sh, -ec]
+          args:
+            - |
+              python -c "
+              import os, sys, time
+              from sqlalchemy import create_engine
+              e = create_engine(os.environ['ROR_DATABASE_URL'])
+              for _ in range(120):
+                  try:
+                      e.connect().close(); sys.exit(0)
+                  except Exception:
+                      time.sleep(5)
+              sys.exit('database not reachable after 10 minutes')"
+              exec python -m roracle migrate
+          {{- else }}
+          command: [python, -m, roracle, migrate]
+          {{- end }}
+          env:
+            {{- include "roracle.configEnv" . | nindent 12 }}
+            {{- include "roracle.secretEnv" . | nindent 12 }}
+            {{- include "roracle.caEnv" . | nindent 12 }}
+          resources: {{ toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext: {{ toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "roracle.caMounts" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 1Gi}
+        {{- include "roracle.caVolumes" (dict "root" . "optional" true) | nindent 8 }}

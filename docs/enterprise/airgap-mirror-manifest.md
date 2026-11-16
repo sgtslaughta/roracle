@@ -6,23 +6,66 @@ of truth for language packages: `backend/uv.lock`, `frontend/pnpm-lock.yaml`.
 
 ## Container images
 
-| Image | Used by | Notes |
+Tags are exact as referenced on 2026-11-15. `sha256:` digests are the manifest-list digest the tag resolved to when this
+manifest was written (`docker buildx imagetools inspect <img>`); mutable tags can move, so re-verify and pin in the mirror
+(`crane digest` / `skopeo inspect`), then set `image.*.digest` / `*.image.digest` in values (digest wins over tag).
+"pin in mirror" = lookup was not possible from the authoring host (registry blocked); never guessed.
+
+### Runtime (Helm chart, `ci/full-values.yaml` render)
+
+| Image | Tag | Used by | Digest |
+|---|---|---|---|
+| `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
+| `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
+| `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
+| `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` | MinIO `Tenant` | pin in mirror (quay.io returned 401) |
+| `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` | `minio-policy` hook Job | pin in mirror (quay.io returned 401) |
+| `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
+| `gotenberg/gotenberg` | `8.20.1` | parser | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
+| `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
+| `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
+| `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
+
+
+### Build and CI
+
+| Image | Tag | Used by | Digest |
+|---|---|---|---|
+| `python` | `3.12-slim` | backend Dockerfile, CI backend jobs, assert-render | `sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b` |
+| `node` | `22-slim` | frontend Dockerfile build stage, CI frontend job | `sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee` |
+| `nginxinc/nginx-unprivileged` | `1.27-alpine` | web runtime stage | `sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0` |
+| `postgres` | `16` | CI test service, dev compose | `sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f` |
+| `bitnamilegacy/minio` | `2025.5.24` | CI test service, dev compose | `sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c` |
+| `gcr.io/kaniko-project/executor` | `v1.23.2-debug` | CI image builds | `sha256:c3109d5926a997b100c4343944e06c6b30a6804b2f9abe0994d3de6ef92b028e` |
+| `alpine/helm` | `3.17.3` | CI `helm` job (`HELM_IMAGE`) | `sha256:d899e6316789fec04ee95300a18e454b7942539cbb3d89bde3e0655d6ca2e895` |
+| `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | CI `kubeconform` job (`KUBECONFORM_IMAGE`) | `sha256:824e0c248809e4b2da2a768b16b107cf17ada88a89ec6aa6050e566ba93ebbc6` |
+
+Dev only (`deploy/dev/compose.yaml`): `quay.io/keycloak/keycloak:26.0` (pin in mirror), docling-serve-cpu `:latest` (use the chart tag instead).
+Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB). Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
+
+### Operator and observability charts (floor, pin in mirror)
+
+| Chart | Floor / constraint | Installed by |
 |---|---|---|
-| `python:3.12-slim` | backend build/runtime | base for `roracle/backend` |
-| `node:22-slim` | frontend build | build stage only |
-| `nginx:1.27-alpine` (or unprivileged variant) | `roracle/web` runtime | |
-| `postgres:16` | dev/CI | prod uses CloudNativePG images |
-| `ghcr.io/cloudnative-pg/postgresql:16` + operator | prod Postgres | |
-| `docker.elastic.co/elasticsearch/elasticsearch:8.x` + ECK operator | search | ≥ 8.15 for `int8_hnsw`, `semantic` features not required |
-| `minio/minio`, `minio/mc`, MinIO operator | blobs | or external S3 |
-| `quay.io/keycloak/keycloak:26.x` | dev only | prod uses your Keycloak |
-| `quay.io/docling-project/docling-serve` | parsing | CPU or CUDA variant |
-| `lfoppiano/grobid:0.8.x` | metadata/references | |
-| `gotenberg/gotenberg:8.20.1` | office → PDF (ingest instance, chromium disabled); a second Chromium-enabled instance builds draft PDFs (`ROR_DRAFT_GOTENBERG_URL`) | two deployments of the same image |
-| `clamav/clamav:1.4` | malware scan | needs signature mirror (freshclam private mirror) |
-| `texlive/texlive` (full) | latex-builder | ~5 GB |
-| `gcr.io/kaniko-project/executor` | CI image builds | |
-| `ghcr.io/astral-sh/uv` (or pip-installed uv) | CI | |
+| `cloudnative-pg` operator | >= 1.26 (barman-cloud plugin method) | platform |
+| `plugin-barman-cloud` | version compatible with the CNPG release; pin in mirror | platform |
+| `cert-manager` | any supported release (required by the plugin); pin in mirror | platform |
+| `eck-operator` | release that supports Elasticsearch 8.15.3; pin in mirror | platform |
+| `minio-operator` | release supporting the `Tenant` CRD and the MinIO image above; pin in mirror | platform |
+| `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
+
+Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator, Prometheus, Grafana, Loki, collector-contrib) must be mirrored at the tag the chosen chart version pins.
+
+### Other build-time inputs
+
+| Input | Mirror |
+|---|---|
+| pnpm (via corepack) | `COREPACK_NPM_REGISTRY`, derived from `NPM_CONFIG_REGISTRY` in the Dockerfile and CI; re-signing mirrors may also need `COREPACK_INTEGRITY_KEYS=0` |
+| `uv==0.10.4`, `pyyaml==6.0.3` (CI) | PyPI mirror via `UV_INDEX_URL` |
+| kubeconform schemas | set `KUBECONFORM_SCHEMA_LOCATION` to a mirror carrying the Kubernetes schemas and the CRD catalog (CNPG, ECK, MinIO, barman-cloud, Prometheus); empty = online GitHub schemas |
+| ClamAV signatures | private freshclam mirror (`parsers.clamav.mirrorUrl` + `mirrorCIDRs`); otherwise only the signatures baked in the image |
+| Docling models | baked into the docling-serve image (no cache volume: it would hide them) |
 
 ## Python (PyPI mirror via `UV_INDEX_URL`)
 

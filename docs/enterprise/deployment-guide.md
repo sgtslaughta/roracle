@@ -15,21 +15,21 @@ Read with: [spec](../spec.md), [security](security.md), [operations runbook](ope
  worker (jobs) ──► Docling · GROBID · Gotenberg · ClamAV · latex-builder ──► same stores
 ```
 
-Namespaces: `roracle` (app), `roracle-data` (Postgres, Elastic, MinIO) — or your platform's existing
-operators/instances. NetworkPolicies: default deny; allow only the edges above.
+Namespaces: `roracle` (app and bundled Postgres, Elastic, MinIO, parsers); operators in their own namespaces.
+Use `mode: external` for platform-provided data services. NetworkPolicies: default deny; allow only the edges above.
 
 ## 2. Prerequisites
 
 | Item | Requirement |
 |---|---|
 | Kubernetes | ≥ 1.29, 3+ worker nodes across failure domains; CSI with SSD storage class and snapshots |
-| Operators | ECK (Elastic Cloud on Kubernetes), CloudNativePG, MinIO Operator (or external S3) |
+| Operators | CloudNativePG (+ barman-cloud plugin, cert-manager), ECK, MinIO Operator, each optional with the matching `mode: external` (see section 4.1) |
 | Ingress | TLS-terminating ingress reachable only from the org proxy |
 | Keycloak | Realm with X.509 browser + direct-grant flows, groups, client `roracle-web` (see Keycloak guide) |
 | Inference | OpenAI-spec endpoint: chat models, one embedding model, reranker (`/v1/rerank` or equivalent) |
 | Registry | All images in the [mirror manifest](airgap-mirror-manifest.md) pushed to the internal registry |
 | DNS / certs | `roracle.<domain>`; internal CA trusted by pods |
-| Observability | Prometheus/Grafana/Loki/OTel collector (existing or bundled sub-chart) |
+| Observability | Prometheus/Grafana/Loki/OTel collector: existing, or the separate releases in `deploy/observability` (no subchart) |
 
 ## 3. Sizing (target: 500 concurrent users, 1M docs ≈ 50M chunks, 10k docs/day)
 
@@ -41,7 +41,7 @@ operators/instances. NetworkPolicies: default deny; allow only the edges above.
 | Docling | 2–4 | 4 vCPU, 16 GiB (or GPU) | ~200k pages/day ≈ 2.3 pages/s sustained; GPU or the inference endpoint's granite-docling model recommended |
 | GROBID | 2 | 4 vCPU, 8 GiB | |
 | Gotenberg | 2 | 2 vCPU, 4 GiB | LibreOffice conversion of office uploads; one conversion at a time per pod |
-| ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required; set `StreamMaxLength`, `MaxFileSize`, `MaxScanSize` to 600M (> the 500 MB upload limit) and `AlertExceedsMax yes` (fail closed: oversize files are reported FOUND, never partially scanned), else large uploads fail permanently |
+| ClamAV | 2 | 2 vCPU, 4 GiB | signature mirror required (`parsers.clamav.mirrorUrl`); chart sets `StreamMaxLength`, `MaxFileSize`, `MaxScanSize` = `parsers.clamav.limits` (1100M, render fails if below the upload/evidence caps) and `AlertExceedsMax yes` (fail closed) |
 | latex-builder | 2 | 2 vCPU, 2 GiB per build | job concurrency limited |
 | Postgres | 3 (1 primary + 2 sync/async replicas) | 8 vCPU, 32 GiB, 500 GiB SSD | metadata ≈ 100 GiB at target |
 | Elasticsearch | 3 master (small) + 3–4 data | data: 16 vCPU, 64 GiB (31 GiB heap), 2 TiB SSD | see vector math below |
@@ -52,25 +52,134 @@ Vector math (per embedding model index, 1 replica):
 - 4096-d (e5-mistral-7b): ≈ 820 GB float; `int8_hnsw` ≈ 205 GB → needs ~2× the data nodes above.
 - Keep quantized vectors in page cache (off-heap RAM) for p95 < 500 ms; double during re-embed.
 
-## 4. Install
+## 4. Install (Helm chart `deploy/helm/roracle`)
 
-1. **Mirror** every artifact in the manifest; set `global.imageRegistry` in values.
-2. **Data services** (skip any you provide externally):
-   - Postgres: CNPG `Cluster` with 3 instances, WAL archiving to object storage (PITR), `pg_stat_statements`.
-   - Elastic: ECK `Elasticsearch` with dedicated masters, data tier, snapshot repository (S3/MinIO).
-   - MinIO: tenant with erasure coding, versioning on the `roracle` bucket, site replication for DR.
-3. **Keycloak**: apply the realm settings in [keycloak-setup.md](keycloak-setup.md).
-4. **Secrets** (from your secret manager / sealed secrets): DB credentials, S3 keys, inference API key,
-   Elastic credentials.
-5. **Helm** (`deploy/helm/roracle`, delivered in roadmap plan 11):
-   ```bash
-   helm upgrade --install roracle deploy/helm/roracle -n roracle -f values-prod.yaml
-   ```
-   The chart runs `python -m roracle migrate` as a pre-upgrade hook Job before rolling `api`/`worker`.
-6. **Reverse proxy**: forward `/mcp` and `/.well-known/oauth-protected-resource` to the api (not the SPA),
-   without buffering limits below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3.
-7. **Smoke test**: `GET /healthz`; sign in through the proxy; upload a PDF; watch it reach
-   *Searchable* in My uploads; ask a question and click a citation.
+### 4.1 Prerequisites in the cluster
+
+| Item | Needed when | Namespace (default `networkPolicy.operatorNamespaces`) |
+|---|---|---|
+| CloudNativePG operator (>= 1.26) + barman-cloud plugin + cert-manager | `postgres.mode=cnpg` with `backup.method=plugin` (default); the plugin needs cert-manager | `cnpg-system` |
+| ECK operator | `elasticsearch.mode=eck` | `elastic-system` |
+| MinIO Operator | `minio.mode=tenant` | `minio-operator` |
+| prometheus-operator CRDs | `postgres.monitoring.enabled` (default true; PodMonitor) | `monitoring` |
+| Ingress controller | `ingress.enabled`; default `ingressNamespaceSelector` = namespace `ingress-nginx` | `ingress-nginx` |
+
+Operators are installed by the platform (charts and versions in the [mirror manifest](airgap-mirror-manifest.md)).
+All images and charts are mirrored first; set `global.imageRegistry`. Create the app namespace (`roracle`);
+bundled data services render into the same namespace as the release.
+
+### 4.2 Secrets (create before install; the chart never holds values)
+
+| Secret (values key) | Keys | Required when |
+|---|---|---|
+| `secrets.existingSecret` | `ROR_DATABASE_URL` (`postgresql+psycopg://roracle:<pw>@roracle-pg-rw:5432/roracle`), `ROR_ELASTIC_URL`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY`, `ROR_LLM_API_KEY` (unless `secrets.llmApiKeyEnabled=false`) | always |
+| `postgres.appCredentialsSecret` | type `kubernetes.io/basic-auth`: `username: roracle`, `password` (same password as in `ROR_DATABASE_URL`) | `postgres.mode=cnpg` |
+| `postgres.backup.credentialsSecret.name` | `ACCESS_KEY_ID`, `ACCESS_SECRET_KEY` (= `minio.users.pgBackup` keys) | cnpg + `backup.enabled` |
+| `postgres.backup.endpointCA.name` | `ca.crt` = content of `kube-root-ca.crt` (render fails without it when MinIO auto-cert is on) | cnpg + backup + tenant + `requestAutoCert` |
+| `elasticsearch.appUserSecret` | basic-auth: `username: roracle_app`, `password`, `roles: roracle_app` | `elasticsearch.mode=eck` |
+| `elasticsearch.snapshot.credentialsSecret` | `s3.client.default.access_key`, `s3.client.default.secret_key` (= `minio.users.esSnapshot` keys) | eck + `snapshot.enabled` |
+| `minio.configurationSecret` | `config.env` with `export MINIO_ROOT_USER=...` / `export MINIO_ROOT_PASSWORD=...`; charset `[A-Za-z0-9._~-]` only (e.g. `openssl rand -hex 32`) | `minio.mode=tenant` |
+| `minio.users.app`, `.pgBackup`, `.esSnapshot` | `CONSOLE_ACCESS_KEY`, `CONSOLE_SECRET_KEY` (users are created by the `minio-policy` hook Job with one-bucket policies) | tenant |
+
+`ROR_ELASTIC_URL` = `https://roracle_app:<password>@roracle-es-http.<ns>.svc:9200` (`<fullname>-es-http`; never the `elastic` user).
+Optional: `caBundle.extraSecrets`, `elasticsearch.snapshot.extraCASecret` (private CAs), `imagePullSecrets`.
+
+### 4.3 Install
+
+```bash
+helm install roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m
+```
+
+Minimum `my-values.yaml`: `secrets.existingSecret`, `config.ROR_OIDC_ISSUER`, `config.ROR_OIDC_JWKS_URL`,
+`config.ROR_LLM_BASE_URL`, `ingress.{enabled,host,className,tlsSecretName}`, the Secret names above, the
+NetworkPolicy values in 4.6, and (external modes) the endpoints. Missing required values fail the render.
+
+First-install ordering:
+
+| `postgres.mode` | Migrate hook (`python -m roracle migrate`, `backoffLimit: 0`) |
+|---|---|
+| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it. api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
+| `external` | `pre-install,pre-upgrade`: failure blocks the release. |
+
+Post hooks run in weight order: `minio-policy` (-10, creates users, policies, retention) then ES snapshot repo + SLM (0, retries repository registration up to 5 min until the MinIO user exists). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
+
+Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
+`helm test` is not provided.
+
+### 4.4 Ingress
+
+| Path | Backend | Type |
+|---|---|---|
+| `/` | `web` :8080 (nginx SPA; proxies `/api/` to the api, prefix stripped, via `API_UPSTREAM`) | Prefix |
+| `/mcp` | `api` :8000 | Exact |
+| `/.well-known/oauth-protected-resource` | `api` :8000 | Prefix |
+
+No controller-specific rewrites. Default annotation `nginx.ingress.kubernetes.io/proxy-body-size: 1100m` (keep >= `ROR_EVIDENCE_MAX_BYTES`;
+replace it for other controllers). HSTS is set at the ingress/org proxy, not by the chart (the web pod sends the headers in [security](security.md) section 12).
+The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew uses an iframe at `/auth/silent`).
+
+### 4.5 External vs bundled modes
+
+| Service | Bundled | External |
+|---|---|---|
+| Postgres | `postgres.mode=cnpg` (CNPG `Cluster` `roracle-pg`, `ObjectStore`, daily `ScheduledBackup`) | `external`: nothing rendered; `ROR_DATABASE_URL` in the app Secret; egress via `networkPolicy.externalCIDRs.postgres` |
+| Elasticsearch | `elasticsearch.mode=eck` (`Elasticsearch` `roracle`, snapshot hook Job) | `external`: `ROR_ELASTIC_URL` in the app Secret; `externalCIDRs.elasticsearch`; snapshots are yours |
+| Object store | `minio.mode=tenant` (`Tenant` `roracle-minio`, svc `minio`) | `external`: set `config.ROR_S3_ENDPOINT`; `networkPolicy.s3Cidrs` for egress |
+| Parsers | `parsers.{gotenberg,docling,grobid,clamav}.enabled` (Deployments, no egress) | `enabled=false` + `config.ROR_*_URL` / `ROR_CLAMAV_HOST` + `egressCIDRs.parsers` |
+
+### 4.6 NetworkPolicy values you must set
+
+`networkPolicy.enabled` (default true) denies all ingress and egress in the release namespace, then allows the edges in
+[security](security.md) section 11. These stay denied until set:
+
+| Value | Set to |
+|---|---|
+| `networkPolicy.ingressNamespaceSelector` | labels of the ingress controller namespace (hostNetwork controllers: add your own policy for the node CIDR) |
+| `networkPolicy.egressCIDRs.{llm,oidc,otel,parsers}` | `cidrs` and/or `namespaceSelector`/`podSelector` + `ports` (pod/node/LB addresses, never Service ClusterIPs: policies apply after DNAT) |
+| `networkPolicy.kubeAPI.cidrs` | apiserver endpoint IPs. Default empty = ports 443/6443 allowed to any destination (tighten in production) |
+| `networkPolicy.operatorNamespaces` | namespaces of ECK, CNPG, MinIO operators if not the defaults |
+| `networkPolicy.externalCIDRs.*`, `s3Cidrs`, `connectors.egressCIDRs` | only for external services / connector targets |
+| `networkPolicy.monitoringNamespace`, `scrape.enabled` | Prometheus namespace (PodMonitor scrape of Postgres; api/worker scrape has no target until P11b) |
+
+### 4.7 Web runtime environment
+
+Set by the chart on the `web` Deployment (nginx substitutes placeholders in the SPA at start; no rebuild per site):
+
+| Env | Source | Notes |
+|---|---|---|
+| `ROR_OIDC_AUTHORITY` | `web.oidcAuthority`, default `config.ROR_OIDC_ISSUER` | required; must be a URL |
+| `ROR_OIDC_CLIENT_ID` | `web.oidcClientId` (`roracle-web`) | |
+| `ROR_OIDC_ORIGIN` | derived from the authority | used in CSP `connect-src`/`frame-src`/`form-action` |
+| `API_UPSTREAM` | `http://<fullname>-api:8000` | `/api/` proxy; unset = `/api/` returns 404 |
+
+### 4.8 Values reference (top-level keys; see `values.yaml` comments)
+
+| Key | Purpose |
+|---|---|
+| `global.imageRegistry`, `imagePullSecrets` | mirror prefix; pull secrets |
+| `image.{backend,web}` | repository/tag/digest; tag empty = Chart `appVersion`; digest wins |
+| `secrets` | `existingSecret` and key names; `llmApiKeyEnabled` |
+| `config` | non-secret `ROR_*` -> ConfigMap; empty URLs auto-filled for enabled bundled services |
+| `serviceAccount` | chart SA |
+| `observability` | `otel.endpoint` (env only until P11b), `grafanaDashboard` ConfigMap |
+| `podSecurityContext`, `containerSecurityContext`, `topologySpread` | restricted baseline, zone spread |
+| `api`, `worker`, `web` | replicas, resources, HPA, PDB, `tmpSize`, grace periods |
+| `migrate` | hook Job resources and deadline (1500 s) |
+| `ingress` | host, class, TLS secret, annotations |
+| `postgres` | CNPG mode, instances, storage, image, `backup` (plugin/legacy, schedule, retention) |
+| `elasticsearch` | ECK mode, version, nodeSets, storage, TLS, `snapshot` (bucket, SLM schedule/retention) |
+| `minio` | tenant mode, servers/volumes, auto-cert, users, `backupRetentionDays`, `policyJob` |
+| `parsers` | gotenberg, docling, grobid, clamav (+ PDB) |
+| `connectors` | worker egress CIDRs/ports for connectors |
+| `caBundle` | interim CA bundle (see section 8) |
+| `networkPolicy` | see 4.6 |
+
+Observability (Prometheus, Grafana, Loki, OTel collector) are separate releases: see
+[`deploy/observability/README.md`](../../deploy/observability/README.md). The backend exports no metrics or traces yet (P11b).
+
+### 4.9 Keycloak and reverse proxy
+
+Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3 for `/mcp`.
 
 ## 5. Configuration reference (environment, prefix `ROR_`)
 
@@ -128,6 +237,26 @@ the env value; `null` removes the override). Changes apply to new requests and j
 ## 7. Upgrade policy
 
 SemVer: patch = drop-in; minor = additive migrations, rolling upgrade; major = release notes with
-manual steps. Always snapshot Postgres and Elastic before a minor/major upgrade.
+manual steps. Always take a Postgres backup and an ES snapshot before a minor/major upgrade (runbook section 2, Release upgrade).
 
 P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.
+
+## 8. TLS trust, hooks and ordering (bundled data services)
+
+Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bundled services:
+
+- TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, signed by the cluster CA) are on by default. The backend has no CA setting yet (P11b gap),
+  so api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`),
+  mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the backend image's Python layout; adjust if the image changes).
+  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `AWS_CA_BUNDLE` point at it. Replace with `ROR_*_CA` settings once P11b lands.
+  Clusters whose CSR signer differs from the kube root CA (e.g. EKS) add the signer CA via `caBundle.extraSecrets`.
+- ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`); `ES_JAVA_OPTS` points at it.
+  The post-install hook Job registers repository `roracle-s3` and SLM policy `roracle-daily`.
+- `minio-policy` hook Job: creates the three MinIO users (not Tenant `users:`, which grants consoleAdmin), attaches one-bucket policies,
+  sets GOVERNANCE default retention `minio.backupRetentionDays` on the backup buckets (keep >= backup/snapshot retention). Versioning and object lock come from the Tenant `buckets[].objectLock` (set at bucket creation, not changeable later). It runs on every upgrade, first (hook weight -10).
+- api/worker wait for the ECK CA Secret; after ECK CA rotation run `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
+- ES nodes run with `node.store.allow_mmap: false` (avoids ECK's privileged sysctl init container); drop it if a node-tuning DaemonSet sets `vm.max_map_count>=262144`.
+- Proxies in front of the web pod must allow bodies >= the evidence cap (`ROR_EVIDENCE_MAX_BYTES`, 1 GiB); the web pod's nginx allows 1100m. Ingress annotations: `nginx.ingress.kubernetes.io/proxy-body-size: 1100m`.
+- Pre-GA checklist: against the mirrored MinIO release, test that the ES S3 repository (repository verification and a snapshot) and barman-cloud (base backup + WAL) can write into the object-lock buckets (they require Content-MD5/checksum headers on PUTs).
+- Backups land on the bundled MinIO by default. For DR replicate the backup buckets to another site (MinIO site replication, not automated by the chart)
+  or point `postgres.backup.*` / `elasticsearch.snapshot.*` at an external store. See the [runbook](operations-runbook.md) section 3.

@@ -1,0 +1,18 @@
+{{- range $c := list "api" "worker" "web" }}
+{{- $v := get $.Values $c }}
+{{- if $v.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "roracle.fullname" $ }}-{{ $c }}
+  labels: {{ include "roracle.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ include "roracle.fullname" $ }}-{{ $c }}}
+  minReplicas: {{ $v.autoscaling.minReplicas }}
+  maxReplicas: {{ $v.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: {{ $v.autoscaling.targetCPUUtilizationPercentage }}}}
+{{- end }}
+{{- end }}

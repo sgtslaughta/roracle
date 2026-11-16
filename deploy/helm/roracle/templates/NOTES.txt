@@ -1,0 +1,19 @@
+rOracle {{ .Chart.AppVersion }} installed as {{ .Release.Name }}.
+Install/upgrade with `--timeout 30m` (hooks wait for operator-managed services). Migrations run as a hook Job (external Postgres: pre-install/pre-upgrade; cnpg: post-install/pre-upgrade; cnpg with postgres.recovery.enabled: post-upgrade); a failure blocks the release.
+{{- if .Values.ingress.enabled }}
+URL: https://{{ .Values.ingress.host }}  (MCP: POST /mcp)
+{{- end }}
+Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.databaseUrl }}, {{ .Values.secrets.keys.elasticUrl }}, {{ .Values.secrets.keys.s3AccessKey }}, {{ .Values.secrets.keys.s3SecretKey }}{{ if .Values.secrets.llmApiKeyEnabled }}, {{ .Values.secrets.keys.llmApiKey }}{{ end }}.
+{{- if .Values.observability.otel.endpoint }}
+OTEL_* env is set, but the backend has no OTel instrumentation until P11b.
+{{- end }}
+{{- if eq .Values.elasticsearch.mode "eck" }}
+Bundled Elasticsearch: put (user roracle_app from secret {{ .Values.elasticsearch.appUserSecret }}, never elastic) {{ ternary "https" "http" .Values.elasticsearch.tls }}://roracle_app:<password>@{{ include "roracle.fullname" . }}-es-http.{{ .Release.Namespace }}.svc:9200 in {{ .Values.secrets.keys.elasticUrl }}.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+NetworkPolicy is ON (default-deny ingress+egress for the whole namespace). Until you set the CIDRs/selectors, these stay DENIED:
+external Postgres/Elasticsearch/S3 (networkPolicy.externalCIDRs.*, s3Cidrs), OIDC JWKS / LLM / OTel (networkPolicy.egressCIDRs.* cidrs or namespace/podSelector), external parsers (egressCIDRs.parsers), connector targets (connectors.egressCIDRs).
+{{- if .Values.ingress.enabled }}
+Ingress controllers on hostNetwork do not match networkPolicy.ingressNamespaceSelector (traffic arrives from the node IP): allow the node CIDR with your own policy.
+{{- end }}
+{{- end }}

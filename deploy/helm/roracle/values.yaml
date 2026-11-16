@@ -1,0 +1,340 @@
+# rOracle chart values. No secret values here: credentials come from an existing Secret.
+global:
+  imageRegistry: ""        # prefix for every image, e.g. registry.internal.example
+imagePullSecrets: []       # [{name: regcred}]
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  backend: {repository: roracle/backend, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = Chart appVersion; digest wins
+  web: {repository: roracle/web, tag: "", digest: "", pullPolicy: IfNotPresent}
+
+secrets:
+  existingSecret: ""       # REQUIRED. Secret holding the keys below
+  keys:                    # key names inside existingSecret
+    databaseUrl: ROR_DATABASE_URL
+    s3AccessKey: ROR_S3_ACCESS_KEY
+    s3SecretKey: ROR_S3_SECRET_KEY
+    elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
+    llmApiKey: ROR_LLM_API_KEY
+  llmApiKeyEnabled: true   # false if the inference endpoint needs no key (backend default "unused")
+
+# Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
+config:
+  ROR_S3_ENDPOINT: ""      # REQUIRED unless minio.mode=tenant (auto-filled to the tenant service)
+  ROR_S3_BUCKET: roracle
+  ROR_OIDC_ISSUER: ""      # REQUIRED
+  ROR_OIDC_JWKS_URL: ""    # REQUIRED
+  ROR_OIDC_AUDIENCE: roracle
+  ROR_PUBLIC_BASE_URL: ""  # default https://<ingress.host>
+  ROR_LLM_BASE_URL: ""
+  ROR_DOCLING_URL: ""
+  ROR_GROBID_URL: ""
+  ROR_GOTENBERG_URL: ""
+  ROR_CLAMAV_HOST: ""
+  ROR_MAX_UPLOAD_BYTES: "524288000"
+  ROR_EVIDENCE_MAX_BYTES: "1073741824"
+
+serviceAccount:
+  create: true
+  name: ""                 # override; empty = fullname if create else "default"
+  annotations: {}
+
+# Tokens only; the backend has no OTel/metrics instrumentation yet (P11b). Env is emitted when endpoint is set.
+observability:
+  otel:
+    endpoint: ""           # e.g. http://otel-collector.observability:4317
+  # Grafana sidecar-provisioned dashboard (ingress-nginx + CNPG metrics). `label` = sidecar label key.
+  grafanaDashboard: {enabled: false, label: grafana_dashboard}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+
+topologySpread:
+  enabled: true
+
+api:
+  replicas: 3
+  resources:
+    requests: {cpu: "2", memory: 4Gi}
+    limits: {memory: 4Gi}
+  tmpSize: 20Gi            # multipart uploads spool to /tmp: size >= evidence limit x concurrent uploads
+  autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 10, targetCPUUtilizationPercentage: 70}
+  pdb: {enabled: true, minAvailable: 1}
+  terminationGracePeriodSeconds: 60
+  runAsUser: 10001
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+worker:
+  replicas: 4
+  resources:
+    requests: {cpu: "4", memory: 8Gi}
+    limits: {memory: 8Gi}
+  tmpSize: 20Gi
+  # CPU HPA; for queue-depth scaling use KEDA/external metrics on the `jobs` table instead.
+  autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70}
+  pdb: {enabled: true, minAvailable: 1}
+  terminationGracePeriodSeconds: 3600   # let long ingest jobs finish
+  runAsUser: 10001
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+web:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 128Mi}
+    limits: {memory: 128Mi}
+  oidcAuthority: ""        # default config.ROR_OIDC_ISSUER
+  oidcClientId: roracle-web
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70}
+  pdb: {enabled: true, minAvailable: 1}
+  nodeSelector: {}
+  tolerations: []
+
+# Pre-upgrade hook Job (pre-install too for external Postgres; post-install for bundled CNPG, which waits <= 10 min for the DB
+# so api/worker may restart until it finishes): `python -m roracle migrate`. Failure blocks the release. Use `helm --timeout 30m`.
+# Env is inlined (the ConfigMap does not exist yet on pre-install). Runs as the namespace default
+# ServiceAccount (no token mounted) because the chart ServiceAccount is not yet created either.
+migrate:
+  activeDeadlineSeconds: 1500
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {memory: 512Mi}
+  runAsUser: 10001
+
+# "/" -> web (which proxies /api -> api); /mcp and the OAuth metadata path -> api.
+ingress:
+  enabled: false
+  className: ""
+  host: ""                 # required when enabled
+  tlsSecretName: ""        # empty = no TLS block
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1100m
+
+# ---- Data services: operator CRs (CNPG, ECK, MinIO Operator must be installed by the platform) ----
+# Each can be switched to "external": nothing is rendered; point the app at your own service via
+# config / secrets.existingSecret. Credentials are always secret names + keys, never values.
+# Bundled-mode backups default to buckets on the bundled MinIO tenant; for real DR, point
+# destinations at a different cluster/site (MinIO site replication is documented, not automated).
+postgres:
+  mode: cnpg               # cnpg | external (external: ROR_DATABASE_URL in existingSecret, nothing rendered)
+  instances: 3
+  image: {repository: ghcr.io/cloudnative-pg/postgresql, tag: "16.6", digest: "", pullPolicy: IfNotPresent}
+  storage: {size: 100Gi, storageClass: ""}
+  resources:
+    requests: {cpu: "2", memory: 8Gi}
+    limits: {memory: 8Gi}
+  parameters: {}           # extra postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters)
+  # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
+  # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
+  appCredentialsSecret: ""
+  # PodMonitor + roracle_jobs queue metrics. Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated
+  # upstream (still works); if it is removed, create the PodMonitor from the observability values instead.
+  monitoring: {enabled: true}
+  backup:
+    enabled: true
+    # plugin: barman-cloud plugin (ObjectStore CR, CNPG >= 1.26; plugin + cert-manager must be installed).
+    # barmanObjectStore: legacy in-tree config (deprecated upstream, still works).
+    method: plugin
+    destinationPath: s3://roracle-pg-backup/
+    endpointURL: ""        # default: bundled MinIO tenant service when minio.mode=tenant
+    credentialsSecret: {name: "", accessKeyKey: ACCESS_KEY_ID, secretAccessKeyKey: ACCESS_SECRET_KEY}  # REQUIRED when enabled
+    endpointCA: {name: "", key: ca.crt}   # optional Secret holding the CA of a TLS object store
+    retentionPolicy: 30d
+    schedule: "0 0 2 * * *"   # 6-field cron (seconds first): daily base backup 02:00
+    serverName: ""         # archive path name; "" = cluster name. MUST be new (differs from the source) after a recovery
+  # PITR: bootstrap the Helm-managed cluster from backups instead of initdb (runbook 3.1). Needs backup.enabled + a new backup.serverName.
+  recovery: {enabled: false, targetTime: "", sourceServerName: ""}   # targetTime "" = latest; sourceServerName "" = cluster name
+
+elasticsearch:
+  mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)
+  version: 8.15.3
+  image: {repository: docker.elastic.co/elasticsearch/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
+  nodeSets:                # default: one set of 3 master+data nodes
+    - {name: default, count: 3, roles: [master, data, ingest]}
+  storage: {size: 200Gi, storageClass: ""}
+  resources:
+    requests: {cpu: "2", memory: 8Gi}
+    limits: {memory: 8Gi}
+  tls: true                # ECK self-signed HTTP TLS; CA reaches the app via caBundle (interim, see below)
+  # REQUIRED (eck): basic-auth Secret (username roracle_app, password, roles: roracle_app) for the app's fileRealm user.
+  # ROR_ELASTIC_URL must use this user, never `elastic`. The role (chunks* only) is rendered by the chart.
+  appUserSecret: ""
+  # elasticsearch.yml for every nodeSet. allow_mmap=false avoids ECK's privileged sysctl init container; drop it if a
+  # node-tuning DaemonSet sets vm.max_map_count>=262144 (mmap is faster).
+  extraConfig: {node.store.allow_mmap: false}
+  snapshot:
+    enabled: true          # hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily
+    bucket: roracle-es-snapshots
+    basePath: roracle
+    endpoint: ""           # host:port without scheme; default: bundled MinIO tenant service
+    protocol: ""           # "" = https when minio.mode=tenant with requestAutoCert, http for tenant without, else https
+    # ES trusts only its JVM truststore: when protocol is https and the CA is kube-root-ca.crt (tenant auto-cert) or
+    # extraCASecret, an init container builds a truststore (JDK cacerts + those CAs) and ES_JAVA_OPTS points at it.
+    extraCASecret: {name: "", key: ca.crt}   # optional private CA of an external S3
+    pathStyleAccess: true
+    credentialsSecret: ""  # REQUIRED (eck+snapshot): Secret with keys s3.client.default.access_key / s3.client.default.secret_key
+    schedule: "0 30 1 * * ?"
+    retention: {expireAfter: 30d, minCount: 7, maxCount: 60}
+    job:
+      image: {repository: curlimages/curl, tag: "8.10.1", digest: "", pullPolicy: IfNotPresent}
+      activeDeadlineSeconds: 1800
+      runAsUser: 100
+
+minio:
+  mode: tenant             # tenant | external (external: set config.ROR_S3_ENDPOINT)
+  image: {repository: quay.io/minio/minio, tag: RELEASE.2024-10-13T13-34-11Z, digest: "", pullPolicy: IfNotPresent}
+  # REQUIRED (tenant): Secret with config.env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) supplied by the operator/platform.
+  configurationSecret: ""
+  servers: 4
+  volumesPerServer: 4      # 16 drives -> erasure coding
+  storage: {size: 250Gi, storageClass: ""}
+  requestAutoCert: true    # operator-issued TLS (signed by the cluster CA, trusted via caBundle.kubeRootCa); ROR_S3_ENDPOINT -> https
+  # Bucket names come from config.ROR_S3_BUCKET, postgres.backup.destinationPath and elasticsearch.snapshot.bucket;
+  # the two backup buckets get objectLock (=> versioning). Replicate backups to a separate site (MinIO site replication).
+  # Least-privilege users (REQUIRED, tenant): operator-supplied Secrets with CONSOLE_ACCESS_KEY / CONSOLE_SECRET_KEY.
+  # The policy hook Job (mc) creates these users with the root creds and attaches one-bucket RW policies (not Tenant users:).
+  # The app user's keys must also be in secrets.existingSecret (ROR_S3_ACCESS_KEY/SECRET_KEY); the others in the backup secrets.
+  users: {app: "", pgBackup: "", esSnapshot: ""}
+  backupRetentionDays: 30  # GOVERNANCE default retention on the backup buckets; keep >= backup/snapshot retention
+  policyJob:
+    image: {repository: quay.io/minio/mc, tag: RELEASE.2024-10-08T09-37-26Z, digest: "", pullPolicy: IfNotPresent}
+    activeDeadlineSeconds: 1800
+    runAsUser: 1000
+  runAsUser: 1000
+  resources:
+    requests: {cpu: "1", memory: 4Gi}
+    limits: {memory: 4Gi}
+
+# ---- Parser services: optional in-chart Deployments. Only the worker calls them (ingest pipeline + evidence scan). ----
+# Backend URL settings are auto-filled (roracle.endpoints) when enabled and config.ROR_* is empty; to use an external
+# parser set enabled=false and fill config.ROR_*. NetworkPolicy gives parsers NO egress (see networkPolicy).
+# Per parser: writableDirs = emptyDirs (readOnlyRootFilesystem stays true unless overridden); runAsUser = image uid;
+# probe = {path} (HTTP) or {tcp: true}; args/env passed through; image tag is mandatory (no appVersion default).
+parsers:
+  gotenberg:
+    enabled: true
+    image: {repository: gotenberg/gotenberg, tag: "8.20.1", digest: "", pullPolicy: IfNotPresent}
+    port: 3000
+    replicas: 2
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 2Gi}, {path: /home/gotenberg, size: 1Gi}]
+    probe: {path: /health}
+    # Same hardening as deploy/dev/compose.yaml: LibreOffice follows links in uploads, so no downloads/webhooks.
+    args: [gotenberg, --api-disable-download-from, --webhook-disable, --chromium-disable-routes, --pdfengines-disable-routes, --api-timeout=300s]
+    env: {}
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {memory: 2Gi}
+  docling:
+    enabled: true
+    # Upstream is unversioned in dev compose (latest); pin in mirror: verify the tag and prefer a digest.
+    image: {repository: quay.io/docling-project/docling-serve-cpu, tag: v1.38.2, digest: "", pullPolicy: IfNotPresent}
+    port: 5001
+    replicas: 2
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 4Gi}]   # do NOT add a cache emptyDir: it would hide the models baked into the image
+    probe: {path: /health}
+    args: []
+    env: {DOCLING_SERVE_MAX_NUM_PAGES: "2000", DOCLING_SERVE_MAX_FILE_SIZE: "629145600"}
+    resources:
+      requests: {cpu: "4", memory: 8Gi}
+      limits: {memory: 12Gi}
+  grobid:
+    enabled: true
+    image: {repository: lfoppiano/grobid, tag: "0.8.1", digest: "", pullPolicy: IfNotPresent}
+    port: 8070
+    replicas: 2
+    runAsUser: 1000
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /opt/grobid/grobid-home/tmp, size: 2Gi}, {path: /tmp, size: 1Gi}, {path: /opt/grobid/logs, size: 100Mi}]
+    probe: {path: /api/isalive}
+    args: []
+    # Container support is off because this GROBID's JDK crashes on cgroup v2 nodes (NPE in cgroup detection), so the heap
+    # must be explicit: keep -Xmx ~75% of resources.limits.memory. Remove both flags on a newer GROBID/JDK.
+    env: {JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport -Xmx4608m"}
+    resources:
+      requests: {cpu: "2", memory: 4Gi}
+      limits: {memory: 6Gi}
+  clamav:
+    enabled: true
+    image: {repository: clamav/clamav, tag: "1.4", digest: "", pullPolicy: IfNotPresent}
+    port: 3310             # backend scan() hardcodes 3310: do not change
+    replicas: 2
+    runAsUser: 100         # image default is root; "clamav" user (uid 100 / gid 101)
+    runAsGroup: 101
+    readOnlyRootFilesystem: true
+    # /init-unprivileged: the default /init chowns and sed-edits /etc/clamav from CLAMD_CONF_* (impossible non-root/read-only).
+    command: [/init-unprivileged]
+    # clamd.conf / freshclam.conf come from a ConfigMap mounted read-only at /etc/clamav. Fail closed: AlertExceedsMax yes
+    # and limits >= the upload/evidence caps (template fails if lower: config.ROR_MAX_UPLOAD_BYTES, ROR_EVIDENCE_MAX_BYTES).
+    # ClamAV maximum is < 4G. Suffix K/M/G.
+    limits: 1100M
+    maxThreads: 4          # clamd threads; INSTREAM spools to /tmp, so /tmp emptyDir must be >= limits x maxThreads (guarded)
+    # emptyDirs hide the signature DB baked into the image: an init container seeds /var/lib/clamav from it (cp -R).
+    seedDir: /var/lib/clamav
+    writableDirs: [{path: /var/lib/clamav, size: 2Gi}, {path: /var/log/clamav, size: 100Mi}, {path: /run/clamav, size: 10Mi}, {path: /tmp, size: 5Gi}]
+    probe: {tcp: true}     # unused for clamav: exec probes verify the effective limits and clamd PING
+    args: []
+    env: {}
+    # Private freshclam mirror (URL). Empty = freshclamd off (CLAMAV_NO_FRESHCLAMD): signatures are only those baked into
+    # the image, so rebuild/re-mirror the image regularly. Set => mirrorCIDRs REQUIRED (egress + DNS for clamav only).
+    mirrorUrl: ""
+    mirrorCIDRs: []
+    resources:
+      requests: {cpu: 500m, memory: 3Gi}
+      limits: {memory: 4Gi}
+  pdb: {enabled: true, minAvailable: 1}   # rendered per parser when replicas > 1
+
+# Connector egress (worker only; backend also enforces connector_http_allow_cidrs). Default none.
+connectors:
+  egressCIDRs: []
+  ports: [443]
+
+# Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
+# certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
+# ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
+# Active only when ES TLS (eck), MinIO auto-cert (tenant) or extraSecrets are in play.
+caBundle:
+  certifiPath: /app/backend/.venv/lib/python3.12/site-packages/certifi/cacert.pem   # coupled to the backend image layout
+  kubeRootCa: true         # kube-root-ca.crt (signs MinIO operator auto-cert)
+  extraSecrets: []         # [{name: my-ca, key: ca.crt}] operator CAs for external ES/S3/etc.
+
+# Data-tier policies (data-postgres/es/minio) are always rendered for bundled modes.
+# Namespace values are matched by label kubernetes.io/metadata.name.
+networkPolicy:
+  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system, minio: minio-operator}
+  monitoringNamespace: monitoring
+  # Instance managers / operators need the kube-apiserver. Empty cidrs = allow these ports to any destination; tighten.
+  kubeAPI: {cidrs: [], ports: [443, 6443]}
+  s3Cidrs: []              # egress CIDRs (port 443/9000) for backups/snapshots when minio.mode=external
+  dns:
+    namespace: kube-system
+    podLabels: {k8s-app: kube-dns}
+  # Application tier (enabled: default-deny ingress+egress for every pod in the release namespace + allow rules).
+  enabled: true
+  ingressNamespaceSelector: {kubernetes.io/metadata.name: ingress-nginx}   # namespace labels of the ingress controller
+  # Egress for api/worker(/migrate) to non-bundled data services. Bundled modes use pod selectors instead.
+  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
+  externalCIDRs:
+    postgres: {cidrs: [], ports: [5432]}
+    elasticsearch: {cidrs: [], ports: [9200]}
+  # api+worker: inference (LLM), OIDC (JWKS), OTLP collector; worker: external (non-chart) parsers.
+  # Each entry: cidrs (ipBlock) and/or an in-cluster peer: namespaceSelector / podSelector matchLabels (both = AND).
+  # NetworkPolicies apply AFTER service DNAT: use pod/node/external-LB CIDRs or selectors, never Service ClusterIP CIDRs.
+  egressCIDRs:
+    llm: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
+    oidc: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
+    otel: {cidrs: [], ports: [4317], namespaceSelector: {}, podSelector: {}}
+    parsers: {cidrs: [], ports: [3000, 5001, 8070, 3310], namespaceSelector: {}, podSelector: {}}
+  scrape: {enabled: false, ports: [8000]}   # allow monitoringNamespace -> api/worker (backend has no /metrics yet)

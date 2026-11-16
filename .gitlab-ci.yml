@@ -1,9 +1,17 @@
-# Air-gapped: set REGISTRY_MIRROR (with trailing slash) and UV_INDEX_URL as CI/CD variables.
+# Air-gapped: set REGISTRY_MIRROR (with trailing slash), UV_INDEX_URL, NPM_CONFIG_REGISTRY and
+# (optionally) KUBECONFORM_SCHEMA_LOCATION as CI/CD variables. HELM_IMAGE/KUBECONFORM_IMAGE may be overridden too.
 stages: [lint, test, build]
 
 variables:
   REGISTRY_MIRROR: ""
   UV_INDEX_URL: "https://pypi.org/simple"
+  NPM_CONFIG_REGISTRY: ""
+  # Empty: ONLINE upstream schemas (GitHub) + -ignore-missing-schemas (CRDs skipped). Air-gapped runners MUST set this
+  # to a mirror that also carries the CRD catalog.
+  # Set (e.g. https://mirror/schemas/{{.NormalizedKubernetesVersion}}/{{.ResourceKind}}.json) to use it for k8s AND CRDs.
+  KUBECONFORM_SCHEMA_LOCATION: ""
+  HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
+  KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
 
 workflow:
@@ -66,9 +74,99 @@ build:
   script:
     - |
       DEST="--destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA"
-      [ -n "$CI_COMMIT_TAG" ] && DEST="$DEST --destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_TAG"
+      [ -n "$CI_COMMIT_TAG" ] && DEST="$DEST --destination $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_TAG --destination $CI_REGISTRY_IMAGE/backend:$(cat VERSION)"
       [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && DEST="--no-push"
       mkdir -p /kaniko/.docker
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile backend/Dockerfile \
-        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg UV_INDEX_URL="$UV_INDEX_URL" $DEST
+        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg UV_INDEX_URL="$UV_INDEX_URL" \
+        --build-arg VERSION="$(cat VERSION)" $DEST
+
+.frontend-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [frontend/**/*, .gitlab-ci.yml]
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+
+.helm-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [deploy/**/*, VERSION, scripts/check-version.sh, .gitlab-ci.yml]
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+
+frontend:
+  extends: .frontend-rules
+  stage: test
+  image: ${REGISTRY_MIRROR}node:22-slim
+  variables:
+    CI: "1"
+    npm_config_store_dir: $CI_PROJECT_DIR/.pnpm-store
+  cache:
+    key: {files: [frontend/pnpm-lock.yaml]}
+    paths: [.pnpm-store]
+  script:
+    - cd frontend
+    - '[ -z "$NPM_CONFIG_REGISTRY" ] || export COREPACK_NPM_REGISTRY="$NPM_CONFIG_REGISTRY"'
+    - corepack enable
+    - pnpm install --frozen-lockfile
+    - pnpm exec tsc --noEmit   # lint: no eslint configured
+    - pnpm exec vitest run
+    - pnpm build
+    - pnpm check:dist
+
+# One tool per image (no downloads in air-gap): helm+python here, kubeconform in its own job via artifacts.
+helm:
+  extends: .helm-rules
+  stage: lint
+  image:
+    name: $HELM_IMAGE
+    entrypoint: [""]
+  script:
+    - sh scripts/check-version.sh
+    - cd deploy/helm/roracle
+    - helm lint --strict . -f ci/min-values.yaml
+    - helm lint --strict . -f ci/full-values.yaml
+    - mkdir -p ../../../rendered
+    - helm template r . -f ci/min-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/min.yaml
+    - helm template r . -f ci/full-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/full.yaml
+  artifacts:
+    paths: [rendered/]
+    expire_in: 1 day
+
+assert-render:
+  extends: .helm-rules
+  stage: test
+  image: ${REGISTRY_MIRROR}python:3.12-slim
+  needs: [helm]
+  script:
+    - pip install --no-cache-dir --index-url "$UV_INDEX_URL" pyyaml==6.0.3
+    - sh deploy/helm/roracle/ci/assert-render.sh rendered/full.yaml
+
+kubeconform:
+  extends: .helm-rules
+  stage: test
+  image:
+    name: $KUBECONFORM_IMAGE
+    entrypoint: [""]
+  needs: [helm]
+  script:
+    - |
+      if [ -n "$KUBECONFORM_SCHEMA_LOCATION" ]; then SCHEMA="-schema-location $KUBECONFORM_SCHEMA_LOCATION"; else SCHEMA="-schema-location default -ignore-missing-schemas"; fi
+      for f in rendered/min.yaml rendered/full.yaml; do /kubeconform -strict -summary $SCHEMA "$f"; done
+
+build-web:
+  stage: build
+  image:
+    name: ${REGISTRY_MIRROR}gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - |
+      V="$(cat VERSION)"
+      DEST="--destination $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA"
+      [ -n "$CI_COMMIT_TAG" ] && DEST="$DEST --destination $CI_REGISTRY_IMAGE/web:$CI_COMMIT_TAG --destination $CI_REGISTRY_IMAGE/web:$V"
+      [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && DEST="--no-push"
+      mkdir -p /kaniko/.docker
+      echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+      /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile frontend/Dockerfile \
+        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" \
+        --build-arg VERSION="$V" $DEST

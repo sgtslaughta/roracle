@@ -1,0 +1,2 @@
+{{- $env := printf "- {name: ROR_OIDC_AUTHORITY, value: %s}\n- {name: ROR_OIDC_CLIENT_ID, value: %s}\n- {name: API_UPSTREAM, value: %s}" (default .Values.config.ROR_OIDC_ISSUER .Values.web.oidcAuthority | required "config.ROR_OIDC_ISSUER or web.oidcAuthority is required" | quote) (.Values.web.oidcClientId | quote) (printf "http://%s-api:8000" (include "roracle.fullname" .) | quote) -}}
+{{ include "roracle.workload" (dict "root" . "comp" "web" "v" .Values.web "img" .Values.image.web "port" 8080 "env" $env "tmp" "64Mi" "probe" true) }}

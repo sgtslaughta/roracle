@@ -1,0 +1,30 @@
+# helm upgrade -i kps prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f kube-prometheus-stack.values.yaml
+# Air-gap: set every `registry` to your mirror (placeholder MIRROR.example.com).
+global:
+  imageRegistry: MIRROR.example.com
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 40GB
+    # Pick up PodMonitors/ServiceMonitors/rules from all namespaces (CNPG PodMonitor lives in the app namespace).
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    enableRemoteWriteReceiver: true   # target of the otel-collector prometheusremotewrite exporter
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: {requests: {storage: 50Gi}}
+grafana:
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard   # must match observability.grafanaDashboard.label in the roracle chart
+      labelValue: "1"
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki-gateway.observability.svc
+alertmanager:
+  enabled: true

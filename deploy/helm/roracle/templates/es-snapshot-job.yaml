@@ -1,0 +1,60 @@
+{{- if and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.snapshot.enabled }}
+{{- $sn := .Values.elasticsearch.snapshot }}
+{{- $es := include "roracle.fullname" . }}
+{{- $scheme := ternary "https" "http" .Values.elasticsearch.tls }}
+{{- $url := printf "%s://%s-es-http.%s.svc:9200" $scheme $es .Release.Namespace }}
+{{- $repo := dict "type" "s3" "settings" (dict "bucket" $sn.bucket "base_path" $sn.basePath) }}
+{{- $slm := dict "schedule" $sn.schedule "name" "<roracle-{now/d}>" "repository" "roracle-s3" "config" (dict "indices" (list "*") "include_global_state" true) "retention" (dict "expire_after" $sn.retention.expireAfter "min_count" $sn.retention.minCount "max_count" $sn.retention.maxCount) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $es }}-es-snapshot
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-snapshot
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ $sn.job.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels: {{ include "roracle.labels" . | nindent 8 }}
+        app.kubernetes.io/component: es-snapshot
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ $sn.job.runAsUser }}
+      {{- include "roracle.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: snapshot
+          image: {{ include "roracle.dataImage" (dict "root" . "img" $sn.job.image) }}
+          imagePullPolicy: {{ $sn.job.image.pullPolicy }}
+          command: [sh, -ec]
+          args:
+            - |
+              # credentials go through a curl config on stdin (printf is a builtin), never argv
+              C() { printf 'user = "elastic:%s"\n' "$ES_PASSWORD" | curl -fsS -K - {{ if .Values.elasticsearch.tls }}--cacert /certs/ca.crt {{ end }}-H Content-Type:application/json "$@"; }
+              until C "{{ $url }}/_cluster/health?wait_for_status=yellow&timeout=30s" >/dev/null; do echo waiting for elasticsearch; sleep 10; done
+              # repo verification needs the MinIO user + bucket: retry (30 x 10s)
+              n=0; until C -X PUT "{{ $url }}/_snapshot/roracle-s3" -d '{{ toJson $repo }}'; do n=$((n+1)); [ "$n" -lt 30 ] || exit 1; echo "repo registration failed, retry $n"; sleep 10; done
+              C -X PUT "{{ $url }}/_slm/policy/roracle-daily" -d '{{ toJson $slm }}'
+          env:
+            - name: ES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $es }}-es-elastic-user, key: elastic}}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          securityContext: {{ toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- if .Values.elasticsearch.tls }}
+          volumeMounts:
+            - {name: certs, mountPath: /certs, readOnly: true}
+          {{- end }}
+      {{- if .Values.elasticsearch.tls }}
+      volumes:
+        - name: certs
+          secret: {secretName: {{ $es }}-es-http-certs-public}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,10 @@
+# Minimum required values (used for the "default" lint/template run).
+secrets: {existingSecret: roracle-secrets}
+config:
+  ROR_S3_ENDPOINT: https://minio.example.internal:9000
+  ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
+  ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
+# data services external: nothing rendered for CNPG/ECK/MinIO
+postgres: {mode: external}
+elasticsearch: {mode: external}
+minio: {mode: external}

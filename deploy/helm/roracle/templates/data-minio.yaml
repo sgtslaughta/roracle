@@ -1,0 +1,48 @@
+{{- if eq .Values.minio.mode "tenant" }}
+{{- $m := .Values.minio }}
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: {{ include "roracle.fullname" . }}-minio
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  image: {{ include "roracle.dataImage" (dict "root" . "img" $m.image) }}
+  imagePullPolicy: {{ $m.image.pullPolicy }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecret: {name: {{ (first .).name | quote }}}
+  {{- end }}
+  configuration:
+    name: {{ required "minio.configurationSecret is required when minio.mode=tenant" $m.configurationSecret | quote }}
+  requestAutoCert: {{ $m.requestAutoCert }}
+  buckets:
+    - name: {{ .Values.config.ROR_S3_BUCKET }}
+    - {name: {{ include "roracle.pgBucket" . }}, objectLock: true}
+    - {name: {{ .Values.elasticsearch.snapshot.bucket }}, objectLock: true}
+  pools:
+    - name: pool-0
+      servers: {{ $m.servers }}
+      volumesPerServer: {{ $m.volumesPerServer }}
+      resources: {{ toYaml $m.resources | nindent 8 }}
+      volumeClaimTemplate:
+        metadata: {name: data}
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: {requests: {storage: {{ $m.storage.size }}}}
+          {{- with $m.storage.storageClass }}
+          storageClassName: {{ . }}
+          {{- end }}
+      securityContext:
+        runAsUser: {{ $m.runAsUser }}
+        runAsGroup: {{ $m.runAsUser }}
+        fsGroup: {{ $m.runAsUser }}
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+      containerSecurityContext:
+        runAsUser: {{ $m.runAsUser }}
+        runAsGroup: {{ $m.runAsUser }}
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
+{{- end }}
