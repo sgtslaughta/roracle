@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { API_BASE, ApiError, apiFetch, auth, seg } from "@/api/client";
+import { API_BASE, ApiError, apiFetch, auth, authedFetch, errorOf, seg } from "@/api/client";
 import type { Evidence, EvidenceMeta, ReproOutcome } from "@/api/notes";
 
 const key = (noteId: string) => ["evidence", noteId];
 
+export const SCAN_POLL_MS = 5000;
+const SCAN_POLL_MAX = 60; // ~5 min, then a reload picks it up
+
+/** Polls (bounded) while any file is still being scanned, so Download appears once it turns clean. */
 export const useEvidence = (noteId: string, enabled = true) =>
-  useQuery({ queryKey: key(noteId), enabled, queryFn: async () => (await apiFetch<{ items: Evidence[] }>(`/annotations/${seg(noteId)}/evidence`)).items });
+  useQuery({
+    queryKey: key(noteId), enabled,
+    queryFn: async () => (await apiFetch<{ items: Evidence[] }>(`/annotations/${seg(noteId)}/evidence`)).items,
+    refetchInterval: (q) =>
+      q.state.data?.some((e) => e.file?.scan_status === "pending") && q.state.dataUpdateCount <= SCAN_POLL_MAX ? SCAN_POLL_MS : false,
+  });
 
 /** Evidence writes change the note's evidence counts too, so the document's notes list is refreshed as well. */
 function useEvidenceMutation<V, R>(noteId: string, docId: string, fn: (v: V) => Promise<R>) {
@@ -36,7 +45,9 @@ export const canDownload = (e: Evidence) => !!e.file && (e.file.scan_status === 
 
 /** Fetch the file as a blob and save it through a temporary <a download>: never opened, previewed or navigated to. */
 export async function downloadEvidence(e: Evidence): Promise<void> {
-  const blob = await apiFetch<Blob>(`/evidence/${seg(e.id)}/file`);
+  const res = await authedFetch(`/evidence/${seg(e.id)}/file`);
+  if (!res.ok) throw await errorOf(res);
+  const blob = await res.blob();
   // re-type as octet-stream so no browser treats it as something to render
   const href = URL.createObjectURL(new Blob([blob], { type: "application/octet-stream" }));
   const a = document.createElement("a");
@@ -44,7 +55,7 @@ export async function downloadEvidence(e: Evidence): Promise<void> {
   a.download = safeFilename(e.file?.filename);
   a.rel = "noopener";
   document.body.append(a);
-  try { a.click(); } finally { a.remove(); setTimeout(() => URL.revokeObjectURL(href), 0); }
+  try { a.click(); } finally { a.remove(); setTimeout(() => URL.revokeObjectURL(href), 1000); }
 }
 
 export interface Upload { done: Promise<Evidence>; abort: () => void }

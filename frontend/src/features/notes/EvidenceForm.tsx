@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import {
-  EVIDENCE_DESC_MAX, EVIDENCE_ITEMS_MAX, EVIDENCE_MAX_BYTES, EVIDENCE_PARAMS_MAX, STANCES,
+  EVIDENCE_META_MAX, EVIDENCE_DESC_MAX, EVIDENCE_ITEMS_MAX, EVIDENCE_MAX_BYTES, EVIDENCE_PARAMS_MAX, STANCES,
   type EvidenceItem, type EvidenceMeta, type Stance,
 } from "@/api/notes";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ const COMMIT = /^[0-9a-fA-F]{7,64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const URI = /^(https?|s3|doi|git|ssh):/i;
 const GIT_SCP = /^[\w.-]+@[\w.-]+:\S+$/;
+/** UTF-8 size; slightly over-counts vs the server's json.dumps so the client never passes what the server rejects. */
+const bytes = (v: unknown, indent?: number) => new TextEncoder().encode(JSON.stringify(v, null, indent)).length;
 
 export interface Row { name: string; uri: string; sha256: string }
 export interface Fields {
@@ -61,7 +63,7 @@ export function buildMeta(f: Fields): { meta: EvidenceMeta } | { error: string }
   let parameters: unknown;
   try { parameters = JSON.parse(f.parameters.trim() || "{}"); } catch { return { error: "Parameters must be valid JSON." }; }
   if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) return { error: "Parameters must be a JSON object, e.g. {\"k\": 3}." };
-  if (JSON.stringify(parameters).length > EVIDENCE_PARAMS_MAX) return { error: "Parameters must be under 64 KB." };
+  if (bytes(parameters, 1) > EVIDENCE_PARAMS_MAX) return { error: "Parameters must be under 64 KB." };
   if (hasAtKey(parameters)) return { error: "Parameter names can't start with @." };
   const inputs = rows(f.inputs, "Input"), outputs = rows(f.outputs, "Output");
   if (typeof inputs === "string") return { error: inputs };
@@ -76,11 +78,13 @@ export function buildMeta(f: Fields): { meta: EvidenceMeta } | { error: string }
   }
   const s = f.seed.trim();
   const seed = !s ? null : /^-?\d+$/.test(s) && Number.isSafeInteger(Number(s)) ? Number(s) : s;
-  return { meta: {
+  const meta: EvidenceMeta = {
     stance: f.stance, code: { repo, commit }, environment: { image_digest: image }, inputs, outputs,
     parameters: parameters as Record<string, unknown>, seed, agent: { client, model }, started_at, ended_at,
     description: f.description, uri, uri_sha256,
-  } };
+  };
+  if (bytes(meta) > EVIDENCE_META_MAX) return { error: "The details are too large (256 KB at most). Trim the inputs, outputs or parameters." };
+  return { meta };
 }
 
 export const fileTooBig = (f: File | null) => !!f && f.size > EVIDENCE_MAX_BYTES;
@@ -133,6 +137,7 @@ export function EvidenceForm({ noteId, docId, onDone }: { noteId: string; docId:
     if ("error" in r) return setError(r.error);
     if (f.source === "file" && !file) return setError("Choose a file, or switch to a link or metadata only.");
     if (f.source === "file" && fileTooBig(file)) return setError("Evidence files can be up to 1 GiB.");
+    if (f.source === "file" && file?.size === 0) return setError("That file is empty.");
     setError("");
     setProgress({ sent: 0, total: file?.size ?? 0 });
     const u = (upload.current = uploadEvidence(noteId, r.meta, f.source === "file" ? file : null, (sent, total) => setProgress({ sent, total })));
@@ -187,7 +192,7 @@ export function EvidenceForm({ noteId, docId, onDone }: { noteId: string; docId:
           <label>File (up to 1 GiB)<input type="file" onChange={(e) => {
             const x = e.target.files?.[0] ?? null;
             setFile(x);
-            setError(fileTooBig(x) ? "Evidence files can be up to 1 GiB." : "");
+            setError(fileTooBig(x) ? "Evidence files can be up to 1 GiB." : x?.size === 0 ? "That file is empty." : "");
           }} /></label>
         )}
         {f.source === "uri" && (

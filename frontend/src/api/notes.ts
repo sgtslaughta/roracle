@@ -64,6 +64,7 @@ export type ReproOutcome = "reproduced" | "failed";
 export const EVIDENCE_MAX_BYTES = 1 << 30; // ROR_EVIDENCE_MAX_BYTES default
 export const EVIDENCE_ITEMS_MAX = 100;
 export const EVIDENCE_PARAMS_MAX = 64 * 1024;
+export const EVIDENCE_META_MAX = 256 * 1024;
 export const EVIDENCE_DESC_MAX = 5000;
 export const REPRO_NOTE_MAX = 2000;
 

@@ -20,6 +20,8 @@ class RO { observe() {} unobserve() {} disconnect() {} }
 class IO { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
 (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver ??= IO;
 Element.prototype.scrollIntoView ??= function () {};
+URL.createObjectURL ??= () => "blob:jsdom";
+URL.revokeObjectURL ??= () => {};
 window.scrollTo = (() => {}) as typeof window.scrollTo;
 
 // no canvas in jsdom

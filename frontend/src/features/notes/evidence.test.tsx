@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API_BASE } from "@/api/client";
-import type { CommunityNote } from "@/api/notes";
+import { API_BASE, setAuthHooks } from "@/api/client";
+import type { CommunityNote, Evidence } from "@/api/notes";
 import { runSearch } from "@/mocks/search";
 import { createAppRouter } from "@/app/router";
 import { DOCS } from "@/mocks/docs";
@@ -50,8 +50,9 @@ beforeEach(() => {
   resetReaderStore(); notesUi.reset(); seen.length = 0;
   server.events.on("request:start", ({ request }) => { seen.push(request.clone()); });
 });
-afterEach(() => { server.events.removeAllListeners(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { server.events.removeAllListeners(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setAuthHooks(null); });
 
+const BIG_ROWS = Array.from({ length: 100 }, (_, i) => ({ name: `n${i}`.padEnd(400, "n"), uri: "https://x/".padEnd(1900, "u"), sha256: "" }));
 const VALID: Fields = {
   ...EMPTY_FIELDS, repo: "https://git.lab/x/y", commit: "4e1c9a2", image: `sha256:${H64}`, client: "claude-code", model: "opus",
   started: "2026-10-01T08:00", ended: "2026-10-01T09:00", seed: "7", parameters: '{"k": 3}',
@@ -77,6 +78,8 @@ describe("buildMeta", () => {
     [{ parameters: "{" }, /valid JSON/],
     [{ ended: "2026-10-01T07:00" }, /end before/],
     [{ uriSha: "" }, /SHA-256/],
+    [{ parameters: JSON.stringify({ blob: "é".repeat(33_000) }) }, /64 KB/],
+    [{ inputs: BIG_ROWS, outputs: BIG_ROWS }, /256 KB/],
   ] as [Partial<Fields>, RegExp][])("rejects %o", (patch, msg) => {
     const r = buildMeta({ ...VALID, ...patch });
     expect("error" in r && r.error).toMatch(msg);
@@ -120,8 +123,8 @@ describe("evidence panel", () => {
   });
 
   it("downloads via a blob and a temporary <a download>, never navigating", async () => {
-    const created = vi.fn(() => "blob:mock");
-    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }));
+    const created = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const clicked: HTMLAnchorElement[] = [];
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this); });
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -135,6 +138,21 @@ describe("evidence panel", () => {
     expect(seen.some((r) => r.method === "GET" && r.url.endsWith("/evidence/ev-clean/file"))).toBe(true);
     expect(open).not.toHaveBeenCalled();
   });
+
+  it("polls while a scan is pending and offers Download once it is clean", async () => {
+    let calls = 0;
+    server.use(http.get(`${API_BASE}/annotations/n-finding/evidence`, () => {
+      const status = ++calls === 1 ? "pending" : "clean";
+      const ev: Evidence = { id: "ev-p", annotation_id: "n-finding", stance: "inconclusive", crate: {}, uri: null, uri_sha256: null,
+        file: { filename: "a.tar", size: 3, sha256: H64, scan_status: status }, reproductions: { reproduced: 0, failed: 0, mine: null }, created_by: "u-x", created_at: null };
+      return HttpResponse.json({ items: [ev] });
+    }));
+    const c = await finding();
+    const item = within(c.getByRole("listitem", { name: "Evidence inconclusive" }));
+    expect(item.getByText("Scanning for viruses…")).toBeInTheDocument();
+    expect(item.queryByRole("button", { name: "Download" })).toBeNull();
+    await waitFor(() => expect(item.getByRole("button", { name: "Download" })).toBeInTheDocument(), { timeout: 8000 });
+  }, 12000);
 
   it("toggles my reproduction outcome with PUT", async () => {
     const c = await finding();
@@ -153,6 +171,7 @@ describe("evidence panel", () => {
 /** Minimal XHR double: records the request, lets the test drive progress, load and abort. */
 class FakeXhr {
   static last: FakeXhr | null = null;
+  static all: FakeXhr[] = [];
   upload: { onprogress: ((e: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = { onprogress: null };
   onload: (() => void) | null = null; onerror: (() => void) | null = null; onabort: (() => void) | null = null;
   headers: Record<string, string> = {}; method = ""; url = ""; body: FormData | null = null;
@@ -160,7 +179,7 @@ class FakeXhr {
   aborted = false;
   open(m: string, u: string) { this.method = m; this.url = u; }
   setRequestHeader(k: string, v: string) { this.headers[k] = v; }
-  send(b: FormData) { this.body = b; FakeXhr.last = this; }
+  send(b: FormData) { this.body = b; FakeXhr.last = this; FakeXhr.all.push(this); }
   abort() { this.aborted = true; this.onabort?.(); }
 }
 
@@ -177,7 +196,7 @@ async function openForm() {
 }
 
 describe("evidence upload", () => {
-  beforeEach(() => { FakeXhr.last = null; vi.stubGlobal("XMLHttpRequest", FakeXhr); });
+  beforeEach(() => { FakeXhr.last = null; FakeXhr.all = []; vi.stubGlobal("XMLHttpRequest", FakeXhr); });
 
   it("sends multipart meta + file with progress, and cancel aborts", async () => {
     const d = await openForm();
@@ -208,6 +227,53 @@ describe("evidence upload", () => {
     Object.assign(x, { status: 201, responseText: JSON.stringify({ id: "ev-new" }) });
     x.onload!();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("renews once on 401 and retries with the new token", async () => {
+    const tokens = ["old", "new"];
+    setAuthHooks({ getToken: async () => tokens[0], renew: vi.fn(async () => { tokens.shift(); return true; }), signIn: vi.fn() });
+    const d = await openForm();
+    await userEvent.click(d.getByLabelText("Metadata only"));
+    await userEvent.click(d.getByRole("button", { name: "Add evidence" }));
+    await waitFor(() => expect(FakeXhr.all).toHaveLength(1));
+    expect(FakeXhr.all[0].headers.Authorization).toBe("Bearer old");
+    FakeXhr.all[0].status = 401; FakeXhr.all[0].onload!();
+    await waitFor(() => expect(FakeXhr.all).toHaveLength(2));
+    const x = FakeXhr.all[1];
+    expect(x.headers.Authorization).toBe("Bearer new");
+    expect(String(x.body!.get("meta"))).toBe(String(FakeXhr.all[0].body!.get("meta")));
+    Object.assign(x, { status: 201, responseText: "{}" }); x.onload!();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("goes to sign-in when the renew fails", async () => {
+    const signIn = vi.fn();
+    setAuthHooks({ getToken: async () => "old", renew: async () => false, signIn });
+    const d = await openForm();
+    await userEvent.click(d.getByLabelText("Metadata only"));
+    await userEvent.click(d.getByRole("button", { name: "Add evidence" }));
+    await waitFor(() => expect(FakeXhr.all).toHaveLength(1));
+    FakeXhr.all[0].status = 401; FakeXhr.all[0].onload!();
+    await waitFor(() => expect(signIn).toHaveBeenCalledOnce());
+    expect(FakeXhr.all).toHaveLength(1);
+  });
+
+  it("closing the dialog aborts a running upload", async () => {
+    const d = await openForm();
+    await userEvent.click(d.getByLabelText("Metadata only"));
+    await userEvent.click(d.getByRole("button", { name: "Add evidence" }));
+    await waitFor(() => expect(FakeXhr.last).not.toBeNull());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(FakeXhr.last!.aborted).toBe(true);
+  });
+
+  it("rejects empty files before sending", async () => {
+    const d = await openForm();
+    fireEvent.change(d.getByLabelText(/File \(up to 1 GiB\)/), { target: { files: [new File([], "empty.bin")] } });
+    expect(d.getByRole("alert")).toHaveTextContent("empty");
+    await userEvent.click(d.getByRole("button", { name: "Add evidence" }));
+    expect(FakeXhr.last).toBeNull();
   });
 
   it("rejects files over 1 GiB before sending", async () => {
