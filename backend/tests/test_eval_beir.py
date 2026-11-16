@@ -31,7 +31,14 @@ def imp(db, store, settings, **kw):
 
 def test_import_hands_real_documents_to_ingest(db_session, store, settings, owner):
     out = imp(db_session, store, settings)
-    assert out == {"documents": 3, "reused": 0, "requeued": 0, "queries": 1}
+    assert out == {
+        "documents": 3,
+        "reused": 0,
+        "requeued": 0,
+        "queries": 1,
+        "near_dup_kept": 0,
+        "near_dup_parked": 0,
+    }
     docs = db_session.scalars(select(Document).where(Document.owner_id == owner.id)).all()
     assert {d.visibility for d in docs} == {"private"} and {d.title for d in docs} == {
         "Alpha study",
@@ -88,3 +95,46 @@ def test_refuses_admin_missing_and_cutover(db_session, store, settings, owner, t
     monkeypatch.setattr(beir.reembed, "running_job", lambda s: object())
     with pytest.raises(ValueError, match="re-embed"):
         imp(db_session, store, settings)
+
+
+def test_reuse_adds_shares_for_new_principals(db_session, store, settings, owner):
+    ann = mk(db_session, "ann")
+    imp(db_session, store, settings)
+    imp(db_session, store, settings, set_name="sf2", principals=["ann"], groups=["/lab"])
+    docs = db_session.scalars(select(Document)).all()
+    assert {d.visibility for d in docs} == {"shared"}
+    shares = {
+        (s.document_id, s.principal_kind, s.principal) for s in db_session.scalars(select(DocumentShare))
+    }
+    assert {(d.id, "user", str(ann.id)) for d in docs} | {(d.id, "group", "/lab") for d in docs} == shares
+
+
+def test_refuses_org_unit_visibility(db_session, store, settings, owner):
+    with pytest.raises(ValueError, match="whole organisation"):
+        imp(db_session, store, settings, visibility="org_unit")
+
+
+def test_keeps_own_parked_near_dups_only(db_session, store, settings, owner):
+    imp(db_session, store, settings)
+    vs = {v.filename: v for v in db_session.scalars(select(DocumentVersion))}
+    stranger = mk(db_session, "sam")
+    other = Document(owner_id=stranger.id, title="x", visibility="everyone", org_unit="/")
+    db_session.add(other)
+    db_session.flush()
+    foreign = DocumentVersion(
+        document_id=other.id, version=1, blob_sha256=vs["d1.txt"].blob_sha256, filename="x.pdf",
+        content_type="application/pdf", size=1, stage="searchable", is_latest=True, meta={},
+    )  # fmt: skip
+    db_session.add(foreign)
+    db_session.flush()
+    vs["d2.txt"].stage, vs["d2.txt"].near_dup_of = "review", vs["d1.txt"].id  # own dataset: kept
+    vs["d3.txt"].stage, vs["d3.txt"].near_dup_of = "review", foreign.id  # someone else's upload: stays
+    db_session.flush()
+    out = imp(db_session, store, settings)
+    assert (out["near_dup_kept"], out["near_dup_parked"]) == (1, 1)
+    assert (vs["d2.txt"].stage, vs["d2.txt"].ingest_attempts) == ("deduped", 0)
+    assert vs["d3.txt"].stage == "review"
+    last = db_session.scalars(
+        select(AuditLog).where(AuditLog.action == "eval.import_beir").order_by(AuditLog.id.desc())
+    ).first()
+    assert last.detail["near_dup_kept"] == 1

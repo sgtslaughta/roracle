@@ -80,6 +80,8 @@ def import_beir(
 ) -> dict:  # fmt: skip
     """Gold principals = owner + `principals`; they (and `groups`) get access by share, which needs visibility
     "shared" (raised from "private" automatically). Returns counts."""
+    if visibility == "org_unit":  # imported documents sit in the root org unit: that is everyone
+        raise ValueError("org_unit visibility would expose the dataset to the whole organisation")
     for f in ("corpus.jsonl", "queries.jsonl", "qrels/test.tsv"):
         if not (root / f).is_file():
             raise ValueError(f"{root / f} not found (expected BEIR layout)")
@@ -108,6 +110,13 @@ def import_beir(
     for ext, did, vid, stage in rows:
         known[ext[len(tag) + 1 :]] = (did, vid, stage)
 
+    extra = gold_users[1:]
+    shared: dict = {}  # document id -> existing (kind, principal) shares, for reused documents
+    if extra or groups:
+        shared = {d: set() for d, _, _ in known.values()}
+        for sh in session.scalars(select(DocumentShare).where(DocumentShare.document_id.in_(list(shared)))):
+            shared[sh.document_id].add((sh.principal_kind, sh.principal))
+    want = {("user", str(u.id)) for u in extra} | {("group", g) for g in groups}
     ids: dict[str, object] = {}
     created = queued = 0
     for row in _jsonl(root / "corpus.jsonl"):
@@ -117,6 +126,12 @@ def import_beir(
         if cid in known:
             did, vid, stage = known[cid]
             ids[cid] = did
+            if want:  # a re-import with new principals widens the shares of the documents it reuses
+                for kind, who in want - shared[did]:
+                    session.add(DocumentShare(document_id=did, principal_kind=kind, principal=who))
+                doc = session.get(Document, did)
+                if doc.visibility == "private":
+                    doc.visibility = "shared"
             if stage not in TERMINAL:
                 enqueue(session, "ingest", {"version_id": str(vid)})
                 queued += 1
@@ -154,6 +169,7 @@ def import_beir(
         if created % BATCH == 0:
             session.commit()
     session.commit()
+    kept, parked = _keep_own_near_dups(session, own.id, tag, known)
 
     have = set(session.scalars(select(EvalQuery.key).where(EvalQuery.set_id == es_set.id)))
     n = 0
@@ -172,7 +188,36 @@ def import_beir(
         n += 1
     audit(
         session, None, "eval.import_beir", set_name,
-        {"dataset": dataset, "owner": owner, "created": created, "reused": len(ids) - created, "queries": n},
+        {"dataset": dataset, "owner": owner, "created": created, "reused": len(ids) - created, "queries": n,
+         "near_dup_kept": kept, "near_dup_parked": parked},
     )  # fmt: skip
     session.commit()
-    return {"documents": created, "reused": len(ids) - created, "requeued": queued, "queries": n}
+    return {
+        "documents": created, "reused": len(ids) - created, "requeued": queued, "queries": n,
+        "near_dup_kept": kept, "near_dup_parked": parked,
+    }  # fmt: skip
+
+
+def _keep_own_near_dups(session: Session, owner_id, tag: str, known: dict) -> tuple[int, int]:
+    """Resolve parked versions of this import with the owner's "keep as separate document" decision, only
+    when the near-dup match is another document of the same dataset and owner. Anything else stays parked.
+    Returns (kept, left parked). Ingest is asynchronous: re-run after the worker drains to finalize."""
+    kept = parked = 0
+    for _, vid, stage in known.values():
+        if stage != "review":
+            continue
+        v = session.get(DocumentVersion, vid)
+        m = session.get(DocumentVersion, v.near_dup_of) if v.near_dup_of else None
+        mine = (
+            m is not None
+            and str((m.meta or {}).get("beir_id", "")).startswith(f"{tag}:")
+            and session.scalar(select(Document.owner_id).where(Document.id == m.document_id)) == owner_id
+        )
+        if not mine:
+            parked += 1
+            continue
+        v.stage, v.ingest_attempts = "deduped", 0  # same as the owner's `keep` decision (near_dup.py)
+        enqueue(session, "ingest", {"version_id": str(v.id)})
+        kept += 1
+    session.commit()
+    return kept, parked

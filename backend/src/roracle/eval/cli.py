@@ -47,7 +47,7 @@ def add_parser(sub) -> None:
         "--principals", default="", metavar="A,B,C", help="more non-admin gold principals (shares)"
     )
     b.add_argument("--share-group", action="append", default=[], metavar="GROUP")
-    b.add_argument("--visibility", choices=["private", "shared", "org_unit", "everyone"], default="private")
+    b.add_argument("--visibility", choices=["private", "shared", "everyone"], default="private")
     ci = ev.add_parser("ci", help="seed the synthetic fixture and fail on ACL violations or low metrics")
     ci.add_argument("--fixture", required=True)
     ci.add_argument("--floors", required=True)
@@ -128,7 +128,8 @@ def import_beir_cmd(args) -> int:
             return 1
     print(
         f"set {args.set_name!r}: {out['documents']} new documents, {out['reused']} reused, "
-        f"{out['requeued']} re-queued, {out['queries']} queries; the worker ingests them"
+        f"{out['requeued']} re-queued, {out['queries']} queries; near-dups kept {out['near_dup_kept']}, "
+        f"left parked {out['near_dup_parked']}. The worker ingests asynchronously: re-run after it drains to finalize"
     )
     return 0
 
