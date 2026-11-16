@@ -35,6 +35,20 @@ ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- if eq .Values.minio.mode "tenant" }}
 ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
 {{- end }}
+{{- $pf := printf "%s-" (include "roracle.fullname" .) }}
+{{- with .Values.parsers.gotenberg }}{{ if .enabled }}
+ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
+{{- end }}{{ end }}
+{{- with .Values.parsers.docling }}{{ if .enabled }}
+ROR_DOCLING_URL: {{ printf "http://%sdocling:%v" $pf .port | quote }}
+{{- end }}{{ end }}
+{{- with .Values.parsers.grobid }}{{ if .enabled }}
+ROR_GROBID_URL: {{ printf "http://%sgrobid:%v" $pf .port | quote }}
+{{- end }}{{ end }}
+{{- /* clamav_host is a bare host: backend scan() always uses port 3310 */}}
+{{- if .Values.parsers.clamav.enabled }}
+ROR_CLAMAV_HOST: {{ printf "%sclamav" $pf | quote }}
+{{- end }}
 {{- end -}}
 
 {{/* S3 endpoint of the bundled MinIO tenant (operator creates Service "minio" in the tenant namespace). */}}

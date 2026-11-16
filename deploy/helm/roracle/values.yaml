@@ -209,6 +209,87 @@ minio:
     requests: {cpu: "1", memory: 4Gi}
     limits: {memory: 4Gi}
 
+# ---- Parser services: optional in-chart Deployments. Only the worker calls them (ingest pipeline + evidence scan). ----
+# Backend URL settings are auto-filled (roracle.endpoints) when enabled and config.ROR_* is empty; to use an external
+# parser set enabled=false and fill config.ROR_*. NetworkPolicy gives parsers NO egress (see networkPolicy).
+# Per parser: writableDirs = emptyDirs (readOnlyRootFilesystem stays true unless overridden); runAsUser = image uid;
+# probe = {path} (HTTP) or {tcp: true}; args/env passed through; image tag is mandatory (no appVersion default).
+parsers:
+  gotenberg:
+    enabled: true
+    image: {repository: gotenberg/gotenberg, tag: "8.20.1", digest: "", pullPolicy: IfNotPresent}
+    port: 3000
+    replicas: 2
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 2Gi}, {path: /home/gotenberg, size: 1Gi}]
+    probe: {path: /health}
+    # Same hardening as deploy/dev/compose.yaml: LibreOffice follows links in uploads, so no downloads/webhooks.
+    args: [gotenberg, --api-disable-download-from, --webhook-disable, --chromium-disable-routes, --pdfengines-disable-routes, --api-timeout=300s]
+    env: {}
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {memory: 2Gi}
+  docling:
+    enabled: true
+    # Upstream is unversioned in dev compose (latest); pin in mirror: verify the tag and prefer a digest.
+    image: {repository: quay.io/docling-project/docling-serve-cpu, tag: v1.38.2, digest: "", pullPolicy: IfNotPresent}
+    port: 5001
+    replicas: 2
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 4Gi}, {path: /opt/app-root/src/.cache, size: 2Gi}]   # HF/model cache, models are baked in the image
+    probe: {path: /health}
+    args: []
+    env: {DOCLING_SERVE_MAX_NUM_PAGES: "2000", DOCLING_SERVE_MAX_FILE_SIZE: "629145600"}
+    resources:
+      requests: {cpu: "4", memory: 8Gi}
+      limits: {memory: 12Gi}
+  grobid:
+    enabled: true
+    image: {repository: lfoppiano/grobid, tag: "0.8.1", digest: "", pullPolicy: IfNotPresent}
+    port: 8070
+    replicas: 2
+    runAsUser: 1000
+    # GROBID (JVM + DeLFT/Wapiti models under /opt/grobid) writes next to its install and is not known to cope with a
+    # read-only root; set true and extend writableDirs if your mirrored image does.
+    readOnlyRootFilesystem: false
+    writableDirs: [{path: /opt/grobid/grobid-home/tmp, size: 2Gi}, {path: /tmp, size: 1Gi}]
+    probe: {path: /api/isalive}
+    args: []
+    env: {}
+    resources:
+      requests: {cpu: "2", memory: 4Gi}
+      limits: {memory: 6Gi}
+  clamav:
+    enabled: true
+    image: {repository: clamav/clamav, tag: "1.4", digest: "", pullPolicy: IfNotPresent}
+    port: 3310             # backend scan() hardcodes 3310: do not change
+    replicas: 2
+    runAsUser: 100         # image default is root; "clamav" user (uid 100 / gid 101) via /init-unprivileged
+    runAsGroup: 101
+    readOnlyRootFilesystem: true
+    # emptyDirs hide the signature DB baked into the image: an init container seeds /var/lib/clamav from it.
+    seedDir: /var/lib/clamav
+    writableDirs: [{path: /var/lib/clamav, size: 2Gi}, {path: /var/log/clamav, size: 100Mi}, {path: /run/clamav, size: 10Mi}, {path: /tmp, size: 1Gi}]
+    probe: {tcp: true}
+    args: []
+    # fail closed: limits exceed the 500 MB upload cap (see compose.yaml)
+    env: {CLAMD_CONF_StreamMaxLength: 600M, CLAMD_CONF_MaxFileSize: 600M, CLAMD_CONF_MaxScanSize: 600M, CLAMD_CONF_AlertExceedsMax: "yes"}
+    # Private freshclam mirror (URL). Empty = freshclamd off (CLAMAV_NO_FRESHCLAMD): signatures are only those baked into
+    # the image, so rebuild/re-mirror the image regularly. Set => egress to mirrorCIDRs (+DNS) is allowed for clamav only.
+    mirrorUrl: ""
+    mirrorCIDRs: []
+    resources:
+      requests: {cpu: 500m, memory: 3Gi}
+      limits: {memory: 4Gi}
+  pdb: {enabled: true, minAvailable: 1}   # rendered per parser when replicas > 1
+
+# Connector egress (worker only; backend also enforces connector_http_allow_cidrs). Default none.
+connectors:
+  egressCIDRs: []
+  ports: [443]
+
 # Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
 # certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
 # ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
@@ -229,3 +310,17 @@ networkPolicy:
   dns:
     namespace: kube-system
     podLabels: {k8s-app: kube-dns}
+  # Application tier (enabled: default-deny ingress+egress for every pod in the release namespace + allow rules).
+  enabled: true
+  ingressNamespaceSelector: {kubernetes.io/metadata.name: ingress-nginx}   # namespace labels of the ingress controller
+  # Egress for api/worker(/migrate) to non-bundled data services. Bundled modes use pod selectors instead.
+  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied).
+  externalCIDRs:
+    postgres: {cidrs: [], ports: [5432]}
+    elasticsearch: {cidrs: [], ports: [9200]}
+  # api+worker: inference (LLM), OIDC (JWKS fetch), OTLP collector. In-cluster targets: use the pod/service CIDR.
+  egressCIDRs:
+    llm: {cidrs: [], ports: [443]}
+    oidc: {cidrs: [], ports: [443]}
+    otel: {cidrs: [], ports: [4317]}
+  scrape: {enabled: false, ports: [8000]}   # allow monitoringNamespace -> api/worker (backend has no /metrics yet)
