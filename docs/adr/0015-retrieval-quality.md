@@ -64,3 +64,9 @@ caller's own visibility at the moment of asking.
 - Ingest and rebuild cost grows with chunk count (one LLM call per chunk, two-level summaries per
   document); compute is cheap by user decision, and results are cached per version.
 - Every later retrieval change must ship with an eval report; defaults change only on measured gain.
+- Context notes are cached per version keyed by `sha256(chunk text)` (R9): the key ignores the context model and
+  `context_doc_chars`, so changing the model or prompt requires bumping `CONTEXT_PROMPT_VERSION`. Notes are
+  untrusted output about their own document and never enter a retrieval `_source` list or an LLM prompt.
+- Rebuild and re-embed are mutually exclusive (same advisory lock; re-embed refuses while `rebuild_units` are
+  pending). `rebuild_units` is claimed after all other job kinds so a backfill never delays ingest.
+  `ROR_CONTEXT_MAX_CHUNKS` (400) bounds notes per document; later chunks get the heading path.

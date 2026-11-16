@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     context_notes: bool = False  # P13 T5: LLM situating note per chunk (flips on a PASS in docs/eval/)
     context_model: str = ""  # empty = notes off (needs an Ollama variant with num_ctx >= 16384)
     context_doc_chars: int = 24000  # document window sent in the stable prefix
+    context_max_chunks: int = 400  # per document; later chunks get the heading path (bounds one job)
     context_max_tokens: int = 120  # hard cap per note
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     db_connect_timeout_s: int = (

@@ -10,7 +10,7 @@ export ROR_CONTEXT_MODEL=roracle-context          # Ollama variant, num_ctx 1638
 uv run roracle rebuild --what context --into chunks-<slug>-shadow   # worker builds it; live search untouched
 uv run roracle eval compare --set <reference set> --path chat \
   --baseline "" --candidate-index chunks-<slug>-shadow \
-  --out docs/eval/2026-11-context-notes.md
+  --out docs/eval/2026-11-16-context-notes.md
 uv run roracle rebuild --drop chunks-<slug>-shadow                  # afterwards
 ```
 (The compare command overwrites this file with the gate table.)

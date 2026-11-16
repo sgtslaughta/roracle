@@ -165,3 +165,11 @@ def test_bm25_includes_context():
     )
     fields = seen[0]["query"]["bool"]["must"][0]["multi_match"]["fields"]
     assert "context" in fields
+
+
+def test_chunk_cap_falls_back_to_headings(db_session, vd):
+    v, d = vd
+    llm = SpyLLM()
+    cfg = CFG.model_copy(update={"context_max_chunks": 2})
+    out = context.notes_for(db_session, llm, cfg, Store(), v, d, "doc", chunks(5))
+    assert len(llm.calls) == 2 and out[2:] == ["Intro > Methods"] * 3

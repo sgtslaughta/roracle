@@ -182,7 +182,7 @@ def _index(
         update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
     search_index.ensure_index(
         es, settings.embed_model, settings.embed_dims, settings.read_alias, index,
-        session_factory=sf, settings=settings,
+        session_factory=sf, settings=settings, create=into is None,
     )  # fmt: skip
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,

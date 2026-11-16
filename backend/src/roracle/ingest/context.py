@@ -3,6 +3,11 @@
 One call per chunk, sequential, with a stable `<document>` message first so server-side prefix caching
 applies. Notes are cached per version; an `exclude_llm` label (re-read from Postgres before EVERY call,
 ADR-0014) turns the note into the heading path with no LLM call.
+
+Notes are untrusted LLM output about this document only: they feed BM25/embeddings of the same document and must
+never be added to a retrieval `_source` list or an LLM prompt without the exclude_llm + R19 gates.
+The cache key is sha256(chunk text) per version: it ignores the model and `context_doc_chars` (R9), so a
+change of context model or prompt requires bumping CONTEXT_PROMPT_VERSION.
 """
 
 import hashlib
@@ -40,7 +45,7 @@ def _load(store, key: str) -> dict[str, str]:
     try:
         data = json.loads(store.get_bytes(key))
     except ClientError as e:
-        if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+        if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "NotFound", "404"):
             return {}
         raise
     except ValueError:
@@ -85,12 +90,12 @@ def notes_for(
     fresh: dict[str, str] = {}
     out: list[str] = []
     try:
-        for c in chunks:
+        for i, c in enumerate(chunks):
             sha = _sha(c.text)
             if sha in cache:  # reused even after a later label raise (same as summaries, R9)
                 out.append(cache[sha])
                 continue
-            if _excluded(session, d):
+            if i >= settings.context_max_chunks or _excluded(session, d):
                 out.append(heading_note(c))
                 continue
             win = window(doc_text, c, c.n, len(chunks), settings.context_doc_chars)

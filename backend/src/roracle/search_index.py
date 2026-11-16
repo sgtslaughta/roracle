@@ -142,11 +142,14 @@ def ensure_index(
     *,
     session_factory: sessionmaker[Session] | None = None,
     settings: Any = None,
+    create: bool = True,
 ) -> str:
     """Create the index and add it to `chunks-all`. The read alias is (re)pointed here only when no
     `session_factory` is given (tests) or `name` is the Postgres-persisted active index."""
     name = name or index_name(model)
     _adopt_plain_index(es, name, dims, alias)
+    if not create and not es.indices.exists(index=name):
+        raise NonRetryable(f"index {name!r} no longer exists")  # shadow dropped mid-rebuild: never re-created
     if not es.indices.exists(index=name):
         try:
             es.indices.create(index=name, mappings=_mapping(dims))

@@ -43,6 +43,6 @@ M
 ollama create roracle-context -f Modelfile.roracle-context
 ```
 Then `ROR_CONTEXT_MODEL=roracle-context` (unset = feature off; `ROR_CONTEXT_NOTES` stays `false` until the
-gate in `docs/eval/2026-11-context-notes.md` is PASS). Build the A/B shadow index with
+gate in `docs/eval/2026-11-16-context-notes.md` is PASS). Build the A/B shadow index with
 `roracle rebuild --what context --into chunks-<slug>-shadow`; drop it with `roracle rebuild --drop <name>`.
 `exclude_llm` documents never reach this model (heading path instead).

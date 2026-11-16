@@ -11,7 +11,7 @@ import uuid
 from typing import Literal
 
 from elasticsearch import Elasticsearch, NotFoundError
-from sqlalchemy import String, cast, func, insert, literal, select
+from sqlalchemy import String, cast, func, insert, literal, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,6 +25,7 @@ from roracle.search_index import MUTATE_ALIAS
 
 WATCH_S = 60
 _NAME = re.compile(r"chunks-[a-z0-9][a-z0-9-]{0,100}")
+_GENERATION = re.compile(r"chunks-.+-\d+")  # re-embed generations are never shadows
 Kind = Literal["context", "raptor"]
 
 
@@ -37,7 +38,7 @@ def _holders(es: Elasticsearch, alias: str) -> set[str]:
 
 def create_shadow(es: Elasticsearch, settings: Settings, name: str) -> str:
     """Create `name` inside `chunks-all` only; `settings` must be the effective ones (model/dims/active index)."""
-    if not _NAME.fullmatch(name) or name == MUTATE_ALIAS:
+    if not _NAME.fullmatch(name) or name == MUTATE_ALIAS or _GENERATION.fullmatch(name):
         raise ValueError("index name must match chunks-<slug>")
     if name == search_index.active_index(settings) or name in _holders(es, settings.read_alias):
         raise ValueError("refusing the active index")
@@ -82,8 +83,13 @@ def enqueue_all(session: Session, what: set[Kind], into: str | None) -> int:
 
 def start(session: Session, es: Elasticsearch, settings: Settings, what: set[Kind], into: str | None) -> int:
     """`settings` effective. A running re-embed would copy stale notes: refuse (reembed.AlreadyRunning)."""
+    session.execute(text(reembed.LOCK))  # same lock as reembed.start: the two never interleave
     if reembed.running_job(session) is not None:
         raise reembed.AlreadyRunning
+    if "context" not in what:
+        raise ValueError("raptor rebuilds are not available yet")
+    if not settings.context_model:
+        raise ValueError("context_model (ROR_CONTEXT_MODEL) is not set")
     if into == search_index.active_index(settings):
         into = None
     if into:
@@ -106,10 +112,11 @@ def handle_rebuild_units(
     into = payload.get("into") or None
     if into == search_index.active_index(settings):
         into = None
-    if "context" in (payload.get("what") or []):
-        if not settings.context_model:
-            raise NonRetryable("ROR_CONTEXT_MODEL is not set")
-        settings = settings.model_copy(update={"context_notes": True})
+    if "context" not in (payload.get("what") or []):
+        return  # raptor-only: nothing to rebuild before Task 6
+    if not settings.context_model:
+        raise NonRetryable("ROR_CONTEXT_MODEL is not set")
+    settings = settings.model_copy(update={"context_notes": True})
     v = session.get(DocumentVersion, vid)
     if v is None:
         return

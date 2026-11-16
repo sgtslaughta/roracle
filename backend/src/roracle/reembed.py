@@ -40,6 +40,9 @@ CATCHUP_DELAY_S = 300
 _VECTORS = ["embedding", "summary_embedding"]
 
 
+LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('reembed', 0))"
+
+
 class AlreadyRunning(Exception):
     pass
 
@@ -61,8 +64,10 @@ def running_job(session: Session) -> Job | None:
 
 def start(session: Session, es: Elasticsearch, settings: Settings, model: str, dims: int) -> int:
     """Enqueue the copy phase into a fresh generation of `model`. Raises AlreadyRunning."""
-    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('reembed', 0))"))
-    if running_job(session) is not None:
+    session.execute(text(LOCK))
+    if running_job(session) is not None or session.scalar(
+        select(Job.id).where(Job.kind == "rebuild_units", Job.status.in_(("queued", "running"))).limit(1)
+    ):  # a rebuild rewriting the old index would be lost by catch-up (copies only missing chunks)
         raise AlreadyRunning
     eff = runtime.effective(session, settings)
     active = search_index.active_index(eff)

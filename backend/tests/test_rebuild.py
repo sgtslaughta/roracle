@@ -169,3 +169,54 @@ def test_start_refuses_while_reembed_runs(db_session, es, base, vid):
     reembed.start(db_session, es, base, "new", 2)
     with pytest.raises(reembed.AlreadyRunning):
         rebuild.start(db_session, es, base, {"context"}, None)
+
+
+def test_reembed_refuses_while_rebuild_pending(db_session, es, base, vid):
+    _searchable(db_session, vid)
+    rebuild.start(
+        db_session, es, Settings(context_model="m", embed_model="old", embed_dims=2), {"context"}, None
+    )
+    with pytest.raises(reembed.AlreadyRunning):
+        reembed.start(db_session, es, base, "new", 2)
+    for j in _jobs(db_session, "rebuild_units"):
+        j.status = "done"
+    db_session.flush()
+    reembed.start(db_session, es, base, "new", 2)  # nothing pending any more
+
+
+def test_start_rejects_unusable_requests(db_session, es, vid):
+    cfg = Settings(embed_model="old", embed_dims=2)
+    with pytest.raises(ValueError, match="context_model"):
+        rebuild.start(db_session, es, cfg, {"context"}, None)
+    with pytest.raises(ValueError, match="raptor"):
+        rebuild.start(db_session, es, cfg.model_copy(update={"context_model": "m"}), {"raptor"}, None)
+    assert _jobs(db_session, "rebuild_units") == []
+
+
+def test_raptor_only_unit_is_noop(db_session, session_factory, es, vid, calls):
+    _searchable(db_session, vid)
+    _units(db_session, session_factory, es, {"version_id": vid, "what": ["raptor"]})
+    assert calls == []
+
+
+def test_rebuild_does_not_starve_ingest(db_session, document, vid):
+    from roracle.queue import claim, enqueue
+
+    _searchable(db_session, vid)
+    rebuild.enqueue_all(db_session, {"context"}, None)
+    db_session.execute(
+        __import__("sqlalchemy").text(
+            "UPDATE jobs SET run_after = now() - interval '1 hour' WHERE kind='rebuild_units'"
+        )
+    )
+    enqueue(db_session, "ingest", {"version_id": vid})
+    got = claim(db_session, {"ingest", "rebuild_units"})
+    assert got.kind == "ingest"
+
+
+def test_shadow_refuses_old_generation(es):
+    cfg = Settings(embed_model="old", embed_dims=2)
+    es.data["chunks-old-2"] = {}
+    es.aliases["chunks-all"].add("chunks-old-2")
+    with pytest.raises(ValueError):
+        rebuild.create_shadow(es, cfg, "chunks-old-2")

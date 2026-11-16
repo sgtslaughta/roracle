@@ -47,12 +47,15 @@ def enqueue(session: Session, kind: str, payload: dict, run_after_s: float = 0) 
     return job.id
 
 
+BULK_KINDS = ("rebuild_units",)
+
+
 def claim(session: Session, kinds: Collection[str]) -> Job | None:
     """Claim one due job; the row lock lasts until the caller's transaction ends (no commit)."""
     job = session.scalar(
         select(Job)
         .where(Job.status == "queued", Job.run_after <= text("now()"), Job.kind.in_(list(kinds)))
-        .order_by(Job.run_after, Job.id)
+        .order_by(Job.kind.in_(BULK_KINDS), Job.run_after, Job.id)  # bulk backfills never starve user work
         .limit(1)
         .with_for_update(skip_locked=True)
     )
