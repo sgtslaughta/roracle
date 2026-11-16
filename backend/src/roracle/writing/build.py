@@ -81,6 +81,11 @@ def _semaphore(n: int) -> threading.BoundedSemaphore:
         return _sem
 
 
+def _timeout(deadline: float) -> httpx.Timeout:
+    left = _remaining(deadline)
+    return httpx.Timeout(left, connect=min(5.0, left))
+
+
 def _remaining(deadline: float) -> float:
     left = deadline - time.monotonic()
     if left <= 0:
@@ -180,7 +185,7 @@ class PandocBuilder:
         url = self.cfg.draft_gotenberg_url.rstrip("/") + "/forms/chromium/convert/html"
         try:
             with (
-                httpx.Client(transport=self.transport, timeout=_remaining(deadline)) as c,
+                httpx.Client(transport=self.transport, timeout=_timeout(deadline)) as c,
                 c.stream("POST", url, files={"files": ("index.html", html.encode(), "text/html")}) as r,
             ):
                 if r.status_code != 200:
