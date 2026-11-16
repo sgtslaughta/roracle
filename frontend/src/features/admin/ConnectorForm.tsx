@@ -40,7 +40,7 @@ function ConnectorForm({ connector, onDone }: { connector?: Connector; onDone: (
     const include = f.kind === "fs" ? includeRef.current?.() ?? null : f.include;
     const start_urls = f.kind === "http" ? urlsRef.current?.() ?? null : f.start_urls;
     if (!include || !start_urls) return; // a pending chip was invalid; ChipInput shows why
-    const r = buildBody(f, editing, { include, start_urls });
+    const r = buildBody(f, connector, { include, start_urls });
     if ("error" in r) return setErr(r.error);
     save.mutate({ id: connector?.id, body: r.body }, {
       onSuccess: () => { toast(editing ? "Connector saved." : "Connector created."); onDone(); },
@@ -94,7 +94,7 @@ function ConnectorForm({ connector, onDone }: { connector?: Connector; onDone: (
           <label className="ck"><input type="checkbox" checked={f.ingest_html} onChange={(e) => set("ingest_html", e.target.checked)} />Ingest HTML pages too</label>
         </>
       )}
-      <Field label="Visible to">
+      <Field label="Visible to" help={editing && (f.visibility !== connector.visibility || (f.visibility === "org_unit" && f.org_unit.trim() !== connector.org_unit)) ? "Documents it already ingested change visibility too." : undefined}>
         <select value={f.visibility} onChange={(e) => set("visibility", e.target.value as FormState["visibility"])}>
           <option value="private">Only me</option><option value="org_unit">An org unit</option><option value="everyone">Everyone</option>
         </select>

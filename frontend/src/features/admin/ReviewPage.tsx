@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { GitCompare } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import type { ReviewItem, ReviewSource } from "@/api/admin";
@@ -25,6 +25,7 @@ export function ReviewPage() {
       onError: (e) => toast(e instanceof ApiError ? e.message : "The decision couldn't be saved. Try again."),
     });
   const pages = data ? Math.max(1, Math.ceil(data.total / REVIEW_PAGE)) : 1;
+  useEffect(() => { if (data && page > pages) setPage(pages); }, [data, page, pages]);
 
   return (
     <div className="admin-page">

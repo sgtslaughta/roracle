@@ -141,14 +141,40 @@ describe("connectors", () => {
     await user.clear(field("Name")); await user.type(field("Name"), "Group share 2");
     await user.click(screen.getByRole("button", { name: "Save" }));
     const b = await body("PATCH", `/admin/connectors/${C1}`);
-    expect(b).toMatchObject({ name: "Group share 2", config: { secret_key: "***", bucket: "group-papers" }, schedule_minutes: 60 });
+    expect(b).toMatchObject({ name: "Group share 2", config: { secret_key: "***", bucket: "group-papers" }});
     expect(b).not.toHaveProperty("kind");
+    expect(b).not.toHaveProperty("schedule_minutes"); // sending it would make the connector due immediately
     await screen.findByText("Group share 2");
     await user.click(screen.getByRole("button", { name: "Edit Group share 2" }));
     await user.clear(field("Secret key"));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent("PATCH", `/admin/connectors/${C1}`)).toHaveLength(2));
     expect((await sent("PATCH", `/admin/connectors/${C1}`)[1].json()).config.secret_key).toBeNull();
+  });
+
+  it("changing the schedule sends it; changing visibility warns about ingested documents", async () => {
+    const user = userEvent.setup();
+    await renderAdmin("/admin/connectors", "Group share");
+    await user.click(screen.getByRole("button", { name: "Edit Group share" }));
+    expect(screen.queryByText("Documents it already ingested change visibility too.")).toBeNull();
+    await user.selectOptions(field("Visible to"), "private");
+    expect(screen.getByText("Documents it already ingested change visibility too.")).toBeInTheDocument();
+    await user.clear(field(/Run every/)); await user.type(field(/Run every/), "120");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await body("PATCH", `/admin/connectors/${C1}`)).toMatchObject({ schedule_minutes: 120, visibility: "private" });
+  });
+
+  it("refuses more than 20 include patterns", async () => {
+    const user = userEvent.setup();
+    await renderAdmin("/admin/connectors", "Group share");
+    await user.click(screen.getByRole("button", { name: "New connector" }));
+    await user.type(field("Name"), "Many");
+    await user.selectOptions(field("Kind"), "fs");
+    await user.type(field("Path"), "/data");
+    for (let i = 0; i < 20; i++) await user.type(field("Include patterns"), `*.e${i}{Enter}`);
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText("Use at most 20 include patterns.")).toBeInTheDocument();
+    expect(sent("POST", "/admin/connectors")).toHaveLength(0);
   });
 
   it("the enabled checkbox PATCHes only enabled", async () => {
@@ -280,6 +306,31 @@ describe("review and needs-title", () => {
     await renderAdmin("/admin/review", "Uploads that look like documents already in the library. Oldest first.");
     await userEvent.click(screen.getByRole("button", { name: "Connectors" }));
     await waitFor(() => expect(seen.some((r) => r.url.includes("/admin/review") && r.url.includes("source=connector"))).toBe(true));
+  });
+
+  it("needs-title queue is capped at 10 until Show all", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ document_id: `d${i}`, version_id: `v${i}`, filename: `f${i}.pdf`, owner: "k.ito", uploaded_at: "2026-11-1" + (i % 9) + "T10:00:00Z" }));
+    server.use(http.get(`${API_BASE}/admin/needs-title`, () => HttpResponse.json(many)));
+    await renderAdmin("/admin/needs-title", "Waiting for a title");
+    const q = await screen.findByRole("region", { name: "Waiting for a title" });
+    expect(await within(q).findAllByRole("listitem")).toHaveLength(10);
+    await userEvent.click(within(q).getByRole("button", { name: "Show all 12" }));
+    expect(within(q).getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("review page steps back when the current page no longer exists", async () => {
+    let total = 25;
+    server.use(http.get(`${API_BASE}/admin/review`, ({ request }) => {
+      const page = Number(new URL(request.url).searchParams.get("page"));
+      const items = page * 20 > total + 19 ? [] : [{ document_id: "d", version_id: `v${page}`, filename: `p${page}.pdf`, owner: "o", connector_id: null, uploaded_at: "2026-11-15T08:00:00Z", match: null }];
+      return HttpResponse.json({ items, total });
+    }));
+    await renderAdmin("/admin/review", "Uploads that look like documents already in the library. Oldest first.");
+    await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+    await screen.findByText("p2.pdf");
+    server.use(http.post(`${API_BASE}/documents/:id/versions/:vid/near-dup`, () => { total = 10; return HttpResponse.json({ version_id: "v2", document_id: "d", stage: "deduped" }); }));
+    await userEvent.click(screen.getByRole("button", { name: /Add p2.pdf as new version/ }));
+    await waitFor(() => expect(screen.getByText("p1.pdf")).toBeInTheDocument());
   });
 
   it("needs-title queue shows under /admin/needs-title for admins", async () => {

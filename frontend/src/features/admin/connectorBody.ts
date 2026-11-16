@@ -28,11 +28,14 @@ export function initialForm(c?: Connector): FormState {
 const intIn = (v: string, lo: number, hi: number) => /^\d+$/.test(v.trim()) && Number(v) >= lo && Number(v) <= hi;
 export const isHttpUrl = (v: string) => /^https?:\/\/\S+$/i.test(v);
 
+const scheduleOf = (f: FormState) => (f.schedule.trim() ? Number(f.schedule) : null);
+
 /**
  * Request body from the form, or an error message. `editing` sends cleared optional fields as null
  * (PATCH deletes the key) and keeps an untouched secret as "***".
  */
-export function buildBody(f: FormState, editing: boolean, lists: { include: string[]; start_urls: string[] }): { body: ConnectorBody } | { error: string } {
+export function buildBody(f: FormState, original: Connector | undefined, lists: { include: string[]; start_urls: string[] }): { body: ConnectorBody } | { error: string } {
+  const editing = !!original;
   const name = f.name.trim();
   if (!name) return { error: "Give the connector a name." };
   const org_unit = f.visibility === "org_unit" ? f.org_unit.trim() : "";
@@ -52,12 +55,14 @@ export function buildBody(f: FormState, editing: boolean, lists: { include: stri
   } else if (f.kind === "fs") {
     if (!f.path.trim()) return { error: "Path is required." };
     if (!lists.include.length) return { error: "Add at least one include pattern, for example *.pdf." };
+    if (lists.include.length > 20) return { error: "Use at most 20 include patterns." };
     config = { path: f.path.trim(), include: lists.include };
   } else {
     if (!lists.start_urls.length) return { error: "Add at least one start URL." };
+    if (lists.start_urls.length > 20) return { error: "Use at most 20 start URLs." };
     if (!intIn(f.max_depth, 0, 3)) return { error: "Max depth must be 0 to 3." };
     if (!intIn(f.max_pages, 1, 1000)) return { error: "Max pages must be 1 to 1000." };
     config = { start_urls: lists.start_urls, max_depth: Number(f.max_depth), max_pages: Number(f.max_pages), respect_robots: f.respect_robots, ingest_html: f.ingest_html };
   }
-  return { body: { name, ...(editing ? {} : { kind: f.kind }), config, visibility: f.visibility, org_unit, schedule_minutes: schedule ? Number(schedule) : null, enabled: f.enabled } };
+  return { body: { name, ...(editing ? {} : { kind: f.kind }), config, visibility: f.visibility, org_unit, enabled: f.enabled, ...(!editing || scheduleOf(f) !== original.schedule_minutes ? { schedule_minutes: scheduleOf(f) } : {}) } };
 }

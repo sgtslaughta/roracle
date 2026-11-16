@@ -55,16 +55,20 @@ export function useDeleteConnector() {
   });
 }
 
+/** connector id -> when Run now last succeeded; its runs list polls for a while so the queued run shows up. */
+const queuedAt = new Map<string, number>();
+const QUEUED_POLL_MS = 60_000;
+
 export function useRunConnector() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiFetch<{ job_id: number }>(`/admin/connectors/${seg(id)}/run`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
+    onSuccess: (_r, id) => { queuedAt.set(id, Date.now()); return qc.invalidateQueries({ queryKey: ["admin"] }); },
   });
 }
 
 export function useRuns(id: string) {
-  const interval = useBoundedPoll<{ pages: Keyset<ConnectorRun>[] }>((d) => !!d?.pages[0]?.items.some((r) => r.status === "running"));
+  const interval = useBoundedPoll<{ pages: Keyset<ConnectorRun>[] }>((d) => !!d?.pages[0]?.items.some((r) => r.status === "running") || Date.now() - (queuedAt.get(id) ?? 0) < QUEUED_POLL_MS);
   return useInfiniteQuery({
     queryKey: ["admin", "runs", id],
     ...keyset<ConnectorRun>(`/admin/connectors/${seg(id)}/runs`),
