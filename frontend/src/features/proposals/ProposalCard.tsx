@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { ArrowUpRight, Bot, Check, Pencil, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -132,7 +133,7 @@ export function ProposalCard({ p, selected, onSelect }: Props) {
             })}><X aria-hidden />Reject</Button>
           </>
         )}
-        {p.status !== "pending" && <span className="sub">{p.status === "approved" ? "Approved" : "Rejected"}{p.decided_at && ` ${new Date(p.decided_at).toLocaleDateString()}`}</span>}
+        {p.status !== "pending" && <span className="sub">{p.status === "approved" ? "Approved" : "Rejected"}{p.decided_at && ` ${fmtDate(p.decided_at)}`}</span>}
         {p.status === "approved" && p.annotation_id && doc && <Button onClick={() => showNote(doc.id, p.annotation_id!)}>Open note</Button>}
       </div>
     </article>

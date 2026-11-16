@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type { Note, NoteAnchor, NoteKind, NoteRelation, NoteShare, NoteVisibility } from "@/api/notes";
 
 /** P8 contract: an agent's note (or reply, when `parent_id` is set) waiting for a human decision. Untrusted text. */
@@ -45,6 +45,7 @@ export const useProposals = (status: ProposalStatus) =>
 function useDecision<V, R>(fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: fn,
     onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] })]),
   });

@@ -32,7 +32,9 @@ const ANSWER =
 
 export function seedChats(): ChatDetail[] {
   const all = [...SRC, ...EXTRA].map(([di, p, c], i) => passageOf(doc(di), p, c, i + 1));
-  const retrieved = all.map((x, i) => ({ ...x.retrieved, score: Math.round((0.93 - i * 0.07) * 100) / 100 }));
+  const retrieved: RetrievedPassage[] = all.map((x, i) => ({ ...x.retrieved, score: Math.round((0.93 - i * 0.07) * 100) / 100 }));
+  // a community-note passage has no numbered marker
+  retrieved.push({ ...all[0].retrieved, n: null, note_id: "00000000-0000-4000-8000-0000000000a1", score: 0.2, text: "Community note: the factor (k-1) is tight for k = 3." });
   const citations = all.slice(0, 5).map((x) => x.cite);
   const viewer = { tabs: [], ignored: [], selection: null };
   const mk = (id: string, title: string, is_owner: boolean): ChatDetail => ({

@@ -6,10 +6,11 @@ import "@fontsource-variable/manrope";
 import "@fontsource/stix-two-text/400.css";
 import "@fontsource/stix-two-text/400-italic.css";
 import "./styles/globals.css";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { applyTheme, getTheme } from "./lib/theme";
 import { createAppRouter } from "./app/router";
+import { createQueryClient } from "./app/queryClient";
 import { AuthGate } from "./auth/AuthGate";
 import { attachPdfCleanup } from "./features/reader/pdfCleanup";
 import { createUserManager } from "./auth/oidc";
@@ -27,7 +28,7 @@ async function boot() {
     const { worker } = await import("./mocks/browser");
     await worker.start({ onUnhandledFrame: "bypass", quiet: true });
   }
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000 } } });
+  const queryClient = createQueryClient();
   attachPdfCleanup(queryClient);
   // the router is created on first mount, i.e. after AuthGate has restored the original URL
   const App = () => {

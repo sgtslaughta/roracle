@@ -15,3 +15,14 @@ export function citeLine(authors: string[], venue: string | null | undefined, ye
   const s = [authors.join(", "), tail].filter(Boolean).join(". ");
   return s && `${s}.`;
 }
+
+/** Reader tab text: short citation, else the title (clipped), else the filename; never "". */
+export function tabLabel(d: { authors: string[]; year: number | null; title?: string | null; filename?: string | null }, max = 24): string {
+  const c = shortCite(d.authors, d.year);
+  if (c) return c;
+  const t = (d.title || d.filename || "Untitled").trim() || "Untitled";
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/** Display title for a chat; a blank title (not yet named) reads "New chat". */
+export const chatTitle = (c: { title: string } | null | undefined) => c?.title?.trim() || "New chat";

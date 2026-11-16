@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { Command, Moon, Search, Settings, Shield, Sun, SunMoon } from "lucide-react";
+import { Command, LogOut, Moon, Search, Settings, Shield, Sun, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { initials } from "@/lib/initials";
+import { signOut, signOutAvailable } from "@/auth/oidc";
 import { cycleTheme, useTheme } from "@/lib/theme";
 import { openPalette } from "@/features/palette/usePalette";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -51,7 +53,7 @@ function AccountMenu() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button className="avatar" aria-label="Account menu" title={me ? `Signed in as ${me.username}` : "Signed in"}>
-          {me?.username.charAt(0).toUpperCase() || "R"}
+          {initials(me?.username)}
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="chipmenu">
@@ -59,6 +61,7 @@ function AccountMenu() {
           <ul className="menu-list">
             <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>
             {me?.is_admin && <li><Link to="/admin" className="menu-link" onClick={() => setOpen(false)}><Shield aria-hidden />Admin</Link></li>}
+            {signOutAvailable() && <li><button className="menu-link" onClick={() => void signOut()}><LogOut aria-hidden />Sign out</button></li>}
           </ul>
         </nav>
       </PopoverContent>

@@ -4,12 +4,28 @@ export const API_BASE: string = import.meta.env.VITE_API_BASE ?? "/api";
 /** Encode one interpolated path segment: `a/b` -> `a%2Fb`. Use for EVERY id placed in an API path. */
 export const seg = (v: string | number) => encodeURIComponent(String(v));
 
+/** FastAPI 422 detail is `[{msg, loc}]`: join the messages; otherwise a plain string or a generic line. */
+function messageOf(detail: unknown, status: number): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const m = detail.map((d) => (d && typeof (d as { msg?: unknown }).msg === "string" ? (d as { msg: string }).msg : "")).filter(Boolean);
+    if (m.length) return m.join("; ");
+  }
+  return `Request failed (${status})`;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public detail: unknown) {
-    super(typeof detail === "string" ? detail : `Request failed (${status})`);
+    super(messageOf(detail, status));
     this.name = "ApiError";
   }
 }
+
+/** Mutation `meta` that opts out of the global error toast (the caller reports the failure itself). */
+export const QUIET = { quiet: true } as const;
+
+/** Readable text for any thrown value. */
+export const errorText = (e: unknown) => (e instanceof ApiError ? e.message : "That didn't work. Try again.");
 
 /** Thrown instead of sending a request once a sign-in redirect has started. */
 export class SignInInProgress extends Error {

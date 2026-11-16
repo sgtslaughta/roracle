@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMarkRead, useNotificationList } from "./api";
-import { NotificationRow, useOpenNotification } from "./Bell";
+import { NotificationMenu, NotificationRow, useOpenNotification } from "./Bell";
 
 export function NotificationsPage() {
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -31,7 +31,12 @@ export function NotificationsPage() {
         : !items.length ? <div className="empty"><BellOff aria-hidden /><p>{unreadOnly ? "No unread notifications." : "No notifications yet."}</p></div>
         : (
           <ul className="ntfy">
-            {items.map((n) => <li key={n.id}><NotificationRow n={n} onOpen={openOne} /></li>)}
+            {items.map((n) => (
+              <li key={n.id} className="nli">
+                <NotificationRow n={n} onOpen={openOne} />
+                <NotificationMenu n={n} onOpen={openOne} />
+              </li>
+            ))}
           </ul>
         )}
       {hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}

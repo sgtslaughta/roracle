@@ -23,7 +23,7 @@ export function AdminLayout() {
   if (!me.is_admin) {
     return (
       <section className="view">
-        <div className="empty"><ShieldAlert aria-hidden /><h1>Admins only</h1><p>This section is for rOracle administrators.</p></div>
+        <div className="empty"><ShieldAlert aria-hidden /><h1>Admins only</h1><p>This section is for rOracle administrators.</p><Link to="/library">Back to Library</Link></div>
       </section>
     );
   }

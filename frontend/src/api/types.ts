@@ -68,6 +68,9 @@ export interface DocumentDetail {
   versions: DocVersion[];
   page_count: number;
   flag: string | null;
+  /** not returned by the backend today; when present they are authoritative */
+  share_users?: string[];
+  share_groups?: string[];
 }
 
 export interface DocumentPatch { title?: string; visibility?: Visibility; org_unit?: string; share_users?: string[]; share_groups?: string[] }

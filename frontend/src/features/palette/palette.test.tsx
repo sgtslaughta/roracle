@@ -91,7 +91,7 @@ describe("command palette", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/uploads"));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await userEvent.keyboard("{Control>}k{/Control}");
-    await userEvent.type(await screen.findByRole("combobox"), "cheeger{ArrowDown}{Enter}");
+    await userEvent.type(await within(await screen.findByRole("dialog")).findByRole("combobox"), "cheeger{ArrowDown}{Enter}");
     await waitFor(() => expect(getReaderState().active).toBe(D2));
   });
 

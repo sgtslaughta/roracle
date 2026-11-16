@@ -1,16 +1,18 @@
 import {
   createMemoryHistory, createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect,
 } from "@tanstack/react-router";
-import type { RouteComponent } from "@tanstack/react-router";
+import type { ErrorRouteComponent, RouteComponent } from "@tanstack/react-router";
 import { Shell } from "./Shell";
+import { NotFound, Pending, RouteError } from "./RouterStates";
 import { LibraryRoute } from "@/routes/LibraryRoute";
-import { DraftsRoute } from "@/routes/placeholders";
-import { AskRoute } from "@/routes/AskRoute";
-import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
-import { HandoffRoute } from "@/routes/HandoffRoute";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
+const AskRoute = lazyRouteComponent(() => import("@/routes/AskRoute"), "AskRoute");
+const UploadsRoute = lazyRouteComponent(() => import("@/routes/UploadsRoute"), "UploadsRoute");
+const DraftsPage = lazyRouteComponent(() => import("@/features/drafts/DraftsPage"), "DraftsPage");
+const DraftPage = lazyRouteComponent(() => import("@/features/drafts/DraftPage"), "DraftPage");
+const HandoffRoute = lazyRouteComponent(() => import("@/routes/HandoffRoute"), "HandoffRoute");
 // Admin and low-traffic pages load on demand to keep the entry chunk small.
 const ProposalsPage = lazyRouteComponent(() => import("@/features/proposals/ProposalsPage"), "ProposalsPage");
 const NotificationsPage = lazyRouteComponent(() => import("@/features/notifications/NotificationsPage"), "NotificationsPage");
@@ -57,7 +59,8 @@ const routeTree = rootRoute.addChildren([
   r("/uploads", UploadsRoute),
   r("/proposals", ProposalsPage),
   r("/notifications", NotificationsPage),
-  r("/drafts", DraftsRoute),
+  r("/drafts", DraftsPage),
+  r("/drafts/$id", DraftPage),
   r("/d/$docId", DocRoute),
   r("/d/$docId/v/$version", DocRoute),
   r("/settings", SettingsRoute),
@@ -68,6 +71,10 @@ const routeTree = rootRoute.addChildren([
 export function createAppRouter(initialEntries?: string[]) {
   return createRouter({
     routeTree,
+    defaultNotFoundComponent: NotFound,
+    defaultErrorComponent: RouteError as ErrorRouteComponent,
+    defaultPendingComponent: Pending,
+    defaultPendingMs: 300,
     parseSearch,
     stringifySearch,
     ...(initialEntries ? { history: createMemoryHistory({ initialEntries }) } : {}),

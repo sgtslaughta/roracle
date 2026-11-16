@@ -31,6 +31,7 @@ export const inFilter = (u: Pick<UploadItem, "stage" | "status">, k: FilterKey) 
   const v = viewStatus(u);
   return k === "all" || (k === "needs" ? v === "review" || v === "title" : v === k);
 };
+export const VIS_ORDER: Visibility[] = ["everyone", "org_unit", "private", "shared"];
 export const VIS_LABEL: Record<Visibility, string> = { everyone: "Everyone", org_unit: "My org unit", private: "Only me", shared: "Shared" };
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 

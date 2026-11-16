@@ -6,11 +6,6 @@ import { Button } from "@/components/ui/button";
 import { AnswerFooter, type ChatCtx } from "./AnswerFooter";
 import type { TurnData } from "./turns";
 
-export const initials = (name: string | undefined) => {
-  const w = (name ?? "").trim().split(/[\s._-]+/).filter(Boolean);
-  return ((w.length > 1 ? w[0][0] + w[1][0] : (w[0] ?? "?").slice(0, 2)) || "?").toUpperCase();
-};
-
 interface Props { turn: TurnData; who: string; chat?: ChatCtx; onRetry: (question: string) => void }
 
 function TurnImpl({ turn, who, chat, onRetry }: Props) {

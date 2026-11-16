@@ -43,14 +43,14 @@ describe("answer actions", () => {
   it("toggles the passages drawer and pins / excludes through PATCH", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
-    const toggle = await screen.findByRole("button", { name: /Show the 8 passages read/ });
+    const toggle = await screen.findByRole("button", { name: /Show the 9 passages read/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await user.click(toggle);
     const list = await screen.findByRole("list", { name: "Passages read" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(8);
-    await user.click(screen.getByRole("button", { name: /Hide the 8 passages read/ }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(9);
+    await user.click(screen.getByRole("button", { name: /Hide the 9 passages read/ }));
     expect(screen.queryByRole("list", { name: "Passages read" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: /Show the 8 passages read/ }));
+    await user.click(screen.getByRole("button", { name: /Show the 9 passages read/ }));
     const first = within(await screen.findByRole("list", { name: "Passages read" })).getAllByRole("listitem")[0];
     await user.click(within(first).getByRole("button", { name: "Pin" }));
     await waitFor(() => expect(sent("PATCH", /\/chats\/c1$/)).toHaveLength(1));
@@ -146,7 +146,7 @@ describe("answer actions", () => {
   it("Quote on a passage sets the quote chip and the next question carries it", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
-    await user.click(await screen.findByRole("button", { name: /Show the 8 passages read/ }));
+    await user.click(await screen.findByRole("button", { name: /Show the 9 passages read/ }));
     const first = within(await screen.findByRole("list", { name: "Passages read" })).getAllByRole("listitem")[0];
     await user.click(within(first).getByRole("button", { name: "Quote" }));
     expect(await screen.findByRole("button", { name: "Remove quote" })).toBeInTheDocument();
@@ -187,7 +187,7 @@ describe("answer actions", () => {
     const user = userEvent.setup();
     server.use(http.patch(`${API_BASE}/chats/:id`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
     await renderApp("/ask/c1");
-    await user.click(await screen.findByRole("button", { name: /Show the 8 passages read/ }));
+    await user.click(await screen.findByRole("button", { name: /Show the 9 passages read/ }));
     const first = within(await screen.findByRole("list", { name: "Passages read" })).getAllByRole("listitem")[0];
     const pin = within(first).getByRole("button", { name: "Pin" });
     await user.click(pin);
@@ -240,7 +240,7 @@ describe("answer actions", () => {
     expect(screen.queryByRole("button", { name: "Helpful" })).toBeNull();
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Show the 8 passages read/ }));
+    await user.click(await screen.findByRole("button", { name: /Show the 9 passages read/ }));
     expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
   });
 });

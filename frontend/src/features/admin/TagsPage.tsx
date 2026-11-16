@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { invalidText } from "@/features/agents/api";
 import { useMergeTags, useTags } from "./dataApi";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const SHOWN = 100;
 const MAX_SOURCES = 50;
@@ -55,7 +56,11 @@ export function TagsPage() {
               {matches.slice(0, SHOWN).map((x) => (
                 <tr key={x.tag}>
                   <td><input type="checkbox" aria-label={`Select ${x.tag}`} checked={picked.includes(x.tag)} onChange={() => toggle(x.tag)} /></td>
-                  <td className="trunc" title={x.tag}>{x.tag}</td><td>{x.documents}</td>
+                  <td className="trunc" title={x.tag}>{x.tag}</td>
+                  <td>
+                    {x.documents}
+                    <RowMenu label={`Actions for tag ${x.tag}`} actions={[{ label: picked.includes(x.tag) ? "Deselect for merge" : "Select for merge", onSelect: () => toggle(x.tag) }, copyAction("Copy tag", x.tag)]} />
+                  </td>
                 </tr>
               ))}
             </tbody>
