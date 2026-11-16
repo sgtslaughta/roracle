@@ -54,9 +54,13 @@ def test_relevant_first():
 
 
 def test_p95_within_budget_at_depth_200():
-    # ~1500-char passages; the page-length distractors differ so batching cannot be cached away.
-    filler = "Retrieval pipelines combine lexical and dense signals before a cross-encoder reorders them. "
-    ps = [_passage(i, f"Passage {i}. " + filler * 16) for i in range(200)]
+    # production-length passages: rerank_max_chars (2000) of natural English (~450 tokens), distinct per passage
+    prose = (
+        "Hybrid retrieval pipelines combine lexical matching with dense vector similarity, then fuse the ranked "
+        "lists before a cross-encoder reorders the strongest candidates. Each stage trades recall for precision, "
+        "and the final order decides which evidence reaches the reader. "
+    )
+    ps = [_passage(i, (f"Section {i}. " + prose * 14)[:2000]) for i in range(200)]
     s, times = _settings(), []
     for _ in range(RUNS):
         t0 = time.perf_counter()

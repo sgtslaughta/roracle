@@ -322,6 +322,8 @@ visibility; labels never grant access.
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner and admins, **including their PATs** |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
+**Ruling (cross-encoder reranker):** `exclude_llm` text may be scored by the site-hosted cross-encoder reranker (`ROR_RERANK_URL`, TEI on game-01). It is non-generative and returns only scores, like the embedding model, so it is not an "LLM" for this gate. Keep the endpoint on a trusted network (loopback/mesh); it never receives text the viewer cannot already read, because ES ACL filters run before reranking.
+
 Export routes under `block_export`: `GET /documents/{id}/versions/{n}/file` (attachment), the same
 `file`/`pdf`/`docling` for non-owner PATs, `GET /export/bibtex` and MCP `export_bibtex` (gated documents are
 silently omitted), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block

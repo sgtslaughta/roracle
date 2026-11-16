@@ -15,6 +15,10 @@ SSH tunnel `ssh -N -L 21480:127.0.0.1:28080 game-01` (like Ollama on 21434), the
 `ROR_RERANK_URL=http://localhost:21480/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3`.
 Live test: `uv run pytest -m integration tests/test_rerank_live.py -s` (skips without the endpoint).
 
+## Batching
+TEI runs with `--max-client-batch-size 512`; rOracle splits requests to `ROR_RERANK_MAX_BATCH` (256) texts, so any
+`rerank_depth` works. `ROR_RERANK_TIMEOUT_S` (3 s) is one wall-clock budget for the whole rerank call.
+
 ## Auth
 TEI has no auth; if exposed beyond the tunnel/mesh put a reverse proxy in front and set `ROR_RERANK_API_KEY`
 (sent as `Authorization: Bearer`). Never logged.

@@ -3,7 +3,7 @@ import json
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -74,7 +74,8 @@ class Settings(BaseSettings):
     rerank_api_key: str = ""  # optional; sent as `Authorization: Bearer` (never logged)
     rerank_timeout_s: float = 3.0  # exceeded -> fused order (RERANK_FALLBACK{timeout})
     rerank_max_chars: int = 2000  # per passage sent to the reranker
-    chat_candidates: int = 200  # BM25 and kNN list size on the chat path
+    rerank_max_batch: int = Field(256, ge=1)  # texts per rerank request (<= server --max-client-batch-size)
+    chat_candidates: int = Field(200, ge=20, le=500)  # BM25 and kNN list size on the chat path
     near_dup_threshold: float = 0.85
     near_dup_summary_threshold: float = 0.97
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables

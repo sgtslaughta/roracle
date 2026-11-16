@@ -36,7 +36,7 @@ install() {
 run() {
   ssh "$HOST" "docker rm -f roracle-reranker >/dev/null 2>&1 || true; docker run -d --name roracle-reranker \
     --restart unless-stopped --gpus all -p 127.0.0.1:$PORT:80 -v $REMOTE_MODELS:/data:ro -e HF_HUB_OFFLINE=1 \
-    $IMAGE --model-id /data/$MODEL_DIR --dtype float16 --max-client-batch-size 256 \
+    $IMAGE --model-id /data/$MODEL_DIR --dtype float16 --max-client-batch-size 512 \
     --max-batch-tokens 65536 --auto-truncate"
 }
 

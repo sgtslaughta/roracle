@@ -2,11 +2,12 @@
 
 import json
 import sys
+from typing import Annotated
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from roracle import clients, runtime
-from roracle.config import get_settings
+from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
 from roracle.eval import gold, runner, store
 from roracle.models_eval import EvalRun
@@ -54,6 +55,14 @@ def add_parser(sub) -> None:
     ci.add_argument("--out", required=True)
 
 
+# Eval-only overrides (never in runtime.SettingsIn: an admin-settable rerank_url would be SSRF; the API key stays out
+# so it can never land in eval_runs.config).
+EVAL_KEYS = (
+    "rerank_url", "rerank_api", "rerank_model", "rerank_timeout_s", "rerank_max_chars", "rerank_max_batch",
+    "chat_candidates", "context_notes", "context_model",
+)  # fmt: skip
+
+
 def parse_overrides(items: list[str], index: str = "") -> dict:
     out: dict = {"embed_index": index} if index else {}
     for it in items:
@@ -65,7 +74,11 @@ def parse_overrides(items: list[str], index: str = "") -> dict:
         except ValueError:
             pass
         try:
-            runtime.SettingsIn.model_validate({k: v})
+            if k in EVAL_KEYS:
+                f = Settings.model_fields[k]
+                v = TypeAdapter(Annotated[f.annotation, f]).validate_python(v)
+            else:
+                runtime.SettingsIn.model_validate({k: v})
         except ValidationError as e:
             raise ValueError(f"bad override {k}: {e.errors()[0]['msg']}") from e
         out[k] = v

@@ -307,3 +307,72 @@ def test_chat_search_uses_chat_candidates(monkeypatch):
     monkeypatch.setattr(retrieve.Policy, "load", staticmethod(lambda s: None))
     retrieve._search(None, None, None, _settings(), None, "q", None, _settings().chat_candidates, [0.0])
     assert sizes == [200] and Settings().chat_candidates == 200
+
+
+def test_nonfinite_scores_fall_back_malformed():
+    ps = [P("a", "d", 0.5), P("b", "d", 0.4)]
+    before = _fallback("malformed")
+    for sc in ("NaN", "Infinity"):
+        body = f'[{{"index":0,"score":{sc}}},{{"index":1,"score":0.2}}]'
+        assert _rerank(_tei(), "q", ps, _http(lambda r, b=body: httpx.Response(200, content=b))) is ps
+    assert _fallback("malformed") == before + 2
+
+
+def test_chunked_requests_merge_scores_globally():
+    import json
+
+    calls = []
+
+    def h(req):
+        texts = json.loads(req.content)["texts"]
+        calls.append(len(texts))
+        # score = text number: later passages win, across chunk boundaries
+        return httpx.Response(
+            200, json=[{"index": i, "score": float(t.split()[1])} for i, t in enumerate(texts)]
+        )
+
+    s = _tei().model_copy(update={"rerank_max_batch": 100, "rerank_depth": 250})
+    ps = [P(f"c{i}", "d", 1 - i / 1000) for i in range(300)]
+    for i, x in enumerate(ps):
+        x.text = f"n {i}"
+    out = _rerank(s, "q", ps, _http(h))
+    assert calls == [100, 100, 50]
+    assert [x.chunk_id for x in out[:3]] == ["c249", "c248", "c247"] and out[-1].chunk_id == "c299"
+
+
+def test_total_budget_shared_across_chunks():
+    import time as _t
+
+    seen = []
+
+    def h(req):
+        seen.append(req.extensions["timeout"]["read"])
+        _t.sleep(0.15)
+        n = len(__import__("json").loads(req.content)["texts"])
+        return httpx.Response(200, json=[{"index": i, "score": 1.0 - i} for i in range(n)])
+
+    s = _tei().model_copy(update={"rerank_max_batch": 1, "rerank_timeout_s": 0.2})
+    ps = [P("a", "d", 0.5), P("b", "d", 0.4), P("c", "d", 0.3)]
+    before = _fallback("timeout")
+    assert _rerank(s, "q", ps, _http(h)) is ps
+    assert seen[0] <= 0.2 and seen[1] < seen[0] and _fallback("timeout") == before + 1
+
+
+def test_api_key_never_logged(caplog):
+    ps = [P("a", "d", 0.5)]
+
+    def boom(req):
+        raise httpx.ConnectError("refused", request=req)
+
+    with caplog.at_level("DEBUG"):
+        assert _rerank(_tei(), "q", ps, _http(boom)) is ps
+        assert _rerank(_tei(), "q", ps, _http(lambda r: httpx.Response(401))) is ps
+    assert "sekret" not in caplog.text and "Bearer" not in caplog.text
+    assert "401" in caplog.text
+
+
+def test_chat_candidates_bounds():
+    with pytest.raises(ValueError):
+        Settings(chat_candidates=0)
+    with pytest.raises(ValueError):
+        Settings(chat_candidates=501)

@@ -176,6 +176,30 @@ def test_cli_override_parsing():
             parse_overrides([bad])
 
 
+def test_cli_eval_only_overrides():
+    from roracle import runtime
+    from roracle.eval.cli import parse_overrides
+
+    ov = parse_overrides(["rerank_url=", "rerank_api=tei", "chat_candidates=100"])
+    assert ov == {"rerank_url": "", "rerank_api": "tei", "chat_candidates": 100}
+    assert parse_overrides(["rerank_url=http://localhost:21480/rerank"]) == {
+        "rerank_url": "http://localhost:21480/rerank"
+    }
+    for bad in ("rerank_api_key=x", "rerank_api=nope", "chat_candidates=5", "chat_candidates=9999"):
+        with pytest.raises(ValueError):
+            parse_overrides([bad])
+    assert "rerank_url" not in runtime.SettingsIn.model_fields  # admin-runtime rerank_url would be SSRF
+
+
+def test_compare_command_splits_brief_args():
+    from roracle.eval.cli import parse_overrides
+    from roracle.eval.compare import split_kv
+
+    c = "rerank_url=http://localhost:21480/rerank,rerank_api=tei,rerank_model=bge-reranker-v2-m3"
+    assert parse_overrides(split_kv(c))["rerank_api"] == "tei"
+    assert parse_overrides(split_kv("rerank_url=")) == {"rerank_url": ""}
+
+
 def test_pat_search_path_withholds_text_of_gated_docs(db_session, world, monkeypatch):
     """N1: /search returns no passages for exclude_llm / block_agents docs to a PAT; the eval must not score them."""
     from dataclasses import replace

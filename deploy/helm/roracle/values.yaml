@@ -17,7 +17,7 @@ secrets:
     s3SecretKey: ROR_S3_SECRET_KEY
     elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
     llmApiKey: ROR_LLM_API_KEY
-    rerankApiKey: ROR_RERANK_API_KEY   # optional; only read when rerank.apiKeyEnabled
+    rerankApiKey: ROR_RERANK_API_KEY   # optional; only read when secrets.rerankApiKeyEnabled
     # Optional (key may be absent/empty = not set). Use instead of userinfo in the URLs above.
     elasticUsername: ROR_ELASTIC_USERNAME
     elasticPassword: ROR_ELASTIC_PASSWORD
@@ -27,7 +27,7 @@ secrets:
 
 # Reranker (cross-encoder; deploy/game-01). Empty url = off. Allow its CIDR/port in networkPolicy.egressCIDRs.llm.
 rerank:
-  url: ""                  # e.g. http://game-01.internal:28080/rerank
+  url: ""                  # TEI binds 127.0.0.1 on game-01: use a TLS proxy/mesh URL, e.g. https://rerank.internal/rerank
   api: cohere              # cohere | tei
   model: ""                # cohere-style servers only (bge-reranker-v2-m3)
 

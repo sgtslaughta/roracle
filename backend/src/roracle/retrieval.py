@@ -6,6 +6,7 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 
 import html
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -118,11 +119,56 @@ def _rerank_request(settings: Settings, query: str, texts: list[str]) -> dict:
     return {"model": settings.rerank_model, "query": query, "documents": texts}
 
 
+def _rerank_scores(settings: Settings, body: Any, n: int) -> list[float]:
+    """Score per input index from one response. Raises ValueError/KeyError/TypeError if malformed
+    (wrong shape, indices not exactly 0..n-1, non-finite scores)."""
+    results = body if settings.rerank_api == "tei" else body["results"]
+    key = "score" if settings.rerank_api == "tei" else "relevance_score"
+    out: dict[int, float] = {}
+    for o in results:
+        i, sc = o["index"], o[key]
+        if type(i) is not int or not 0 <= i < n or i in out:
+            raise ValueError("malformed rerank result")
+        if isinstance(sc, bool) or not isinstance(sc, int | float) or not math.isfinite(sc):
+            raise ValueError("malformed rerank score")
+        out[i] = float(sc)
+    if len(out) != n:
+        raise ValueError("incomplete rerank result")
+    return [out[i] for i in range(n)]
+
+
 def _rerank_order(settings: Settings, body: Any) -> list[int]:
     """Indices best-first from a rerank response body. Raises ValueError/KeyError/TypeError if malformed."""
     results = body if settings.rerank_api == "tei" else body["results"]
-    key = "score" if settings.rerank_api == "tei" else "relevance_score"
-    return [o["index"] for o in sorted(results, key=lambda x: -x[key])]
+    sc = _rerank_scores(settings, body, len(results))
+    return sorted(range(len(sc)), key=lambda i: -sc[i])
+
+
+def _rerank_scored(
+    settings: Settings, query: str, texts: list[str], http: httpx.Client | None, headers: dict, t0: float
+) -> list[float]:
+    """Scores for all texts, in requests of <= rerank_max_batch; one wall-clock budget (rerank_timeout_s) overall."""
+    step = max(1, settings.rerank_max_batch)
+    scores: list[float] = []
+    client = http or httpx.Client()
+    try:
+        for i in range(0, len(texts), step):
+            left = settings.rerank_timeout_s - (time.monotonic() - t0)
+            if left <= 0:
+                raise httpx.ReadTimeout("rerank budget exhausted")
+            chunk = texts[i : i + step]
+            r = client.post(
+                settings.rerank_url,
+                json=_rerank_request(settings, query, chunk),
+                headers=headers,
+                timeout=httpx.Timeout(left, connect=min(left, 1.0)),
+            )
+            r.raise_for_status()
+            scores += _rerank_scores(settings, r.json(), len(chunk))
+    finally:
+        if http is None:
+            client.close()
+    return scores
 
 
 def _rerank(
@@ -131,36 +177,26 @@ def _rerank(
     head = passages[: settings.rerank_depth]
     if not head:
         return passages
-    payload = _rerank_request(settings, query, [x.text[: settings.rerank_max_chars] for x in head])
     headers = {"Authorization": f"Bearer {settings.rerank_api_key}"} if settings.rerank_api_key else {}
     t0 = time.monotonic()
-    reason = ""
     try:
-        if http is not None:
-            r = http.post(
-                settings.rerank_url, json=payload, headers=headers, timeout=settings.rerank_timeout_s
-            )
-        else:
-            with httpx.Client(timeout=settings.rerank_timeout_s) as client:
-                r = client.post(settings.rerank_url, json=payload, headers=headers)
-        r.raise_for_status()
-        reason = "malformed"  # anything below failing is a bad body
-        idx = _rerank_order(settings, r.json())
-        if not all(type(i) is int and 0 <= i < len(head) for i in idx) or len(set(idx)) != len(head):
-            raise ValueError("malformed rerank result")
-        if len(idx) != len(head):
-            raise ValueError("incomplete rerank result")
+        texts = [x.text[: settings.rerank_max_chars] for x in head]
+        sc = _rerank_scored(settings, query, texts, http, headers, t0)
+        idx = sorted(range(len(head)), key=lambda i: -sc[i])
         scores = sorted((x.score for x in head), reverse=True)  # keep order under later score sorts
         reranked = [head[i] for i in idx]
-        for x, sc in zip(reranked, scores, strict=True):
-            x.score = sc
+        for x, v in zip(reranked, scores, strict=True):
+            x.score = v
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
         if isinstance(e, httpx.TimeoutException):
             reason = "timeout"
         elif isinstance(e, httpx.HTTPError):
             reason = "http"
-        RERANK_FALLBACK.labels(reason or "malformed").inc()
-        log.warning("rerank failed (%s), keeping fused order: %s", reason, type(e).__name__)
+        else:
+            reason = "malformed"
+        RERANK_FALLBACK.labels(reason).inc()
+        status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else ""
+        log.warning("rerank failed (%s %s), keeping fused order: %s", reason, status, type(e).__name__)
         return passages
     finally:
         RERANK_SECONDS.observe(time.monotonic() - t0)
