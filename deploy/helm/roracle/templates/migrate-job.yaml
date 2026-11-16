@@ -6,7 +6,8 @@ metadata:
     app.kubernetes.io/component: migrate
   annotations:
     # cnpg: the database does not exist before install, so run post-install (api/worker may restart until it finishes)
-    "helm.sh/hook": {{ ternary "post-install,pre-upgrade" "pre-install,pre-upgrade" (eq .Values.postgres.mode "cnpg") }}
+    # cnpg + recovery: the upgrade re-creates the Cluster, so migrate runs post-upgrade
+    "helm.sh/hook": {{ if eq .Values.postgres.mode "cnpg" }}{{ if .Values.postgres.recovery.enabled }}post-install,post-upgrade{{ else }}post-install,pre-upgrade{{ end }}{{ else }}pre-install,pre-upgrade{{ end }}
     "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:

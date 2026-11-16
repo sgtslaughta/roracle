@@ -111,8 +111,8 @@ Under the default-deny NetworkPolicy only the Helm-managed cluster `<fullname>-p
 1. Confirm the backups exist and are recent: `kubectl get backup`, `kubectl cnpg status <fullname>-pg`. Deleting the Cluster deletes its PVCs.
 2. Stop writers (disable the HPA first, or it scales back): `kubectl scale deploy/<fullname>-api deploy/<fullname>-worker --replicas=0`.
 3. `kubectl delete cluster <fullname>-pg`.
-4. `helm upgrade <release> deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m --set postgres.recovery.enabled=true --set-string postgres.recovery.targetTime="2026-11-15 09:30:00+00" --set postgres.backup.serverName=<fullname>-pg-r1` (omit `targetTime` for latest; `postgres.recovery.sourceServerName` defaults to `<fullname>-pg`). The `migrate` hook runs after the cluster is up.
-5. Verify: `kubectl cnpg status <fullname>-pg`, row counts of `documents`, `jobs`, `kubectl get backup`.
+4. `helm upgrade <release> deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m --set postgres.recovery.enabled=true --set-string postgres.recovery.targetTime="2026-11-15 09:30:00+00" --set postgres.backup.serverName=<fullname>-pg-r1` (omit `targetTime` for latest; `postgres.recovery.sourceServerName` defaults to `<fullname>-pg`). The Cluster is re-created by this upgrade, so with recovery enabled the `migrate` hook runs as `post-upgrade` (after the cluster is up).
+5. Verify: `kubectl cnpg status <fullname>-pg`, row counts of `documents`, `jobs`; trigger a base backup `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` and confirm it completes (`kubectl get backup`).
 6. Keep `postgres.backup.serverName` (the new archive path) in your values permanently; set `postgres.recovery.enabled=false` again so a later cluster re-creation does not replay old backups. Scale api/worker back up.
 
 Each further restore needs another new `serverName` (`-r2`, ...). Rows written after the target time are lost; blobs in MinIO newer than the target are orphans (the GC job removes objects without a `blobs` row). Migrations run on the upgrade when restoring across versions.
