@@ -1,8 +1,8 @@
 #!/bin/sh
-# Render ci/full-values.yaml and assert parser hardening + NetworkPolicy invariants. Needs helm and python3 (PyYAML).
+# Render ci/full-values.yaml (extra args are passed to helm template) and assert parser hardening + NetworkPolicy invariants. Needs helm and python3 (PyYAML).
 set -eu
 cd "$(dirname "$0")/.."
-helm template r . -f ci/full-values.yaml | python3 -I -c '
+helm template r . -f ci/full-values.yaml "$@" | python3 -I -c '
 import sys, yaml
 docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
 def need(c, m):
@@ -20,6 +20,7 @@ for k, v in lims.items():
 need(not any("User " in l for l in conf), "clamd.conf must not set User")
 cl = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-clamav")][0]
 need(cl["spec"]["template"]["spec"]["containers"][0]["command"] == ["/init-unprivileged"], "clamav must run /init-unprivileged")
+mirror = not any(e["name"] == "CLAMAV_NO_FRESHCLAMD" for e in cl["spec"]["template"]["spec"]["containers"][0].get("env", []))
 nps = [d for d in docs if d["kind"] == "NetworkPolicy"]
 names = {d["metadata"]["name"] for d in nps}
 need(any(n.endswith("-default-deny") for n in names), "default-deny missing")
@@ -29,9 +30,23 @@ for d in nps:
     s = d["spec"]
     need(s["policyTypes"] == ["Ingress", "Egress"], n + " policyTypes")
     eg = s.get("egress")
-    if n.endswith("-clamav"):
+    if n.endswith("-clamav") and mirror:
         need(eg and len(eg) == 1 and sorted(p["port"] for p in eg[0]["ports"]) == [80, 443], n + " only mirror egress allowed")
     else:
         need(not eg, n + " must have no egress rules")
+for d in nps:
+    n = d["metadata"]["name"]
+    for r in d["spec"].get("ingress") or []:
+        need(r.get("from"), n + ": ingress rule without a non-empty from (would allow all)")
+        need(all(r["from"]), n + ": empty ingress peer")
+    for r in d["spec"].get("egress") or []:
+        need(r.get("to"), n + ": egress rule without a non-empty to (would allow all)")
+        need(all(r["to"]), n + ": empty egress peer")
+        for t in r["to"]:
+            need(t.get("ipBlock") or t.get("namespaceSelector") or t.get("podSelector"), n + ": unrecognised peer")
+dns = [d for d in nps if d["metadata"]["name"].endswith("-allow-dns")][0]["spec"]["podSelector"]["matchExpressions"][0]
+need(dns["operator"] == "NotIn", "allow-dns must use NotIn")
+need(set(dns["values"]) == ({"gotenberg", "docling", "grobid"} if mirror else {"gotenberg", "docling", "grobid", "clamav"}),
+     "allow-dns NotIn must cover all parsers (clamav excepted only with a mirror): %s" % dns["values"])
 print("assert-render OK: %d NetworkPolicies, clamd limits %s" % (len(nps), lims))
 '

@@ -7,13 +7,18 @@
 {{- $sel := include "roracle.selector" (dict "root" $root "comp" $name) }}
 {{- $uid := $v.runAsUser }}
 {{- $gid := default $uid $v.runAsGroup }}
-{{- $lim := "" }}
+{{- $lim := "" }}{{ $clamd := "" }}{{ $fresh := "" }}
 {{- if eq $name "clamav" }}
 {{- /* fail closed: clamd limits must cover the largest accepted upload/evidence; ClamAV caps at < 4G */}}
 {{- $lim = int64 (include "roracle.bytes" $v.limits) }}
 {{- $need := max (int64 (include "roracle.bytes" (default "524288000" $root.Values.config.ROR_MAX_UPLOAD_BYTES))) (int64 (include "roracle.bytes" (default "1073741824" $root.Values.config.ROR_EVIDENCE_MAX_BYTES))) }}
 {{- if lt $lim $need }}{{ fail (printf "parsers.clamav.limits (%s) must be >= max(ROR_MAX_UPLOAD_BYTES, ROR_EVIDENCE_MAX_BYTES) = %d bytes, else oversize files would be unscanned" $v.limits $need) }}{{ end }}
 {{- if ge $lim 4294967296 }}{{ fail "parsers.clamav.limits must be < 4G (ClamAV maximum)" }}{{ end }}
+{{- $tsz := "0" }}{{ range $v.writableDirs }}{{ if eq .path "/tmp" }}{{ $tsz = .size }}{{ end }}{{ end }}
+{{- $tmp := int64 (include "roracle.bytes" (trimSuffix "i" $tsz)) }}
+{{- if lt $tmp (mul $lim (int64 $v.maxThreads)) }}{{ fail (printf "parsers.clamav /tmp emptyDir (%d bytes) must be >= limits x maxThreads (%d bytes): INSTREAM spools to /tmp" $tmp (mul $lim (int64 $v.maxThreads))) }}{{ end }}
+{{- $clamd = printf "Foreground yes\nLogFile /var/log/clamav/clamd.log\nLogTime yes\nLocalSocket /tmp/clamd.sock\nTCPSocket %v\nTCPAddr 0.0.0.0\nMaxThreads %v\nStreamMaxLength %s\nMaxFileSize %s\nMaxScanSize %s\n# PCRE scans default to 100M files: match the limit so large files are scanned, not skipped\nPCREMaxFileSize %s\nAlertExceedsMax yes\n" $v.port $v.maxThreads $v.limits $v.limits $v.limits $v.limits }}
+{{- $fresh = printf "DatabaseDirectory /var/lib/clamav\n%sNotifyClamd /etc/clamav/clamd.conf\n" (ternary (printf "PrivateMirror %s\n" $v.mirrorUrl) "" (ne $v.mirrorUrl "")) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,23 +26,8 @@ metadata:
   labels: {{ include "roracle.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $name }}
 data:
-  clamd.conf: |
-    Foreground yes
-    LogFile /var/log/clamav/clamd.log
-    LogTime yes
-    LocalSocket /tmp/clamd.sock
-    TCPSocket {{ $v.port }}
-    TCPAddr 0.0.0.0
-    StreamMaxLength {{ $v.limits }}
-    MaxFileSize {{ $v.limits }}
-    MaxScanSize {{ $v.limits }}
-    AlertExceedsMax yes
-  freshclam.conf: |
-    DatabaseDirectory /var/lib/clamav
-    {{- if $v.mirrorUrl }}
-    PrivateMirror {{ $v.mirrorUrl }}
-    {{- end }}
-    NotifyClamd /etc/clamav/clamd.conf
+  clamd.conf: {{ $clamd | quote }}
+  freshclam.conf: {{ $fresh | quote }}
 ---
 {{- end }}
 apiVersion: apps/v1
@@ -56,7 +46,7 @@ spec:
         app.kubernetes.io/component: {{ $name }}
       {{- if eq $name "clamav" }}
       annotations:
-        checksum/conf: {{ $lim | toString | sha256sum }}{{ $v.mirrorUrl | sha256sum }}
+        checksum/conf: {{ print $clamd $fresh | sha256sum }}
       {{- end }}
     spec:
       serviceAccountName: {{ include "roracle.saName" $root }}

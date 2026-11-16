@@ -275,9 +275,10 @@ parsers:
     # and limits >= the upload/evidence caps (template fails if lower: config.ROR_MAX_UPLOAD_BYTES, ROR_EVIDENCE_MAX_BYTES).
     # ClamAV maximum is < 4G. Suffix K/M/G.
     limits: 1100M
+    maxThreads: 4          # clamd threads; INSTREAM spools to /tmp, so /tmp emptyDir must be >= limits x maxThreads (guarded)
     # emptyDirs hide the signature DB baked into the image: an init container seeds /var/lib/clamav from it (cp -R).
     seedDir: /var/lib/clamav
-    writableDirs: [{path: /var/lib/clamav, size: 2Gi}, {path: /var/log/clamav, size: 100Mi}, {path: /run/clamav, size: 10Mi}, {path: /tmp, size: 1Gi}]
+    writableDirs: [{path: /var/lib/clamav, size: 2Gi}, {path: /var/log/clamav, size: 100Mi}, {path: /run/clamav, size: 10Mi}, {path: /tmp, size: 5Gi}]
     probe: {tcp: true}     # unused for clamav: exec probes verify the effective limits and clamd PING
     args: []
     env: {}

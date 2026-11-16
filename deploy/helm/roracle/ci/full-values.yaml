@@ -31,6 +31,7 @@ parsers:
   clamav: {enabled: true, mirrorUrl: "https://clamav-mirror.example.internal", mirrorCIDRs: ["10.20.30.0/24"]}
 connectors: {egressCIDRs: ["10.40.0.0/16"], ports: [443, 8443]}
 networkPolicy:
+  kubeAPI: {cidrs: ["10.0.0.1/32"], ports: [443, 6443]}
   s3Cidrs: ["10.50.0.0/24"]
   externalCIDRs:
     postgres: {cidrs: ["10.60.0.0/24"]}
