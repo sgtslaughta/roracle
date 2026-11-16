@@ -19,7 +19,7 @@ charts = {
 # Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
 operator_images = {
   cnpg           = { tag = "1.26.0" }
-  barman         = { tag = "v0.9.0", sidecar_tag = "v0.9.0" }
+  barman         = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
   cert_manager   = { tag = "v1.17.0" }
   eck            = { tag = "2.16.0" }
   minio_operator = { tag = "v7.0.0" }
