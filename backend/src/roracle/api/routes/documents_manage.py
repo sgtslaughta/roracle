@@ -94,6 +94,7 @@ def transfer_document(
     if old == body.user_id:
         return detail(doc_id, p, session)
     doc.owner_id = body.user_id
+    doc.connector_id = None  # the connector's next run must not add versions to the new owner's document
     session.flush()
     audit(session, p, "document.transfer", str(doc_id), {"from": str(old), "to": str(body.user_id)})
     note = {"document_id": str(doc_id), "title": doc.title, "from": str(old), "to": str(body.user_id)}

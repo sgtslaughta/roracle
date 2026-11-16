@@ -141,3 +141,20 @@ def test_patch_rejects_root_org_unit(client, as_ana, ana, db_session, fes, unit)
     assert r.status_code == 422
     db_session.expire_all()
     assert db_session.get(Document, d.id).visibility == "everyone"
+
+
+def test_transfer_detaches_connector(client, as_ana, ana, bob, db_session, fes):
+    from roracle.models import Connector
+
+    d, _ = seed(db_session, ana, visibility="private")
+    c = Connector(name="c", kind="http", owner_id=ana, visibility="private", config={})
+    db_session.add(c)
+    db_session.flush()
+    d.connector_id = c.id
+    db_session.commit()
+    assert (
+        client.post(f"/documents/{d.id}/transfer", headers=as_ana, json={"user_id": str(bob)}).status_code
+        == 200
+    )
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).connector_id is None

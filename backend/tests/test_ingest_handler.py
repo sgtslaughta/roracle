@@ -407,6 +407,27 @@ def test_tag_added_between_read_and_index_converges(
     assert hits and {tuple(h["_source"]["tags"]) for h in hits} == {("late",)}
 
 
+@pytest.mark.integration
+def test_delete_during_index_removes_chunks(db_session, session_factory, cfg, store, es, user, monkeypatch):
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="everyone")
+    real = pipeline.search_index.index_chunks
+
+    def delete_lands_during_index(*a, **k):  # DELETE's delete_by_query ran before these chunks existed
+        out = real(*a, **k)
+        with session_factory() as s:
+            s.query(Document).filter_by(id=v.document_id).update({"deleted_at": datetime.now(UTC)})
+            s.commit()
+        return out
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", delete_lands_during_index)
+    _run(db_session, session_factory, cfg, store, es, v)
+    assert _chunks(es, cfg, v) == []
+    assert _stage(db_session, v) != "searchable"
+
+
 def _office_run(db_session, session_factory, cfg, store, es, user, monkeypatch, url):
     seen = {}
 

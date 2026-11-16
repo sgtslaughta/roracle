@@ -178,7 +178,15 @@ def _index(
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
-    if fresh is not None and fresh[0] != {**acl, "tags": tags}:
+    if fresh is None:  # deleted while we indexed: DELETE's chunk purge may have run before our bulk
+        es.delete_by_query(
+            index=search_index.MUTATE_ALIAS,
+            query={"term": {"doc_id": str(d.id)}},
+            refresh=True,
+            conflicts="proceed",
+        )
+        return
+    if fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
