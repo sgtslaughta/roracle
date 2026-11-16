@@ -16,6 +16,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, current_principal, get_app_settings, require_human
 from roracle.config import Settings
 from roracle.db import get_session
+from roracle.ingest.intake import ref_blob
 from roracle.models import Blob, Evidence, EvidenceReproduction
 from roracle.notes import evidence as ev
 from roracle.notes.access import get_readable
@@ -89,12 +90,8 @@ def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depe
             raise HTTPException(422, "provide either a file or a uri, not both")
         e = Evidence(annotation_id=note.id, creator_id=p.user_id, stance=m.stance, crate=ev.crate(m))
         if staged is not None:
+            ref_blob(session, staged.sha256, staged.size)  # row lock before the S3 copy (blob GC safety)
             store.promote(staged, "application/octet-stream")
-            session.execute(
-                insert(Blob)
-                .values(sha256=staged.sha256, size=staged.size)
-                .on_conflict_do_update(index_elements=[Blob.sha256], set_={"refcount": Blob.refcount + 1})
-            )
             e.blob_sha256, e.size, e.scan_status = staged.sha256, staged.size, "pending"
             e.filename = ev.safe_filename(staged.filename)
         else:

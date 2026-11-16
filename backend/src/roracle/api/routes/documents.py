@@ -159,8 +159,6 @@ def accept(
         )
         if dup is not None:
             raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
-    if isinstance(staged, StagedBlob):
-        store.promote(staged, content_type)
     doc, version = add_document(
         session,
         store,

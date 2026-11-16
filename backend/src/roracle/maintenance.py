@@ -1,7 +1,7 @@
 """Maintenance jobs: retention purge, blob GC, ES tag reconcile (R5). Handlers never commit.
 
-Blob GC safety (ADR-0008 dedup is DB-only; an upload copies the object to `blobs/` *before* its
-DB commit, then upserts the `blobs` row):
+Blob GC safety (ADR-0008 dedup is DB-only; an upload upserts the `blobs` row (row lock) *first*, then
+always copies the object to `blobs/`, then commits):
 - candidates are locked `FOR UPDATE SKIP LOCKED`: an in-flight upsert/FK insert holds or needs the row
   lock, so a blob being re-referenced is skipped or blocks until we commit (its FK then fails, no dangling ref);
 - reference check (versions + evidence) is repeated under the lock, right before the S3 delete;
@@ -19,7 +19,7 @@ from elasticsearch import Elasticsearch, NotFoundError
 from sqlalchemy import delete, exists, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle.models import Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
+from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue
 from roracle.search_index import ALIAS
 from roracle.storage import BlobStore
@@ -46,7 +46,11 @@ def purge(session: Session, es: Elasticsearch, settings: Any) -> int:
         .with_for_update(skip_locked=True)
     ).all()
     for doc_id in docs:
-        _purge_doc(session, es, doc_id)
+        try:
+            with session.begin_nested():  # one poison document must not stall the rest
+                _purge_doc(session, es, doc_id)
+        except Exception:
+            log.exception("purge of document %s failed; skipped", doc_id)
     return len(docs)
 
 
@@ -63,8 +67,15 @@ def _purge_doc(session: Session, es: Elasticsearch, doc_id: UUID) -> None:
         select(DocumentVersion.id, DocumentVersion.blob_sha256).where(DocumentVersion.document_id == doc_id)
     ).all()
     vids = [v for v, _ in versions]
-    for sha in {s for _, s in versions}:
-        n = sum(1 for _, s in versions if s == sha)
+    shas = [s for _, s in versions] + list(
+        session.scalars(
+            select(Evidence.blob_sha256)
+            .join(Annotation, Annotation.id == Evidence.annotation_id)
+            .where(Annotation.document_id == doc_id, Evidence.blob_sha256.is_not(None))
+        )
+    )
+    for sha in set(shas):
+        n = shas.count(sha)
         session.execute(
             update(Blob).where(Blob.sha256 == sha).values(refcount=func.greatest(Blob.refcount - n, 0))
         )
@@ -155,10 +166,15 @@ def handle_maintenance(
     periodic = op == "all"
     if periodic and not _scheduled(session, "queued"):
         enqueue(session, "maintenance", {"op": "all"}, run_after_s=settings.maintenance_interval_s)
+
+    def _reconcile() -> bool:
+        enqueue(session, "reconcile_tags", {})
+        return False
+
     steps = {
         "purge": lambda: purge(session, es, settings) == PURGE_BATCH,
         "gc": lambda: gc_blobs(session, store) == GC_BATCH,
-        "reconcile": lambda: enqueue(session, "reconcile_tags", {}) and False,
+        "reconcile": _reconcile,
     }
     for name, step in steps.items():
         if not periodic and name != op:

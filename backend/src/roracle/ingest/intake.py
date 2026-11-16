@@ -11,15 +11,23 @@ from roracle.queue import enqueue
 from roracle.storage import BlobStore, StagedBlob, StagedFile
 
 
-def _put(session: Session, store: BlobStore, staged: StagedFile | StagedBlob, content_type: str) -> None:
-    # ponytail: object written before DB commit can orphan on DB failure; a P2 GC job deletes blob objects without a blobs row
-    if isinstance(staged, StagedFile):  # streamed uploads were promoted by the route before intake
-        store.put(staged, content_type)
+def ref_blob(session: Session, sha256: str, size: int) -> None:
+    """Upsert the `blobs` row (takes its row lock). Do this BEFORE writing the S3 object: blob GC locks the
+    row FOR UPDATE SKIP LOCKED, so it either skips us or we wait and re-copy after it commits."""
     session.execute(
         insert(Blob)
-        .values(sha256=staged.sha256, size=staged.size)
+        .values(sha256=sha256, size=size)
         .on_conflict_do_update(index_elements=[Blob.sha256], set_={"refcount": Blob.refcount + 1})
     )
+
+
+def _put(session: Session, store: BlobStore, staged: StagedFile | StagedBlob, content_type: str) -> None:
+    # ponytail: object written before DB commit can orphan on DB failure; blob GC removes it later
+    ref_blob(session, staged.sha256, staged.size)
+    if isinstance(staged, StagedBlob):  # streamed upload: server-side copy tmp -> content key (always copies)
+        store.promote(staged, content_type)
+    else:
+        store.put(staged, content_type)
 
 
 def _version(

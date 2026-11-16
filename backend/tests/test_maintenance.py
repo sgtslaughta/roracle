@@ -250,3 +250,63 @@ def test_admin_endpoint_enqueues_and_audits(client, adm, db_session, op):
 def test_admin_endpoint_rejects_unknown_op_and_non_admin(client, adm, as_ana):
     assert client.post("/admin/maintenance/nuke", headers=adm).status_code == 422
     assert client.post("/admin/maintenance/gc", headers=as_ana).status_code == 403
+
+
+def test_intake_locks_blob_row_before_s3_write(db_session, user):
+    from roracle.ingest import intake
+    from roracle.storage import StagedBlob
+
+    seen = []
+
+    class Store:
+        def promote(self, staged, ct):
+            seen.append(db_session.scalar(select(Blob.refcount).where(Blob.sha256 == staged.sha256)))
+
+    staged = StagedBlob(upload=None, sha256="a1" * 32, size=3, filename="f", content_type="text/plain")
+    intake.add_document(
+        db_session, Store(), staged, owner_id=user.id, org_unit="", visibility="private",
+        filename="f", content_type="text/plain",
+    )  # fmt: skip
+    assert seen == [1]  # row (and its lock) existed before the copy
+
+
+def test_purge_poison_doc_is_skipped_and_others_purged(db_session, user, store):
+    bad = make_version(db_session, store, user)
+    good = make_version(db_session, store, user)
+    for v in (bad, good):
+        trash(db_session, db_session.get(Document, v.document_id), 40)
+
+    class Es(FakeEs):
+        def delete_by_query(self, **kw):
+            if kw["query"]["term"]["doc_id"] == str(bad.document_id):
+                raise RuntimeError("boom")
+            return super().delete_by_query(**kw)
+
+    maintenance.purge(db_session, Es(), settings())
+    assert db_session.get(Document, bad.document_id) is not None
+    assert db_session.get(Document, good.document_id) is None
+
+
+def test_purge_decrements_evidence_blob_refcount(db_session, user, store):
+    v = make_version(db_session, store, user)
+    note = Annotation(
+        id=uuid.uuid4(), document_id=v.document_id, version_id=v.id, author_id=user.id,
+        kind="comment", body="x", visibility="everyone",
+    )  # fmt: skip
+    db_session.add(note)
+    db_session.add(Blob(sha256="4" * 64, size=1, refcount=1))
+    db_session.flush()
+    db_session.add(
+        Evidence(annotation_id=note.id, creator_id=user.id, stance="supports", crate={}, blob_sha256="4" * 64)
+    )
+    trash(db_session, db_session.get(Document, v.document_id), 40)
+    maintenance.purge(db_session, FakeEs(), settings())
+    assert db_session.get(Blob, "4" * 64).refcount == 0
+
+
+def test_periodic_reschedule_survives_failed_step_and_ensure(db_session, user, session_factory, monkeypatch):
+    monkeypatch.setattr(maintenance, "purge", lambda *a: (_ for _ in ()).throw(RuntimeError("x")))
+    maintenance.handle_maintenance(
+        db_session, {"op": "all"}, settings=settings(), store=fake_store(), es=FakeEs()
+    )
+    assert any(j.payload == {"op": "all"} for j in jobs(db_session, "maintenance"))

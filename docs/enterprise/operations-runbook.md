@@ -83,10 +83,13 @@ runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|
 `202 {job_id}`; follow it in `GET /admin/jobs?kind=maintenance`).
 - **purge**: hard-deletes documents soft-deleted more than `ROR_RETENTION_DELETED_DAYS` days ago (ES chunks by
   `doc_id`, versions, notes/evidence rows, shares) in batches of 100 (a full batch queues a follow-up job).
-  `0` (default) = off: the endpoint then does nothing. Irreversible; restore from backup only.
+  `0` (default) = off: the endpoint then does nothing. Irreversible; restore from backup only. A document
+  whose purge fails (e.g. ES error) is logged and skipped; the rest of the batch proceeds.
+  If the periodic job ever ends `failed`, restart a worker to recreate it.
 - **gc**: deletes `blobs/` objects and `blobs` rows that no document version or evidence row references and
-  that are older than 1 day. Race-safe against concurrent uploads of the same content (row lock,
-  re-check before the S3 delete, objects written in the last day are spared). `tmp/` is never touched
+  that are older than 1 day. Uploads lock the `blobs` row before copying the object and GC skips
+  locked rows (`SKIP LOCKED`), re-checks references under the lock and spares objects written in the last
+  day, so an upload of the same content is not left pointing at a deleted object. `tmp/` is never touched
   (in-flight uploads; see "Clean up `tmp/`"). A blob shared with a live version is always kept.
 - **reconcile**: queues an `acl_sync` per live document (batches of 500, `reconcile_tags` job) so ES tags/ACLs
   converge to Postgres; use after an ES restore or suspected tag drift.
