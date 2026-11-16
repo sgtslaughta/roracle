@@ -65,4 +65,12 @@ describe("shell accessibility", () => {
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("link", { name: "New chat" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
+
+  it("rail popover chat rows keep a reachable actions button", async () => {
+    await renderAt("/library");
+    await userEvent.click(await screen.findByRole("button", { name: "Chats and collections" }));
+    const pop = await screen.findByRole("dialog");
+    await userEvent.click(await within(pop).findByRole("button", { name: /^Actions for chat/ }));
+    expect(await screen.findByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+  });
 });

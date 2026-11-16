@@ -33,7 +33,7 @@ export const signOutAvailable = () => import.meta.env.VITE_MOCK !== "1";
 let signingOut = false;
 export const signOut = () => {
   signingOut = true;
-  return createUserManager().signoutRedirect().catch((e) => { signingOut = false; toast("Couldn't sign out. Try again."); throw e; });
+  return createUserManager().signoutRedirect().catch(() => { signingOut = false; toast("Couldn't sign out. Try again."); });
 };
 
 /** Only same-origin relative paths survive a sign-in round trip ("/x", never "//host" or absolute URLs). */

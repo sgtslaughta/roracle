@@ -96,3 +96,4 @@ main::before {
 .pallist li .h { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; padding-left: 8px; }
 .pallist li.sel { background: var(--primary-soft); }
 .pallist li.none { color: var(--muted); cursor: default; }
+.sortpair { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

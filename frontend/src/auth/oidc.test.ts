@@ -44,7 +44,7 @@ describe("auth hooks", () => {
 describe("signOut", () => {
   it("a failed sign-out toasts and leaves sign-in working (no hang on the next 401)", async () => {
     vi.spyOn(UserManager.prototype, "signoutRedirect").mockRejectedValue(new Error("idp down"));
-    await expect(signOut()).rejects.toThrow("idp down");
+    await expect(signOut()).resolves.toBeUndefined();
     expect(toast).toHaveBeenCalledWith("Couldn't sign out. Try again.");
     const redirect = vi.fn(async () => {});
     await createAuthHooks(client({ signinRedirect: redirect })).signIn();

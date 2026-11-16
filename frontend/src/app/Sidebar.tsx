@@ -30,7 +30,7 @@ export function Sidebar() {
         <MessageCircle aria-hidden />
         <span>{chatTitle(c)}</span>
       </Link>
-      <RowMenu kebab={!rail} label={`Actions for chat ${chatTitle(c)}`} actions={[
+      <RowMenu label={`Actions for chat ${chatTitle(c)}`} actions={[
         { label: "Open", onSelect: () => { close(); void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }); } },
         copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
       ]} />
@@ -42,7 +42,7 @@ export function Sidebar() {
         <Folder aria-hidden />
         <span>{c.name}</span>
       </Link>
-      <RowMenu kebab={!rail} label={`Actions for collection ${c.name}`} actions={[
+      <RowMenu label={`Actions for collection ${c.name}`} actions={[
         { label: "Show in Library", onSelect: () => { close(); void navigate({ to: "/library", search: { collection: [c.id] } }); } },
         copyAction("Copy name", c.name),
       ]} />
