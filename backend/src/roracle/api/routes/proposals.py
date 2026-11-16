@@ -5,9 +5,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
+from roracle.access import visible_documents
 from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
 from roracle.models import Document, Proposal
@@ -23,6 +24,17 @@ LIST_MAX = 200
 
 class BulkIn(BaseModel):
     ids: list[UUID] = Field(max_length=100)
+
+
+def _agent_scope(p: Principal):
+    """PAT callers see only proposals on documents visible to agents (ids of hidden ones would leak)."""
+    if p.via != "pat":
+        return ()
+    return (
+        Proposal.payload["document_id"].astext.in_(
+            select(cast(Document.id, String)).where(visible_documents(p))
+        ),
+    )
 
 
 def view(row: Proposal, docs: dict[str, str | None]) -> dict:
@@ -48,7 +60,7 @@ def my_proposals(
     limit: Annotated[int, Query(ge=1, le=LIST_MAX)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
-    q = select(Proposal).where(Proposal.user_id == p.user_id)
+    q = select(Proposal).where(Proposal.user_id == p.user_id, *_agent_scope(p))
     if status:
         q = q.where(Proposal.status == status)
     total = session.scalar(select(func.count()).select_from(q.subquery()))
@@ -72,7 +84,7 @@ def my_proposals_count(p: Who, session: Session_) -> dict:
     n = session.scalar(
         select(func.count())
         .select_from(Proposal)
-        .where(Proposal.user_id == p.user_id, Proposal.status == "pending")
+        .where(Proposal.user_id == p.user_id, Proposal.status == "pending", *_agent_scope(p))
     )
     return {"pending": n}
 

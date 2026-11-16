@@ -10,6 +10,7 @@ from roracle.access import agent_visible, readable_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, Notification
+from roracle.notes.community import readable_note_ids
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ class ReadBody(BaseModel):
 
 
 _DOC_KEYS = ("document_id", "draft_id", "match_document_id")
+_NOTE_KEYS = ("note_id", "annotation_id")
 
 
 def _agent_hidden(session: Session, p: Principal, page: list[Notification]) -> set[int]:
@@ -34,10 +36,18 @@ def _agent_hidden(session: Session, p: Principal, page: list[Notification]) -> s
             except (KeyError, ValueError):
                 pass
     ids = set().union(*refs.values()) if refs else set()
-    if not ids:
-        return set()
-    bad = set(session.scalars(select(Document.id).where(Document.id.in_(ids), ~agent_visible())))
-    return {i for i, docs in refs.items() if docs & bad}
+    bad = (
+        set(session.scalars(select(Document.id).where(Document.id.in_(ids), ~agent_visible())))
+        if ids
+        else set()
+    )
+    hidden = {i for i, docs in refs.items() if docs & bad}
+    notes = {i: {str(n.payload[k]) for k in _NOTE_KEYS if n.payload.get(k)} for n in page for i in (n.id,)}
+    every = set().union(*notes.values()) if notes else set()
+    if every:  # a note hidden from agents (own label block_agents, or its document's)
+        ok = readable_note_ids(session, p, every)
+        hidden |= {i for i, ns in notes.items() if ns - ok}
+    return hidden
 
 
 @router.get("/me/notifications")
@@ -61,9 +71,12 @@ def list_notifications(
         q = q.where(Notification.id > since_id)
     rows = list(session.scalars(q))
     page = rows[:limit]
-    unread = session.scalar(
-        select(func.count()).select_from(Notification).where(mine, Notification.read_at.is_(None))
-    )
+    unread_q = select(Notification).where(mine, Notification.read_at.is_(None))
+    if p.via == "pat":  # hidden rows must not be countable either
+        every = list(session.scalars(unread_q.limit(5000)))
+        unread = len(every) - len(_agent_hidden(session, p, every))
+    else:
+        unread = session.scalar(select(func.count()).select_from(unread_q.subquery()))
     max_id = session.scalar(select(func.max(Notification.id)).where(mine))
     ids = {
         UUID(str(n.payload["match_document_id"]))

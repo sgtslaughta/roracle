@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
+from roracle.access import visible_documents
 from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
@@ -20,8 +21,8 @@ from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, vi
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import Policy, export_exempt
-from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withheld_text, withhold_messages
-from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, Document, User
+from roracle.labels.textgate import gated_refs, ref_ids_of, strip_text, withheld_text, withhold_messages
+from roracle.models import Annotation, AnswerRating, Chat, ChatMessage, ChatShare, Document, User
 from roracle.notes.community import readable_note_ids
 
 MAX_MESSAGES = 1000  # per chat read/export; the newest are kept
@@ -63,7 +64,30 @@ def list_chats(
     nxt = None
     if len(rows) == limit:
         nxt = base64.urlsafe_b64encode(f"{rows[-1].updated_at.isoformat()}|{rows[-1].id}".encode()).decode()
-    return {"items": [chat_json(c) for c in rows], "next": nxt}
+    return {"items": [_agent_chat(session, p, chat_json(c)) for c in rows], "next": nxt}
+
+
+def _agent_chat(session: Session, p: Principal, out: dict) -> dict:
+    """PAT callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
+    if p.via != "pat":
+        return out
+    ids = [i for i in (*out["pins"], *out["excludes"]) if isinstance(i, str)]
+    ok = set()
+    if ids:
+        try:
+            ok = {
+                str(i)
+                for i in session.scalars(
+                    select(Document.id).where(Document.id.in_([UUID(i) for i in ids]), visible_documents(p))
+                )
+            }
+        except ValueError:
+            ok = set()
+    return {
+        **out,
+        "pins": [i for i in out["pins"] if i in ok],
+        "excludes": [i for i in out["excludes"] if i in ok],
+    }
 
 
 def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
@@ -87,7 +111,7 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
         )
     }
     owner = chat.owner_id == p.user_id
-    gated = gated_docs(session, p, doc_ids_of(seen))  # agents: no text derived from gated docs
+    gated = gated_refs(session, p, seen)  # agents: no text derived from gated docs or notes
     out = []
     for m in msgs:
         r = mine.get(m.id)
@@ -99,11 +123,13 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "status": m.status,
                 "model": m.model,
                 "created_at": m.created_at,
-                "viewer": m.viewer if m.role == "user" and owner else None,
+                "viewer": m.viewer
+                if m.role == "user" and owner and p.via != "pat"
+                else None,  # agents: no selection text
                 "citations": strip_text(recheck(m.citations, ok, drop=False, notes=notes), gated),
                 "retrieved": strip_text(recheck(m.retrieved, ok, drop=True, notes=notes), gated),
                 "rating": {"value": r.value, "comment": r.comment} if r else None,
-                "_docs": doc_ids_of((*m.citations, *m.retrieved)),
+                "_docs": ref_ids_of((*m.citations, *m.retrieved)),
             }
         )
     withhold_messages(out, gated, lambda m: m["_docs"])
@@ -123,7 +149,7 @@ def get_chat(chat_id: UUID, p: Who, session: Db) -> dict:
             "excludes": [],
             "scope": "collection" if chat.scope.startswith("collection:") else chat.scope,
         }
-    return {**out, "is_owner": owner, "messages": _messages(session, p, chat)}
+    return {**_agent_chat(session, p, out), "is_owner": owner, "messages": _messages(session, p, chat)}
 
 
 class ChatPatch(BaseModel):
@@ -193,22 +219,33 @@ def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
 
 
 def _withheld(session: Session, p: Principal, msgs: list[dict]) -> dict[str, str]:
-    """Gate (c): doc id -> label name for cited documents the caller may not export (owner/admin exempt)."""
-    ids = set()
-    for m in msgs:
-        for c in m["citations"]:
+    """Gate (c): doc id / note id -> label name for cited or retrieved sources the caller may not export
+    (owner/admin exempt). A note counts through its own label as well as its document's."""
+    items = [c for m in msgs for c in (*m["citations"], *m["retrieved"])]
+    ids, nids = set(), set()
+    for c in items:
+        for key, into in (("doc_id", ids), ("note_id", nids)):
             try:
-                ids.add(UUID(str(c.get("doc_id"))))
-            except ValueError:
+                into.add(UUID(str(c[key])))
+            except (KeyError, ValueError):
                 pass
-    if not ids:
+    if not ids and not nids:
         return {}
     policy = Policy.load(session)
-    return {
+    out = {
         str(d.id): policy.get(d.label_id).name
         for d in session.scalars(select(Document).where(Document.id.in_(ids)))
         if policy.has(d.label_id, "block_export") and not export_exempt(p, d)
     }
+    if nids:
+        for n, d in session.execute(
+            select(Annotation, Document)
+            .join(Document, Document.id == Annotation.document_id)
+            .where(Annotation.id.in_(nids), Annotation.label_id.is_not(None))
+        ):
+            if policy.has(n.label_id, "block_export") and not export_exempt(p, d):
+                out[str(n.id)] = policy.get(n.label_id).name
+    return out
 
 
 def _reference(c: dict, withheld: dict[str, str]) -> str:
@@ -232,7 +269,8 @@ def export_chat(chat_id: UUID, p: Who, session: Db) -> Response:
     for m in msgs:
         content = m["content"]
         if m["role"] == "assistant":  # answer text derived from export-blocked docs is withheld too
-            hit = sorted(str(c.get("doc_id")) for c in m["citations"] if str(c.get("doc_id")) in withheld)
+            keys = [str(c.get(k)) for c in (*m["citations"], *m["retrieved"]) for k in ("doc_id", "note_id")]
+            hit = sorted(k for k in keys if k in withheld)
             if hit:
                 content = withheld_text(withheld[hit[0]])
         lines += [f"**{'You' if m['role'] == 'user' else 'rOracle'}:** {content}", ""]
