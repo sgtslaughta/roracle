@@ -53,3 +53,8 @@ def test_s3_verify(settings, monkeypatch):
 
 def test_clamav_port_default(settings):
     assert settings.clamav_port == 3310
+
+
+def test_password_without_username_rejected(settings):
+    with pytest.raises(ValueError):
+        mk(settings, database_url="postgresql:///d?host=/run/postgresql", database_password="pw")

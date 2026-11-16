@@ -104,6 +104,8 @@ class Settings(BaseSettings):
         if u.drivername in ("postgresql", "postgres"):
             u = u.set(drivername="postgresql+psycopg")
         if self.database_password:
+            if not u.username:
+                raise ValueError("database_password requires a username in database_url")
             u = u.set(password=self.database_password)
         self.database_url = u.render_as_string(hide_password=False)
         return self

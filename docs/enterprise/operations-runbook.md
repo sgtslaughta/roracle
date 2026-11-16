@@ -82,7 +82,7 @@ version (admin → Maintenance → *Rebuild index*). Search stays on the old ali
 ### Release upgrade
 1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` before a minor/major upgrade.
 3. Bump `/VERSION` (SemVer); `scripts/check-version.sh` (CI `helm` job) requires it to equal Chart `version` and `appVersion`. Tag `vX.Y.Z`; CI builds backend and web images.
-4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first (`roracle migrate --wait SECONDS` retries the DB connection every 5 s, then exits non-zero with a password-free message; without `--wait` it fails at once) (`backoffLimit: 0`: a failed migration blocks the rollout and leaves the old pods running); then api/worker/web roll.
+4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first: `roracle migrate --wait SECONDS` retries the DB connection every 5 s and then exits non-zero with a password-free message (without `--wait` it fails at once). With `backoffLimit: 0` a failed migration blocks the rollout and leaves the old pods running; then api/worker/web roll.
 5. Verify `/healthz` version, upload + search + chat smoke test.
 Rollback: `helm rollback` restores manifests but does NOT revert database migrations. Migrations are additive within a minor line, so the previous release normally still runs;
 otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is P11b, see the note below).

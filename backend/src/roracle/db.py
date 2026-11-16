@@ -5,6 +5,7 @@ from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 
 def make_session_factory(url: str) -> sessionmaker[Session]:
@@ -23,11 +24,12 @@ def get_session(request: Request) -> Iterator[Session]:
 
 def wait_for_db(url: str, seconds: float, sleep: Callable[[float], None] = time.sleep) -> None:
     """Retry connecting every 5 s until `seconds` elapse; SystemExit (non-zero) afterwards."""
-    engine = create_engine(url)
+    engine = create_engine(url, connect_args={"connect_timeout": 5}, poolclass=NullPool)
     deadline = time.monotonic() + seconds
     while True:
         try:
             engine.connect().close()
+            engine.dispose()
             return
         except Exception as e:
             if time.monotonic() >= deadline:
