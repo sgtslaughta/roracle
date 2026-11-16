@@ -4,7 +4,7 @@ output "app_namespace" {
 
 output "app_release" {
   description = "rOracle helm release status (null until the app layer is enabled)."
-  value       = var.deploy_app ? module.app[0].status : null
+  value       = one(module.app[*].status)
 }
 
 output "url" {

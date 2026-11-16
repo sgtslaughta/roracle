@@ -5,6 +5,12 @@ variable "deploy_app" {
   default     = true
 }
 
+variable "protect_data" {
+  description = "true (default): prevent_destroy on the rOracle release, because uninstalling it deletes the data-tier CRs and their PVCs. Set false only for disposable environments (decide before first install; see README to switch)."
+  type        = bool
+  default     = true
+}
+
 variable "release_name" {
   type    = string
   default = "roracle"
@@ -131,14 +137,16 @@ variable "minio_mode" {
 variable "network" {
   description = "Chart networkPolicy inputs. Empty cidr lists leave traffic denied (kube_api empty = any destination on 443/6443: tighten)."
   type = object({
-    ingress_namespace = optional(string, "ingress-nginx")
-    kube_api_cidrs    = optional(list(string), [])
-    llm_cidrs         = optional(list(string), [])
-    llm_ports         = optional(list(number), [443])
-    oidc_cidrs        = optional(list(string), [])
-    s3_cidrs          = optional(list(string), [])
-    postgres_cidrs    = optional(list(string), [])
-    elastic_cidrs     = optional(list(string), [])
+    ingress_namespace      = optional(string, "ingress-nginx")
+    kube_api_cidrs         = optional(list(string), [])
+    llm_cidrs              = optional(list(string), [])
+    llm_ports              = optional(list(number), [443])
+    oidc_cidrs             = optional(list(string), [])
+    s3_cidrs               = optional(list(string), [])
+    postgres_cidrs         = optional(list(string), [])
+    elastic_cidrs          = optional(list(string), [])
+    llm_namespace_selector = optional(map(string), {})
+    llm_pod_selector       = optional(map(string), {})
   })
   default = {}
 }
@@ -182,6 +190,7 @@ variable "secret_data" {
     minio_pg_backup   = optional(object({ access = string, secret = string }))
     minio_es_snapshot = optional(object({ access = string, secret = string }))
     llm_api_key       = optional(string, "")
+    rerank_api_key    = optional(string, "")
     database_url      = optional(string, "")
     elastic_url       = optional(string, "")
     s3_access_key     = optional(string, "")
@@ -208,18 +217,22 @@ variable "inference" {
       models_pvc    = optional(string, "inference-models")
       cpu           = optional(string, "4")
       memory        = optional(string, "32Gi")
+      run_as_user   = optional(number, 10001)
     }), {})
     rerank = optional(object({
-      image         = optional(string, "MIRROR.example.com/huggingface/text-embeddings-inference:0.0.0-PLACEHOLDER")
-      model_path    = optional(string, "/models/bge-reranker-v2-m3")
-      served_name   = optional(string, "bge-reranker-v2-m3")
-      args          = optional(list(string), [])
-      gpus          = optional(number, 1)
-      node_selector = optional(map(string), {})
-      tolerations   = optional(list(object({ key = string, operator = optional(string, "Exists"), value = optional(string), effect = optional(string, "NoSchedule") })), [{ key = "nvidia.com/gpu" }])
-      models_pvc    = optional(string, "inference-models")
-      cpu           = optional(string, "2")
-      memory        = optional(string, "8Gi")
+      engine          = optional(string, "vllm") # vllm (Cohere-style /v1/rerank, compatible) | tei (needs a backend adapter)
+      api_key_enabled = optional(bool, false)    # keep false until the backend sends ROR_RERANK_API_KEY (P13 Task 4, feat/retrieval-quality)
+      image           = optional(string, "MIRROR.example.com/vllm/vllm-openai:0.0.0-PLACEHOLDER")
+      model_path      = optional(string, "/models/bge-reranker-v2-m3")
+      served_name     = optional(string, "bge-reranker-v2-m3")
+      args            = optional(list(string), [])
+      gpus            = optional(number, 1)
+      node_selector   = optional(map(string), {})
+      tolerations     = optional(list(object({ key = string, operator = optional(string, "Exists"), value = optional(string), effect = optional(string, "NoSchedule") })), [{ key = "nvidia.com/gpu" }])
+      models_pvc      = optional(string, "inference-models")
+      cpu             = optional(string, "2")
+      memory          = optional(string, "8Gi")
+      run_as_user     = optional(number, 10001)
     }), {})
   })
   default = {}

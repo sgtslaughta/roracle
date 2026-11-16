@@ -5,3 +5,4 @@
 !environments/*.example.tfvars
 !environments/example.tfvars
 crash.log
+*.tfplan

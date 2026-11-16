@@ -32,6 +32,12 @@ variable "elastic_mode" {
   type = string
 }
 
+variable "llm_key_used" {
+  description = "Chart secrets.llmApiKeyEnabled: the key is then mandatory (non-optional secretKeyRef)."
+  type        = bool
+  default     = true
+}
+
 variable "minio_tenant" {
   type = bool
 }
@@ -65,6 +71,14 @@ resource "kubernetes_secret_v1" "app" {
     local.d.extra,
   )
   lifecycle {
+    precondition {
+      condition     = !var.llm_key_used || nonsensitive(local.d.llm_api_key != "")
+      error_message = "secret_data.llm_api_key is required while models.llm_key_used=true (set models.llm_key_used=false if the endpoint needs no key)."
+    }
+    precondition {
+      condition     = nonsensitive(!local.cnpg || try(local.d.minio_pg_backup.access, "") != "") && nonsensitive(!local.eck || try(local.d.minio_es_snapshot.access, "") != "") && nonsensitive(!local.tenant || try(local.d.minio_app.access, "") != "")
+      error_message = "secret_data.minio_app / minio_pg_backup / minio_es_snapshot credentials are required for the bundled cnpg/eck/tenant modes."
+    }
     precondition {
       condition     = nonsensitive(local.s3_access != "" && local.s3_secret != "")
       error_message = "S3 credentials missing: set secret_data.minio_app (tenant) or secret_data.s3_access_key/s3_secret_key (external)."

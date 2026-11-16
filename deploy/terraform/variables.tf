@@ -26,7 +26,7 @@ variable "mirror_registry" {
 
 # ---- Namespaces, quota, pull secret ----
 variable "namespaces" {
-  description = "Namespace names. app = rOracle release namespace (created here). Operator namespaces are created by their helm_release and MUST match the chart's networkPolicy.operatorNamespaces."
+  description = "Namespace names. app = rOracle release namespace (created here). Operator namespaces are created by Terraform (modules/operators) and MUST match the chart's networkPolicy.operatorNamespaces."
   type = object({
     app           = optional(string, "roracle")
     cnpg          = optional(string, "cnpg-system")
@@ -94,4 +94,16 @@ variable "loki_s3_credentials" {
   type        = object({ access_key = string, secret_key = string })
   default     = null
   sensitive   = true
+}
+
+variable "operator_images" {
+  description = <<-EOT
+    Operator image overrides for the air-gap mirror, keys: cnpg, barman, cert_manager (repository = prefix, -controller/-webhook/-cainjector/-startupapicheck appended), eck, minio_operator.
+    Defaults: repository "<mirror_registry>/<upstream path>", tag "0.0.0-PLACEHOLDER" (gated). Chart value keys are the common ones; verify against the mirrored chart and use charts.<key>.values to adjust (e.g. the barman sidecar image).
+  EOT
+  type = map(object({
+    repository = optional(string)
+    tag        = optional(string)
+  }))
+  default = {}
 }

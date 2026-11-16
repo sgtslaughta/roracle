@@ -10,10 +10,10 @@ Operators need a repeatable way to install the operator layer (CNPG, barman-clou
 - Providers: `kubernetes` and `helm` only, targeted by kubeconfig path/context. No cloud-provider resources: clusters, networks, DNS and registries are the platform team's.
 - Values are assembled from typed variables with `yamlencode` as ordered YAML documents (Helm deep-merges), plus an optional extra values file that wins.
 - Secrets: `secrets_mode=create` (from sensitive variables; values are in state) or `existing` (references Secrets managed elsewhere; nothing in state). Documented in the README.
-- Air-gap chart repositories and versions are explicit PLACEHOLDERs. A `terraform_data` gate fails `apply` (postcondition) while any enabled placeholder remains unless `allow_placeholders=true`; `plan` still works for review and shows a `check` warning.
-- Optional `modules/inference` (GPU OpenAI-spec server + TEI reranker) is disabled by default and placeholder-gated.
+- Air-gap chart repositories/versions and operator image repositories/tags are explicit PLACEHOLDERs. Charts still holding placeholders are omitted from the plan (so `plan` works and shows a `check` warning); a `terraform_data` gate (replaced every run via `plantimestamp()`, so it never sticks in state) fails `apply` via a postcondition while any enabled placeholder remains, unless `allow_placeholders=true`.
+- Optional `modules/inference` (GPU OpenAI-spec server + vLLM-score reranker; TEI selectable but not wire-compatible) is disabled by default and placeholder-gated; it ships a default-deny NetworkPolicy admitting only the rOracle api/worker pods, an enforced LLM API key and a hardened pod spec.
 
 ## Consequences
 - Two ways to install (helm, terraform) must stay equivalent: Terraform only sets documented chart values, never templates the chart.
-- Destroy removes namespaces and, with them, data-tier PVCs; the README lists the precautions (backups first, `prevent_destroy`-style review).
+- Uninstalling the release deletes the data-tier CRs and PVCs (the chart has no keep policy). `protect_data=true` (default) sets `prevent_destroy` on the release (two resources selected by the variable, since the lifecycle argument cannot be dynamic); the README gives the `state mv` procedure, StorageClass `Retain` and backup guidance.
 - State holds secrets in `create` mode: use an access-controlled backend.

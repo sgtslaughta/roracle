@@ -26,13 +26,17 @@ Providers: `hashicorp/kubernetes ~> 3.0`, `hashicorp/helm ~> 3.0`; Terraform `>=
 ## Placeholders (explicit, gated)
 
 Defaults: repository `oci://MIRROR.example.com/charts`, version `0.0.0-PLACEHOLDER`, registry `MIRROR.example.com`.
-`terraform plan` works and prints a `check` warning plus output `placeholders_remaining`; `terraform apply` fails at the gate
-(before anything is created) unless `allow_placeholders = true` (dry runs only).
+A chart whose repository/version is still a placeholder is **left out of the plan** (it cannot be fetched), so `terraform plan` works for review and shows a
+`check` warning plus output `placeholders_remaining`. `terraform apply` fails at the gate (before anything is created) while any placeholder of an enabled
+component remains, unless `allow_placeholders = true` (dry runs only: the placeholder charts are then simply not installed). The gate is replaced on every run
+(`plantimestamp()`), so a failed apply never leaves a sticky failing gate in state. Example tfvars need a reachable mirror at plan time because their charts are real.
 
 | Name | Where | What to set |
 |---|---|---|
 | `mirror_registry` | `variables.tf` | image registry host/path; replaces `MIRROR.example.com` in `deploy/observability/*.values.yaml` and becomes `global.imageRegistry` |
 | `charts.cnpg` / `barman` / `cert_manager` / `eck` / `minio_operator` | `variables.tf` `charts` | `repository` (e.g. `oci://registry/charts`), `version` pinned in the mirror; `chart` if renamed |
+| `operator_images.<chart>` (`repository`, `tag`) | `variables.tf` | operator images: default `<mirror_registry>/<upstream path>` + tag `0.0.0-PLACEHOLDER`, pushed to the chart values (cnpg, barman, cert-manager, eck incl. `config.containerRegistry`, minio operator). Operands/sidecars (e.g. the barman-cloud sidecar) differ per chart: verify the value keys against the mirrored chart and extend with `charts.<key>.values`. Alternative: containerd/CRI registry mirroring, then set these to the upstream names |
+| `pull_secret` | `variables.tf` | mirror credentials; the Secret is created in the app, every operator and the inference namespace and referenced by the charts |
 | `charts.kube_prometheus_stack` / `loki` / `otel_collector` | same (disabled by default) | as above, set `enabled = true`; Loki also needs `loki_s3_credentials` and its `s3.example.com` endpoint (override via `charts.loki.values`) |
 | `app_chart.repository` / `.version` | `variables-app.tf` | only when installing the chart from an OCI mirror instead of the local path |
 | `images.backend_digest` / `web_digest` (or tags) | `variables-app.tf` | the CI-pushed digests (empty tag = chart `appVersion`) |
@@ -45,7 +49,7 @@ Defaults: repository `oci://MIRROR.example.com/charts`, version `0.0.0-PLACEHOLD
 the three MinIO users from sensitive `secret_data`. The values **are stored in Terraform state**; pass them via `TF_VAR_secret_data` and protect the state.
 `secrets_mode = "existing"`: nothing is created and no secret value touches state; the Secrets named in `secret_names` (defaults in `variables-app.tf`, layout in
 deployment guide 4.2) must exist in the app namespace first (External Secrets, Vault, `kubectl`). Recommended for production.
-The chart has no confidential OIDC client secret (the web client is public); other model API keys can go into `secret_data.extra` (added to the app Secret and consumable via `models.extra_env` or the extra values file).
+The chart has no confidential OIDC client secret (the web client is public); other keys can go into `secret_data.extra` (added to the app Secret) and be consumed from the extra values file via `api.extraEnv`/`worker.extraEnv` `valueFrom.secretKeyRef`. In create mode `secret_data.llm_api_key` is required while `models.llm_key_used=true` (the chart secretKeyRef is not optional) and credentials for the bundled MinIO users are checked.
 
 ## Plan / apply order
 
@@ -66,22 +70,39 @@ Anything not exposed as a variable: `extra_values_file = "my-values.yaml"` (merg
 
 Default is local state. `backend.tf` holds commented examples: S3-compatible (MinIO outside this cluster, `use_lockfile`) and the Kubernetes Secret backend.
 State contains secrets in `create` mode: restrict access, encrypt at rest, never commit it. Do not host state on the tenant this stack deploys.
-Switch with `terraform init -migrate-state`. `*.tfvars` (except `environments/*example*`) are git-ignored; `.terraform.lock.hcl` is committed.
+Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs Terraform >= 1.10. `*.tfvars` (except `environments/*example*`) are git-ignored; `.terraform.lock.hcl` is committed.
 
 ## Upgrade
 
 1. Take a Postgres backup and ES snapshot ([runbook](../../docs/enterprise/operations-runbook.md), section 2).
 2. Mirror the new images/charts, bump `charts.*.version` / `images.*`. Operators first (`deploy_app=false`), then the app. CRD upgrades: Helm does not upgrade CRDs in a chart's `crds/`
-   directory; follow each operator's upgrade notes.
+   directory (chart specific: cnpg, cert-manager with `crds.enabled` and ECK ship CRDs as templates, which Helm does upgrade); follow each operator's upgrade notes.
 3. `terraform plan` and read the helm diff before apply. Keep `helm_timeout_s` large: migrate runs as a hook.
 
 ## Destroy cautions
 
-- `terraform destroy` removes the `roracle` release; the CNPG `Cluster`, ECK `Elasticsearch` and MinIO `Tenant` CRs go with it and the operators delete their PVCs per their own policy. Destroying the namespaces
-  deletes **all** remaining PVCs (data tier). Back up (and replicate backup buckets off-cluster) first; the bundled backup buckets live on the same MinIO that would be destroyed.
-- Safer teardown: `terraform state rm` the namespaces you want to keep, or `terraform destroy -target=module.app`.
-- Operator namespaces are created by Terraform; destroying operators before their CRs are gone leaves orphaned finalizers. Always destroy app before operators (Terraform's order does this).
+- Uninstalling the `roracle` release deletes the data-tier CRs: CNPG PVCs are garbage-collected with the `Cluster`, ECK deletes its PVCs
+  (`volumeClaimDeletePolicy` default `DeleteOnScaledownAndClusterDeletion`), only MinIO StatefulSet PVCs survive until the namespace goes. The chart sets no
+  `helm.sh/resource-policy: keep`. Whether the PersistentVolume (and disk) is then reclaimed follows the StorageClass `reclaimPolicy`: use `Retain` for production.
+  **A targeted `terraform destroy -target=module.app` and `state rm` of the namespaces do NOT protect the data.**
+- Guard: `protect_data = true` (default) puts `lifecycle { prevent_destroy = true }` on the release, so any plan that would destroy or replace it errors.
+  `prevent_destroy` cannot take a variable, so the module holds two identical resources (`protected` / `unprotected`). To change the setting on a live install:
+  `terraform state mv 'module.app[0].helm_release.protected[0]' 'module.app[0].helm_release.unprotected[0]'` (or the reverse), then apply with the new value.
+  Disposable environments set `protect_data = false`.
+- Before any deliberate teardown: backups and snapshots (and replicate the backup buckets off-cluster: bundled backups live on the same MinIO that would be destroyed), StorageClass `Retain`.
+- Operator namespaces are created by Terraform; destroying operators before their CRs are gone leaves orphaned finalizers. Terraform destroys app before operators.
 - In `existing` mode the Secrets are not Terraform-owned and survive destroy.
+
+## Optional inference module
+
+`inference = { enabled = true, ... }` deploys vLLM-style LLM and reranker Deployments (GPU, `Recreate`, models read-only from PVC `inference-models`, which must be
+ReadOnlyMany/ReadWriteMany if pods land on different nodes; images are gated placeholders). Controls: default-deny NetworkPolicy in the inference namespace admitting only the
+rOracle `api`/`worker` pods on 8000 (plus DNS egress); the app chart egress is opened to that namespace/port 8000 through `networkPolicy.egressCIDRs.llm` values;
+the LLM server enforces the API key from Secret `inference-keys` (= `secret_data.llm_api_key`, same value rOracle sends). Reranker: default engine `vllm` (`--task score`, Cohere-style
+`/v1/rerank`, which is what the backend sends). TEI (`engine = "tei"`) has a different wire format (`/rerank` with `texts`) and needs a backend adapter first. Reranker API key
+(`rerank.api_key_enabled`, `secret_data.rerank_api_key`) stays off until the backend sends `ROR_RERANK_API_KEY` (P13 Task 4, branch feat/retrieval-quality); the NetworkPolicy is the control until then.
+Pods run non-root with a read-only root filesystem (emptyDirs for `/tmp`, home/cache, `/dev/shm`), seccomp RuntimeDefault, no SA token; verify the mirrored image works as `run_as_user`.
+`app_fullname` (generated DB/ES URLs) assumes no `nameOverride`/`fullnameOverride` in `extra_values_file`.
 
 ## Verification
 

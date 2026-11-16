@@ -16,8 +16,23 @@ charts = {
   otel_collector        = { enabled = true, repository = "oci://registry.internal.example/charts", version = "0.120.0" }
 }
 
+# Observability wiring (values are not set by Terraform): in extra_values_file set observability.otel.endpoint,
+# observability.grafanaDashboard.enabled=true and networkPolicy.egressCIDRs.otel (see deploy/observability/README.md).
+# loki also needs `loki_s3_credentials` (or your own Secret loki-s3) and charts.loki.values overriding the s3 endpoint.
+
 # Secrets from an external manager (External Secrets, Vault CSI, sealed): Terraform creates none and keeps no values in state.
 secrets_mode = "existing" # all names in secret_names (defaults) must exist in the app namespace before apply
+
+# Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
+operator_images = {
+  cnpg           = { tag = "1.26.0" }
+  barman         = { tag = "0.3.0" }
+  cert_manager   = { tag = "v1.17.0" }
+  eck            = { tag = "2.16.0" }
+  minio_operator = { tag = "v7.0.0" }
+}
+
+protect_data = true # default: prevent_destroy on the release (uninstall would delete data-tier PVCs)
 
 quota = {
   requests_cpu    = "120"
@@ -54,7 +69,7 @@ models = {
 }
 
 network = {
-  kube_api_cidrs = ["10.0.0.1/32"]
+  kube_api_cidrs = ["10.0.0.1/32"] # apiserver endpoint IPs (`kubectl get endpoints kubernetes`), never the Service ClusterIP
   llm_cidrs      = ["10.70.0.0/24"]
   oidc_cidrs     = ["10.71.0.0/24"]
 }

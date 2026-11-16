@@ -16,6 +16,17 @@ charts = {
   minio_operator = { repository = "oci://registry.internal.example/charts", version = "7.0.0" }
 }
 
+# Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
+operator_images = {
+  cnpg           = { tag = "1.26.0" }
+  barman         = { tag = "0.3.0" }
+  cert_manager   = { tag = "v1.17.0" }
+  eck            = { tag = "2.16.0" }
+  minio_operator = { tag = "v7.0.0" }
+}
+
+protect_data = false # disposable dev: allows `terraform destroy` (see README Destroy cautions)
+
 quota = {
   requests_cpu    = "24"
   requests_memory = "64Gi"
@@ -46,7 +57,7 @@ models = {
 }
 
 network = {
-  kube_api_cidrs = ["10.0.0.1/32"]
+  kube_api_cidrs = ["10.0.0.1/32"] # apiserver endpoint IPs (`kubectl get endpoints kubernetes`), never the Service ClusterIP
   llm_cidrs      = ["10.70.0.0/24"]
   oidc_cidrs     = ["10.71.0.0/24"]
 }
@@ -62,6 +73,6 @@ storage = { postgres = "20Gi", elasticsearch = "50Gi", minio = "50Gi" }
 #   minio_app         = { access = "...", secret = "..." }
 #   minio_pg_backup   = { access = "...", secret = "..." }
 #   minio_es_snapshot = { access = "...", secret = "..." }
-#   llm_api_key       = "..."
+#   llm_api_key       = "..."    # required unless models.llm_key_used = false
 # }
 # pull_secret = { server = "registry.internal.example", username = "...", password = "..." }

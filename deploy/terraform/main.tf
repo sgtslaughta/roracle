@@ -8,6 +8,10 @@ check "placeholders" {
 }
 
 resource "terraform_data" "placeholder_gate" {
+  # Replaced on every run: self.id is unknown at plan (postcondition deferred to apply) and a failed apply cannot leave a
+  # sticky gate in state that would make later plans fail.
+  triggers_replace = plantimestamp()
+
   # postcondition (not precondition): evaluated while applying, so `plan` still works for review.
   lifecycle {
     postcondition {
@@ -31,11 +35,14 @@ module "platform" {
 }
 
 module "operators" {
-  source     = "./modules/operators"
-  releases   = local.operator_charts
-  timeout_s  = var.helm_timeout_s
-  loki_s3    = var.loki_s3_credentials
-  depends_on = [module.platform]
+  source              = "./modules/operators"
+  releases            = local.operator_charts
+  timeout_s           = var.helm_timeout_s
+  loki_s3             = var.loki_s3_credentials
+  loki_s3_enabled     = nonsensitive(var.loki_s3_credentials != null)
+  pull_secret         = var.pull_secret
+  pull_secret_enabled = nonsensitive(var.pull_secret != null)
+  depends_on          = [module.platform]
 }
 
 module "secrets" {
@@ -47,25 +54,32 @@ module "secrets" {
   fullname      = local.app_fullname
   postgres_mode = var.postgres_mode
   minio_tenant  = var.minio_mode == "tenant"
+  llm_key_used  = var.models.llm_key_used
   elastic_mode  = var.elasticsearch_mode
   depends_on    = [module.platform]
 }
 
 module "inference" {
-  count             = local.inference_enabled ? 1 : 0
-  source            = "./modules/inference"
-  namespace         = var.namespaces.inference
-  llm               = var.inference.llm
-  rerank            = var.inference.rerank
-  pull_secret_names = nonsensitive(var.pull_secret == null ? [] : [var.pull_secret.name])
-  depends_on        = [module.platform, terraform_data.placeholder_gate]
+  count              = local.inference_enabled ? 1 : 0
+  source             = "./modules/inference"
+  namespace          = var.namespaces.inference
+  llm                = var.inference.llm
+  rerank             = var.inference.rerank
+  pull_secret_names  = nonsensitive(var.pull_secret == null ? [] : [var.pull_secret.name])
+  app_namespace      = var.namespaces.app
+  release_name       = var.release_name
+  create_keys_secret = var.secrets_mode == "create"
+  llm_api_key        = var.secret_data.llm_api_key
+  rerank_api_key     = var.secret_data.rerank_api_key
+  depends_on         = [module.platform, terraform_data.placeholder_gate]
 }
 
 module "app" {
-  count  = var.deploy_app ? 1 : 0
+  count  = var.deploy_app && !(local.app_chart_remote && length(regexall(local.marker, "${var.app_chart.repository} ${var.app_chart.version}")) > 0) ? 1 : 0
   source = "./modules/app"
 
   release_name = var.release_name
+  protect      = var.protect_data
   namespace    = var.namespaces.app
   chart        = var.app_chart
   timeout_s    = var.helm_timeout_s

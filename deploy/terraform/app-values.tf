@@ -107,7 +107,13 @@ locals {
         elasticsearch = { cidrs = var.network.elastic_cidrs, ports = [9200] }
       }
       egressCIDRs = {
-        llm  = { cidrs = var.network.llm_cidrs, ports = var.network.llm_ports }
+        llm = {
+          cidrs = var.network.llm_cidrs
+          ports = local.inference_enabled ? distinct(concat(var.network.llm_ports, [8000])) : var.network.llm_ports
+          # in-cluster inference: whole namespace (its own NetworkPolicy admits only api/worker); selectors apply after DNAT
+          namespaceSelector = local.inference_enabled ? { "kubernetes.io/metadata.name" = var.namespaces.inference } : var.network.llm_namespace_selector
+          podSelector       = local.inference_enabled ? {} : var.network.llm_pod_selector
+        }
         oidc = { cidrs = var.network.oidc_cidrs, ports = [443] }
       }
     }

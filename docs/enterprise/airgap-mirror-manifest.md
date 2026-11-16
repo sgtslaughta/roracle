@@ -66,7 +66,7 @@ Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator
 | `registry.terraform.io/hashicorp/helm` | `~> 3.0` (locked 3.3.0) | same |
 
 Populate with `terraform providers mirror <dir>` on a connected host. The Terraform stack also consumes the operator charts above and,
-when the optional inference module is enabled, a vLLM-style OpenAI-spec image plus `ghcr.io/huggingface/text-embeddings-inference` (GPU build; pin in mirror).
+when the optional inference module is enabled, a vLLM-style OpenAI-spec image (also used for the reranker with `--task score`; optionally `ghcr.io/huggingface/text-embeddings-inference` for engine `tei`). Operator images are set through `operator_images`.
 
 ### Other build-time inputs
 

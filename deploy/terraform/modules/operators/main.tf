@@ -28,6 +28,22 @@ variable "loki_s3" {
   sensitive = true
 }
 
+variable "pull_secret" {
+  type = object({
+    name     = string
+    server   = string
+    username = string
+    password = string
+  })
+  default   = null
+  sensitive = true
+}
+
+variable "pull_secret_enabled" {
+  type    = bool
+  default = false
+}
+
 variable "loki_s3_enabled" {
   description = "Non-sensitive flag for loki_s3 being set."
   type        = bool
@@ -66,6 +82,25 @@ resource "kubernetes_namespace_v1" "this" {
   }
 }
 
+# Mirror credentials in every operator namespace (operators and their operands pull from the mirror).
+resource "kubernetes_secret_v1" "pull" {
+  for_each = var.pull_secret_enabled ? local.namespaces : toset([])
+  metadata {
+    name      = var.pull_secret.name
+    namespace = kubernetes_namespace_v1.this[each.key].metadata[0].name
+  }
+  type = "kubernetes.io/dockerconfigjson"
+  data = {
+    ".dockerconfigjson" = jsonencode({
+      auths = { (var.pull_secret.server) = {
+        username = var.pull_secret.username
+        password = var.pull_secret.password
+        auth     = base64encode("${var.pull_secret.username}:${var.pull_secret.password}")
+      } }
+    })
+  }
+}
+
 resource "kubernetes_secret_v1" "loki_s3" {
   count = var.loki_s3_enabled && contains(keys(var.releases), "loki") ? 1 : 0
   metadata {
@@ -81,32 +116,34 @@ resource "kubernetes_secret_v1" "loki_s3" {
 resource "helm_release" "base" {
   for_each = { for k, v in var.releases : k => v if k != "barman" }
 
-  name       = local.release_name[each.key]
-  repository = each.value.repository
-  chart      = each.value.chart
-  version    = each.value.version
-  namespace  = kubernetes_namespace_v1.this[each.value.namespace].metadata[0].name
-  values     = each.value.values
-  timeout    = var.timeout_s
-  wait       = true
+  name        = local.release_name[each.key]
+  repository  = each.value.repository
+  chart       = each.value.chart
+  version     = each.value.version
+  namespace   = kubernetes_namespace_v1.this[each.value.namespace].metadata[0].name
+  values      = each.value.values
+  timeout     = var.timeout_s
+  wait        = true
+  max_history = 10
 
-  depends_on = [kubernetes_secret_v1.loki_s3] # loki reads Secret loki-s3
+  depends_on = [kubernetes_secret_v1.loki_s3, kubernetes_secret_v1.pull] # loki reads Secret loki-s3
 }
 
 # The barman-cloud plugin needs the CNPG operator and cert-manager (webhook certificates) first.
 resource "helm_release" "barman" {
   for_each = { for k, v in var.releases : k => v if k == "barman" }
 
-  name       = local.release_name[each.key]
-  repository = each.value.repository
-  chart      = each.value.chart
-  version    = each.value.version
-  namespace  = kubernetes_namespace_v1.this[each.value.namespace].metadata[0].name
-  values     = each.value.values
-  timeout    = var.timeout_s
-  wait       = true
+  name        = local.release_name[each.key]
+  repository  = each.value.repository
+  chart       = each.value.chart
+  version     = each.value.version
+  namespace   = kubernetes_namespace_v1.this[each.value.namespace].metadata[0].name
+  values      = each.value.values
+  timeout     = var.timeout_s
+  wait        = true
+  max_history = 10
 
-  depends_on = [helm_release.base]
+  depends_on = [helm_release.base, kubernetes_secret_v1.pull]
 }
 
 data "kubernetes_resource" "crd" {

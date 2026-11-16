@@ -40,24 +40,55 @@ locals {
   remote = var.chart.repository != ""
 }
 
-resource "helm_release" "roracle" {
-  name       = var.release_name
-  namespace  = var.namespace
-  repository = local.remote ? var.chart.repository : null
-  chart      = local.remote ? "roracle" : coalesce(var.chart.path, "${path.root}/../helm/roracle")
-  version    = local.remote ? var.chart.version : null
-  values     = concat(var.values_docs, var.extra_values == "" ? [] : [file(var.extra_values)])
+variable "protect" {
+  description = "true: release has lifecycle.prevent_destroy (a destroy/replace plan errors; the data tier PVCs are deleted with the CRs on uninstall)."
+  type        = bool
+  default     = true
+}
 
-  # Chart hooks (migrate, minio-policy, ES snapshot repo) wait on operator-managed services.
-  timeout = var.timeout_s
-  wait    = true
-  atomic  = false
+locals {
+  chart_ref = local.remote ? "roracle" : coalesce(var.chart.path, "${path.root}/../helm/roracle")
+  values    = concat(var.values_docs, var.extra_values == "" ? [] : [file(var.extra_values)])
+}
+
+# lifecycle.prevent_destroy cannot take a variable, so there are two identical resources selected by var.protect.
+# Switching var.protect on a live install: `terraform state mv` between them first (README), never a plain apply.
+resource "helm_release" "protected" {
+  count       = var.protect ? 1 : 0
+  name        = var.release_name
+  namespace   = var.namespace
+  repository  = local.remote ? var.chart.repository : null
+  chart       = local.chart_ref
+  version     = local.remote ? var.chart.version : null
+  values      = local.values
+  timeout     = var.timeout_s # chart hooks (migrate, minio-policy, ES snapshot repo) wait on operator-managed services
+  wait        = true
+  atomic      = false
+  max_history = 10
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "helm_release" "unprotected" {
+  count       = var.protect ? 0 : 1
+  name        = var.release_name
+  namespace   = var.namespace
+  repository  = local.remote ? var.chart.repository : null
+  chart       = local.chart_ref
+  version     = local.remote ? var.chart.version : null
+  values      = local.values
+  timeout     = var.timeout_s
+  wait        = true
+  atomic      = false
+  max_history = 10
 }
 
 output "status" {
   value = {
-    name    = helm_release.roracle.name
-    version = helm_release.roracle.metadata.version
-    status  = helm_release.roracle.status
+    name    = var.release_name
+    version = one(concat(helm_release.protected[*].metadata.version, helm_release.unprotected[*].metadata.version))
+    status  = one(concat(helm_release.protected[*].status, helm_release.unprotected[*].status))
   }
 }
