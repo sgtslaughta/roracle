@@ -22,6 +22,7 @@ from roracle.chat.access import visible_versions
 from roracle.config import Settings
 from roracle.ingest.embed import EmbedError
 from roracle.labels.policy import Policy
+from roracle.labels.textgate import require_text
 from roracle.models import Document, DocumentVersion
 from roracle.models_writing import Draft
 from roracle.notes.access import readable_doc_ids
@@ -200,7 +201,8 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
     """Verify every (key, sentence) citation of the latest draft version; stores the report on it.
 
     Outage of the judge or the search index -> 503 and nothing stored."""
-    _, d = drafts.owned_or_coauthored(session, p, doc_id)  # no row lock: LLM calls are slow
+    doc, d = drafts.owned_or_coauthored(session, p, doc_id)  # no row lock: LLM calls are slow
+    require_text(session, p, doc)  # the report quotes the draft: agents get none of an exclude_llm draft
     v = drafts.latest_version(session, doc_id)
     if v is None:
         raise HTTPException(409, "draft has no content")

@@ -248,6 +248,7 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
             update_document(sf, d.id, title=title)
             session.refresh(d)
         text = document_text(doc)
+        session.refresh(d, ["label_id"])  # a raise during a long parse must still be honoured
         llm_ok = not Policy.load(session).has(d.label_id, "exclude_llm")  # gate (a), label at ingest time
         summary = summarize(llm, settings.summary_model, title, text) if llm_ok else ""
         vec = (

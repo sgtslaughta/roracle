@@ -349,8 +349,16 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
   (`[withheld: <label>]`) for **every** loader, humans included; text derived from `exclude_llm` sources is
   withheld for PAT loaders. Passages that came from notes are always dropped from handoff manifests.
 - Drafts are text: a PAT (owner or co-author too) gets 403 `withheld by label` on `GET /drafts/{id}`,
-  `GET /drafts/{id}/versions/{n}` and `POST /drafts/{id}/build` for an `exclude_llm` document. The drafts list
-  (metadata and label) stays available.
+  `GET /drafts/{id}/versions/{n}`, `GET /drafts/{id}/checks`, `POST /drafts/{id}/validate`,
+  `POST /drafts/{id}/check-citations` (also MCP `validate_draft`, `check_citations`) and `POST /drafts/{id}/build`
+  for an `exclude_llm` document, because their output quotes the draft. The drafts list (metadata and label)
+  stays available. Writing is not gated: a PAT may still overwrite such a draft blind with `save_draft` /
+  `PUT /drafts/{id}/content`.
+- Stored per-user state is filtered for PATs too: the chat `viewer` (selection text, tabs) is never returned to a
+  PAT, pinned/excluded ids and proposals/notifications (including unread counts) naming documents or notes hidden
+  from agents are dropped, and note citations are gated by the note's own label. A PAT may still cause a label
+  *raise* (never a lowering) by merging a near-duplicate upload into a higher-labelled document it can see;
+  it is audited as `document.label` with `via: near_dup`.
 
 ### Who may change a label
 

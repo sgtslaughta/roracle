@@ -1,6 +1,7 @@
 """Elasticsearch chunk index: `chunks-<model-slug>-<gen>`; read alias `chunks` (one index), mutation alias
 `chunks-all` (all live generations, ADR-0002 ACL fields)."""
 
+import logging
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -343,6 +344,15 @@ _ACL_SCRIPT = (
 )
 
 
+def _ensure_label_mapping(es: Elasticsearch) -> None:
+    """`label_id` must be a keyword before the first script writes it, or dynamic mapping makes it `text`
+    and the `terms label_id` pre-filter silently never matches (Postgres still enforces). Idempotent."""
+    try:
+        es.indices.put_mapping(index=MUTATE_ALIAS, properties={"label_id": {"type": "keyword"}})
+    except Exception:
+        logging.getLogger(__name__).warning("could not ensure the label_id mapping", exc_info=True)
+
+
 def sync_acl(
     es: Elasticsearch, doc_id, compute: "Callable[[], tuple[dict[str, Any], str | None] | None]"
 ) -> None:
@@ -360,4 +370,5 @@ def sync_acl(
             "script": {"source": _ACL_SCRIPT, "lang": "painless", "params": {**acl, "title": title}},
         }
 
+    _ensure_label_mapping(es)
     run_update_by_query(es, build)

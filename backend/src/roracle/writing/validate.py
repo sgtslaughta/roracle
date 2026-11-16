@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.labels.policy import Policy
+from roracle.labels.textgate import require_text
 from roracle.writing import checks, cite_check, drafts, profiles
 from roracle.writing.markdown import parse
 
@@ -59,6 +60,7 @@ def check_style(llm, model: str, content: str, prof: profiles.Profile) -> list[c
 def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UUID) -> dict:
     t0 = time.monotonic()
     doc, d = drafts.owned_or_coauthored(session, p, doc_id)
+    require_text(session, p, doc)  # findings quote the draft
     v = drafts.latest_version(session, doc_id)
     content = v.content if v else ""
     parsed = parse(content)

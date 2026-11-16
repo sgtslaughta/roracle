@@ -135,7 +135,8 @@ def get_version(doc_id: UUID, n: Ver, p: Who, session: Db) -> dict:
 @router.get("/drafts/{doc_id}/checks")
 def get_checks(doc_id: UUID, p: Who, session: Db) -> dict:
     """The caller's own stored reports for the latest version (never another co-author's)."""
-    svc.readable_draft(session, p, doc_id)
+    doc, _ = svc.readable_draft(session, p, doc_id)
+    require_text(session, p, doc)  # stored reports quote the draft
     v = svc.latest_version(session, doc_id)
 
     def mine(rep: dict | None) -> dict | None:
