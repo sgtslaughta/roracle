@@ -60,6 +60,7 @@ def test_acl_fields(db_session, user, document):
         "owner_id": str(user.id),
         "visibility": "private",
         "org_unit": "/",
+        "coauthor_users": [],
         "share_users": ["u1"],
         "share_groups": ["/Physics"],
     }
