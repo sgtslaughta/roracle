@@ -20,6 +20,7 @@ from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import visible_versions
 from roracle.config import Settings
+from roracle.ingest.embed import EmbedError
 from roracle.models import Document, DocumentVersion
 from roracle.models_writing import Draft
 from roracle.notes.access import readable_doc_ids
@@ -67,7 +68,7 @@ def resolve_keys(session: Session, p: Principal, keys: list[str]) -> dict[str, d
                     Document.id.in_(cand),
                     Document.id.in_(readable_doc_ids(p)),
                     Document.id.notin_(
-                        select(Draft.document_id).where(Draft.status != "submitted")
+                        select(Draft.document_id).where(Draft.submitted_version.is_(None))
                     ),  # unpublished drafts
                 )
             )
@@ -217,7 +218,7 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
                     _item(key, s, status="resolved", verdict=verdict, reason=reason,
                           chunk_id=psg["chunk_id"], doc_id=psg["doc_id"], title=psg.get("title") or "")
                 )  # fmt: skip
-    except (openai.APIError, httpx.HTTPError, RuntimeError, NonRetryable):  # judge or embedding outage
+    except (openai.APIError, httpx.HTTPError, EmbedError, NonRetryable):  # judge or embedding outage
         raise HTTPException(503, "inference unavailable") from None
     except (TransportError, ApiError):
         raise HTTPException(503, "search unavailable") from None

@@ -10,7 +10,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.writing import build, drafts, profiles
+from roracle.writing import build, drafts
 from roracle.writing.markdown import parse
 
 router = APIRouter()
@@ -28,10 +28,7 @@ def build_pdf(doc_id: UUID, p: Who, session: Db, cfg: Cfg) -> Response:
     fmt = "latex" if meta.get("format") == "latex" else "markdown"
     try:
         builder = build.get_builder(cfg, fmt)
-        try:
-            prof, _, _ = profiles.resolve(session, d.profile, doc.org_unit, meta.get("doc_type"))
-        except KeyError:  # stored profile removed: R4 selection
-            prof, _, _ = profiles.resolve(session, None, doc.org_unit, meta.get("doc_type"))
+        prof = drafts.profile_for(session, doc, d, meta)[0]
         refs = build.load_refs(session, p, content, cfg.writing_max_citations)
         audit(session, p, "draft.build", str(doc_id), {"version": v.version if v else None, "format": fmt})
         session.commit()  # release the transaction before the slow build

@@ -14,6 +14,7 @@ from test_search_api import FakeLLM
 
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
+from roracle.ingest.embed import EmbedError
 from roracle.models import DocumentVersion
 from roracle.models_writing import Draft, DraftVersion
 from roracle.writing import cite_check
@@ -382,7 +383,7 @@ def test_ack_cap_prunes_stale_then_422(client, as_ana, ana, db_session, es, llm,
 def test_embed_outage_doc_path_503(client, as_ana, ana, db_session, es, llm):
     d, v = seed(db_session, ana, title="Mine", visibility="everyone")
     es.hits = [hit(d, v)]
-    llm.embeddings = SimpleNamespace(create=lambda model, input: (_ for _ in ()).throw(RuntimeError("boom")))
+    llm.embeddings = SimpleNamespace(create=lambda model, input: (_ for _ in ()).throw(EmbedError("boom")))
     i = mk(client, as_ana, cite(f"doc:{d.id}"))
     assert check(client, as_ana, i).status_code == 503
     assert (

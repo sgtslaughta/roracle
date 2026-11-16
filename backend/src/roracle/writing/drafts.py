@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from roracle.access import normalize_path, org_units
+from roracle.access import group_path, org_units
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.models import Document, DocumentShare, User
@@ -91,6 +91,15 @@ def create(
     return d
 
 
+def profile_for(session: Session, doc: Document, d: Draft, meta: dict) -> tuple[profiles.Profile, int, str]:
+    """The draft's profile; a removed stored profile falls back to R4 selection."""
+    t = meta.get("doc_type") if isinstance(meta.get("doc_type"), str) else None
+    try:
+        return profiles.resolve(session, d.profile, doc.org_unit, t)
+    except KeyError:
+        return profiles.resolve(session, None, doc.org_unit, t)
+
+
 def latest_version(session: Session, doc_id: UUID) -> DraftVersion | None:
     return session.scalar(
         select(DraftVersion).where(DraftVersion.document_id == doc_id).order_by(DraftVersion.version.desc())
@@ -126,7 +135,7 @@ def set_coauthors(
     if found != ids:
         raise HTTPException(422, "unknown user")
     try:
-        paths = sorted({normalize_path(g) for g in groups})
+        paths = sorted({group_path(g) for g in groups})
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     uids = sorted(str(u) for u in ids)
@@ -151,7 +160,7 @@ def delete_draft(session: Session, p: Principal, doc_id: UUID) -> None:
     session.flush()
 
 
-def _who(session: Session, uid: UUID) -> dict:
+def who(session: Session, uid: UUID) -> dict:
     u = session.get(User, uid)
     return {"id": str(uid), "username": u.username if u else None}
 
@@ -163,7 +172,7 @@ def summary(session: Session, d: Draft, doc: Document) -> dict:
         "title": doc.title,
         "profile": d.profile,
         "status": d.status,
-        "owner": _who(session, doc.owner_id),
+        "owner": who(session, doc.owner_id),
         "coauthors": d.coauthors,
         "latest_version": latest.version if latest else 0,
         "updated_at": d.updated_at,

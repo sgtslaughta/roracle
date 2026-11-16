@@ -8,7 +8,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import normalize_path, org_units
+from roracle.access import group_path, org_units
 from roracle.api.routes.search import get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
@@ -40,12 +40,12 @@ class SaveIn(BaseModel):
 class CoauthorsIn(BaseModel):
     users: Annotated[list[UUID], Field(max_length=100)] = []
     groups: Annotated[
-        list[Annotated[str, Field(max_length=500), AfterValidator(normalize_path)]], Field(max_length=100)
+        list[Annotated[str, Field(max_length=500), AfterValidator(group_path)]], Field(max_length=100)
     ] = []
 
 
 def _author(session: Session, uid: UUID) -> dict:
-    return svc._who(session, uid)
+    return svc.who(session, uid)
 
 
 @router.post("/drafts", status_code=201)

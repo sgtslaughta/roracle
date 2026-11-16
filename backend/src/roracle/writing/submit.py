@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from roracle import notify
-from roracle.access import org_unit_error
+from roracle.access import org_unit_error, org_units
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.config import Settings
@@ -32,24 +32,17 @@ def _409(code: str) -> HTTPException:
     return HTTPException(409, {"code": code})
 
 
-def _profile(session: Session, doc: Document, d: Draft, meta: dict) -> profiles.Profile:
-    t = meta.get("doc_type") if isinstance(meta.get("doc_type"), str) else None
-    try:
-        return profiles.resolve(session, d.profile, doc.org_unit, t)[0]
-    except KeyError:  # stored profile removed: R4 selection
-        return profiles.resolve(session, None, doc.org_unit, t)[0]
-
-
 def _org_gate(doc: Document, visibility: str) -> None:
     if err := org_unit_error(visibility, doc.org_unit):
         raise HTTPException(422, err)
 
 
-def _needs_review(session: Session, doc: Document, d: Draft, meta: dict, prof: profiles.Profile) -> bool:
-    """The chosen profile or the org-unit default may demand review: picking another profile can't skip it."""
-    t = meta.get("doc_type") if isinstance(meta.get("doc_type"), str) else None
-    default = profiles.resolve(session, None, doc.org_unit, t)[0]
-    return prof.review_required or default.review_required
+def _needs_review(session: Session, p: Principal, doc: Document, prof: profiles.Profile) -> bool:
+    """The chosen profile, or any review-requiring profile scoped to the draft's or the submitter's org
+    units (token groups: not owner-editable), whatever the doc_type: no way to opt out."""
+    return prof.review_required or profiles.org_requires_review(
+        session, [doc.org_unit, *org_units(list(p.groups))]
+    )
 
 
 def disclosure(parsed: Parsed, prof: profiles.Profile) -> dict:
@@ -93,7 +86,7 @@ def submit(
         raise _409("nothing_to_submit")
     _gates(p, v)
     parsed = parse(v.content)
-    prof = _profile(session, doc, d, parsed.meta)
+    prof = drafts.profile_for(session, doc, d, parsed.meta)[0]
     disc = disclosure(parsed, prof)
     _org_gate(doc, target["visibility"])
     ids = {u for u in target["share_users"] if u != doc.owner_id}
@@ -106,9 +99,12 @@ def submit(
         "version": v.version,
         "ai_disclosure": disc,
         # the owner's view of the library now: an approving admin must not widen it
-        "refs": [asdict(r) for r in build.load_refs(session, p, v.content, settings.writing_max_citations)],
+        "refs": [
+            asdict(r)
+            for r in build.load_refs(session, p, v.content, settings.writing_max_citations, public_only=True)
+        ],
     }
-    if _needs_review(session, doc, d, parsed.meta, prof):
+    if _needs_review(session, p, doc, prof):
         d.target, d.status = frozen, "in_review"
         d.updated_at = datetime.now(UTC)
         audit(session, p, "draft.submit", str(doc_id), {"version": v.version, "review": True})
@@ -125,7 +121,7 @@ def publish(
 ) -> int:  # fmt: skip
     """Build, add the PDF as the next document version, apply `target` ∪ co-authors. Returns the version."""
     meta = parse(content).meta
-    prof = _profile(session, doc, d, meta)
+    prof = drafts.profile_for(session, doc, d, meta)[0]
     _org_gate(doc, target["visibility"])
     try:
         builder = build.get_builder(settings, "latex" if meta.get("format") == "latex" else "markdown")
@@ -172,6 +168,7 @@ def review(
     if d.status != "in_review" or not d.target:
         raise _409("not_in_review")
     title = {"draft_id": str(doc_id), "title": doc.title}
+    vis = (d.target or {}).get("visibility")
     if decision == "approve":
         v = session.scalar(
             select(DraftVersion).where(
@@ -183,6 +180,7 @@ def review(
         notify.emit(session, doc.owner_id, "draft.approved", {**title, "note": note})
     else:
         d.status = "submitted" if d.submitted_version else "draft"  # an earlier publication stays published
+        d.target = None
         d.review_note = note
         d.updated_at = datetime.now(UTC)
         notify.emit(session, doc.owner_id, "draft.rejected", {**title, "note": note})
@@ -194,7 +192,7 @@ def review(
         {
             "decision": decision,
             "note_len": len(note or ""),
-            "visibility": d.target and d.target.get("visibility"),
+            "visibility": vis,
         },
     )
     session.flush()

@@ -142,6 +142,14 @@ def resolve(
     return named(session, DEFAULT_PROFILE, db)
 
 
+def org_requires_review(session: Session, units: list[str]) -> bool:
+    """Any active profile (DB overrides builtin by name) scoped to an ancestor of `units` demanding review."""
+    anc = set(org_ancestors([u for u in units if u]))
+    specs = {n: p.model_dump() for n, p in builtin().items()}
+    specs.update({n: r.spec for n, r in _latest_db(session).items()})
+    return any(s.get("review_required") and anc & set(s.get("org_units", [])) for s in specs.values())
+
+
 def list_effective(session: Session) -> list[dict]:
     db = _latest_db(session)
     out = []

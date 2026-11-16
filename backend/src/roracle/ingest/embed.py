@@ -7,6 +7,10 @@ import numpy as np
 from roracle.queue import NonRetryable
 
 
+class EmbedError(RuntimeError):
+    pass
+
+
 def doc_prompt(title: str, text: str, summary: str | None = None) -> str:
     if summary and summary.strip():
         return f"title: {title or 'none'} | text: {summary}\n\n{text}"
@@ -28,7 +32,7 @@ def embed(client, model: str, texts: list[str], dims: int, batch: int = 32) -> l
         resp = client.embeddings.create(model=model, input=part)
         data = resp.data
         if len(data) != len(part):
-            raise RuntimeError("embedding response count mismatch")
+            raise EmbedError("embedding response count mismatch")
         if all(getattr(d, "index", None) is not None for d in data):
             data = sorted(data, key=lambda d: d.index)
         for d in data:

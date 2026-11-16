@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from api_seed import seed
 from conftest import bearer
 from sqlalchemy import select
 
@@ -353,3 +354,82 @@ def test_visibility_union_and_current_coauthors_at_approval(
     assert {s.principal for s in db_session.scalars(select(DocumentShare))} == {carau}
     row = db_session.scalars(select(AuditLog).where(AuditLog.action == "draft.review")).one()
     assert row.detail == {"decision": "approve", "note_len": 2, "visibility": "private"}
+
+
+def _org_review_profile(db):
+    spec = profiles.Profile(
+        name="orgrev", title="R", review_required=True, doc_types=["journal-article"],
+        org_units=["/Mathematics"],
+    ).model_dump()  # fmt: skip
+    db.add(WritingProfile(name="orgrev", version=1, yaml="", spec=spec))
+    db.commit()
+
+
+@pytest.mark.parametrize("front", ["", "doc_type: unlisted-kind\n"])
+def test_org_review_ignores_doc_type(client, as_ana, ana, db_session, built, front):
+    _org_review_profile(db_session)
+    i = mk(
+        client,
+        as_ana,
+        content=MD.replace("title: T", "title: T\n" + front.rstrip("\n")).replace("T\n\n", "T\n"),
+    )
+    reports(db_session, i, ana)
+    assert sub(client, as_ana, i).json()["status"] == "in_review" and built == []
+
+
+def test_org_review_survives_org_unit_patch(client, as_ana, ana, db_session, built):
+    _org_review_profile(db_session)
+    i = mk(client, as_ana)
+    doc = db_session.get(Document, uuid.UUID(i))
+    doc.org_unit = "/Chem"  # as if PATCHed after publication; submitter's token groups still apply
+    db_session.commit()
+    reports(db_session, i, ana)
+    assert sub(client, as_ana, i).json()["status"] == "in_review"
+
+
+def test_published_refs_hide_restricted(client, as_ana, ana, db_session, monkeypatch):
+    pub, _ = seed(db_session, ana, title="Public Paper", visibility="everyone")
+    priv, _ = seed(db_session, ana, title="Secret Paper", visibility="private", authors=("Zed",))
+    db_session.commit()
+    seen = []
+
+    class B:
+        def build(self, markdown, refs, profile):
+            seen.append(refs)
+            return b"%PDF-1.4 x"
+
+    monkeypatch.setattr(build, "get_builder", lambda settings, fmt: B())
+    body = f"{MD}A one [@doc:{pub.id}].\nB two [@doc:{priv.id}].\n"
+    i = mk(client, as_ana, content=body)
+    reports(db_session, i, ana)
+    assert sub(client, as_ana, i).status_code == 200
+    by = {r.key: r for r in seen[0]}
+    assert by[f"doc:{pub.id}"].title == "Public Paper"
+    assert by[f"doc:{priv.id}"].title == "Restricted reference" and by[f"doc:{priv.id}"].authors == []
+
+
+def test_reject_clears_target(client, as_ana, ana, admin, db_session, built):
+    _org_review_profile(db_session)
+    i = mk(client, as_ana)
+    reports(db_session, i, ana)
+    sub(client, as_ana, i)
+    client.post(f"/admin/drafts/{i}/review", headers=admin, json={"decision": "reject"})
+    d = db_session.get(Draft, uuid.UUID(i))
+    db_session.refresh(d)
+    assert d.target is None and d.status == "draft"
+
+
+def test_admin_cannot_validate(client, as_ana, admin):
+    i = mk(client, as_ana)
+    assert client.post(f"/drafts/{i}/validate", headers=admin).status_code == 403
+
+
+def test_root_group_rejected(client, as_ana, ana):
+    i = mk(client, as_ana)
+    assert client.put(f"/drafts/{i}/coauthors", headers=as_ana, json={"groups": ["/"]}).status_code == 422
+    assert sub(client, as_ana, i, "shared", share_groups=["/"]).status_code == 422
+
+
+def test_uploads_total_excludes_drafts(client, as_ana, ana, db_session):
+    mk(client, as_ana)
+    assert client.get("/me/uploads", headers=as_ana).json()["total"] == 0

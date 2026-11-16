@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.writing import checks, cite_check, drafts, profiles
-from roracle.writing.markdown import Parsed, parse
+from roracle.writing.markdown import parse
 
 STYLE_CHARS = 12000
 STYLE_MAX = 20
@@ -50,21 +50,13 @@ def check_style(llm, model: str, content: str, prof: profiles.Profile) -> list[c
         return [checks.Finding("style", UNAVAILABLE, soft=True)]
 
 
-def _doc_type(parsed: Parsed) -> str | None:
-    t = parsed.meta.get("doc_type")
-    return t if isinstance(t, str) else None
-
-
 def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UUID) -> dict:
     t0 = time.monotonic()
-    doc, d = drafts.readable_draft(session, p, doc_id)
+    doc, d = drafts.owned_or_coauthored(session, p, doc_id)
     v = drafts.latest_version(session, doc_id)
     content = v.content if v else ""
     parsed = parse(content)
-    try:
-        prof, pver, src = profiles.resolve(session, d.profile, doc.org_unit, _doc_type(parsed))
-    except KeyError:  # stored profile was removed/deactivated: fall back to R4 selection
-        prof, pver, src = profiles.resolve(session, None, doc.org_unit, _doc_type(parsed))
+    prof, pver, src = drafts.profile_for(session, doc, d, parsed.meta)
     cap = settings.writing_max_citations
     keys = list(dict.fromkeys(c.key for c in parsed.citations))
     resolved = cite_check.resolve_keys(session, p, keys[:cap]) if prof.rules["citations"] != "off" else {}

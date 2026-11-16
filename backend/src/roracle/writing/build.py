@@ -212,8 +212,35 @@ def get_builder(settings: Settings, fmt: str) -> Builder:
     return PandocBuilder(settings, _transport)
 
 
-def load_refs(session: Session, p: Principal, markdown: str, limit: int) -> list[Ref]:
-    """Citation keys the caller can read (R19: the rest stay unresolved) with their library metadata."""
+RESTRICTED = "Restricted reference"
+
+
+def _public_keys(session: Session, ok: dict[str, dict]) -> set[str]:
+    """Cited keys a published PDF may name: doc visibility everyone and the cited version searchable."""
+    rows = session.execute(
+        select(Document.id, DocumentVersion.id, DocumentVersion.is_latest)
+        .join(DocumentVersion, DocumentVersion.document_id == Document.id)
+        .where(
+            Document.id.in_({v["doc_id"] for v in ok.values()}),
+            Document.visibility == "everyone",
+            DocumentVersion.stage == "searchable",
+        )
+    ).all()
+    latest = {str(d) for d, _, is_latest in rows if is_latest}
+    vers = {str(v) for _, v, _ in rows}
+    return {
+        k
+        for k, v in ok.items()
+        if (v.get("version_id") in vers if v.get("version_id") else v["doc_id"] in latest)
+    }
+
+
+def load_refs(
+    session: Session, p: Principal, markdown: str, limit: int, public_only: bool = False
+) -> list[Ref]:
+    """Citation keys the caller can read (R19: the rest stay unresolved) with their library metadata.
+
+    `public_only` (published PDFs): refs outside `_public_keys` keep their number but are anonymised."""
     keys = list(dict.fromkeys(c.key for c in parse(markdown).citations))[:limit]
     ok = {k: v for k, v in cite_check.resolve_keys(session, p, keys).items() if v}
     if not ok:
@@ -230,8 +257,12 @@ def load_refs(session: Session, p: Principal, markdown: str, limit: int) -> list
             )
         )
     }
+    public = _public_keys(session, ok) if public_only else set()
     out = []
     for k, v in ok.items():
+        if public_only and k not in public:
+            out.append(Ref(k, RESTRICTED))
+            continue
         m = metas.get(v["doc_id"], {})
         y = m.get("year")
         out.append(

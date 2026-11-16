@@ -161,7 +161,7 @@ def test_submitted_draft_is_citable(client, as_bob, as_ana, ana, db_session, fak
     db_session.commit()
     j = mk(client, as_bob, BASE + f"\nA [@doc:{pub.id}].\n", profile="p1")
     assert client.post(f"/drafts/{j}/validate", headers=as_bob).json()["ok"] is False
-    d.status = "submitted"
+    d.status, d.submitted_version = "submitted", 1
     db_session.commit()
     assert client.post(f"/drafts/{j}/validate", headers=as_bob).json()["ok"] is True
 

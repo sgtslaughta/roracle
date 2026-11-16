@@ -8,7 +8,7 @@ from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from roracle.access import normalize_path
+from roracle.access import group_path
 from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.documents import get_blob_store
 from roracle.auth import Principal, current_principal, get_app_settings
@@ -30,7 +30,7 @@ class SubmitIn(BaseModel):
     visibility: Literal["private", "shared", "org_unit", "everyone"]
     share_users: Annotated[list[UUID], Field(max_length=100)] = []
     share_groups: Annotated[
-        list[Annotated[str, Field(max_length=500), AfterValidator(normalize_path)]], Field(max_length=100)
+        list[Annotated[str, Field(max_length=500), AfterValidator(group_path)]], Field(max_length=100)
     ] = []
 
 
