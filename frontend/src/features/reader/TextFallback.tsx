@@ -9,7 +9,7 @@ const MAX_TEXT = 2 * 1024 * 1024;
 const TXT = /\.(txt|text)$/i;
 
 /** No PDF rendition (404): Markdown and plain text render from the original file, anything else offers a download. */
-export function TextFallback({ docId, version, filename, onDownload }: { docId: string; version: number; filename: string; onDownload: () => void }) {
+export function TextFallback({ docId, version, filename, onDownload, blocked }: { docId: string; version: number; filename: string; onDownload: () => void; blocked?: string }) {
   const md = MD.test(filename);
   const textual = md || TXT.test(filename);
   const text = useQuery({
@@ -29,7 +29,7 @@ export function TextFallback({ docId, version, filename, onDownload }: { docId: 
     <div className="pages">
       <div className="empty" role="alert">
         <p>Preview not available for this file. Download the original to open it.</p>
-        <Button onClick={onDownload}><Download aria-hidden />Download</Button>
+        <Button onClick={onDownload} disabled={!!blocked} title={blocked}><Download aria-hidden />Download</Button>
       </div>
     </div>
   );

@@ -20,7 +20,7 @@ export interface CiteItem {
   verdict?: "supported" | "unsupported" | "unclear" | null; reason?: string; chunk_id?: string | null; doc_id?: string | null; title?: string | null; acknowledged: boolean;
 }
 export interface Citations { version: number; checked_by: string; ok: boolean; items: CiteItem[] }
-export interface SubmitBody { visibility: Visibility; share_users: string[]; share_groups: string[] }
+export interface SubmitBody { visibility: Visibility; share_users: string[]; share_groups: string[]; label_id?: string }
 export interface SubmitResult { status: "submitted" | "in_review"; version: number; document_version?: number }
 
 export const BUILTIN_PROFILES = ["dissertation", "journal-article", "conference-paper", "technical-report", "grant-proposal", "literature-review", "preregistration"];

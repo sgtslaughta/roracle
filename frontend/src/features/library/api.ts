@@ -109,3 +109,23 @@ export function useAddToCollection(docId: string) {
     onSettled: () => qc.invalidateQueries({ queryKey: ["collections"] }),
   });
 }
+
+const refreshCollections = (qc: QueryClient) => Promise.all([qc.invalidateQueries({ queryKey: ["collections"] }), qc.invalidateQueries({ queryKey: ["search"] })]);
+
+/** PATCH /collections/{id}: rename (owner only). */
+export function useRenameCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => apiFetch<Collection>(`/collections/${seg(id)}`, { method: "PATCH", json: { name } }),
+    onSuccess: () => refreshCollections(qc),
+  });
+}
+
+/** DELETE /collections/{id}: removes the collection, not its documents. */
+export function useDeleteCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/collections/${seg(id)}`, { method: "DELETE" }),
+    onSuccess: () => refreshCollections(qc),
+  });
+}

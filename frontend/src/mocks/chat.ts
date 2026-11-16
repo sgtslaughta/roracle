@@ -4,6 +4,7 @@ import type { Chat, ChatDetail, ChatMessage, Citation, SendMessageBody, Viewer }
 import { DOCS } from "./docs";
 import { passageOf, seedChats } from "./chatSeed";
 import { state } from "./state";
+import { docLabel } from "./labels";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const MODELS = ["frontier-large", "open-70b", "open-8b-fast"];
@@ -82,6 +83,10 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
   };
   const body$ = new ReadableStream<Uint8Array>({
     async start(ctrl) {
+      // gate (a): pinned or open context whose label excludes AI use is dropped and reported
+      const excluded = [...new Set([...chat.pins, ...body.viewer.tabs.map((t) => t.doc_id)])].filter((id) => docLabel(id).gates.exclude_llm)
+        .map((doc_id) => ({ doc_id, label: docLabel(doc_id).name }));
+      if (excluded.length) ctrl.enqueue(ev("meta", { excluded_by_label: excluded }));
       for (let i = 0; i < text.length; i += 12) {
         await tick();
         if (signal.aborted || saved) { save("interrupted"); return; }

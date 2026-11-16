@@ -15,6 +15,9 @@ import { addRecent } from "@/features/palette/recent";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
 import { downloadOriginal, useCitedBy, useDoc, useReferences } from "./api";
 import { SharingDialog } from "./SharingDialog";
+import { ManageMenu } from "./ManageMenu";
+import { DocLabel } from "@/features/labels/DocLabel";
+import { downloadBlockedText } from "@/features/labels/api";
 const PdfView = lazy(() => import("./PdfView"));
 import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
@@ -45,6 +48,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
 
   const filename = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
   const title = docTitle({ title: d.title, filename: d.versions.find((v) => v.version === version)?.filename }); // not the .pdf fallback
+  const blocked = d.label?.gates.block_export && !canManage ? downloadBlockedText(d.label) : undefined;
   const download = () => { downloadOriginal(d.id, version, filename).catch(() => toast("The original couldn't be downloaded. Try again.")); };
 
   return (
@@ -53,6 +57,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
         <h2 title={title}>{title}</h2>
         {canManage && !d.title.trim() && <div className="tdet title"><span className="msg">This document has no title.</span><AddTitle documentId={d.id} name={title} /></div>}
         <CiteLine authors={d.authors} venue={d.venue} year={d.year} org={d.org_unit} />
+        <div className="rlabel"><DocLabel doc={d} canManage={canManage} /></div>
         <div className="rtools">
           <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
             <Sparkles aria-hidden />Ask about this
@@ -77,7 +82,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
             notesUi.set((s) => ({ ...s, adding: adding ? null : d.id }));
             if (!adding) setView("doc");
           }}><MessageSquarePlus aria-hidden />Add note</Button>
-          <button className="icon-btn" aria-label="Download original" onClick={download}><Download aria-hidden /></button>
+          <button className="icon-btn" aria-label="Download original" onClick={download} disabled={!!blocked} title={blocked}><Download aria-hidden /></button>
+          {canManage && <ManageMenu doc={d} />}
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>
           <TabsList aria-label="Document sections">
@@ -92,7 +98,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
       {collecting && <AddToCollectionDialog docId={d.id} open onOpenChange={setCollecting} />}
       {view === "doc" && (
         <Suspense fallback={<div className="pages"><p className="sub" role="status">Loading document…</p></div>}>
-          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} />
+          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} blocked={blocked} />
         </Suspense>
       )}
       {view === "refs" && <ReferencesTab docId={d.id} />}

@@ -19,7 +19,7 @@ async function renderLibrary(path = "/library") {
   );
   return router;
 }
-const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] };
+const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], label: [] };
 const hit = (o: Partial<SearchHit> = {}): SearchHit => ({
   doc_id: "d1", title: "A paper", authors: ["A. Author"], year: 2020, score: 1, passages: [], tags: [], votes: { up: 0, down: 0, mine: 0 },
   file_type: "PDF", version: 1, venue: "Journal", org_unit: "Math", owner_id: "x", flag: null, cited_by_count: 0, ...o,

@@ -12,6 +12,7 @@ import { useProposals } from "@/features/proposals/api";
 import { useMe } from "@/features/library/useMe";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NAV } from "./nav";
+import { CollectionDialogs, type CollectionEdit } from "./CollectionDialogs";
 
 export function Sidebar() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export function Sidebar() {
   const { data: chats, hasNextPage, isFetchingNextPage, fetchNextPage } = useChats();
   const { data: me } = useMe();
   const [railOpen, setRailOpen] = useState(false);
+  const [edit, setEdit] = useState<CollectionEdit | null>(null);
   const close = () => setRailOpen(false);
   const attention = useUploadAttention();
   const waiting = useProposals("pending").data?.total ?? 0;
@@ -44,6 +46,8 @@ export function Sidebar() {
       </Link>
       <RowMenu label={`Actions for collection ${c.name}`} actions={[
         { label: "Show in Library", onSelect: () => { close(); void navigate({ to: "/library", search: { collection: [c.id] } }); } },
+        { label: "Rename…", onSelect: () => { close(); setEdit({ ...c, mode: "rename" }); } },
+        { label: "Delete…", danger: true, onSelect: () => { close(); setEdit({ ...c, mode: "delete" }); } },
         copyAction("Copy name", c.name),
       ]} />
     </div>
@@ -119,6 +123,7 @@ export function Sidebar() {
           </nav>
         </div>
       )}
+      <CollectionDialogs edit={edit} onClose={() => setEdit(null)} />
     </aside>
   );
 }

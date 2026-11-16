@@ -4,6 +4,9 @@ import type { Visibility } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { VIS_LABEL, VIS_ORDER } from "@/features/uploads/status";
+import { useLabels } from "@/features/labels/api";
+import { useMe } from "@/features/library/useMe";
+import { useDoc } from "@/features/reader/api";
 import { draftError, useSaveDraft, useSubmitDraft } from "./api";
 import { readAi, withAi } from "./frontMatter";
 
@@ -18,6 +21,10 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
   const [visibility, setVisibility] = useState<Visibility>("everyone");
   const [users, setUsers] = useState("");
   const [groups, setGroups] = useState("");
+  const [labelId, setLabelId] = useState("");
+  const labels = useLabels().data ?? [];
+  const admin = !!useMe().data?.is_admin;
+  const current = useDoc(draft.id).data?.label;
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const save = useSaveDraft(draft.id), submit = useSubmitDraft(draft.id);
@@ -35,7 +42,7 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
         const r = await save.mutateAsync({ content, base_version: base.version });
         onSaved(content, r.version);
       }
-      const r = await submit.mutateAsync({ visibility, share_users: visibility === "shared" ? list(users) : [], share_groups: visibility === "shared" ? list(groups) : [] });
+      const r = await submit.mutateAsync({ visibility, share_users: visibility === "shared" ? list(users) : [], share_groups: visibility === "shared" ? list(groups) : [], ...(labelId && { label_id: labelId }) });
       setResult(r.status === "in_review" ? "Submitted for review. An admin will approve it before it is published." : "Submitted and published.");
     } catch (err) {
       setError(draftError(err));
@@ -73,6 +80,18 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
                 <label>User ids (comma separated)<input className="inp" value={users} onChange={(e) => setUsers(e.target.value)} /></label>
                 <label>Org units (comma separated)<input className="inp" value={groups} onChange={(e) => setGroups(e.target.value)} /></label>
               </>
+            )}
+            {labels.length > 0 && (
+              <label>Sensitivity label
+                <select className="inp" value={labelId} onChange={(e) => setLabelId(e.target.value)}>
+                  <option value="">Keep the draft's label{current ? ` (${current.name})` : ""}</option>
+                  {labels.map((l) => {
+                    const low = !!current && !admin && l.rank < current.rank;
+                    return <option key={l.id} value={l.id} disabled={low}>{l.name}{low ? " (only admins can lower a label)" : ""}</option>;
+                  })}
+                </select>
+                <span className="help">Submitting never lowers the label.</span>
+              </label>
             )}
             {error && <p role="alert" className="derr">{error}</p>}
             <div className="foot">

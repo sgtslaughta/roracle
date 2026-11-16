@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
-import type { ChatDetail, Citation, Viewer } from "@/api/chat";
+import type { ChatDetail, Citation, ExcludedByLabel, Viewer } from "@/api/chat";
 import { createStore } from "@/lib/store";
 import { streamMessage } from "./stream";
 import { getDraft, setDraft, setQuote } from "./useAskContext";
@@ -14,6 +14,7 @@ export interface PendingTurn {
   base: number;
   text: string;
   citations: Citation[];
+  excluded?: ExcludedByLabel[];
   status: "streaming" | "done" | "interrupted" | "failed";
   detail?: string;
   messageId?: string;
@@ -24,6 +25,8 @@ const turns = createStore<Record<string, PendingTurn>>({});
 /** Chats the server said no longer exist (404 on send). */
 const gone = createStore<Record<string, true>>({});
 export const useChatGone = (chatId: string | undefined) => gone.use((s) => !!chatId && !!s[chatId]);
+/** message id -> context withheld by label (the server does not store it, so it is kept for the session). */
+export const excludedByMessage = new Map<string, ExcludedByLabel[]>();
 const ctrls = new Map<string, AbortController>();
 const viewers = new Map<string, number>();
 
@@ -90,7 +93,12 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
   streamMessage(chatId, { content: question, viewer, model }, {
     onToken: (t) => { buf += t; schedule(); },
     onCitations: (items) => { flush(); patch(chatId, (p) => ({ ...p, citations: items })); },
-    onDone: (messageId) => finish({ status: "done", messageId }),
+    onExcluded: (items) => patch(chatId, (p) => ({ ...p, excluded: items })),
+    onDone: (messageId) => {
+      const ex = turns.get()[chatId]?.excluded;
+      if (ex?.length) excludedByMessage.set(messageId, ex);
+      finish({ status: "done", messageId });
+    },
     onError: (detail) => finish({ status: "failed", detail }),
   }, ctrl.signal).catch((e: unknown) => {
     if (stale()) return;

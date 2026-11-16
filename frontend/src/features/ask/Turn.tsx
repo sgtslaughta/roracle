@@ -3,6 +3,7 @@ import { AnswerText } from "./AnswerText";
 import { Sidenotes } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
 import { Button } from "@/components/ui/button";
+import { ExcludedNote } from "./ExcludedNote";
 import { AnswerFooter, type ChatCtx } from "./AnswerFooter";
 import type { TurnData } from "./turns";
 
@@ -26,6 +27,7 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
       {answer && (
         <article className="answer" ref={ref} aria-label="Answer" aria-busy={streaming}>
           <AnswerText text={answer.text} citations={answer.citations} streaming={streaming} hot={hot} onHot={setHot} />
+          {!!answer.excluded?.length && <ExcludedNote items={answer.excluded} />}
           <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">
             {streaming && !answer.text && <p className="stat" role="status">Reading the library…</p>}

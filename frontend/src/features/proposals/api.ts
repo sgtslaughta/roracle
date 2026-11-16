@@ -12,11 +12,14 @@ export interface ProposalPayload {
   relation?: NoteRelation | null;
   visibility?: NoteVisibility;
   shares?: NoteShare[];
+  /** kind "label": the proposed label (body is empty) */
+  label_id?: string;
+  reason?: string;
 }
 export type ProposalStatus = "pending" | "approved" | "rejected";
 export interface Proposal {
   id: string;
-  kind: "note" | "relation";
+  kind: "note" | "relation" | "label";
   /** the agent client name from the access token */
   client: string;
   payload: ProposalPayload;
@@ -27,7 +30,7 @@ export interface Proposal {
   /** null when the document is gone or no longer readable */
   document: { id: string; title: string | null } | null;
 }
-export interface ApproveBody { body?: string; visibility?: NoteVisibility; shares?: NoteShare[] }
+export interface ApproveBody { body?: string; visibility?: NoteVisibility; shares?: NoteShare[]; /** label proposals: why a lowering is approved */ reason?: string }
 export interface BulkResult { approved: { proposal_id: string; annotation_id: string }[]; failed: { proposal_id: string; detail: string }[] }
 
 export const BULK_MAX = 100;

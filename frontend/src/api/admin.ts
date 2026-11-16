@@ -16,6 +16,8 @@ export interface Connector {
   id: string; name: string; kind: ConnectorKind; config: Record<string, unknown>;
   visibility: ConnectorVisibility; org_unit: string; schedule_minutes: number | null; enabled: boolean;
   next_run_at: string | null; last_run_at: string | null; created_at: string; last_run: ConnectorRun | null;
+  /** null = the global default label */
+  label_id?: string | null;
 }
 /** POST body; PATCH takes the same fields (all optional, `kind` omitted). */
 export interface ConnectorBody {
@@ -23,6 +25,7 @@ export interface ConnectorBody {
   visibility: ConnectorVisibility; org_unit: string; enabled: boolean;
   /** omitted on edit unless changed: PATCHing it resets the next run to "due now" */
   schedule_minutes?: number | null;
+  label_id?: string | null;
 }
 
 export interface Keyset<T> { items: T[]; next_before_id: number | null }

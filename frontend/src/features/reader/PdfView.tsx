@@ -16,7 +16,7 @@ import { setView, type ReaderTab } from "./useReaderStore";
 
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 
-export default function PdfView({ tab, version, filename, onDownload }: { tab: ReaderTab; version: number; filename: string; onDownload: () => void }) {
+export default function PdfView({ tab, version, filename, onDownload, blocked }: { tab: ReaderTab; version: number; filename: string; onDownload: () => void; blocked?: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(2); // index into ZOOMS: 1.0 = fit width
@@ -113,7 +113,7 @@ export default function PdfView({ tab, version, filename, onDownload }: { tab: R
     setView("notes");
   };
 
-  if (pdf.error instanceof ApiError && pdf.error.status === 404) return <TextFallback docId={tab.docId} version={version} filename={filename} onDownload={onDownload} />;
+  if (pdf.error instanceof ApiError && pdf.error.status === 404) return <TextFallback docId={tab.docId} version={version} filename={filename} onDownload={onDownload} blocked={blocked} />;
   if (pdf.isError) return <div className="pages"><div className="empty" role="alert"><p>This version can't be previewed. Use the download button to open the original.</p></div></div>;
   if (!pdf.data) return <div className="pages"><p className="sub" role="status">Loading document…</p></div>;
 

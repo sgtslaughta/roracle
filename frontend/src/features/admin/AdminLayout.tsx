@@ -9,6 +9,7 @@ export const ADMIN_SECTIONS: { to: string; label: string }[] = [
   { to: "/admin/needs-title", label: "Needs title" },
   { to: "/admin/settings", label: "Settings" },
   { to: "/admin/tags", label: "Tags" },
+  { to: "/admin/labels", label: "Labels" },
   { to: "/admin/audit", label: "Audit" },
   { to: "/admin/users", label: "Users" },
   { to: "/admin/stats", label: "Stats" },

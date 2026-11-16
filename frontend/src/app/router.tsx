@@ -24,6 +24,7 @@ const JobsPage = lazyRouteComponent(() => import("@/features/admin/JobsPage"), "
 const ReviewPage = lazyRouteComponent(() => import("@/features/admin/ReviewPage"), "ReviewPage");
 const SettingsPage = lazyRouteComponent(() => import("@/features/admin/SettingsPage"), "SettingsPage");
 const TagsPage = lazyRouteComponent(() => import("@/features/admin/TagsPage"), "TagsPage");
+const LabelsPage = lazyRouteComponent(() => import("@/features/admin/LabelsPage"), "LabelsPage");
 const AuditPage = lazyRouteComponent(() => import("@/features/admin/AuditPage"), "AuditPage");
 const UsersPage = lazyRouteComponent(() => import("@/features/admin/UsersPage"), "UsersPage");
 const StatsPage = lazyRouteComponent(() => import("@/features/admin/StatsPage"), "StatsPage");
@@ -45,6 +46,7 @@ const adminTree = adminRoute.addChildren([
   a("needs-title", NeedsTitlePage),
   a("settings", SettingsPage),
   a("tags", TagsPage),
+  a("labels", LabelsPage),
   a("audit", AuditPage),
   a("users", UsersPage),
   a("stats", StatsPage),

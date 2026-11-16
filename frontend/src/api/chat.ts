@@ -42,5 +42,7 @@ export interface ChatMessage {
   rating?: Rating | null;
 }
 export interface ChatDetail extends Chat { messages: ChatMessage[]; is_owner: boolean /* ui */ }
+/** SSE `meta` frame: requested context left out because its label excludes AI use. */
+export interface ExcludedByLabel { doc_id: string; label: string }
 export interface ModelsResponse { models: string[]; default: string } // ui: GET /chats/models (contract gap)
 export interface SendMessageBody { content: string; viewer: Viewer; model?: string }

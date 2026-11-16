@@ -1,5 +1,5 @@
 /** URL <-> library search state. Multi-value facets use repeated keys: ?tags=a&tags=b */
-export const ARRAY_KEYS = ["tags", "year", "file_type", "org_unit", "collection", "author"] as const;
+export const ARRAY_KEYS = ["tags", "year", "file_type", "org_unit", "collection", "author", "label"] as const;
 export type FacetKey = (typeof ARRAY_KEYS)[number];
 export const SORTS = ["relevance", "newest", "votes", "title"] as const;
 export type Sort = (typeof SORTS)[number];

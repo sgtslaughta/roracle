@@ -14,10 +14,15 @@ import { noteHandlers, withCommunityNotes } from "./notes";
 import { advance, newUpload } from "./uploads";
 import { proposalHandlers } from "./proposals";
 import { notificationHandlers } from "./notifications";
-import { draftHandlers } from "./drafts";
+import { draftDocument, draftHandlers } from "./drafts";
+import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
+import { DIR_USERS, directoryHandlers } from "./directory";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const notFound = () => HttpResponse.json({ detail: "not found" }, { status: 404 });
+const allCollections = () =>
+  [...COLLECTION_NAMES.map((name, i) => ({ id: `c${i + 1}`, name })), ...state.newCollections]
+    .filter((c) => !state.collDeleted.includes(c.id)).map((c) => ({ ...c, name: state.collRenamed[c.id] ?? c.name }));
 const MAX_BYTES = 500 * 1024 * 1024;
 
 function detail(id: string): DocumentDetail | null {
@@ -26,7 +31,9 @@ function detail(id: string): DocumentDetail | null {
   const ver = state.versions[id];
   return {
     id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: (state.docPatch[id]?.visibility as DocumentDetail["visibility"]) ?? "everyone",
-    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : "k.ito" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
+    label: docLabel(id),
+    ...(ownerOf(d) === "u-me" || state.admin ? { share_users: (state.docPatch[id]?.share_users ?? []).map((u) => DIR_USERS.find((x) => x.id === u) ?? { id: u, username: "" }), share_groups: state.docPatch[id]?.share_groups ?? [], coauthors: [] } : {}),
+    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : ownerOf(d) === "u-owner" ? "k.ito" : "ana" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
     votes: votesOf(d), file_type: d.type, page_count: d.pages.length, flag: d.flag ?? null,
     versions: Array.from({ length: ver }, (_, i) => ({ id: `${id}-v${ver - i}`, version: ver - i, filename: `${id}-v${ver - i}.pdf`, uploaded_at: "2026-10-01T10:00:00Z", is_latest: i === 0 })),
   };
@@ -39,8 +46,7 @@ export const handlers = [
     return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
   }),
   http.get(url("/collections"), () => {
-    const all = [...COLLECTION_NAMES.map((name, i) => ({ id: `c${i + 1}`, name })), ...state.newCollections];
-    return HttpResponse.json(all.map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name) && !(state.collRemoved[id] ?? []).includes(d.id)).length + (state.collItems[id]?.length ?? 0) })));
+    return HttpResponse.json(allCollections().map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name) && !(state.collRemoved[id] ?? []).includes(d.id)).length + (state.collItems[id]?.length ?? 0) })));
   }),
   http.post(url("/collections"), async ({ request }) => {
     const name = String(((await request.json()) as { name?: string }).name ?? "").trim();
@@ -61,8 +67,36 @@ export const handlers = [
     else (state.collRemoved[cid] ??= []).push(doc);
     return HttpResponse.json({ id: cid, count: 0 });
   }),
+  http.patch(url("/collections/:cid"), async ({ params, request }) => {
+    const cid = String(params.cid);
+    const name = String(((await request.json()) as { name?: string }).name ?? "").trim();
+    if (!name || name.length > 100) return HttpResponse.json({ detail: "name must be 1-100 characters" }, { status: 422 });
+    if (!allCollections().some((c) => c.id === cid)) return notFound();
+    state.collRenamed[cid] = name;
+    return HttpResponse.json({ id: cid, name, count: 0 });
+  }),
+  http.delete(url("/collections/:cid"), ({ params }) => {
+    if (!allCollections().some((c) => c.id === params.cid)) return notFound();
+    state.collDeleted.push(String(params.cid));
+    return new HttpResponse(null, { status: 204 });
+  }),
+  http.delete(url("/documents/:id"), ({ params }) => {
+    const d = docById(String(params.id));
+    if (!d) return notFound();
+    if (ownerOf(d) !== "u-me" && !state.admin) return HttpResponse.json({ detail: "only the document owner or an admin can do this" }, { status: 403 });
+    state.deletedDocs.push(d.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+  http.post(url("/documents/:id/transfer"), async ({ params, request }) => {
+    const d = docById(String(params.id));
+    if (!d) return notFound();
+    if (ownerOf(d) !== "u-me" && !state.admin) return HttpResponse.json({ detail: "only the document owner or an admin can do this" }, { status: 403 });
+    state.owners[d.id] = ((await request.json()) as { user_id: string }).user_id;
+    return HttpResponse.json(detail(d.id));
+  }),
   http.get(url("/documents/:id"), ({ params }) => {
-    const d = detail(String(params.id));
+    if (state.deletedDocs.includes(String(params.id))) return notFound();
+    const d = detail(String(params.id)) ?? draftDocument(String(params.id));
     return d ? HttpResponse.json(d) : notFound();
   }),
   http.put(url("/documents/:id/vote"), async ({ params, request }) => {
@@ -137,7 +171,10 @@ export const handlers = [
     if (file.size > MAX_BYTES) return HttpResponse.json({ detail: "file exceeds 500 MB limit" }, { status: 413 });
     if (file.name === "spectral-gap-v3.pdf" && form.get("force") !== "true")
       return HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 });
+    const lid = String(form.get("label_id") ?? "");
+    if (lid && labelJson(lid).rank < defaultLabel().rank && !state.admin) return HttpResponse.json({ detail: "only admins can lower a label" }, { status: 422 });
     const u = newUpload(file, (form.get("visibility") as "everyone") ?? "everyone");
+    if (lid) u.label = labelJson(lid);
     const t = String(form.get("title") ?? "").trim();
     if (t) u.title = t;
     state.uploads.unshift(u);
@@ -156,6 +193,8 @@ export const handlers = [
     }
     return HttpResponse.json({ version_id: u.version_id, document_id: u.document_id, stage: u.stage });
   }),
+  ...labelHandlers,
+  ...directoryHandlers,
   ...adminHandlers,
   ...adminOpsHandlers,
   ...adminDataHandlers,

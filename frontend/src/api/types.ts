@@ -7,6 +7,11 @@ import type { CommunityNote } from "./notes";
 
 export interface Me { id: string; username: string; groups: string[]; is_admin: boolean }
 
+/** Sensitivity label (backend label JSON; `GET /labels` adds `description` and `is_default`). */
+export interface LabelGates { exclude_llm: boolean; block_agents: boolean; block_export: boolean; reason_on_lower: boolean }
+export interface Label { id: string; name: string; colour: string; rank: number; gates: LabelGates }
+export interface AdminLabel extends Label { description: string; is_default: boolean }
+
 export type Visibility = "everyone" | "org_unit" | "private" | "shared";
 
 export interface Votes { up: number; down: number; mine: 1 | -1 | 0 }
@@ -36,13 +41,14 @@ export interface SearchHit {
   flag: string | null; // always null today; render when present
   cited_by_count: number;
   owner_id: string;
+  label?: Label;
   /** community notes (search with notes=true); absent in older responses */
   notes?: CommunityNote[];
 }
 
-export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author";
-/** `label` is set for the collection facet only (value is the collection id). */
-export interface FacetValue { value: string; count: number; label?: string }
+export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author" | "label";
+/** `label` is the collection name (collection facet) or the label JSON (label facet; value is the label id). */
+export interface FacetValue { value: string; count: number; label?: string | Label }
 export interface SearchResponse {
   total: number;
   page: number;
@@ -59,6 +65,7 @@ export interface DocumentDetail {
   venue: string | null;
   org_unit: string;
   visibility: Visibility;
+  label?: Label;
   owner: { id: string; username: string };
   summary: string | null;
   stage: string;
@@ -68,10 +75,12 @@ export interface DocumentDetail {
   versions: DocVersion[];
   page_count: number;
   flag: string | null;
-  /** not returned by the backend today; when present they are authoritative */
-  share_users?: string[];
+  /** owner/admin only */
+  share_users?: Person[];
   share_groups?: string[];
+  coauthors?: Person[];
 }
+export interface Person { id: string; username: string }
 
 export interface DocumentPatch { title?: string; visibility?: Visibility; org_unit?: string; share_users?: string[]; share_groups?: string[] }
 export interface TagsResponse { tag: string; tags: string[] }
@@ -101,6 +110,7 @@ export interface UploadItem {
   filename: string;
   size: number;
   visibility: Visibility;
+  label?: Label;
   status: JobStatus;
   error: string | null;
   uploaded_at: string;

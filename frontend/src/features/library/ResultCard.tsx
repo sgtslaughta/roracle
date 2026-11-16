@@ -5,6 +5,7 @@ import type { CommunityNote } from "@/api/notes";
 import type { Bbox, SearchHit } from "@/api/types";
 import { OverflowList } from "@/components/OverflowList";
 import { Badge } from "@/components/ui/badge";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
 import { CiteLine } from "@/components/CiteLine";
 import { notesUi } from "@/features/notes/api";
 import { KindPill } from "@/features/notes/NoteCard";
@@ -60,6 +61,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: 
           <CommunityNotes docId={hit.doc_id} notes={hit.notes ?? []} />
         </div>
         <div className="rmeta">
+          {hit.label && <SensitivityBadge label={hit.label} />}
           <Badge kind="type"><TypeIcon aria-hidden />{hit.file_type}</Badge>
           <Badge><History aria-hidden />v{hit.version}</Badge>
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}

@@ -30,11 +30,12 @@ export function useUpload() {
   const qc = useQueryClient();
   return useMutation({
     meta: QUIET,
-    mutationFn: ({ file, force, visibility, title }: { file: File; force?: boolean; visibility?: Visibility; title?: string }) => {
+    mutationFn: ({ file, force, visibility, title, label_id }: { file: File; force?: boolean; visibility?: Visibility; title?: string; label_id?: string }) => {
       const form = new FormData();
       form.append("file", file);
       if (visibility) form.append("visibility", visibility);
       if (title?.trim()) form.append("title", title.trim());
+      if (label_id) form.append("label_id", label_id);
       if (force) form.append("force", "true");
       return apiFetch<UploadCreated>("/documents", { method: "POST", body: form });
     },

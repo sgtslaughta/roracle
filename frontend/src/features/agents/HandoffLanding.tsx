@@ -10,12 +10,26 @@ import { useHandoff } from "./api";
 import { copyText } from "./HandoffDialog";
 import { AUDIENCE_LABEL } from "./HandoffForm";
 import { fmtDate, fmtDateTime } from "@/lib/dates";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
+import type { HandoffManifest } from "@/api/agents";
 
 const PAGE = 10;
 
 function DocRow({ id }: { id: string }) {
   if (!isDocId(id)) return <li><span className="hdoc"><FileText aria-hidden /><span className="trunc">Document not available</span></span></li>;
   return <DocLink id={id} />;
+}
+
+function LabelledDoc({ d }: { d: NonNullable<HandoffManifest["documents"]>[number] }) {
+  return (
+    <li>
+      <button className="hdoc" onClick={() => openDoc(d.id)} title={d.title}>
+        <FileText aria-hidden /><span className="trunc">{d.title || "Untitled document"}</span>
+      </button>
+      <SensitivityBadge label={d.label} />
+      {d.text_withheld && <small className="sub"> Text withheld by its label</small>}
+    </li>
+  );
 }
 
 function DocLink({ id }: { id: string }) {
@@ -43,7 +57,7 @@ export function HandoffLanding({ code }: { code: string }) {
   const [shown, setShown] = useState(PAGE);
   if (error) return <div className="empty" role="alert"><Link2Off aria-hidden /><p>{failure(error)}</p></div>;
   if (!m) return <p className="sub" role="status">Loading handoff…</p>;
-  const n = m.doc_ids.length;
+  const n = m.documents?.length ?? m.doc_ids.length;
   return (
     <article className="hland">
       <div className="uhead-row">
@@ -61,7 +75,7 @@ export function HandoffLanding({ code }: { code: string }) {
       {m.brief && <section><h2>Brief</h2><p className="pre">{m.brief}</p></section>}
       <section>
         <h2>Documents{n > 0 && <span className="n">{n}</span>}</h2>
-        {n ? <ul className="hdocs">{m.doc_ids.slice(0, shown).map((id) => <DocRow key={id} id={id} />)}</ul> : <p className="sub">No documents you can see.</p>}
+        {n ? <ul className="hdocs">{m.documents ? m.documents.slice(0, shown).map((d) => <LabelledDoc key={d.id} d={d} />) : m.doc_ids.slice(0, shown).map((id) => <DocRow key={id} id={id} />)}</ul> : <p className="sub">No documents you can see.</p>}
         {n > shown && <Button variant="ghost" onClick={() => setShown(shown + PAGE)}>Show {Math.min(PAGE, n - shown)} more</Button>}
         {m.passages.length > 0 && <p className="sub">{m.passages.length} cited passage{m.passages.length > 1 ? "s" : ""} included for the agent.</p>}
         {m.withheld > 0 && <p className="sub">{m.withheld} source{m.withheld > 1 ? "s" : ""} withheld: you don't have access to {m.withheld > 1 ? "them" : "it"}.</p>}

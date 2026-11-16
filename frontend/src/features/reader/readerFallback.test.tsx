@@ -85,13 +85,13 @@ describe("sharing dialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
     expect(screen.getByText(/Shares only apply when visibility is “Shared”/)).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Visible to"), "shared");
-    await userEvent.type(screen.getByLabelText("Share with groups"), "/Math{Enter}");
-    await userEvent.type(screen.getByLabelText("Share with users"), "nope{Enter}");
-    expect(screen.getByText(/user id \(a UUID\)/)).toBeInTheDocument();
-    await userEvent.clear(screen.getByLabelText("Share with users"));
-    await userEvent.type(screen.getByLabelText("Share with users"), "11111111-1111-4111-8111-111111111111{Enter}");
+    await userEvent.type(screen.getByLabelText("Share with groups"), "Math");
+    await userEvent.click(await screen.findByRole("button", { name: "/Mathematics" }));
+    await userEvent.type(screen.getByLabelText("Share with users"), "an");
+    await userEvent.click(await screen.findByRole("button", { name: "ana" }));
+    expect(screen.getByRole("button", { name: "Remove ana" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(body).toEqual({ visibility: "shared", share_users: ["11111111-1111-4111-8111-111111111111"], share_groups: ["/Math"] }));
+    await waitFor(() => expect(body).toEqual({ visibility: "shared", share_users: ["11111111-1111-4111-8111-111111111111"], share_groups: ["/Mathematics"] }));
   });
 
   it("private sends no share lists; hidden for non-owners", async () => {
@@ -110,10 +110,10 @@ describe("sharing dialog", () => {
     await open();
     await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
     await userEvent.selectOptions(screen.getByLabelText("Visible to"), "shared");
-    expect(screen.getByText(/Existing shares aren't listed here/)).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Share with groups"), "/Math{Enter}");
+    await userEvent.type(screen.getByLabelText("Share with groups"), "Phys");
+    await userEvent.click(await screen.findByRole("button", { name: "/Physics" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(body).toEqual({ visibility: "shared", share_groups: ["/Math"] }));
+    await waitFor(() => expect(body).toEqual({ visibility: "shared", share_groups: ["/Physics"] }));
   });
 
   it("emptying a list on an already shared doc needs a second Save", async () => {

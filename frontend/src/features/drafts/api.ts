@@ -4,7 +4,6 @@ import type { Citations, DraftDetail, DraftSummary, SubmitBody, SubmitResult, Va
 
 const P = (id: string) => `/drafts/${seg(id)}`;
 const draftKey = (id: string) => ["draft", id];
-const reportKey = (id: string, kind: "validation" | "citations") => ["draft", id, kind];
 
 export const useDrafts = () => useQuery({ queryKey: ["drafts"], queryFn: async () => (await apiFetch<{ items: DraftSummary[] }>("/drafts")).items });
 export const useDraft = (id: string) => useQuery({ queryKey: draftKey(id), enabled: !!id, queryFn: () => apiFetch<DraftDetail>(P(id)), retry: false });
@@ -29,17 +28,25 @@ export const useSetCoauthors = (id: string) =>
   useDraftMutation(id, (b: { users: string[]; groups: string[] }) => apiFetch<{ coauthors: DraftSummary["coauthors"] }>(`${P(id)}/coauthors`, { method: "PUT", json: b }));
 export const useSubmitDraft = (id: string) => useDraftMutation(id, (b: SubmitBody) => apiFetch<SubmitResult>(`${P(id)}/submit`, { method: "POST", json: b }));
 
-/** Reports have no GET: they live in the query cache, filled by the POST responses. */
+/** GET /drafts/{id}/checks: the caller's stored reports for the latest version. The POSTs below write their result into the same cache entry. */
+interface Checks { version: number; validation: Validation | null; citations: Citations | null }
+const checksKey = (id: string) => ["draft", id, "checks"];
 export const useReport = <T extends Validation | Citations>(id: string, kind: "validation" | "citations") =>
-  useQuery<T | null>({ queryKey: reportKey(id, kind), queryFn: () => null, enabled: false, staleTime: Infinity, gcTime: Infinity });
-const useReportMutation = <T,>(id: string, kind: "validation" | "citations", path: string) =>
-  useDraftMutation(id, () => apiFetch<T>(`${P(id)}/${path}`, { method: "POST" }), (r, qc) => qc.setQueryData(reportKey(id, kind), r));
+  useQuery<Checks, Error, T | null>({
+    queryKey: checksKey(id), enabled: !!id, staleTime: Infinity, retry: false,
+    queryFn: () => apiFetch<Checks>(`${P(id)}/checks`),
+    select: (c) => (c[kind] as T | null) ?? null,
+  });
+const putReport = (qc: ReturnType<typeof useQueryClient>, id: string, kind: "validation" | "citations", r: Validation | Citations) =>
+  qc.setQueryData<Checks>(checksKey(id), (old) => ({ version: r.version, validation: null, citations: null, ...old, [kind]: r }));
+const useReportMutation = <T extends Validation | Citations>(id: string, kind: "validation" | "citations", path: string) =>
+  useDraftMutation(id, () => apiFetch<T>(`${P(id)}/${path}`, { method: "POST" }), (r, qc) => putReport(qc, id, kind, r));
 export const useValidateDraft = (id: string) => useReportMutation<Validation>(id, "validation", "validate");
 export const useCheckCitations = (id: string) => useReportMutation<Citations>(id, "citations", "check-citations");
 export const useAckCitation = (id: string) =>
   useDraftMutation(id, (v: { key: string; sentence_hash: string; reason?: string }) =>
     apiFetch<Citations>(`${P(id)}/citations/ack`, v.reason === undefined ? { method: "DELETE", json: v } : { method: "POST", json: v }),
-  (r, qc) => qc.setQueryData(reportKey(id, "citations"), r));
+  (r, qc) => putReport(qc, id, "citations", r));
 
 /** Synchronous build (up to ~120 s): returns the PDF bytes. */
 export async function buildDraftPdf(id: string): Promise<Blob> {

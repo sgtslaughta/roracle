@@ -1,11 +1,11 @@
-import type { ChatMessage, Citation, MessageStatus, Rating, RetrievedPassage } from "@/api/chat";
+import type { ChatMessage, Citation, ExcludedByLabel, MessageStatus, Rating, RetrievedPassage } from "@/api/chat";
 import type { Quote } from "./useAskContext";
-import type { PendingTurn } from "./askStore";
+import { excludedByMessage, type PendingTurn } from "./askStore";
 
 export interface AnswerData {
   text: string; citations: Citation[]; status: MessageStatus | "streaming"; detail?: string;
   /** server message id, set once the answer is saved */
-  id?: string; retrieved: RetrievedPassage[]; rating?: Rating | null;
+  id?: string; retrieved: RetrievedPassage[]; rating?: Rating | null; excluded?: ExcludedByLabel[];
 }
 /** `key` is positional so a pending turn keeps its identity when the saved messages replace it. */
 export interface TurnData { key: string; question: string; quote: string | null; answer: AnswerData | null }
@@ -27,7 +27,7 @@ function settledTurns(all: ChatMessage[], n: number): TurnData[] {
   for (const m of all.slice(0, n)) {
     if (m.role === "user") turns.push({ key: `t${turns.length}`, question: m.content, quote: quoteOf(m), answer: null });
     else if (turns.length && !turns[turns.length - 1].answer)
-      turns[turns.length - 1].answer = { text: m.content, citations: m.citations, status: m.status, id: m.id, retrieved: m.retrieved, rating: m.rating };
+      turns[turns.length - 1].answer = { text: m.content, citations: m.citations, status: m.status, id: m.id, retrieved: m.retrieved, rating: m.rating, excluded: excludedByMessage.get(m.id) };
   }
   memo = { all, n, turns };
   return turns;
@@ -40,6 +40,6 @@ export function buildTurns(all: ChatMessage[], pending: PendingTurn | undefined)
   const q: Quote | null = pending.selection;
   return [...turns, {
     key: `t${turns.length}`, question: pending.question, quote: q?.text ?? null,
-    answer: { text: pending.text, citations: pending.citations, retrieved: [], status: pending.status === "done" ? "complete" : pending.status, detail: pending.detail },
+    answer: { text: pending.text, citations: pending.citations, retrieved: [], excluded: pending.excluded, status: pending.status === "done" ? "complete" : pending.status, detail: pending.detail },
   }];
 }

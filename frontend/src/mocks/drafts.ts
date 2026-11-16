@@ -4,6 +4,7 @@ import type { Citations, DraftDetail, DraftSummary, Validation, VersionRef } fro
 import { DOCS } from "./docs";
 import { buildPdf } from "./pdf";
 import { state } from "./state";
+import { defaultLabel, labelJson } from "./labels";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const err = (status: number, detail: unknown) => HttpResponse.json({ detail }, { status });
@@ -44,6 +45,14 @@ function citations(d: MockDraft): Citations {
   ].map((i) => ({ ...i, acknowledged: d.acks.includes(`${i.key}:${i.sentence_hash}`) })) as Citations["items"];
   return { version: d.latest_version, checked_by: ME.id, ok: items.every((i) => i.status === "resolved" && (i.verdict === "supported" || i.acknowledged)), items };
 }
+
+/** Drafts are documents too: GET /documents/{id} for a draft id (label and owner only; the reader never opens these). */
+export const draftDocument = (id: string) => {
+  const d = find(id);
+  if (!d) return null;
+  return { id: d.id, title: d.title, authors: [], year: null, venue: null, org_unit: "", visibility: "private", label: labelJson(state.docLabels[id] ?? defaultLabel().id),
+    owner: d.owner, summary: null, stage: "searchable", tags: [], votes: { up: 0, down: 0, mine: 0 }, file_type: "MD", versions: [], page_count: 0, flag: null };
+};
 
 export const draftHandlers = [
   http.get(url("/drafts"), () => HttpResponse.json({ items: all().filter((d) => d.owner.id === ME.id || isAuthor(d)).map(summary) })),
@@ -101,6 +110,11 @@ export const draftHandlers = [
     if (!d) return err(404, "not found");
     if (!latest(d).content.trim()) return err(409, "draft has no content");
     return HttpResponse.json((d.reports.citations = citations(d)));
+  }),
+  http.get(url("/drafts/:id/checks"), ({ params }) => {
+    const d = find(params.id);
+    if (!d) return err(404, "not found");
+    return HttpResponse.json({ version: d.latest_version, validation: d.reports.validation ?? null, citations: d.reports.citations ?? null });
   }),
   http.post(url("/drafts/:id/citations/ack"), async ({ params, request }) => {
     const d = find(params.id);

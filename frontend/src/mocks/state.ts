@@ -9,6 +9,7 @@ import type { AppNotification } from "@/features/notifications/describe";
 import type { OpsState } from "./adminOps";
 import type { DataState } from "./adminData";
 import type { MockDraft } from "./drafts";
+import type { AdminLabel } from "@/api/types";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
@@ -46,6 +47,15 @@ export interface MockState {
   adminData: DataState | null;
   /** mocks/drafts.ts; seeded lazily there */
   drafts: MockDraft[] | null;
+  /** mocks/labels.ts; seeded lazily there */
+  labels: AdminLabel[] | null;
+  /** document id / note id -> label id overrides, deleted documents, transferred owners, collection rename/delete */
+  docLabels: Record<string, string>;
+  noteLabels: Record<string, string>;
+  deletedDocs: string[];
+  owners: Record<string, string>;
+  collRenamed: Record<string, string>;
+  collDeleted: string[];
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -74,6 +84,13 @@ const fresh = (): MockState => ({
   ops: null,
   adminData: null,
   drafts: null,
+  labels: null,
+  docLabels: {},
+  noteLabels: {},
+  deletedDocs: [],
+  owners: {},
+  collRenamed: {},
+  collDeleted: [],
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

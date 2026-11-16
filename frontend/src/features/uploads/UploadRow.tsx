@@ -6,6 +6,7 @@ import { humanBytes } from "@/lib/bytes";
 import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Lock, Pencil, Users } from "lucide-react";
 import type { UploadItem } from "@/api/types";
 import { cn } from "@/lib/utils";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
 import { NearDupPrompt } from "./NearDupPrompt";
 import { AddTitle, TitlePrompt } from "./TitlePrompt";
 import { pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
@@ -37,6 +38,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
       <span><span className={cn("pill", st)}><Pill aria-hidden />{PILL[st]}</span></span>
       <span className="vis">
         <Vis aria-hidden />{VIS_LABEL[u.visibility]}
+        {u.label && <SensitivityBadge label={u.label} />}
         <RowMenu label={`Actions for ${name}`} actions={[
           ...(st === "done" ? [{ label: "Open document", onSelect: () => openDoc(u.document_id) }] : []),
           copyAction("Copy filename", u.filename),

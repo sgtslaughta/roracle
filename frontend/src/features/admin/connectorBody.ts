@@ -4,7 +4,7 @@ import type { Connector, ConnectorBody, ConnectorKind, ConnectorVisibility } fro
 export const MASK = "***";
 
 export interface FormState {
-  name: string; kind: ConnectorKind; visibility: ConnectorVisibility; org_unit: string; schedule: string; enabled: boolean;
+  label_id: string; name: string; kind: ConnectorKind; visibility: ConnectorVisibility; org_unit: string; schedule: string; enabled: boolean;
   endpoint: string; bucket: string; prefix: string; region: string; access_key: string; secret_key: string;
   path: string; include: string[];
   start_urls: string[]; max_depth: string; max_pages: string; respect_robots: boolean; ingest_html: boolean;
@@ -16,7 +16,7 @@ const list = (v: unknown, d: string[]) => (Array.isArray(v) ? v.filter((x): x is
 export function initialForm(c?: Connector): FormState {
   const k = c?.config ?? {};
   return {
-    name: c?.name ?? "", kind: c?.kind ?? "s3", visibility: c?.visibility ?? "private", org_unit: c?.org_unit ?? "",
+    label_id: c?.label_id ?? "", name: c?.name ?? "", kind: c?.kind ?? "s3", visibility: c?.visibility ?? "private", org_unit: c?.org_unit ?? "",
     schedule: c?.schedule_minutes ? String(c.schedule_minutes) : "", enabled: c?.enabled ?? true,
     endpoint: s(k.endpoint), bucket: s(k.bucket), prefix: s(k.prefix), region: s(k.region, "us-east-1"), access_key: s(k.access_key), secret_key: s(k.secret_key),
     path: s(k.path), include: list(k.include, ["*"]),
@@ -64,5 +64,5 @@ export function buildBody(f: FormState, original: Connector | undefined, lists: 
     if (!intIn(f.max_pages, 1, 1000)) return { error: "Max pages must be 1 to 1000." };
     config = { start_urls: lists.start_urls, max_depth: Number(f.max_depth), max_pages: Number(f.max_pages), respect_robots: f.respect_robots, ingest_html: f.ingest_html };
   }
-  return { body: { name, ...(editing ? {} : { kind: f.kind }), config, visibility: f.visibility, org_unit, enabled: f.enabled, ...(!editing || scheduleOf(f) !== original.schedule_minutes ? { schedule_minutes: scheduleOf(f) } : {}) } };
+  return { body: { name, ...(editing ? {} : { kind: f.kind }), config, visibility: f.visibility, org_unit, enabled: f.enabled, ...(f.label_id !== (original?.label_id ?? "") ? { label_id: f.label_id || null } : {}), ...(!editing || scheduleOf(f) !== original.schedule_minutes ? { schedule_minutes: scheduleOf(f) } : {}) } };
 }

@@ -51,7 +51,7 @@ describe("admin shell", () => {
     expect(router.state.location.pathname).toBe("/admin/connectors");
     expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Admin" })).toBeInTheDocument();
     const sub = screen.getByRole("navigation", { name: "Admin sections" });
-    expect(within(sub).getAllByText(/./).map((e) => e.textContent)).toEqual(["Connectors", "Jobs", "Review", "Needs title", "Settings", "Tags", "Audit", "Users", "Stats", "Health"]);
+    expect(within(sub).getAllByText(/./).map((e) => e.textContent)).toEqual(["Connectors", "Jobs", "Review", "Needs title", "Settings", "Tags", "Labels", "Audit", "Users", "Stats", "Health"]);
     expect(within(sub).getByRole("link", { name: "Health" })).toBeInTheDocument();
   });
 });

@@ -25,7 +25,7 @@ export function UploadsPage() {
 
   const send = async (file: File, force = false, single = false) => {
     try {
-      await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined });
+      await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined, label_id: opts.label_id || undefined });
       toast(`${file.name} uploaded. Processing has started.`);
     } catch (e) {
       if (isDuplicate(e)) setDups((d) => [...d, file]);

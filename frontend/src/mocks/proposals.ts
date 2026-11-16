@@ -5,6 +5,7 @@ import type { ApproveBody, Proposal, ProposalPayload } from "@/features/proposal
 import { DOCS } from "./docs";
 import { addNote, anchorOn } from "./notes";
 import { state } from "./state";
+import { docLabel, labelJson } from "./labels";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const err = (status: number, detail: string) => HttpResponse.json({ detail }, { status });
@@ -32,6 +33,16 @@ function decide(id: string, edits: ApproveBody | null): Proposal | Response {
   const p = all().find((x) => x.id === id);
   if (!p) return err(404, "not found");
   if (p.status !== "pending") return err(409, `proposal already ${p.status}`);
+  if (p.kind === "label") {
+    const to = labelJson(p.payload.label_id ?? ""), from = docLabel(p.payload.document_id);
+    if (to.rank < from.rank) {
+      if (!state.admin) return err(403, "only admins can lower a label");
+      if (from.gates.reason_on_lower && (edits?.reason ?? "").trim().length < 3) return err(422, "a reason is required to lower this label");
+    }
+    state.docLabels[p.payload.document_id] = to.id;
+    Object.assign(p, { status: "approved", decided_at: new Date().toISOString() });
+    return p;
+  }
   if (edits?.body !== undefined && !(edits.body.length >= 1 && edits.body.length <= NOTE_BODY_MAX)) return err(422, "body: must be 1-10000 characters");
   const { document_id, parent_id, ...fields } = p.payload;
   if (parent_id && (edits?.visibility || edits?.shares)) return err(422, "replies follow the root");
@@ -62,6 +73,7 @@ export const proposalHandlers = [
     const text = await request.text();
     const r = decide(String(params.id), text ? (JSON.parse(text) as ApproveBody) : null);
     if (r instanceof Response) return r;
+    if (r.kind === "label") return HttpResponse.json({ status: "approved", kind: "label" });
     const note = state.notes!.find((n) => n.id === r.annotation_id)!;
     return HttpResponse.json(note);
   }),
