@@ -45,9 +45,9 @@ ROR_DOCLING_URL: {{ printf "http://%sdocling:%v" $pf .port | quote }}
 {{- with .Values.parsers.grobid }}{{ if .enabled }}
 ROR_GROBID_URL: {{ printf "http://%sgrobid:%v" $pf .port | quote }}
 {{- end }}{{ end }}
-{{- /* clamav_host is a bare host: backend scan() always uses port 3310 */}}
 {{- if .Values.parsers.clamav.enabled }}
 ROR_CLAMAV_HOST: {{ printf "%sclamav" $pf | quote }}
+ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- end }}
 {{- end -}}
 
@@ -87,6 +87,11 @@ ROR_CLAMAV_HOST: {{ printf "%sclamav" $pf | quote }}
 - {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
 - {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
 - {name: ROR_ELASTIC_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.elasticUrl | quote }}}}}
+{{- range $env, $key := dict "ROR_ELASTIC_USERNAME" $k.elasticUsername "ROR_ELASTIC_PASSWORD" $k.elasticPassword "ROR_DATABASE_PASSWORD" $k.databasePassword }}
+{{- if $key }}
+- {name: {{ $env }}, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $key | quote }}, optional: true}}}
+{{- end }}
+{{- end }}
 {{- if .Values.secrets.llmApiKeyEnabled }}
 - {name: ROR_LLM_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.llmApiKey | quote }}}}}
 {{- end }}
@@ -271,6 +276,10 @@ initContainers:
 {{- define "roracle.caEnv" -}}
 {{- if include "roracle.caEnabled" . }}
 {{- range $k := list "SSL_CERT_FILE" "REQUESTS_CA_BUNDLE" "AWS_CA_BUNDLE" }}
+- {name: {{ $k }}, value: {{ $.Values.caBundle.certifiPath | quote }}}
+{{- end }}
+{{- /* explicit paths for the ES client (ca_certs) and boto3 (verify): same merged bundle */}}
+{{- range $k := list "ROR_ELASTIC_CA_CERTS" "ROR_S3_CA_BUNDLE" }}
 - {name: {{ $k }}, value: {{ $.Values.caBundle.certifiPath | quote }}}
 {{- end }}
 {{- end }}

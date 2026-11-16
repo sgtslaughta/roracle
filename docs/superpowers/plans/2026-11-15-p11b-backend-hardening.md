@@ -4,7 +4,7 @@
 
 **Goal:** Close the P11a "backend gaps" (TLS/CA, credentials, migrate wait, readiness, metrics/OTel, ClamAV port, upload spooling), enforce rate limits, add retention + maintenance + embedding-model switch jobs, and fill the P7/P8/P10 web-contract gaps.
 
-**Architecture:** All new knobs are `ROR_*` settings in `config.py`, wired into the Helm chart (`deploy/helm/roracle` values + `_helpers.tpl`) and `docs/enterprise/{deployment-guide,operations-runbook,security}.md` in the same task. Periodic work copies the `connector_tick` pattern (self re-enqueueing job + `ensure_*` under an advisory lock). No migration is planned; if one is needed: `revision="0011_p11b"`, `down_revision="0009"`.
+**Architecture:** All new knobs are `ROR_*` settings in `config.py`, wired into the Helm chart (`deploy/helm/roracle` values + `_helpers.tpl`) and `docs/enterprise/{deployment-guide,operations-runbook,security}.md` in the same task. Periodic work copies the `connector_tick` pattern (self re-enqueueing job + `ensure_*` under an advisory lock). No migration is planned; if one is needed: `revision="0011_p11b"`, `down_revision="0009"` (controller re-chains onto P9 0010 at rebase).
 
 **Tech Stack:** P10 stack + `prometheus-client` (tiny, pure-python). OTel: optional extra `otel` (`opentelemetry-distro`, `opentelemetry-exporter-otlp-proto-http`, `opentelemetry-instrumentation-fastapi`, `-sqlalchemy`, `-httpx`), installed in the image, activated only via `opentelemetry-instrument` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 

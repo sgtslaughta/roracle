@@ -188,7 +188,7 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
 ## 11. Data-tier network and credential controls (Helm chart)
 
 - NetworkPolicies for bundled Postgres/ES/MinIO are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`; MinIO 9000 from app, CNPG, ES, peers and the MinIO operator. Egress is limited to peers, MinIO, DNS and (instance managers/MinIO) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
-- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) until the backend gains CA settings.
+- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) (`ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE`).
 - Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. MinIO users are limited to one bucket each (app, Postgres backups, ES snapshots); backup buckets are created with object lock and get a GOVERNANCE default retention (`minio.backupRetentionDays`).
 - Backups should be replicated to a separate site; a single-cluster MinIO does not protect against loss of the cluster.
 
@@ -258,9 +258,9 @@ with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate d
 
 ### TLS trust (interim)
 
-ES and MinIO issue TLS certificates from private CAs. The backend has no CA setting (P11b gap), so an init container concatenates certifi's
+ES and MinIO issue TLS certificates from private CAs. An init container concatenates certifi's
 bundle with the ECK CA, `kube-root-ca.crt` and `caBundle.extraSecrets` into an emptyDir mounted over certifi's `cacert.pem`
-(`caBundle.certifiPath`, coupled to the image's Python layout) and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE`. Verification stays on.
+(`caBundle.certifiPath`, coupled to the image's Python layout) and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE` (httpx/openai) plus `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3) to that file. Verification is always on; there is no `verify=False` path. Credentials can be supplied as `ROR_ELASTIC_USERNAME/PASSWORD` and `ROR_DATABASE_PASSWORD` secret keys instead of URL userinfo.
 
 ### ClamAV fail-closed configuration
 

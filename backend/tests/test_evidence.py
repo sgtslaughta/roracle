@@ -222,10 +222,10 @@ def test_scan_clean_infected(scan_env, db_session, monkeypatch, staged, store):
     from roracle.storage import stage
 
     store.put(stage(io.BytesIO(b"zip!"), 100), "x")
-    monkeypatch.setattr(ev, "scan", lambda stream, host: None)
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: None)
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "clean"
-    monkeypatch.setattr(ev, "scan", lambda stream, host: "Eicar")
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: "Eicar")
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "infected"
 
@@ -239,14 +239,14 @@ def test_scan_unscanned_without_clamav(scan_env, db_session):
 
 
 def test_scan_size_limit_failed_and_conn_error_propagates(scan_env, db_session, monkeypatch):
-    def boom(stream, host):
+    def boom(stream, host, port=3310):
         raise NonRetryable("too big")
 
     monkeypatch.setattr(ev, "scan", boom)
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "failed"
 
-    def down(stream, host):
+    def down(stream, host, port=3310):
         raise ConnectionError("x")
 
     monkeypatch.setattr(ev, "scan", down)
@@ -321,6 +321,6 @@ def test_scan_missing_object_failed_and_body_closed(scan_env, db_session, monkey
         def open(self, sha):
             return Body(b"x")
 
-    monkeypatch.setattr(ev, "scan", lambda stream, host: None)
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: None)
     ev.handle_evidence_scan(db_session, {"evidence_id": str(e.id)}, settings=s, store=Store2())
     assert e.scan_status == "clean" and closed

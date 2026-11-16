@@ -3,8 +3,10 @@ import json
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 # IPv6 prefixes that wrap or translate an IPv4 address (mapped, compat, NAT64, 6to4, Teredo).
 WRAPPERS = [
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ROR_")
 
     database_url: str
+    database_password: str = ""  # injected into database_url when set (keeps the secret out of the URL)
     s3_endpoint: str
     s3_bucket: str = "roracle"
     s3_access_key: str
@@ -43,6 +46,10 @@ class Settings(BaseSettings):
     pats_enabled: bool = True
     pat_max_identity_age_days: int = 30
     elastic_url: str = "http://localhost:9200"
+    elastic_username: str = ""
+    elastic_password: str = ""
+    elastic_ca_certs: str = ""  # path to a PEM CA bundle for ES TLS
+    s3_ca_bundle: str = ""  # path to a PEM CA bundle for S3 TLS
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "unused"
     llm_timeout_s: float = 120.0
@@ -58,6 +65,7 @@ class Settings(BaseSettings):
     gotenberg_timeout_s: float = 300.0
     max_rendition_bytes: int = 524288000
     clamav_host: str = ""
+    clamav_port: int = 3310
     rerank_url: str = ""
     rerank_model: str = ""
     near_dup_threshold: float = 0.85
@@ -86,6 +94,19 @@ class Settings(BaseSettings):
         list[str], NoDecode
     ] = []  # http crawl may reach these private ranges
     connector_http_timeout_s: int = 60  # per HTTP request (connect to last byte)
+
+    @model_validator(mode="after")
+    def _database_url(self):
+        try:
+            u = make_url(self.database_url)
+        except ArgumentError:  # not a URL (e.g. a placeholder): leave for the engine to reject
+            return self
+        if u.drivername in ("postgresql", "postgres"):
+            u = u.set(drivername="postgresql+psycopg")
+        if self.database_password:
+            u = u.set(password=self.database_password)
+        self.database_url = u.render_as_string(hide_password=False)
+        return self
 
     @property
     def chat_model_list(self) -> list[str]:

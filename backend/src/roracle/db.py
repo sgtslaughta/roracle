@@ -1,7 +1,9 @@
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 
 from fastapi import Request
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -17,3 +19,19 @@ def get_session(request: Request) -> Iterator[Session]:
         except Exception:
             session.rollback()
             raise
+
+
+def wait_for_db(url: str, seconds: float, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Retry connecting every 5 s until `seconds` elapse; SystemExit (non-zero) afterwards."""
+    engine = create_engine(url)
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            engine.connect().close()
+            return
+        except Exception as e:
+            if time.monotonic() >= deadline:
+                raise SystemExit(
+                    f"database {make_url(url).render_as_string()} not reachable after {seconds}s: {type(e).__name__}"
+                ) from e
+            sleep(5)

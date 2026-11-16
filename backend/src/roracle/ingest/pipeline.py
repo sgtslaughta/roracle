@@ -60,7 +60,7 @@ def docling_title(doc: dict) -> str | None:
 
 def _scan(session: Session, v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> None:
     if settings.clamav_host:
-        sig = scan(store.open(v.blob_sha256), settings.clamav_host)
+        sig = scan(store.open(v.blob_sha256), settings.clamav_host, port=settings.clamav_port)
         if sig:
             set_stage(sf, v.id, "rejected")
             if sig.startswith("Heuristics.Limits.Exceeded"):

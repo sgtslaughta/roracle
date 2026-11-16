@@ -12,6 +12,7 @@ def main(argv: list[str] | None = None) -> None:
     api.add_argument("--port", type=int, default=8000)
     sub.add_parser("worker", help="run the job worker")
     mig = sub.add_parser("migrate", help="alembic upgrade head")
+    mig.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="wait for the database first")
     mig.add_argument("--alembic-ini", default=str(DEFAULT_INI))
     args = p.parse_args(argv)
 
@@ -26,6 +27,12 @@ def main(argv: list[str] | None = None) -> None:
     else:
         from alembic import command
         from alembic.config import Config
+
+        from roracle import db
+        from roracle.config import get_settings
+
+        if args.wait:
+            db.wait_for_db(get_settings().database_url, args.wait)
 
         command.upgrade(Config(args.alembic_ini), "head")
 

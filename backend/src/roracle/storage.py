@@ -84,5 +84,6 @@ def blob_store_from(settings) -> BlobStore:
         aws_secret_access_key=settings.s3_secret_key,
         region_name="us-east-1",
         config=Config(s3={"addressing_style": "path"}),
+        verify=settings.s3_ca_bundle or None,
     )
     return BlobStore(client, settings.s3_bucket)

@@ -191,7 +191,7 @@ def handle_evidence_scan(session: Session, payload: dict, *, settings: Settings,
         return
     try:
         with closing(store.open(e.blob_sha256)) as body:
-            sig = scan(body, settings.clamav_host)
+            sig = scan(body, settings.clamav_host, port=settings.clamav_port)
     except NonRetryable:
         e.scan_status = "failed"
         return

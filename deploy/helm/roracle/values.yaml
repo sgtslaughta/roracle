@@ -17,6 +17,10 @@ secrets:
     s3SecretKey: ROR_S3_SECRET_KEY
     elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
     llmApiKey: ROR_LLM_API_KEY
+    # Optional (key may be absent/empty = not set). Use instead of userinfo in the URLs above.
+    elasticUsername: ROR_ELASTIC_USERNAME
+    elasticPassword: ROR_ELASTIC_PASSWORD
+    databasePassword: ROR_DATABASE_PASSWORD   # injected into ROR_DATABASE_URL (which then carries no password)
   llmApiKeyEnabled: true   # false if the inference endpoint needs no key (backend default "unused")
 
 # Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
@@ -269,7 +273,7 @@ parsers:
   clamav:
     enabled: true
     image: {repository: clamav/clamav, tag: "1.4", digest: "", pullPolicy: IfNotPresent}
-    port: 3310             # backend scan() hardcodes 3310: do not change
+    port: 3310             # exported as ROR_CLAMAV_PORT; the Service/container port follows it
     replicas: 2
     runAsUser: 100         # image default is root; "clamav" user (uid 100 / gid 101)
     runAsGroup: 101

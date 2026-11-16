@@ -96,9 +96,9 @@ NetworkPolicy values in 4.6, and (external modes) the endpoints. Missing require
 
 First-install ordering:
 
-| `postgres.mode` | Migrate hook (`python -m roracle migrate`, `backoffLimit: 0`) |
+| `postgres.mode` | Migrate hook (`python -m roracle migrate --wait 600`, `backoffLimit: 0`) |
 |---|---|
-| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it. api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
+| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
 | `external` | `pre-install,pre-upgrade`: failure blocks the release. |
 
 Post hooks run in weight order: `minio-policy` (-10, creates users, policies, retention) then ES snapshot repo + SLM (0, retries repository registration up to 5 min until the MinIO user exists). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
@@ -211,6 +211,12 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` | empty | Comma or JSON list of CIDRs (e.g. `10.20.0.0/16,fd12:3456::/32`) that HTTP crawl connectors may reach although they are not public addresses. Empty = only public internet hosts. Needed for air-gapped/internal crawling. Link-local (`169.254.0.0/16`, `fe80::/10`, cloud metadata), the IPv4 inside a mapped address when it is link-local/metadata, multicast and unspecified addresses are blocked even inside an allowed CIDR. IPv4-mapped answers (`::ffff:a.b.c.d`) follow the IPv4 rules (allowlist `10.0.0.0/8`, not a mapped CIDR). Any IPv6 CIDR overlapping a translator/tunnel range (`::/96`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `2001::/32`) must be a `/96` (e.g. `64:ff9b::/96` for NAT64); its low 32 bits are vetted as IPv4. The translator CIDR must be the translator's real `/96` prefix (RFC 6052 `/96` layout); NAT64 deployments using `/32`-`/64` layouts are unsupported. IPv6 loopback (`::1`) cannot be allowlisted: use IPv4 `127.0.0.0/8` for local test crawls. Invalid CIDR = startup error |
 | `ROR_CONNECTOR_HTTP_TIMEOUT_S` | `60` | Per-request cap for HTTP crawl connectors, connect to last byte (also bounded by the remaining run time) |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
+| `ROR_CLAMAV_PORT` | `3310` | clamd port (chart: `parsers.clamav.port`) |
+| `ROR_ELASTIC_USERNAME`, `ROR_ELASTIC_PASSWORD` | empty | ES basic auth, instead of URL userinfo (secret keys `secrets.keys.elasticUsername/elasticPassword`, optional) |
+| `ROR_DATABASE_PASSWORD` | empty | Injected into `ROR_DATABASE_URL` (URL-escaped for you); secret key `secrets.keys.databasePassword`, optional |
+| `ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE` | empty | PEM CA file paths for ES / S3 TLS; the chart sets both to the merged bundle when `caBundle` is active |
+
+`ROR_DATABASE_URL` accepts `postgresql://`, `postgres://` or `postgresql+psycopg://`; the driver is normalised.
 | `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down or 5xx = retryable (fails after retries are exhausted); invalid file = permanent failure |
 | `ROR_NEAR_DUP_SUMMARY_THRESHOLD` | `0.97` | Cosine similarity of document summary embeddings at or above which a new upload is parked for a near-duplicate decision (in addition to the MinHash `ROR_NEAR_DUP_THRESHOLD`); only visible documents are compared |
 | `ROR_MAX_RENDITION_BYTES` | `524288000` | Cap on the Gotenberg PDF rendition (streamed, aborted when exceeded); over = permanent failure. Page/size caps are enforced by Docling itself: set `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` on the docling-serve container (over-limit documents fail; the error is not distinguishable, so they surface as a conversion failure). The ingest Gotenberg is a dedicated, isolated instance with chromium routes disabled (office → PDF only); the later paper-drafts HTML/Markdown → PDF build (spec §8) needs its own separate Chromium-enabled instance. Deploy Gotenberg isolated: own namespace, deny-all egress NetworkPolicy (ingress from worker only), no secrets, read-only root FS, command `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s` |
@@ -245,10 +251,9 @@ P2b changed chunk embedding prompts (summary context): existing vectors stay usa
 
 Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bundled services:
 
-- TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, signed by the cluster CA) are on by default. The backend has no CA setting yet (P11b gap),
-  so api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`),
+- TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, signed by the cluster CA) are on by default. api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`),
   mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the backend image's Python layout; adjust if the image changes).
-  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `AWS_CA_BUNDLE` point at it. Replace with `ROR_*_CA` settings once P11b lands.
+  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `AWS_CA_BUNDLE` point at it (httpx/openai), as do `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3).
   Clusters whose CSR signer differs from the kube root CA (e.g. EKS) add the signer CA via `caBundle.extraSecrets`.
 - ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`); `ES_JAVA_OPTS` points at it.
   The post-install hook Job registers repository `roracle-s3` and SLM policy `roracle-daily`.
