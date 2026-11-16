@@ -81,6 +81,23 @@ def test_convert_other_4xx_retryable(code):
         convert(b"x", "a.pdf", "http://d", client=_client(status=code))
 
 
+def _fail_client(errors):
+    body = {"status": "failure", "document": {"json_content": None}, "errors": errors}
+    return httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
+
+
+def test_convert_docling_failure_is_nonretryable():
+    c = _fail_client([{"component_type": "user_input", "error_message": "File format not allowed"}])
+    with pytest.raises(NonRetryable, match="unsupported or invalid file"):
+        convert(b"x", "a.pdf", "http://d", client=c)
+
+
+def test_convert_docling_transient_failure_retries():
+    c = _fail_client([{"component_type": "pipeline", "error_message": "Connection timed out"}])
+    with pytest.raises(ValueError, match="unexpected response"):
+        convert(b"x", "a.pdf", "http://d", client=c)
+
+
 def test_convert_garbage_200_clear_error():
     c = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="nope")))
     with pytest.raises(ValueError, match="unexpected response"):

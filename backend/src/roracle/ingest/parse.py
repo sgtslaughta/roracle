@@ -22,6 +22,18 @@ def _check(r: httpx.Response, msg: str) -> None:
     r.raise_for_status()
 
 
+_TRANSIENT = ("timeout", "timed out", "connection", "unavailable", "temporar", "memory")
+
+
+def _permanent_failure(body) -> bool:
+    """docling answers 200 with status=failure for deterministic input problems (fake PDF, binary)."""
+    if not isinstance(body, dict) or body.get("status") != "failure":
+        return False
+    errs = [e for e in body.get("errors") or [] if isinstance(e, dict)]
+    text = " ".join(str(e.get("error_message", "")) for e in errs).lower()
+    return not any(t in text for t in _TRANSIENT)
+
+
 def convert(
     data: bytes,
     filename: str,
@@ -46,6 +58,8 @@ def convert(
     _check(r, "document could not be converted (unsupported or invalid file)")
     try:
         body = r.json()
+        if _permanent_failure(body):
+            raise NonRetryable("document could not be converted (unsupported or invalid file)")
         doc = body["document"]["json_content"]
         doc.get("texts")
     except (ValueError, KeyError, TypeError, AttributeError) as e:
