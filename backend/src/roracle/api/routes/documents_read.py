@@ -20,6 +20,7 @@ from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
 from roracle.labels.policy import Policy, label_json, require_exportable
+from roracle.labels.textgate import require_text
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.search_index import ALIAS, file_type
@@ -59,8 +60,13 @@ def _version(session: Session, p: Principal, doc_id: UUID, n: int) -> DocumentVe
     return v
 
 
-def _gate(session: Session, p: Principal, doc_id: UUID, route: str) -> None:
-    require_exportable(session, p, _doc(session, p, doc_id), route)  # gate (c); 404 came first
+def _gate(session: Session, p: Principal, doc_id: UUID, route: str, *, download: bool = True) -> None:
+    """Agents get no raw text of `exclude_llm` docs. Gate (c) blocks attachment downloads only: inline
+    viewing (reader) stays allowed. 404 came first, so naming the label leaks nothing."""
+    doc = _doc(session, p, doc_id)
+    require_text(session, p, doc)
+    if download:
+        require_exportable(session, p, doc, route)
 
 
 def _sharing(session: Session, doc: Document) -> dict:
@@ -111,6 +117,8 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
     meta = (latest.meta if latest else None) or {}
     owner = session.get(User, doc.owner_id)
     draft = session.get(Draft, doc_id)
+    lab = Policy.load(session).get(doc.label_id)
+    hide = p.via == "pat" and lab.exclude_llm  # agents: metadata yes, text no
     return {
         **(_sharing(session, doc) if _privileged(doc, p) else {}),
         "id": str(doc.id),
@@ -122,7 +130,8 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "visibility": doc.visibility,
         "label": label_json(Policy.load(session).get(doc.label_id)),
         "owner": {"id": str(doc.owner_id), "username": owner.username if owner else ""},
-        "summary": latest.summary if latest else None,
+        "summary": None if hide else (latest.summary if latest else None),
+        "withheld": lab.name if hide else None,
         "stage": latest.stage if latest else "uploaded",
         "tags": tags_of(session, doc_id),
         "votes": vote_summary(session, doc_id, p.user_id),
@@ -178,7 +187,7 @@ def download(
     inline: bool = False,
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
-    _gate(session, p, doc_id, "document.file")
+    _gate(session, p, doc_id, "document.file", download=False)
     try:
         body = store.open(v.blob_sha256)
     except ClientError as e:
@@ -192,6 +201,12 @@ def download(
     is_pdf = head == b"%PDF-" and (stored_pdf or ext == "pdf")
     ctype = "application/pdf" if is_pdf else _TYPES.get(ext, "application/octet-stream")
     kind = "inline" if inline and is_pdf and stored_pdf else "attachment"
+    if kind == "attachment":  # gate (c): only downloads are blocked, not in-app viewing
+        try:
+            _gate(session, p, doc_id, "document.file")
+        except BaseException:
+            body.close()
+            raise
     return StreamingResponse(
         _stream(body, head),
         media_type=ctype,
@@ -241,7 +256,7 @@ def pdf(
     store: Annotated[BlobStore, Depends(get_blob_store)],
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
-    _gate(session, p, doc_id, "document.pdf")
+    _gate(session, p, doc_id, "document.pdf", download=False)
     body, head, size = _open_pdf(store, v)
     stem = v.filename.rsplit(".", 1)[0] if "." in v.filename else v.filename
     return StreamingResponse(
@@ -271,7 +286,7 @@ def docling(
     es: Annotated[Elasticsearch, Depends(get_es)],
 ) -> dict:
     v = _version(session, p, doc_id, n)
-    _gate(session, p, doc_id, "document.docling")
+    _gate(session, p, doc_id, "document.docling", download=False)
     try:
         raw = json.loads(store.get_bytes(f"derived/{v.id}/docling.json"))
     except ClientError as e:

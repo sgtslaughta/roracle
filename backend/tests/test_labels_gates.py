@@ -135,20 +135,27 @@ def gated(client, as_ana, ana, admin, db_session, store):
     return d, v
 
 
-ROUTES = ("file", "pdf", "docling")
-
-
-@pytest.mark.parametrize("route", ROUTES)
-def test_non_owner_blocked_owner_admin_not(client, as_ana, as_bob, admin, gated, db_session, route):
+def test_file_download_blocked_non_owner_owner_admin_not(client, as_ana, as_bob, admin, gated, db_session):
     d, _ = gated
-    url = f"/documents/{d.id}/versions/1/{route}"
+    url = f"/documents/{d.id}/versions/1/file"
     r = client.get(url, headers=as_bob)
     assert r.status_code == 403 and r.json() == {"detail": "export blocked by label", "label": "NoExport"}
     audits = db_session.scalars(select(AuditLog).where(AuditLog.action == "label.export_blocked")).all()
-    assert audits[-1].target == str(d.id) and audits[-1].detail == {"route": f"document.{route}"}
+    assert audits[-1].target == str(d.id) and audits[-1].detail == {"route": "document.file"}
     assert "NoExport" not in json.dumps(audits[-1].detail)
-    assert client.get(url, headers=as_ana).status_code != 403
-    assert client.get(url, headers=admin).status_code != 403
+    assert client.get(url, headers=as_ana).status_code == 200
+    assert client.get(url, headers=admin).status_code == 200
+    assert client.get(url, params={"inline": "false"}, headers=as_bob).status_code == 403
+
+
+def test_inline_viewing_stays_allowed_for_non_owner(client, as_bob, gated, db_session):
+    """User decision: reader viewing (inline file, pdf, docling) is not a download."""
+    d, _ = gated
+    r = client.get(f"/documents/{d.id}/versions/1/file", params={"inline": "true"}, headers=as_bob)
+    assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
+    assert client.get(f"/documents/{d.id}/versions/1/pdf", headers=as_bob).status_code == 200
+    assert client.get(f"/documents/{d.id}/versions/1/docling", headers=as_bob).status_code != 403
+    assert not db_session.scalars(select(AuditLog).where(AuditLog.action == "label.export_blocked")).all()
 
 
 def test_invisible_is_404_not_403(client, as_bob, ana, admin, db_session):

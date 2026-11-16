@@ -21,9 +21,10 @@ from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat
 from roracle.chat.answer import build_messages, split_notes, stream_answer
-from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
+from roracle.chat.retrieve import Viewer, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
+from roracle.labels.textgate import replay_history
 from roracle.models import Chat, ChatMessage, DocumentVersion
 
 router = APIRouter(prefix="/chats")
@@ -32,6 +33,7 @@ Db = Annotated[Session, Depends(get_session)]
 Cfg = Annotated[Settings, Depends(get_app_settings)]
 HISTORY = 6
 NO_OPEN_DOCS = "No open documents to answer from. Open a document or switch scope."
+NO_READABLE = "None of the open documents can be used as a source for answers."
 SCOPE = r"^(all|open|collection:[0-9a-fA-F-]{36})$"
 
 
@@ -129,12 +131,13 @@ def post_message(
         .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(2 * HISTORY)
     )
-    history = list(reversed(list(recent)))
+    history = replay_history(session, p, list(reversed(list(recent))))
     canned = None
     passages = []
     excluded: list[dict] = []
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
-        canned, model = NO_OPEN_DOCS, None
+        excluded = open_blocked(session, p, body.viewer)
+        canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
     else:
         try:
             passages = retrieve_for_chat(

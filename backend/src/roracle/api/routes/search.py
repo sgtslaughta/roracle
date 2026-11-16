@@ -20,6 +20,7 @@ from roracle.citations import cited_by_counts
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import Policy, label_json
+from roracle.labels.textgate import gated_docs
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.notes.community import attach_notes
 from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
@@ -400,5 +401,9 @@ def search(
         h["label"] = label_json(policy.get(h["label"]))
     for f in out["facets"]["label"]:  # counts come from post-filtered rows only
         f["label"] = label_json(policy.get(f["value"]))
+    gated = gated_docs(session, p, [h["doc_id"] for h in out["results"]])
+    for h in out["results"]:  # agents: metadata and label, no passage text of exclude_llm docs
+        if h["doc_id"] in gated:
+            h["passages"], h["withheld"] = [], gated[h["doc_id"]]
     attach_notes(session, p, out["results"], notes)
     return out

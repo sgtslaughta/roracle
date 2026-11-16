@@ -20,6 +20,7 @@ from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, vi
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import Policy, export_exempt
+from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withheld_text, withhold_messages
 from roracle.models import AnswerRating, Chat, ChatMessage, ChatShare, Document, User
 from roracle.notes.community import readable_note_ids
 
@@ -86,6 +87,7 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
         )
     }
     owner = chat.owner_id == p.user_id
+    gated = gated_docs(session, p, doc_ids_of(seen))  # agents: no text derived from gated docs
     out = []
     for m in msgs:
         r = mine.get(m.id)
@@ -98,11 +100,15 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "model": m.model,
                 "created_at": m.created_at,
                 "viewer": m.viewer if m.role == "user" and owner else None,
-                "citations": recheck(m.citations, ok, drop=False, notes=notes),
-                "retrieved": recheck(m.retrieved, ok, drop=True, notes=notes),
+                "citations": strip_text(recheck(m.citations, ok, drop=False, notes=notes), gated),
+                "retrieved": strip_text(recheck(m.retrieved, ok, drop=True, notes=notes), gated),
                 "rating": {"value": r.value, "comment": r.comment} if r else None,
+                "_docs": doc_ids_of((*m.citations, *m.retrieved)),
             }
         )
+    withhold_messages(out, gated, lambda m: m["_docs"])
+    for m in out:
+        del m["_docs"]
     return out
 
 
@@ -224,7 +230,12 @@ def export_chat(chat_id: UUID, p: Who, session: Db) -> Response:
     if withheld:
         audit(session, p, "label.export_blocked", str(chat.id), {"route": "chat.export"})
     for m in msgs:
-        lines += [f"**{'You' if m['role'] == 'user' else 'rOracle'}:** {m['content']}", ""]
+        content = m["content"]
+        if m["role"] == "assistant":  # answer text derived from export-blocked docs is withheld too
+            hit = sorted(str(c.get("doc_id")) for c in m["citations"] if str(c.get("doc_id")) in withheld)
+            if hit:
+                content = withheld_text(withheld[hit[0]])
+        lines += [f"**{'You' if m['role'] == 'user' else 'rOracle'}:** {content}", ""]
         if m["role"] == "assistant" and m["citations"]:
             lines += ["References", "", *(_reference(c, withheld) for c in m["citations"]), ""]
     return Response(

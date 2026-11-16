@@ -109,12 +109,22 @@ def _live(session: Session, p: Principal, doc_ids: set[str], llm: bool = True) -
     return {str(v.document_id): v for v in rows}
 
 
-def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
-    """True if the caller can see at least one open tab or the selected doc (scope=open needs this)."""
+def _open_ids(viewer: Viewer) -> set[str]:
     ids = {_uid(t.doc_id) for t in viewer.tabs} | (
         {_uid(viewer.selection.doc_id)} if viewer.selection else set()
     )
-    return bool(_live(session, p, {i for i in ids if i}, llm=False))
+    return {i for i in ids if i}
+
+
+def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
+    """True if the caller can see at least one open tab or the selected doc that gate (a) lets reach an LLM
+    (scope=open needs this; otherwise the answer is canned, no LLM call)."""
+    return bool(_live(session, p, _open_ids(viewer)))
+
+
+def open_blocked(session: Session, p: Principal, viewer: Viewer) -> list[dict]:
+    """[{doc_id, label}] of open tabs/selection dropped by gate (a)."""
+    return _blocked(session, p, _open_ids(viewer))
 
 
 def _search(

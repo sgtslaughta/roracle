@@ -19,6 +19,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
 from roracle.labels.policy import Policy
+from roracle.labels.textgate import gated_docs, withheld_text
 from roracle.mcp import tools_notes, tools_writing
 from roracle.mcp.auth import current, dep, open_session
 from roracle.mcp.tools_write import digest, register
@@ -101,6 +102,7 @@ def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], cont
     ok = visible_versions(session, p, srcs)  # R19: Postgres is the authority
     srcs = [s for s in srcs if (s["doc_id"], s["version_id"]) in ok]
     srcs.sort(key=lambda s: (s["version_id"], _split(s["chunk_id"])[1]))
+    gated = gated_docs(session, p, {s["doc_id"] for s in srcs})  # exclude_llm: no text for agents
     return [
         {
             "chunk_id": s["chunk_id"],
@@ -109,7 +111,7 @@ def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], cont
             "title": s.get("title"),
             "pages": s.get("pages") or [],
             "bboxes": s.get("bboxes") or [],
-            "text": s["text"],
+            "text": withheld_text(gated[s["doc_id"]]) if s["doc_id"] in gated else s["text"],
         }
         for s in srcs
     ]
@@ -122,6 +124,7 @@ def _slim(hit: dict) -> dict:
             {"chunk_id": x["chunk_id"], "text": x["text"], "page": x["page"]} for x in hit["passages"]
         ],
         "notes": hit.get("notes", []),
+        **({"withheld": hit["withheld"]} if hit.get("withheld") else {}),
     }
 
 

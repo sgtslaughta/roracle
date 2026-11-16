@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from roracle.access import readable_documents
+from roracle.access import agent_visible, readable_documents
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Document, Notification
@@ -17,6 +17,27 @@ router = APIRouter()
 class ReadBody(BaseModel):
     ids: list[int] = Field(default_factory=list, max_length=1000)
     all: bool = False
+
+
+_DOC_KEYS = ("document_id", "draft_id", "match_document_id")
+
+
+def _agent_hidden(session: Session, p: Principal, page: list[Notification]) -> set[int]:
+    """PAT callers: ids of notifications that name a document hidden from agents (titles/ids would leak)."""
+    if p.via != "pat":
+        return set()
+    refs: dict[int, set[UUID]] = {}
+    for n in page:
+        for k in _DOC_KEYS:
+            try:
+                refs.setdefault(n.id, set()).add(UUID(str(n.payload[k])))
+            except (KeyError, ValueError):
+                pass
+    ids = set().union(*refs.values()) if refs else set()
+    if not ids:
+        return set()
+    bad = set(session.scalars(select(Document.id).where(Document.id.in_(ids), ~agent_visible())))
+    return {i for i, docs in refs.items() if docs & bad}
 
 
 @router.get("/me/notifications")
@@ -71,13 +92,15 @@ def list_notifications(
             "match_title": title,
         }
 
+    hidden = _agent_hidden(session, p, page)
+
     return {
         "max_id": max_id,
         "items": [
             {
                 "id": n.id,
                 "kind": n.kind,
-                "payload": payload(n),
+                "payload": {"withheld": True} if n.id in hidden else payload(n),
                 "created_at": n.created_at,
                 "read_at": n.read_at,
             }

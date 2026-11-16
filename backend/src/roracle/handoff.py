@@ -17,6 +17,7 @@ from roracle.access import agent_visible, org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
+from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 
 # R9: note citations fail closed in handoffs (recheck notes=frozenset()).
@@ -87,6 +88,7 @@ def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
                 [c for c in m.citations if isinstance(c, dict)], ok, drop=False, notes=frozenset()
             ),
             "created_at": _iso(m.created_at),
+            "doc_ids": sorted(doc_ids_of((*m.citations, *m.retrieved))),  # label withholding at read time
         }
         for m in msgs
     ]
@@ -231,6 +233,7 @@ def view(session: Session, p: Principal, h: Handoff) -> dict:
     shown = _visible_doc_ids(session, p, h.doc_ids)
     ok = visible_versions(session, p, h.passages, agent_gate=True)
     passages = recheck(h.passages, ok, drop=True, notes=frozenset())
+    passages = strip_text(passages, gated_docs(session, p, doc_ids_of(passages)))
     every = set(map(str, h.doc_ids)) | {str(x.get("doc_id")) for x in h.passages}
     mine = h.creator_id == p.user_id
     src = h.source
@@ -289,10 +292,22 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
     if part == "transcript":
         cites = [c for m in items for c in m.get("citations", [])]
         ok = visible_versions(session, p, cites, agent_gate=True)
+        gated = gated_docs(
+            session, p, {d for m in items for d in (*m.get("doc_ids", []), *doc_ids_of(cites))}
+        )
         items = [
-            {**m, "citations": recheck(m.get("citations", []), ok, drop=False, notes=frozenset())}
+            {
+                **{k: v for k, v in m.items() if k != "doc_ids"},
+                "citations": strip_text(
+                    recheck(m.get("citations", []), ok, drop=False, notes=frozenset()), gated
+                ),
+                "_docs": {*m.get("doc_ids", []), *doc_ids_of(m.get("citations", []))},
+            }
             for m in items
         ]
+        withhold_messages(items, gated, lambda m: m["_docs"])
+        for m in items:
+            del m["_docs"]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
     return {"part": part, "items": items, "page": page, "pages": pages}
 

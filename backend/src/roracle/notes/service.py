@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from roracle.auth import Principal
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.service import note_label_for_create
+from roracle.labels.textgate import withheld_text
 from roracle.models import (
     Annotation,
     AnnotationShare,
@@ -182,6 +183,13 @@ def delete(session: Session, p: Principal, note_id: UUID) -> None:
     session.flush()
 
 
+def _anchor(anchor: dict | None, hide: bool) -> dict | None:
+    """Anchors quote document text: agents keep only the non-text fields when the note is withheld."""
+    if not hide or not anchor:
+        return anchor
+    return {k: v for k, v in anchor.items() if k not in ("quote", "prefix", "suffix")}
+
+
 def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dict]:
     if not notes:
         return []
@@ -225,6 +233,8 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
     for n in notes:
         v = votes.get(n.id, {"up": 0, "down": 0, "mine": 0})
         u = users.get(n.author_id)
+        eff = policy.effective(doc_label[n.document_id], n.label_id)
+        hide = p.via == "pat" and eff.exclude_llm  # agents: the note exists, its text does not
         out.append(
             {
                 "id": str(n.id),
@@ -234,8 +244,8 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
                 "parent_id": str(n.parent_id) if n.parent_id else None,
                 "author": {"id": str(n.author_id), "username": u.username if u else ""},
                 "kind": n.kind,
-                "body": n.body,
-                "anchor": n.anchor,
+                "body": withheld_text(eff.name) if hide else n.body,
+                "anchor": _anchor(n.anchor, hide),
                 "relation": {"type": n.relation_type, "target_document_id": str(n.target_document_id)}
                 if n.relation_type
                 else None,
@@ -243,7 +253,7 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
                 "shares": sorted(shares[n.id], key=lambda s: (s["kind"], s["principal"])),
                 "status": n.status,
                 "label": label_json(policy.get(n.label_id)) if n.label_id else None,
-                "effective_label": label_json(policy.effective(doc_label[n.document_id], n.label_id)),
+                "effective_label": label_json(eff),
                 "agent_assisted": n.agent_assisted,
                 "may_not_apply_to_version": n.stale_version,
                 "votes": {**v, "score": vote_ratio(v["up"], v["down"])},
