@@ -114,5 +114,11 @@ data:
         - status: {usage: LABEL, description: Job status}
         - count: {usage: GAUGE, description: Jobs per kind and status}
         - oldest_queued_seconds: {usage: GAUGE, description: Age of the oldest queued job in seconds}
+    roracle_archiver:
+      query: |
+        SELECT COALESCE(EXTRACT(EPOCH FROM now() - last_archived_time), 0) AS seconds_since_last_archive FROM pg_stat_archiver
+      target_databases: [postgres]
+      metrics:
+        - seconds_since_last_archive: {usage: GAUGE, description: Seconds since the last WAL segment was archived (primary only)}
 {{- end }}
 {{- end }}

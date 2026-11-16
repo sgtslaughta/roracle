@@ -1,0 +1,36 @@
+# helm upgrade -i loki grafana/loki -n observability --create-namespace -f loki.values.yaml
+# Single-binary, filesystem index, chunks in MinIO. Credentials come from an existing Secret (never inline):
+#   kubectl -n observability create secret generic loki-s3 --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=...
+global:
+  image:
+    registry: MIRROR.example.com
+deploymentMode: SingleBinary
+loki:
+  auth_enabled: false
+  commonConfig: {replication_factor: 1}
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index: {prefix: index_, period: 24h}
+  storage:
+    type: s3
+    bucketNames: {chunks: loki-chunks, ruler: loki-ruler, admin: loki-admin}
+    s3:
+      endpoint: http://roracle-minio.roracle.svc:80   # adjust to the MinIO service
+      region: us-east-1
+      s3ForcePathStyle: true
+      insecure: true
+  limits_config: {retention_period: 30d}
+singleBinary:
+  replicas: 1
+  extraEnvFrom:
+    - secretRef: {name: loki-s3}
+  persistence: {size: 20Gi}
+backend: {replicas: 0}
+read: {replicas: 0}
+write: {replicas: 0}
+chunksCache: {enabled: false}
+resultsCache: {enabled: false}

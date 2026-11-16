@@ -44,6 +44,8 @@ serviceAccount:
 observability:
   otel:
     endpoint: ""           # e.g. http://otel-collector.observability:4317
+  # Grafana sidecar-provisioned dashboard (ingress-nginx + CNPG metrics). `label` = sidecar label key.
+  grafanaDashboard: {enabled: false, label: grafana_dashboard}
 
 podSecurityContext:
   runAsNonRoot: true

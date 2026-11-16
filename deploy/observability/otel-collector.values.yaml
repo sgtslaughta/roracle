@@ -1,0 +1,24 @@
+# helm upgrade -i otel open-telemetry/opentelemetry-collector -n observability -f otel-collector.values.yaml
+# NOTE: the roracle backend is not instrumented yet (P11b), so nothing sends OTLP until it is.
+# Point roracle at it with observability.otel.endpoint=http://otel-opentelemetry-collector.observability:4317
+image: {repository: MIRROR.example.com/otel/opentelemetry-collector-contrib}
+mode: deployment
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: {endpoint: 0.0.0.0:4317}
+        http: {endpoint: 0.0.0.0:4318}
+  processors:
+    memory_limiter: {check_interval: 1s, limit_percentage: 75, spike_limit_percentage: 20}
+    batch: {}
+  exporters:
+    prometheusremotewrite:
+      endpoint: http://kps-kube-prometheus-stack-prometheus.monitoring:9090/api/v1/write
+    otlphttp/loki:
+      endpoint: http://loki-gateway.observability.svc/otlp
+  service:
+    pipelines:
+      metrics: {receivers: [otlp], processors: [memory_limiter, batch], exporters: [prometheusremotewrite]}
+      logs: {receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlphttp/loki]}
+      traces: null   # no trace backend bundled

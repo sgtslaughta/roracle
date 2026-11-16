@@ -1,0 +1,12 @@
+{{- if .Values.observability.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "roracle.fullname" . }}-dashboard
+  labels:
+    {{- include "roracle.labels" . | nindent 4 }}
+    {{ .Values.observability.grafanaDashboard.label | default "grafana_dashboard" }}: "1"
+data:
+  roracle.json: |
+{{ .Files.Get "dashboards/roracle.json" | replace "__INGRESS__" (include "roracle.fullname" .) | indent 4 }}
+{{- end }}
