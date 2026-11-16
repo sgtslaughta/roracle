@@ -16,7 +16,7 @@ from uuid import UUID
 
 from botocore.exceptions import ClientError
 from elasticsearch import Elasticsearch, NotFoundError
-from sqlalchemy import delete, exists, func, select, text, update
+from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
@@ -74,7 +74,10 @@ def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UU
         session.scalars(
             select(Evidence.blob_sha256)
             .join(Annotation, Annotation.id == Evidence.annotation_id)
-            .where(Annotation.document_id == doc_id, Evidence.blob_sha256.is_not(None))
+            .where(
+                or_(Annotation.document_id == doc_id, Annotation.target_document_id == doc_id),
+                Evidence.blob_sha256.is_not(None),
+            )
         )
     )
     for sha in set(shas):

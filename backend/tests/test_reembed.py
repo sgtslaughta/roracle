@@ -273,6 +273,7 @@ def test_older_version_chunks_not_latest_after_copy(
         filename="b.pdf",
         content_type="x",
         size=1,
+        stage="searchable",
     )
     db_session.add(v2)
     db_session.commit()
@@ -495,3 +496,18 @@ def test_unguarded_ensure_index_leaves_existing_read_alias(es):
     }
     search_index.ensure_index(es, "b", 2, name="chunks-b-1")
     assert es.aliases["chunks"] == {SRC} and es.aliases["chunks-all"] == {SRC, "chunks-b-1"}
+
+
+def test_pg_state_newest_counts_only_searchable(session_factory, db_session, document, blob):
+    for n, stage in enumerate(["searchable", "rejected", "searchable", "chunked"], 1):
+        db_session.add(
+            DocumentVersion(
+                document_id=document.id, version=n, blob_sha256=blob.sha256, filename="a",
+                content_type="x", size=1, stage=stage,
+            )
+        )  # fmt: skip
+    db_session.commit()
+    _, _, newest = reembed._pg_state(
+        session_factory, [{"doc_id": str(document.id), "version_id": str(uuid.uuid4())}]
+    )
+    assert newest == {str(document.id): 3}

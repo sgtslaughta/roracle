@@ -385,3 +385,22 @@ def test_periodic_reschedule_survives_failed_step_and_ensure(db_session, user, s
         db_session, {"op": "all"}, settings=settings(), store=fake_store(), es=FakeEs()
     )
     assert any(j.payload == {"op": "all"} for j in jobs(db_session, "maintenance"))
+
+
+def test_purge_decrements_evidence_on_relation_notes_from_other_docs(db_session, user, store):
+    target = make_version(db_session, store, user)
+    other = make_version(db_session, store, user)
+    note = Annotation(
+        id=uuid.uuid4(), document_id=other.document_id, version_id=other.id, author_id=user.id,
+        kind="relation", body="x", visibility="everyone", relation_type="extends",
+        target_document_id=target.document_id,
+    )  # fmt: skip
+    db_session.add(note)
+    db_session.add(Blob(sha256="5" * 64, size=1, refcount=1))
+    db_session.flush()
+    db_session.add(
+        Evidence(annotation_id=note.id, creator_id=user.id, stance="supports", crate={}, blob_sha256="5" * 64)
+    )
+    trash(db_session, db_session.get(Document, target.document_id), 40)
+    maintenance.purge(db_session, FakeEs(), settings(), store)
+    assert db_session.get(Blob, "5" * 64).refcount == 0

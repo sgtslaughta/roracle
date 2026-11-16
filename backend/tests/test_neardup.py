@@ -110,7 +110,7 @@ def test_new_version(db_session, client, as_ana):
     assert r.status_code == 200, r.text
     db_session.refresh(mine)
     db_session.refresh(match)
-    assert (mine.document_id, mine.version, mine.is_latest, mine.stage) == (md.id, 2, True, "deduped")
+    assert (mine.document_id, mine.version, mine.is_latest, mine.stage) == (md.id, 2, False, "deduped")
     # the old version stays latest until the new one is searchable (the index step demotes it)
     assert mine.near_dup_of == match.id and match.is_latest is True
     assert mine.ingest_attempts == 0

@@ -72,6 +72,9 @@ def list_drafts(p: Who, session: Db) -> dict:
             .group_by(DraftVersion.document_id)
         ).all()
     )
+    session.scalars(
+        select(User).where(User.id.in_({doc.owner_id for _, doc in rows}))
+    )  # fills the identity map
     return {"items": [svc.summary(session, d, doc, tops.get(doc.id, 0)) for d, doc in rows]}
 
 

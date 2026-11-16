@@ -95,7 +95,7 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == target.id)
     )
     old_doc_id = v.document_id
-    v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, True
+    v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, False
     session.flush()
     others = session.scalar(
         select(func.count()).select_from(DocumentVersion).where(DocumentVersion.document_id == old_doc_id)

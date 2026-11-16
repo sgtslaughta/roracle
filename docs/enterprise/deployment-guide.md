@@ -207,6 +207,7 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_EMBED_MODEL`, `ROR_RERANK_MODEL` | `embeddinggemma-300m` | Defaults; admins override in UI |
 | `ROR_CHAT_MODELS` | `qwen2.5:14b` | Comma-separated allowlist of chat models; the first is the default |
 | `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
+| `ROR_SEARCH_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of library search (BM25 hits are not floored); `0` disables. Measured on embeddinggemma: relevant hits 0.38-0.73, unrelated <=0.28. Scores are model-specific: re-tune after changing the embedding model |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_CHAT_NOTE_MIN_UPVOTES`, `ROR_CHAT_NOTE_MIN_RATIO` | `3`, `0.6` | Community notes by other users reach an LLM (chat, MCP `ask`/`search`) only with at least this many upvotes and a vote ratio above the floor (the asker's own notes always qualify); prompt-injection gate |
 | `ROR_RERANK_DEPTH` | `50` | Top-N passages sent to the reranker (10-100) |

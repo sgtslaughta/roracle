@@ -148,7 +148,9 @@ def _index(
     acl = search_index.acl_fields(session, d)
     session.refresh(v)
     newest = session.scalar(
-        select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == d.id)
+        select(func.max(DocumentVersion.version)).where(
+            DocumentVersion.document_id == d.id, DocumentVersion.stage == "searchable"
+        )
     )
     tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it

@@ -104,8 +104,12 @@ def _demote(s: Session, doc_id: UUID, version_id: UUID) -> None:
         .where(DocumentVersion.document_id == doc_id, DocumentVersion.version < number)
         .values(is_latest=False)
     )
-    # A newer version may have moved in meanwhile: it keeps the flag, this one then is not latest.
-    newer = exists().where(DocumentVersion.document_id == doc_id, DocumentVersion.version > number)
+    # Only a newer SEARCHABLE version outranks this one (a merely uploaded vN has no flag to keep).
+    newer = exists().where(
+        DocumentVersion.document_id == doc_id,
+        DocumentVersion.version > number,
+        DocumentVersion.stage == "searchable",
+    )
     s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
 
 

@@ -128,6 +128,8 @@ The bucket lives in each API replica's memory (idle buckets are evicted after 10
 effective cluster-wide limit is about N x the configured value, and a restart resets it. For a hard global cap or
 IP-level protection also set limits on the ingress (e.g. nginx `limit-rps`/`limit-connections`).
 
+**Input guard** (`api/input_guard.py`, ASGI middleware before routing). NUL characters (raw, `%00` or JSON `\u0000`) in the query string or a JSON body answer `422` (Postgres cannot store them). JSON bodies are capped at 3 MiB (`413`; the largest legitimate body is a 2 MiB draft); `/mcp` (own cap) and multipart/octet-stream uploads are not buffered by it.
+
 **Upload path.** `POST /documents` and evidence uploads are streamed from the request body into object storage
 (S3 multipart, 8 MiB parts, SHA-256 computed on the fly) under `tmp/<uuid>`; nothing is spooled to the pod's disk.
 The size cap is enforced while streaming (413, upload aborted); after authorisation, quota and duplicate checks the

@@ -106,12 +106,18 @@ only meaningful within one embedding model.
 Until each version is searchable again it is absent from search (non-owners lose visibility
 first-hand; owners only via the document list). Do not use on a production corpus.
 
+### Delete or transfer a document
+`DELETE /documents/{id}` (owner or admin, `204`) soft-deletes: PG hides it at once, ES chunks are removed best effort
+(the retention purge below finishes the job), an `acl_sync` is queued and the owner is notified when an admin deletes.
+`POST /documents/{id}/transfer {"user_id": ...}` (owner or admin) changes the owner and re-syncs ES ACLs; both are
+audited (`document.delete`, `document.transfer`). Drafts use `/drafts` instead (`409`).
+
 ### Maintenance: retention purge, blob GC, tag reconcile (`maintenance` job)
 A self-rescheduling `maintenance` job (every `ROR_MAINTENANCE_INTERVAL_S`, default daily; created at worker start)
 runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|reconcile}` (admin JWT, audited,
 `202 {job_id}`; follow it in `GET /admin/jobs?kind=maintenance`).
 - **purge**: hard-deletes documents soft-deleted more than `ROR_RETENTION_DELETED_DAYS` days ago (ES chunks by
-  `doc_id`, versions, notes/evidence rows, shares) in batches of 100 (a full batch queues a follow-up job).
+  `doc_id`, versions, notes/evidence rows including relation notes from other documents targeting it, shares) in batches of 100 (a full batch queues a follow-up job).
   `0` (default) = off: the endpoint then does nothing. Also deletes the version's `derived/<version_id>/` objects
   (docling JSON, rendition). Irreversible; restore from backup only. On a versioned bucket, noncurrent versions
   of purged `blobs/` and `derived/` objects remain until a noncurrent-expiry rule removes them (the chart

@@ -82,12 +82,13 @@ def test_get_session_uses_app_state_factory(settings):
     gen.close()
 
 
-def _versions(db_session, document, blob, flags):
+def _versions(db_session, document, blob, flags, stages=None):
     ids = []
     for n, latest in enumerate(flags, 1):
         v = DocumentVersion(
             document_id=document.id, version=n, blob_sha256=blob.sha256, filename="a",
             content_type="x", size=1, is_latest=latest,
+            stage=(stages[n - 1] if stages else "searchable"),
         )  # fmt: skip
         db_session.add(v)
         db_session.flush()
@@ -128,3 +129,18 @@ def test_promotion_demotes_and_marks_searchable_atomically(
     db_session.expire_all()
     assert _flags(db_session, ids) == [False, True]
     assert db_session.get(DocumentVersion, ids[1]).stage == "searchable"
+
+
+def test_demote_ignores_newer_unfinished_version(session_factory, db_session, document, blob):
+    # v1 live, v3 only uploaded, v2 finishes: v2 must become the latest (v3 has no flag to keep)
+    ids = _versions(db_session, document, blob, [True, False, False], ["searchable", "chunked", "uploaded"])
+    demote_older_versions(session_factory, document.id, ids[1])
+    assert _flags(db_session, ids) == [False, True, False]
+
+
+def test_demote_then_newer_fails_keeps_latest(session_factory, db_session, document, blob):
+    ids = _versions(db_session, document, blob, [True, False, False], ["searchable", "chunked", "uploaded"])
+    demote_older_versions(session_factory, document.id, ids[1])
+    db_session.execute(update(DocumentVersion).where(DocumentVersion.id == ids[2]).values(stage="rejected"))
+    db_session.commit()
+    assert _flags(db_session, ids) == [False, True, False]

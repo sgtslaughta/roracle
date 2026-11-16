@@ -136,7 +136,7 @@ def _uuid(v: str):
 
 
 def _pg_state(sf, srcs: list[dict]) -> tuple[dict, set, dict]:
-    """Postgres (authority), read fresh: per-doc (acl+tags, title) or None, live version ids, max version/doc."""
+    """Postgres (authority), read fresh: per-doc (acl+tags, title) or None, live version ids, max searchable version/doc."""
     dids = {x["doc_id"] for x in srcs}
     acls = {d: read_acl(sf, u) if (u := _uuid(d)) else None for d in dids}
     vids = {u for x in srcs if (u := _uuid(x["version_id"]))}
@@ -145,7 +145,10 @@ def _pg_state(sf, srcs: list[dict]) -> tuple[dict, set, dict]:
         newest = dict(
             s.execute(
                 select(DocumentVersion.document_id, func.max(DocumentVersion.version))
-                .where(DocumentVersion.document_id.in_([u for d in dids if (u := _uuid(d))]))
+                .where(
+                    DocumentVersion.document_id.in_([u for d in dids if (u := _uuid(d))]),
+                    DocumentVersion.stage == "searchable",
+                )
                 .group_by(DocumentVersion.document_id)
             ).all()
         )
