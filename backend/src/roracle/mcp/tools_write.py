@@ -23,7 +23,7 @@ from roracle import handoff
 from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
-from roracle.chat.answer import build_messages, citation_item, parse_citations
+from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
 from roracle.mcp.auth import dep
 
@@ -64,10 +64,11 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             pins=[],
             excludes=[],
         )
+        passages, notes = split_notes(passages)
         if not passages:
             return {"answer": NO_PASSAGES, "citations": []}
         r = llm.chat.completions.create(
-            model=s.chat_model_list[0], messages=build_messages(question, passages, [], 0)
+            model=s.chat_model_list[0], messages=build_messages(question, passages, [], 0, notes)
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from None

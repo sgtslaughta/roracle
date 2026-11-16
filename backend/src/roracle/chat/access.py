@@ -67,11 +67,19 @@ def visible_versions(session: Session, p: Principal, items: list[dict]) -> set[t
     return {(str(d), str(v)) for d, v in rows}
 
 
-def recheck(items: list[dict], ok: set[tuple[str, str]], *, drop: bool) -> list[dict]:
-    """Visible -> item + available:true; invisible -> {"n", "available": false} (or dropped)."""
+def note_ids(items: list[dict]) -> list[str]:
+    return [x["note_id"] for x in items if isinstance(x, dict) and x.get("note_id")]
+
+
+def recheck(
+    items: list[dict], ok: set[tuple[str, str]], *, drop: bool, notes: set[str] | frozenset[str] = frozenset()
+) -> list[dict]:
+    """Visible -> item + available:true; invisible -> {"n", "available": false} (or dropped).
+
+    Items carrying a `note_id` also need it in `notes` (R9: fail closed)."""
     out = []
     for x in items:
-        if (x.get("doc_id"), x.get("version_id")) in ok:
+        if (x.get("doc_id"), x.get("version_id")) in ok and (not x.get("note_id") or x["note_id"] in notes):
             out.append({**x, "available": True})
         elif not drop:
             out.append({"n": x.get("n"), "available": False})

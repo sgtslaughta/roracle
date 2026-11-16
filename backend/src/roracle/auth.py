@@ -206,6 +206,12 @@ def require_jwt(p: Annotated[Principal, Depends(current_principal)]) -> Principa
     return p
 
 
+def require_human(p: Annotated[Principal, Depends(current_principal)]) -> Principal:
+    if p.via != "jwt":
+        raise HTTPException(403, "agents must propose")
+    return p
+
+
 def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token: str) -> Principal:
     try:
         claims = _verify(token, jwks, settings)

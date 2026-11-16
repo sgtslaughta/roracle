@@ -19,6 +19,7 @@ from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 
+# R9: note citations fail closed in handoffs (recheck notes=frozenset()).
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 PAGE = 20
 MAX_NOTES = 200
@@ -80,13 +81,15 @@ def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
         {
             "role": m.role,
             "content": m.content,
-            "citations": recheck([c for c in m.citations if isinstance(c, dict)], ok, drop=False),
+            "citations": recheck(
+                [c for c in m.citations if isinstance(c, dict)], ok, drop=False, notes=frozenset()
+            ),
             "created_at": _iso(m.created_at),
         }
         for m in msgs
     ]
     seen, passages = set(), []
-    for c in recheck(cites, ok, drop=True):
+    for c in recheck(cites, ok, drop=True, notes=frozenset()):
         key = (c.get("doc_id"), c.get("version_id"), c.get("chunk_id"))
         if key not in seen:
             seen.add(key)
@@ -223,7 +226,7 @@ def view(session: Session, p: Principal, h: Handoff) -> dict:
     """Manifest for p, no audit. Redacted: hidden docs/passages dropped and only counted in `withheld`."""
     shown = _visible_doc_ids(session, p, h.doc_ids)
     ok = visible_versions(session, p, h.passages)
-    passages = recheck(h.passages, ok, drop=True)
+    passages = recheck(h.passages, ok, drop=True, notes=frozenset())
     every = set(map(str, h.doc_ids)) | {str(x.get("doc_id")) for x in h.passages}
     mine = h.creator_id == p.user_id
     src = h.source
@@ -260,7 +263,10 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
     if part == "transcript":
         cites = [c for m in items for c in m.get("citations", [])]
         ok = visible_versions(session, p, cites)
-        items = [{**m, "citations": recheck(m.get("citations", []), ok, drop=False)} for m in items]
+        items = [
+            {**m, "citations": recheck(m.get("citations", []), ok, drop=False, notes=frozenset())}
+            for m in items
+        ]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
     return {"part": part, "items": items, "page": page, "pages": pages}
 

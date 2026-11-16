@@ -20,7 +20,7 @@ from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat
-from roracle.chat.answer import build_messages, stream_answer
+from roracle.chat.answer import build_messages, split_notes, stream_answer
 from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
@@ -45,6 +45,7 @@ class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     viewer: Viewer = Field(default_factory=Viewer)
     model: str | None = None
+    include_notes: bool = True
 
 
 def chat_json(c: Chat) -> dict:
@@ -137,7 +138,7 @@ def post_message(
         try:
             passages = retrieve_for_chat(
                 session, es, llm, settings, p, body.content, body.viewer, chat.scope,
-                list(chat.pins), list(chat.excludes),
+                list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
             )  # fmt: skip
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
@@ -151,15 +152,16 @@ def post_message(
     if not chat.title:
         chat.title = body.content[:80]
     session.commit()
-    messages = build_messages(body.content, passages, history, HISTORY)
-    vids = [UUID(x.version_id) for x in passages]
+    passages, notes = split_notes(passages)
+    messages = build_messages(body.content, passages, history, HISTORY, notes)
+    vids = [UUID(x.version_id) for x in (*passages, *notes)]
     versions = {
         str(i): n
         for i, n in session.execute(
             select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
         )
     }
-    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned)
+    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes)
     return ClosingStreamingResponse(
         _frames(gen),
         media_type="text/event-stream",

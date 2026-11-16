@@ -6,9 +6,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from roracle.audit import audit
-from roracle.auth import Principal, current_principal
+from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
 from roracle.models import Document, DocumentVersion, PersonalAccessToken, User
+from roracle.notes import moderation
 
 router = APIRouter()
 
@@ -53,4 +54,15 @@ def revoke_user_pats(
         .values(revoked_at=func.now())
     )
     audit(session, p, "admin.revoke_pats", str(user_id))
+    return Response(status_code=204)
+
+
+@router.delete("/admin/annotations/{note_id}", status_code=204)
+def remove_annotation(
+    note_id: UUID,
+    p: Annotated[Principal, Depends(require_human)],
+    session: Annotated[Session, Depends(get_session)],
+) -> Response:
+    moderation.remove(session, p, note_id)
+    session.commit()
     return Response(status_code=204)

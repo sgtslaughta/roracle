@@ -46,6 +46,7 @@ class Passage:
     title: str = ""
     authors: list[str] = field(default_factory=list)
     year: int | None = None
+    note_id: str | None = None
 
 
 @dataclass

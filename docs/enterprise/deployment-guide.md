@@ -80,6 +80,7 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://minio.roracle-data:9000`, `roracle` | Blob store |
 | `ROR_OIDC_ISSUER`, `ROR_OIDC_AUDIENCE`, `ROR_OIDC_JWKS_URL` | `https://kc/realms/research`, `roracle` | Token validation |
 | `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
+| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Starlette spools multipart uploads to temporary disk before the app sees them: size `/tmp` (or mount an emptyDir) for the API pods at >= evidence limit x concurrent uploads |
 | `ROR_MCP_MAX_UPLOAD_BYTES` | `26214400` | Max decoded file size for the MCP `upload` tool (25 MiB); also sizes the `/mcp` body cap |
 | `ROR_PUBLIC_BASE_URL` | `https://roracle.example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
 | `ROR_PATS_ENABLED` | `true` | Personal access tokens for agents (`false` rejects all PATs) |
@@ -90,6 +91,7 @@ Vector math (per embedding model index, 1 replica):
 | `ROR_CHAT_MODELS` | `qwen2.5:14b` | Comma-separated allowlist of chat models; the first is the default |
 | `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
+| `ROR_CHAT_NOTE_MIN_UPVOTES`, `ROR_CHAT_NOTE_MIN_RATIO` | `3`, `0.6` | Community notes by other users reach an LLM (chat, MCP `ask`/`search`) only with at least this many upvotes and a vote ratio above the floor (the asker's own notes always qualify); prompt-injection gate |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
 | `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down or 5xx = retryable (fails after retries are exhausted); invalid file = permanent failure |
 | `ROR_NEAR_DUP_SUMMARY_THRESHOLD` | `0.97` | Cosine similarity of document summary embeddings at or above which a new upload is parked for a near-duplicate decision (in addition to the MinHash `ROR_NEAR_DUP_THRESHOLD`); only visible documents are compared |

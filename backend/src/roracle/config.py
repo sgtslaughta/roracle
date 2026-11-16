@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     oidc_jwks_url: str
     oidc_allowed_clients: Annotated[list[str], NoDecode] = ["roracle-web", "roracle-mcp"]
     max_upload_bytes: int = 524288000
+    evidence_max_bytes: int = 1073741824  # notes evidence file cap (1 GiB)
     mcp_max_upload_bytes: int = 25 * 1024 * 1024  # MCP upload tool: decoded file cap (base64 body)
     public_base_url: str = ""  # externally visible origin, e.g. https://roracle.example.org
     pats_enabled: bool = True
@@ -46,6 +47,8 @@ class Settings(BaseSettings):
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
     chat_passages: int = 8  # clamped 4-12 at use
+    chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
+    chat_note_min_ratio: float = 0.6
 
     @property
     def chat_model_list(self) -> list[str]:
