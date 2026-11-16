@@ -14,6 +14,7 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "reconcile_tags",
         "reembed",
         "eval_run",
+        "eval_generate",
     } and callable(h["ingest"])
     assert isinstance(HANDLERS, dict)
 

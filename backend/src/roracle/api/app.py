@@ -11,6 +11,7 @@ from roracle.api import input_guard
 from roracle.api.routes import (
     admin,
     admin_connectors,
+    admin_eval,
     admin_index,
     admin_labels,
     admin_ops,
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(admin_settings.router)
     app.include_router(admin_labels.router)
+    app.include_router(admin_eval.router)
     app.include_router(labels.router)
     app.include_router(admin_connectors.router)
     app.include_router(admin_index.router)

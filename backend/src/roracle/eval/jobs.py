@@ -1,4 +1,4 @@
-"""Queue handler `eval_run`: payload `{set_id, trigger, judge}` runs a stored set on the chat path."""
+"""Queue handler `eval_run`: payload `{set_id, trigger, judge}` runs a stored set (`path` chat by default)."""
 
 from uuid import UUID
 
@@ -18,6 +18,9 @@ def handle_eval_run(
 ) -> None:
     """Run rows are written through `session_factory` (own transactions), so a failed run is kept."""
     trigger = payload.get("trigger", "reindex")
+    path = payload.get("path", "chat")
+    if path not in ("chat", "search") or (payload.get("judge") and path != "chat"):
+        raise NonRetryable(f"bad eval path {path!r}")
     if trigger not in TRIGGERS:
         raise NonRetryable(f"unknown eval trigger {trigger!r}")
     try:
@@ -31,7 +34,7 @@ def handle_eval_run(
     try:
         runner.run_set(
             session, es, llm, runtime.effective(session, settings), gs,
-            path="chat", trigger=trigger, label=trigger, judge=bool(payload.get("judge")), sf=session_factory,
+            path=path, trigger=trigger, label=trigger, judge=bool(payload.get("judge")), sf=session_factory,
         )  # fmt: skip
     except Exception as e:  # the failed run row is stored; a retry would repeat a whole judged run
         raise NonRetryable(f"eval run failed: {type(e).__name__}: {e}") from e

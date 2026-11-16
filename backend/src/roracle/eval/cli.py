@@ -36,6 +36,13 @@ def add_parser(sub) -> None:
     c.add_argument("--latency-budget-ms", type=int, default=None)
     c.add_argument("--judge", action="store_true")
     c.add_argument("--out", required=True, metavar="docs/eval/FILE.md")
+    b = ev.add_parser("import-beir", help="seed a BEIR dataset (SciFact) from a local directory, offline")
+    b.add_argument("dir")
+    b.add_argument("--set", dest="set_name", required=True)
+    b.add_argument(
+        "--owner", required=True, help="username of the owning (non-admin) user and gold principal"
+    )
+    b.add_argument("--visibility", choices=["private", "shared", "org_unit", "everyone"], default="everyone")
     ci = ev.add_parser("ci", help="seed the synthetic fixture and fail on ACL violations or low metrics")
     ci.add_argument("--fixture", required=True)
     ci.add_argument("--floors", required=True)
@@ -90,12 +97,35 @@ def table(agg: dict) -> str:
     return "\n".join(lines)
 
 
+def import_beir_cmd(args) -> int:
+    from pathlib import Path
+
+    from roracle.eval import beir
+
+    settings = get_settings()
+    with make_session_factory(settings.database_url)() as session:
+        settings = runtime.effective(session, settings)
+        try:
+            out = beir.import_beir(
+                session, clients.es(settings), clients.llm(settings), settings, Path(args.dir),
+                set_name=args.set_name, owner=args.owner, visibility=args.visibility,
+            )  # fmt: skip
+        except (ValueError, OSError) as e:
+            session.rollback()
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+    print(f"imported {out['documents']} documents and {out['queries']} queries into set {args.set_name!r}")
+    return 0
+
+
 def run(args) -> int:
     """0 ok; 1 ACL violation or run error; 2 bad input / unusable set (R5)."""
     if args.eval_cmd == "ci":
         from roracle.eval import ci
 
         return ci.run(args)
+    if args.eval_cmd == "import-beir":
+        return import_beir_cmd(args)
     if args.eval_cmd == "compare":
         from roracle.eval import compare
 

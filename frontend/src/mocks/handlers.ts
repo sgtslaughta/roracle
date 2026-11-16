@@ -16,6 +16,7 @@ import { proposalHandlers } from "./proposals";
 import { notificationHandlers } from "./notifications";
 import { draftDocument, draftHandlers } from "./drafts";
 import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
+import { evalHandlers } from "./eval";
 import { DIR_USERS, directoryHandlers } from "./directory";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -198,6 +199,7 @@ export const handlers = [
   ...adminHandlers,
   ...adminOpsHandlers,
   ...adminDataHandlers,
+  ...evalHandlers,
   ...chatHandlers,
   ...agentHandlers,
   ...noteHandlers,

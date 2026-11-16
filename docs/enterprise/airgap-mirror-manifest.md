@@ -95,6 +95,12 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 | Document parsing | granite-docling (VLM) or Docling's bundled layout/OCR/table models | bake model files into the docling-serve image |
 | GROBID models | bundled in image | |
 
+## Evaluation datasets (dev reference set, optional)
+
+| Artifact | Mirror | Notes |
+|---|---|---|
+| SciFact (BEIR format: `corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`) | download once outside the enclave, unpack to a directory on the host that runs the CLI | imported offline by `roracle eval import-beir <dir> --set scifact --owner <non-admin user>`; the importer contains no network code. License **CC BY-NC 2.0**: non-commercial research and evaluation only; keep it out of production corpora and do not redistribute it with the product |
+
 ## Other data
 
 ClamAV signature database (private freshclam mirror), CRL/OCSP endpoints for X.509 if checked,

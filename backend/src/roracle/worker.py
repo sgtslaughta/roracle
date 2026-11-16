@@ -7,6 +7,7 @@ from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
 from roracle.db import make_session_factory
+from roracle.eval.generate import handle_eval_generate
 from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
 from roracle.maintenance import ensure_maintenance, handle_maintenance, handle_reconcile_tags
@@ -49,6 +50,9 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             es=clients.es(settings),
             llm=clients.llm(settings),
             session_factory=session_factory,
+        ),
+        "eval_generate": partial(
+            handle_eval_generate, settings=settings, es=clients.es(settings), llm=clients.llm(settings)
         ),
         "reembed": partial(
             handle_reembed,
