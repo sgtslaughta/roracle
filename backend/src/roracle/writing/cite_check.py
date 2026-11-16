@@ -26,7 +26,7 @@ from roracle.models_writing import Draft
 from roracle.notes.access import readable_doc_ids
 from roracle.queue import NonRetryable
 from roracle.search_acl import acl_filter
-from roracle.search_index import index_name
+from roracle.search_index import active_index
 from roracle.writing import drafts
 from roracle.writing.markdown import parse
 
@@ -142,7 +142,7 @@ def judge(llm, model: str, sentence: str, passage: str) -> tuple[str, str]:
 
 def _psg_chunk(es, settings: Settings, p: Principal, ver: str, n: int) -> dict | None:
     hits = es.search(
-        index=index_name(settings.embed_model),
+        index=active_index(settings),
         size=1,
         source=["chunk_id", "doc_id", "version_id", "text", "title"],
         query={"bool": {"filter": [acl_filter(p), {"term": {"chunk_id": f"{ver}:{n}"}}]}},

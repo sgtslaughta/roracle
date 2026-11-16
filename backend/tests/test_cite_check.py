@@ -127,6 +127,19 @@ def test_psg_of_invisible_version_unresolved_even_if_es_returns_it(
     assert llm.calls == []
 
 
+def test_psg_uses_active_index_after_cutover(client, as_ana, ana, db_session, es, llm):
+    from roracle import runtime
+
+    _d, v = seed(db_session, ana, title="Mine", visibility="everyone")
+    es.hits = [hit(_d, v, 0)]
+    runtime.set_active_embedding(db_session, "newmodel", 8, "chunks-newmodel-2")
+    db_session.commit()
+    i = mk(client, as_ana, cite(f"psg:{v.id}:0"))
+    it = check(client, as_ana, i).json()["items"][0]
+    assert it["status"] != "unresolved"
+    assert [c["index"] for c in es.calls if "knn" not in c] == ["chunks-newmodel-2"]
+
+
 def test_psg_nonexistent_chunk_unresolved(client, as_ana, ana, db_session, es, llm):
     _d, v = seed(db_session, ana, title="Mine", visibility="everyone")
     i = mk(client, as_ana, cite(f"psg:{v.id}:9"))

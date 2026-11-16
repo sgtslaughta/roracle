@@ -317,6 +317,19 @@ def test_purge_deletes_derived_objects(db_session, user, store, s3):
     assert f"derived/{keep.id}/docling.json" in keys
 
 
+def test_purge_removes_draft_document(db_session, user, store, s3):
+    from roracle.models_writing import Draft, DraftVersion
+
+    v = make_version(db_session, store, user)
+    db_session.add(Draft(document_id=v.document_id))
+    db_session.flush()
+    db_session.add(DraftVersion(document_id=v.document_id, version=1, content="x", author_id=user.id))
+    trash(db_session, db_session.get(Document, v.document_id), 40)
+    assert maintenance.purge(db_session, FakeEs(), settings(30), store) == 1
+    assert db_session.get(Draft, v.document_id) is None
+    assert db_session.get(Document, v.document_id) is None
+
+
 def test_delete_prefix_logs_errors(caplog):
     class Pager:
         def paginate(self, **kw):
