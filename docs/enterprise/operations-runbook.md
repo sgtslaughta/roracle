@@ -69,11 +69,21 @@ changes made during a re-embed reach both generations. Search and ingest use the
    when the model or dims changed (derived cache; re-created on re-ingest; near-duplicate summary matching is skipped
    for those versions meanwhile) and queues `reconcile_tags` (ACL/tags of every live document re-pushed from Postgres).
 5. Two catch-up passes (300 s apart) copy chunks that reached the old index meanwhile. Ingests that straddle the
-   cutover fail once and are retried with the new model.
-6. After verifying search, free the space: `DELETE /admin/reindex/old` (204; 409 while running). Until then the old
-   generation stays in `chunks-all` and keeps receiving mutations.
+   cutover fail once and are retried with the new model (ingest always runs on the persisted active model/index).
+   Copies are made safe against concurrent change: ACL, tags and title of every copied chunk are re-read from
+   Postgres after the ES read (never copied from the old index); chunks of deleted documents, purged versions or
+   shrunk re-ingests are skipped or removed from the new index after the write; `is_latest` is recomputed from
+   Postgres. `reconcile_tags` is queued at the end of the copy, at cutover and after each catch-up pass.
+   Known, accepted: readers that go through the `chunks` read alias (MCP, note anchoring, passage read) do not see
+   chunks ingested during the copy until the first catch-up pass.
+6. After verifying search, free the space: `DELETE /admin/reindex/old` (204; 409 while running, or 409 when the
+   `chunks` alias does not point at exactly the active index). Until then the old generation stays in `chunks-all`
+   and keeps receiving mutations. It drops every generation except the active one (per Postgres).
 Failure: a failed `reembed` job (see `GET /admin/jobs?kind=reembed`) can be retried; copy is idempotent. To abandon,
-`DELETE /admin/reindex/old` drops the half-built generation (it is never behind `chunks` before cutover).
+`DELETE /admin/reindex/old` drops the half-built generation while the alias still matches the active index. If a
+cutover failed permanently after the alias swap (`GET /admin/reindex` shows `old` containing the index that `chunks`
+points at), the delete is refused with 409: re-run the failed job (idempotent) or point `chunks` back at the active
+index before abandoning.
 Upgrade note: the worker creates `chunks-all` and adopts a legacy concrete index named `chunks` (reindex +
 atomic alias swap) at start. Roll out workers first; until a worker has started, ACL/tag updates find no `chunks-all`
 and are no-ops, healed by the next `reconcile` maintenance run (run it after the upgrade).

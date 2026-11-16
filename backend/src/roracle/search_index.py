@@ -94,6 +94,13 @@ def _adopt_plain_index(es: Elasticsearch, name: str, dims: int) -> None:
     )
 
 
+def _holders(es: Elasticsearch, alias: str) -> list[str]:
+    try:
+        return list(es.indices.get_alias(name=alias))
+    except NotFoundError:
+        return []
+
+
 def ensure_index(
     es: Elasticsearch, model: str, dims: int, alias: str = ALIAS, name: str | None = None
 ) -> str:
@@ -121,9 +128,15 @@ def ensure_index(
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
-    for a in (alias, MUTATE_ALIAS):
-        if not es.indices.exists_alias(name=a, index=name):
-            es.indices.put_alias(index=name, name=a)
+    actions: list[dict[str, Any]] = []
+    for a in dict.fromkeys((alias, MUTATE_ALIAS)):
+        if es.indices.exists_alias(name=a, index=name):
+            continue
+        if a == ALIAS:  # the read alias is exclusive: never behind two indices
+            actions += [{"remove": {"index": i, "alias": a}} for i in _holders(es, a)]
+        actions.append({"add": {"index": name, "alias": a}})
+    if actions:
+        es.indices.update_aliases(actions=actions)  # one atomic call
     return name
 
 

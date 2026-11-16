@@ -90,4 +90,4 @@ def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user,
     for gen in (1, 2):  # mutation alias reaches both generations
         es.indices.refresh(index=index_name(MODEL, gen))
         assert es.get(index=index_name(MODEL, gen), id=f"{v.id}:0")["_source"]["visibility"] == "private"
-    assert reembed.drop_old(es) == [index_name(MODEL, 1)]
+    assert reembed.drop_old(db_session, es, cfg) == [index_name(MODEL, 1)]

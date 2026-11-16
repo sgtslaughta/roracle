@@ -41,14 +41,16 @@ def update_version(
 
 def clear_summary_embeddings(session_factory: sessionmaker[Session]) -> None:
     """Re-embed cutover: summary vectors of the old model are unusable (derived cache; summary text kept)."""
-    with session_factory() as s:
-        _lock_timeout(s, 60)
-        s.execute(
-            update(DocumentVersion)
-            .where(DocumentVersion.summary_embedding.is_not(None))
-            .values(summary_embedding=None)
-        )
-        s.commit()
+    while True:  # batched: one giant UPDATE would hold row locks (and WAL) for the whole table
+        with session_factory() as s:
+            _lock_timeout(s, 60)
+            ids = select(DocumentVersion.id).where(DocumentVersion.summary_embedding.is_not(None)).limit(1000)
+            n = s.execute(
+                update(DocumentVersion).where(DocumentVersion.id.in_(ids)).values(summary_embedding=None)
+            ).rowcount
+            s.commit()
+        if not n:
+            return
 
 
 def update_document(

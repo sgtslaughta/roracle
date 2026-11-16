@@ -4,10 +4,11 @@ Reads never see two generations: kNN/BM25 target ONE index named by the persiste
 read alias `chunks` points at exactly one index. Every mutation (ACL, tags, deletes, is_latest) goes through
 `chunks-all`, so it reaches the old and the new generation. Phases (one batch per job, self re-enqueueing):
 
-copy     scan the active index by `chunk_id` (search_after), re-embed, bulk into the target; then re-check the
-         batch's documents against Postgres (authority) and resync ACL/tags/title through `chunks-all` when
-         they differ from what was copied (an update landing between our read and our write is not lost:
-         an update after the write hits the target itself, one before it is seen by the Postgres re-read)
+copy     scan the active index by `chunk_id` (search_after), re-embed, bulk (refresh=wait_for) into the target.
+         ACL/tags/title come from a Postgres read taken AFTER the ES read (never copied from the source);
+         deleted docs / purged versions are skipped. After the write the batch is re-verified against
+         Postgres and the source: deletes, ACL/tag changes, stale chunks and is_latest that raced the copy are
+         converged (later mutations reach the target themselves through `chunks-all`)
 cutover  ONE `update_aliases` call swaps `chunks`, then the active model is persisted (old stays in chunks-all)
 catchup  twice, 300 s apart: copy chunks present in the old index but missing in the target (ingest races)
 """
@@ -18,7 +19,7 @@ import uuid
 from typing import Any
 
 from elasticsearch import Elasticsearch, NotFoundError, helpers
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime, search_index
@@ -35,7 +36,6 @@ log = logging.getLogger(__name__)
 BATCH = 200
 CATCHUP_DELAY_S = 300
 _VECTORS = ["embedding", "summary_embedding"]
-_SYNCED = ("owner_id", "visibility", "org_unit", "share_users", "share_groups", "tags")
 
 
 class AlreadyRunning(Exception):
@@ -90,17 +90,29 @@ def status(session: Session, es: Elasticsearch, settings: Settings) -> dict[str,
     if job is not None:
         p = job.payload
         running = {"target": p["target"], "copied": p["copied"], "total": p["total"], "phase": p["phase"]}
-    read = _alias_indices(es, ALIAS)
     return {
         "active": {"index": search_index.active_index(eff), "model": eff.embed_model, "dims": eff.embed_dims},
         "running": running,
-        "old": sorted(_alias_indices(es, MUTATE_ALIAS) - read),
+        "old": _old(session, es, settings),
     }
 
 
-def drop_old(es: Elasticsearch) -> list[str]:
-    """Delete every generation that is in `chunks-all` but not behind the read alias."""
-    old = sorted(_alias_indices(es, MUTATE_ALIAS) - _alias_indices(es, ALIAS))
+class AliasMismatch(Exception):
+    """Read alias does not point at exactly the active index (e.g. a cutover that failed after the swap)."""
+
+
+def _old(session: Session, es: Elasticsearch, settings: Settings) -> list[str]:
+    active = search_index.active_index(runtime.effective(session, settings))
+    return sorted(_alias_indices(es, MUTATE_ALIAS) - {active})
+
+
+def drop_old(session: Session, es: Elasticsearch, settings: Settings) -> list[str]:
+    """Delete every generation in `chunks-all` except the active one (Postgres = authority). Refuses unless the
+    read alias points at exactly the active index: otherwise 'old' could be the live index."""
+    active = search_index.active_index(runtime.effective(session, settings))
+    if _alias_indices(es, ALIAS) != {active}:
+        raise AliasMismatch
+    old = _old(session, es, settings)
     if old:
         es.indices.delete(index=old)
     return old
@@ -115,17 +127,49 @@ def _ensure_target(es: Elasticsearch, target: dict) -> None:
         )
 
 
-def _copy(es, llm, sf, hits: list[dict], target: dict) -> None:
-    vids = {h["_source"]["version_id"] for h in hits}
+def _uuid(v: str):
+    try:
+        return uuid.UUID(v)
+    except ValueError:
+        return None
+
+
+def _pg_state(sf, srcs: list[dict]) -> tuple[dict, set, dict]:
+    """Postgres (authority), read fresh: per-doc (acl+tags, title) or None, live version ids, max version/doc."""
+    dids = {x["doc_id"] for x in srcs}
+    acls = {d: read_acl(sf, u) if (u := _uuid(d)) else None for d in dids}
+    vids = {u for x in srcs if (u := _uuid(x["version_id"]))}
+    with sf() as s:
+        live = set(s.scalars(select(DocumentVersion.id).where(DocumentVersion.id.in_(vids))))
+        newest = dict(
+            s.execute(
+                select(DocumentVersion.document_id, func.max(DocumentVersion.version))
+                .where(DocumentVersion.document_id.in_([u for d in dids if (u := _uuid(d))]))
+                .group_by(DocumentVersion.document_id)
+            ).all()
+        )
+    return acls, live, {str(k): v for k, v in newest.items()}
+
+
+def _copy(es, llm, sf, hits: list[dict], target: dict, source: str) -> None:
+    acls, live, newest = _pg_state(
+        sf, [h["_source"] for h in hits]
+    )  # AFTER the ES read: ACL never from source
+    hits = [
+        h for h in hits
+        if acls[h["_source"]["doc_id"]] is not None and _uuid(h["_source"]["version_id"]) in live
+    ]  # fmt: skip
+    if not hits:
+        return
+    srcs = [h["_source"] for h in hits]
     with sf() as s:
         summaries = dict(
             s.execute(
                 select(DocumentVersion.id, DocumentVersion.summary).where(
-                    DocumentVersion.id.in_([u for v in vids if (u := _uuid(v))])
+                    DocumentVersion.id.in_([_uuid(x["version_id"]) for x in srcs])
                 )
             ).all()
         )
-    srcs = [h["_source"] for h in hits]
     prompts = [
         doc_prompt(
             x["title"],
@@ -149,38 +193,45 @@ def _copy(es, llm, sf, hits: list[dict], target: dict) -> None:
     sv = dict(zip(sums, svecs, strict=True))
     actions = []
     for i, (h, x, v, p) in enumerate(zip(hits, srcs, vectors, prompts, strict=True)):
-        doc = {k: val for k, val in x.items() if k not in _VECTORS}  # ACL fields copied verbatim
+        acl, title = acls[x["doc_id"]]
+        doc = {k: val for k, val in x.items() if k not in _VECTORS}
+        doc.update(acl, title=title)  # ACL/tags/title from the fresh Postgres read, never from the source
+        doc["is_latest"] = bool(x.get("is_latest")) and x.get("version", 0) >= newest.get(x["doc_id"], 0)
         doc.update(embedding=v, embedding_model=target["model"], prompt_sha=prompt_sha(p))
         if i in sv:
             doc["summary_embedding"] = sv[i]
         actions.append({"_op_type": "index", "_index": target["index"], "_id": h["_id"], "_source": doc})
-    _, errors = helpers.bulk(es, actions, refresh=False, raise_on_error=False)
+    _, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
     if errors:
         raise RuntimeError(f"re-embed bulk failed for {len(errors)} chunks: {errors[0]}")
-    _resync(es, sf, srcs)
+    _verify(es, sf, target["index"], source, hits, acls)
 
 
-def _uuid(v: str):
-    try:
-        return uuid.UUID(v)
-    except ValueError:
-        return None
+def _dbq(es, index: str, query: dict) -> None:
+    es.delete_by_query(index=index, query=query, refresh=True, conflicts="proceed")
 
 
-def _resync(es, sf, srcs: list[dict]) -> None:
-    """Postgres is the authority: if it differs from the ACL/tags/title we just copied, push it to every
-    generation through `chunks-all` (same path as a user-triggered change)."""
-    seen: dict[str, dict] = {}
-    for x in srcs:
-        seen.setdefault(x["doc_id"], x)
-    for doc_id, x in seen.items():
-        did = _uuid(doc_id)
-        fresh = read_acl(sf, did) if did else None
-        if fresh is None:
-            continue
-        acl, title = fresh
-        if any(acl.get(k) != x.get(k) for k in _SYNCED) or title != x.get("title"):
-            search_index.sync_acl(es, doc_id, lambda d=did: read_acl(sf, d))
+def _verify(es, sf, index: str, source: str, hits: list[dict], acls: dict) -> None:
+    """Chunks are now visible in the target, so every later mutation reaches it through `chunks-all`.
+    Converge what changed between our reads and our write (target-only resurrection, stale ACL)."""
+    srcs = [h["_source"] for h in hits]
+    ids = [h["_id"] for h in hits]
+    got = es.search(index=source, query={"ids": {"values": ids}}, source=False, size=len(ids))
+    still = {h["_id"] for h in got["hits"]["hits"]}
+    if gone := [i for i in ids if i not in still]:  # deleted / stale chunk removed while we copied
+        _dbq(es, index, {"ids": {"values": gone}})
+    now, live, newest = _pg_state(sf, srcs)
+    for doc_id, was in acls.items():
+        if now[doc_id] is None:
+            _dbq(es, index, {"term": {"doc_id": doc_id}})
+        elif now[doc_id] != was:
+            did = _uuid(doc_id)
+            search_index.sync_acl(es, doc_id, lambda did=did: read_acl(sf, did))
+    for vid in {x["version_id"] for x in srcs if _uuid(x["version_id"]) not in live}:
+        _dbq(es, index, {"term": {"version_id": vid}})
+    for doc_id, n in newest.items():
+        if any(x["doc_id"] == doc_id and x.get("is_latest") and x.get("version", 0) < n for x in srcs):
+            search_index.mark_previous_versions(es, doc_id, n)
 
 
 def _scan(session: Session, payload: dict, es, llm, sf) -> None:
@@ -207,12 +258,14 @@ def _scan(session: Session, payload: dict, es, llm, sf) -> None:
         }  # fmt: skip
         todo = [h for h in hits if h["_id"] not in have]
     if todo:
-        _copy(es, llm, sf, todo, target)
+        _copy(es, llm, sf, todo, target, src)
     if phase == "copy":
         payload["copied"] += len(todo)
     if len(hits) == BATCH:
         enqueue(session, "reembed", {**payload, "cursor": hits[-1]["sort"][0]})
-    elif phase == "copy":
+        return
+    enqueue(session, "reconcile_tags", {})  # end of every pass (before cutover / after each catch-up round)
+    if phase == "copy":
         enqueue(session, "reembed", {**payload, "phase": "cutover", "cursor": None})
     elif payload["round"] == 1:
         enqueue(session, "reembed", {**payload, "cursor": None, "round": 2}, run_after_s=CATCHUP_DELAY_S)

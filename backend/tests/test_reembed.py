@@ -1,15 +1,17 @@
 """Embedding-model switch: copy -> cutover -> catch-up against a fake ES (real Postgres)."""
 
+import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 from conftest import bearer
 from elasticsearch import NotFoundError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from roracle import reembed, runtime, search_index
 from roracle.config import Settings
-from roracle.models import Job
+from roracle.models import DocumentVersion, Job, Tag
 
 SRC = "chunks-old-1"
 
@@ -58,12 +60,13 @@ class FakeEs:
         self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
         self.indices = FakeIndices(self)
         self.mutations = []
+        self.after_bulk = lambda: None  # hook: a concurrent change landing right after our write
 
     def put(self, cid, doc_id, text="hello", index=SRC, **kw):
         self.data[index][cid] = {
             "chunk_id": cid, "doc_id": str(doc_id), "version_id": cid.split(":")[0], "text": text,
             "title": "t", "headings": [], "owner_id": "o", "visibility": "private", "org_unit": "/",
-            "share_users": [], "share_groups": [], "tags": [], "is_latest": True,
+            "share_users": [], "share_groups": [], "tags": [], "is_latest": True, "version": 1,
             "embedding": [9.0, 9.0], "embedding_model": "old", **kw,
         }  # fmt: skip
 
@@ -84,6 +87,16 @@ class FakeEs:
 
     def delete_by_query(self, **kw):
         self.mutations.append(kw["index"])
+        q, docs = kw["query"], self.data.get(kw["index"], {})
+        if "ids" in q:
+            doomed = [i for i in q["ids"]["values"] if i in docs]
+        elif "term" in q:
+            ((f, v),) = q["term"].items()
+            doomed = [i for i, d in docs.items() if d.get(f) == v]
+        else:
+            doomed = []
+        for i in doomed:
+            docs.pop(i)
         return {}
 
 
@@ -108,10 +121,22 @@ def es(monkeypatch):
         for a in actions:
             fake.data[a["_index"]][a["_id"]] = a["_source"]
             n += 1
+        fake.after_bulk()
         return n, []
 
     monkeypatch.setattr(reembed.helpers, "bulk", bulk)
     return fake
+
+
+@pytest.fixture
+def vid(db_session, document, blob):
+    v = DocumentVersion(
+        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="a.pdf",
+        content_type="x", size=1,
+    )  # fmt: skip
+    db_session.add(v)
+    db_session.flush()
+    return str(v.id)
 
 
 @pytest.fixture
@@ -132,10 +157,10 @@ def drain(db, sf, es, llm, base, limit=50):
     raise AssertionError("did not terminate")
 
 
-def test_cutover_swaps_alias_once_and_switches_model(db_session, session_factory, es, base, document):
+def test_cutover_swaps_alias_once_and_switches_model(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     for n in range(5):
-        es.put(f"v1:{n}", document.id, text=f"t{n}")
+        es.put(f"{vid}:{n}", document.id, text=f"t{n}")
     llm = FakeLlm(3)
     reembed.start(db_session, es, base, "new-model", 3)
     db_session.commit()
@@ -145,7 +170,7 @@ def test_cutover_swaps_alias_once_and_switches_model(db_session, session_factory
     assert {tuple(sorted(a)) for a in es.indices.alias_calls[0]} == {("remove",), ("add",)}
     assert es.aliases["chunks"] == {target} and es.aliases["chunks-all"] == {SRC, target}
     assert sorted(es.data[target]) == sorted(es.data[SRC])
-    doc = es.data[target]["v1:0"]
+    doc = es.data[target][f"{vid}:0"]
     assert doc["embedding"] == [1.0] * 3 and doc["embedding_model"] == "new-model"
     assert llm.models and set(llm.models) == {"new-model"}
     eff = runtime.effective(db_session, base)
@@ -153,50 +178,122 @@ def test_cutover_swaps_alias_once_and_switches_model(db_session, session_factory
     assert search_index.active_index(base) == search_index.index_name("old")  # env bootstrap default
 
 
-def test_copy_carries_acl_fields_verbatim(db_session, session_factory, es, base, document):
+def _run_copy(db_session, session_factory, es, base):
+    reembed.start(db_session, es, base, "old", 2)  # same model, next generation
+    db_session.commit()
+    drain(db_session, session_factory, es, FakeLlm(2), base)
+
+
+def test_copy_takes_acl_from_postgres_not_source(db_session, session_factory, es, base, document, vid):
+    """Source ES carries a stale ACL (S4): the target gets Postgres' fresh ACL/tags/title, never the source's."""
+    document.visibility = "everyone"
+    document.title = "fresh"
+    db_session.add(Tag(document_id=document.id, tag="x"))
     db_session.commit()
     es.put(
-        "v1:0",
+        f"{vid}:0",
         document.id,
         visibility="org",
         org_unit="/x",
         share_users=["u"],
-        share_groups=["/g"],
         owner_id="own",
+        tags=["old"],
     )
-    reembed.start(db_session, es, base, "old", 2)  # same model, next generation
-    db_session.commit()
-    drain(db_session, session_factory, es, FakeLlm(2), base)
-    t = es.data["chunks-old-2"]["v1:0"]
-    for f in ("visibility", "org_unit", "share_users", "share_groups", "owner_id", "is_latest", "tags"):
-        assert t[f] == es.data[SRC]["v1:0"][f]
+    _run_copy(db_session, session_factory, es, base)
+    t = es.data["chunks-old-2"][f"{vid}:0"]
+    assert (t["visibility"], t["org_unit"], t["share_users"], t["tags"], t["title"]) == (
+        "everyone", "/", [], ["x"], "fresh",
+    )  # fmt: skip
+    assert t["owner_id"] == str(document.owner_id)
+    assert es.mutations == []  # nothing left to resync: written correct the first time
 
 
-def test_acl_change_during_copy_is_not_lost(db_session, session_factory, es, base, document):
-    """Source ES has the pre-update ACL; PG (authority) already has the update: target converges to PG."""
-    document.visibility = "everyone"
+def test_acl_change_right_after_write_is_converged(db_session, session_factory, es, base, document, vid):
     db_session.commit()
-    es.put("v1:0", document.id, visibility="private")
-    reembed.start(db_session, es, base, "old", 2)
-    db_session.commit()
-    drain(db_session, session_factory, es, FakeLlm(2), base)
-    assert es.mutations and set(es.mutations) == {"chunks-all"}  # resync went through the mutation alias
+    es.put(f"{vid}:0", document.id)
+
+    def late_patch():  # PATCH landed after our PG read; its update_by_query ran before the bulk wrote
+        document.visibility = "everyone"
+        db_session.commit()
+        es.after_bulk = lambda: None
+
+    es.after_bulk = late_patch
+    _run_copy(db_session, session_factory, es, base)
+    assert es.mutations == ["chunks-all"]  # verify pass pushed Postgres' ACL through the mutation alias
 
 
-def test_no_acl_resync_when_pg_matches_copy(db_session, session_factory, es, base, document):
+def test_doc_deleted_before_copy_is_not_written(db_session, session_factory, es, base, document, vid):
+    document.deleted_at = datetime.now(UTC)
     db_session.commit()
-    es.put(
-        "v1:0", document.id, owner_id=str(document.owner_id), org_unit="/", visibility="private", title="t"
+    es.put(f"{vid}:0", document.id)
+    _run_copy(db_session, session_factory, es, base)
+    assert es.data["chunks-old-2"] == {}
+
+
+def test_doc_deleted_during_copy_is_absent_after_cutover(
+    db_session, session_factory, es, base, document, vid
+):
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
+
+    def delete_now():
+        document.deleted_at = datetime.now(UTC)  # purge's delete_by_query already ran before our write
+        db_session.commit()
+        es.after_bulk = lambda: None
+
+    es.after_bulk = delete_now
+    _run_copy(db_session, session_factory, es, base)
+    assert es.data["chunks-old-2"] == {} and es.aliases["chunks"] == {"chunks-old-2"}
+
+
+def test_version_purged_or_chunk_dropped_is_not_resurrected(
+    db_session, session_factory, es, base, document, vid
+):
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
+    es.put(f"{vid}:1", document.id)
+    es.put(f"{uuid.uuid4()}:0", document.id)  # version no longer in Postgres
+
+    def shrink():  # re-ingest produced fewer chunks: delete_stale_chunks removed :1 from the source
+        es.data[SRC].pop(f"{vid}:1")
+        es.after_bulk = lambda: None
+
+    es.after_bulk = shrink
+    _run_copy(db_session, session_factory, es, base)
+    assert list(es.data["chunks-old-2"]) == [f"{vid}:0"]
+
+
+def test_older_version_chunks_not_latest_after_copy(
+    db_session, session_factory, es, base, document, vid, blob
+):
+    v2 = DocumentVersion(
+        document_id=document.id,
+        version=2,
+        blob_sha256=blob.sha256,
+        filename="b.pdf",
+        content_type="x",
+        size=1,
     )
-    reembed.start(db_session, es, base, "old", 2)
+    db_session.add(v2)
     db_session.commit()
-    drain(db_session, session_factory, es, FakeLlm(2), base)
-    assert es.mutations == []
+    es.put(f"{vid}:0", document.id, version=1, is_latest=True)  # demotion by v2's ingest raced the copy
+    _run_copy(db_session, session_factory, es, base)
+    assert es.data["chunks-old-2"][f"{vid}:0"]["is_latest"] is False
 
 
-def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, es, base, document):
+def test_reconcile_tags_enqueued_before_cutover_and_after_catchup(
+    db_session, session_factory, es, base, document, vid
+):
     db_session.commit()
-    es.put("v1:0", document.id)
+    es.put(f"{vid}:0", document.id)
+    _run_copy(db_session, session_factory, es, base)
+    n = db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "reconcile_tags"))
+    assert n >= 4  # end of copy, cutover, two catch-up rounds
+
+
+def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, es, base, document, vid):
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
     llm = FakeLlm(2)
     reembed.start(db_session, es, base, "old", 2)
     db_session.commit()
@@ -210,9 +307,9 @@ def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, 
             db_session, j.payload, es=es, llm=llm, session_factory=session_factory, settings=base
         )
         db_session.commit()
-    es.put("v2:0", document.id, text="late")  # lands in the old index after the scan passed
+    es.put(f"{vid}:1", document.id, text="late")  # lands in the old index after the scan passed
     drain(db_session, session_factory, es, llm, base)
-    assert "v2:0" in es.data["chunks-old-2"]
+    assert f"{vid}:1" in es.data["chunks-old-2"]
     rounds = db_session.scalars(select(Job.payload["round"].astext).where(Job.kind == "reembed")).all()
     assert rounds.count("1") >= 1 and rounds.count("2") >= 1  # catch-up runs twice
 
@@ -223,13 +320,13 @@ def test_start_rejects_second_running_job(db_session, es, base):
         reembed.start(db_session, es, base, "other", 2)
 
 
-def test_status_reports_progress(db_session, session_factory, es, base, document):
+def test_status_reports_progress(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     assert reembed.status(db_session, es, base) == {
         "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "old": [],
     }  # fmt: skip
     for n in range(2):
-        es.put(f"v1:{n}", document.id)
+        es.put(f"{vid}:{n}", document.id)
     reembed.start(db_session, es, base, "new", 2)
     j = db_session.scalar(select(Job).where(Job.kind == "reembed"))
     reembed.handle_reembed(
@@ -244,8 +341,20 @@ def test_drop_old_keeps_active(db_session, es, base):
     es.data["chunks-new-1"] = {}
     es.aliases["chunks-all"].add("chunks-new-1")
     es.aliases["chunks"] = {"chunks-new-1"}
-    reembed.drop_old(es)
+    runtime.set_active_embedding(db_session, "new", 2, "chunks-new-1")
+    assert reembed.drop_old(db_session, es, base) == [SRC]
     assert list(es.data) == ["chunks-new-1"]
+
+
+def test_drop_old_refuses_when_alias_is_not_the_active_index(db_session, es, base):
+    """Cutover swapped the alias but failed before persisting: PG still says SRC, alias says target."""
+    es.data["chunks-new-1"] = {}
+    es.aliases["chunks-all"].add("chunks-new-1")
+    es.aliases["chunks"] = {"chunks-new-1"}
+    with pytest.raises(reembed.AliasMismatch):
+        reembed.drop_old(db_session, es, base)
+    assert set(es.data) == {SRC, "chunks-new-1"}
+    assert reembed.status(db_session, es, base)["old"] == ["chunks-new-1"]  # never SRC-vs-live confusion
 
 
 def test_model_change_guard_aborts_stale_ingest(db_session, base):
@@ -298,7 +407,11 @@ def test_legacy_plain_chunks_index_is_adopted(db_session):
             return index in ("chunks",) or index in self.es.data
 
         def exists_alias(self, name, index=None):
-            return False if name == "chunks" else super().exists_alias(name, index)
+            return (
+                False
+                if name == "chunks" and name not in self.es.aliases
+                else super().exists_alias(name, index)
+            )
 
         def get_mapping(self, index):
             return {index: {"mappings": {"properties": search_index._mapping(2)["properties"]}}}
@@ -364,9 +477,21 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # running
     j.status = "done"
     db_session.flush()
+    assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # alias != active index
+    runtime.set_active_embedding(db_session, "m0", 2, SRC)
     api_es.data["chunks-m-1"] = {}
     api_es.aliases["chunks-all"].add("chunks-m-1")
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 204
     assert (
         "chunks-m-1" not in api_es.data and SRC in api_es.data
     )  # the index behind `chunks` is never dropped
+
+
+def test_ensure_index_makes_read_alias_exclusive(es):
+    es.indices.create("chunks-b-1")
+    es.indices.es.data["chunks-b-1"] = {}
+    es.indices.get_mapping = lambda index: {
+        index: {"mappings": {"properties": search_index._mapping(2)["properties"]}}
+    }
+    search_index.ensure_index(es, "b", 2, name="chunks-b-1")
+    assert es.aliases["chunks"] == {"chunks-b-1"} and es.aliases["chunks-all"] == {SRC, "chunks-b-1"}

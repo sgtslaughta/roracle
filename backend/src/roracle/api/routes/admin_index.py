@@ -41,8 +41,11 @@ def get_reindex(p: Admin, session: Db, es: Es, request: Request) -> dict:
 
 
 @router.delete("/admin/reindex/old", status_code=204)
-def delete_old(p: Admin, session: Db, es: Es) -> None:
+def delete_old(p: Admin, session: Db, es: Es, request: Request) -> None:
     if reembed.running_job(session) is not None:
         raise HTTPException(409, "reindex running")
-    dropped = reembed.drop_old(es)
+    try:
+        dropped = reembed.drop_old(session, es, request.app.state.settings)
+    except reembed.AliasMismatch:
+        raise HTTPException(409, "read alias does not point at the active index; resolve first") from None
     audit(session, p, "admin.reindex_drop_old", "/admin/reindex/old", {"indices": dropped})
