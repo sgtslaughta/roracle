@@ -41,6 +41,7 @@ from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
 from roracle.mcp.auth import BearerAuth
 from roracle.mcp.server import build_mcp
+from roracle.metrics import http_middleware
 
 
 @asynccontextmanager
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings or get_settings()
     app.state.session_factory = make_session_factory(app.state.settings.database_url)
     app.state.jwks = JwksCache(app.state.settings.oidc_jwks_url)
+    app.middleware("http")(http_middleware)
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(admin_settings.router)

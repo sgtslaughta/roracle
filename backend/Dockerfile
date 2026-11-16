@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir --index-url "$UV_INDEX_URL" uv==0.10.4
 WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
 # Hash-pinned requirements exported from the lock (no pypi.org/pythonhosted URLs), installed from the mirror.
-RUN uv export --frozen --no-dev --no-emit-project --format requirements-txt -o /tmp/req.txt \
+RUN uv export --frozen --no-dev --extra otel --no-emit-project --format requirements-txt -o /tmp/req.txt \
  && uv venv .venv \
  && uv pip install --python .venv --require-hashes --index-url "$UV_INDEX_URL" -r /tmp/req.txt
 COPY backend/alembic.ini ./

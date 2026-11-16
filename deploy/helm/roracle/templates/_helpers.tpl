@@ -97,10 +97,11 @@ ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- end }}
 {{- end -}}
 
-{{/* OTel env, only when an endpoint is set. Backend instrumentation lands in P11b. args: root, comp */}}
+{{/* OTel env, only when an endpoint is set. The image wraps api/worker in opentelemetry-instrument when set. args: root, comp */}}
 {{- define "roracle.otelEnv" -}}
 {{- with .root.Values.observability.otel.endpoint }}
 - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ . | quote }}}
+- {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: http/protobuf}
 - {name: OTEL_SERVICE_NAME, value: {{ printf "roracle-%s" $.comp | quote }}}
 - {name: OTEL_RESOURCE_ATTRIBUTES, value: {{ printf "service.version=%s" $.root.Chart.AppVersion | quote }}}
 {{- end }}
@@ -114,7 +115,7 @@ imagePullSecrets: {{ toYaml . | nindent 2 }}
 
 {{/*
 Deployment (+ Service when .port) for one component. args: root, comp, v (component values), img,
-command (list, optional), port, env (yaml list string), tmp (emptyDir size), probe (bool), runAsUser (optional).
+command (list, optional), port, healthPort (worker /healthz+/metrics, optional), metricsPort (annotation, optional), env (yaml list string), tmp (emptyDir size), probe (bool), runAsUser (optional).
 */}}
 {{- define "roracle.workload" -}}
 {{- $root := .root -}}
@@ -138,6 +139,11 @@ spec:
         app.kubernetes.io/component: {{ .comp }}
       annotations:
         checksum/config: {{ include "roracle.config" $root | sha256sum }}
+        {{- if and .metricsPort $root.Values.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .metricsPort | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
     spec:
       serviceAccountName: {{ include "roracle.saName" $root }}
       automountServiceAccountToken: false
@@ -180,14 +186,22 @@ spec:
           envFrom:
             - configMapRef: {name: {{ include "roracle.fullname" $root }}-env}
           {{- end }}
-          {{- if .port }}
+          {{- if or .port .healthPort }}
           ports:
-            - {name: http, containerPort: {{ .port }}}
+            {{- with .port }}
+            - {name: http, containerPort: {{ . }}}
+            {{- end }}
+            {{- with .healthPort }}
+            - {name: health, containerPort: {{ . }}}
+            {{- end }}
           {{- end }}
           {{- if .probe }}
           startupProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5, failureThreshold: 30}
-          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10}
           livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 20}
+          {{- end }}
+          {{- if .healthPort }}
+          livenessProbe: {httpGet: {path: /healthz, port: health}, periodSeconds: 30, failureThreshold: 3}
           {{- end }}
           resources: {{ toYaml .v.resources | nindent 12 }}
           securityContext: {{ toYaml $root.Values.containerSecurityContext | nindent 12 }}

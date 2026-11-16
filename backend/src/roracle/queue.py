@@ -9,6 +9,8 @@ from datetime import timedelta
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from roracle import worker_health
+from roracle.metrics import JOB_RUNS
 from roracle.models import Job
 
 log = logging.getLogger(__name__)
@@ -97,6 +99,7 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
         job = claim(session, handlers.keys())
         if job is None:
             return False
+        worker_health.working = True
         try:
             with session.begin_nested():
                 handlers[job.kind](session, job.payload)
@@ -109,10 +112,14 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
             elif msg.startswith(USER_PREFIX):
                 msg = "err:" + msg  # only NonRetryable may produce a leading "user:"
             fail(session, job, msg, retryable=not user_safe)
+            JOB_RUNS.labels(job.kind, "failed" if job.status == "failed" else "retry").inc()
             if job.status == "failed":
                 _notify_failed(session, job)
         else:
             complete(session, job.id)
+            JOB_RUNS.labels(job.kind, "done").inc()
+        finally:
+            worker_health.working = False
         session.commit()
     return True
 
@@ -130,6 +137,7 @@ def run_forever(
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     while not stop:
+        worker_health.beat()
         try:
             if run_once(session_factory, handlers):
                 continue

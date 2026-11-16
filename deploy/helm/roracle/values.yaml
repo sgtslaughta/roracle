@@ -39,15 +39,18 @@ config:
   ROR_MAX_UPLOAD_BYTES: "524288000"
   ROR_EVIDENCE_MAX_BYTES: "1073741824"
 
+# Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.
+metrics: {enabled: true}
+
 serviceAccount:
   create: true
   name: ""                 # override; empty = fullname if create else "default"
   annotations: {}
 
-# Tokens only; the backend has no OTel/metrics instrumentation yet (P11b). Env is emitted when endpoint is set.
+# OTel: env is emitted when endpoint is set; the image then runs api/worker under opentelemetry-instrument (OTLP/HTTP, e.g. :4318).
 observability:
   otel:
-    endpoint: ""           # e.g. http://otel-collector.observability:4317
+    endpoint: ""           # e.g. http://otel-collector.observability:4318
   # Grafana sidecar-provisioned dashboard (ingress-nginx + CNPG metrics). `label` = sidecar label key.
   grafanaDashboard: {enabled: false, label: grafana_dashboard}
 
@@ -78,6 +81,7 @@ api:
 
 worker:
   replicas: 4
+  healthPort: 8001         # /healthz (liveness) + /metrics; 0 = off (ROR_WORKER_HEALTH_PORT)
   resources:
     requests: {cpu: "4", memory: 8Gi}
     limits: {memory: 8Gi}
@@ -339,6 +343,6 @@ networkPolicy:
   egressCIDRs:
     llm: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
     oidc: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
-    otel: {cidrs: [], ports: [4317], namespaceSelector: {}, podSelector: {}}
+    otel: {cidrs: [], ports: [4318], namespaceSelector: {}, podSelector: {}}
     parsers: {cidrs: [], ports: [3000, 5001, 8070, 3310], namespaceSelector: {}, podSelector: {}}
-  scrape: {enabled: false, ports: [8000]}   # allow monitoringNamespace -> api/worker (backend has no /metrics yet)
+  scrape: {enabled: true, ports: [8000, 8001]}   # allow monitoringNamespace -> api/worker /metrics (match worker.healthPort)

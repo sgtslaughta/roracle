@@ -139,7 +139,7 @@ The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew
 | `networkPolicy.kubeAPI.cidrs` | apiserver endpoint IPs. Default empty = ports 443/6443 allowed to any destination (tighten in production) |
 | `networkPolicy.operatorNamespaces` | namespaces of ECK, CNPG, MinIO operators if not the defaults |
 | `networkPolicy.externalCIDRs.*`, `s3Cidrs`, `connectors.egressCIDRs` | only for external services / connector targets |
-| `networkPolicy.monitoringNamespace`, `scrape.enabled` | Prometheus namespace (PodMonitor scrape of Postgres; api/worker scrape has no target until P11b) |
+| `networkPolicy.monitoringNamespace`, `scrape.{enabled,ports}` | Prometheus namespace allowed to scrape api (8000) and worker (`worker.healthPort`, 8001) `/metrics` and Postgres; keep `ports` in step with `worker.healthPort` |
 
 ### 4.7 Web runtime environment
 
@@ -161,7 +161,8 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 | `secrets` | `existingSecret` and key names; `llmApiKeyEnabled` |
 | `config` | non-secret `ROR_*` -> ConfigMap; empty URLs auto-filled for enabled bundled services |
 | `serviceAccount` | chart SA |
-| `observability` | `otel.endpoint` (env only until P11b), `grafanaDashboard` ConfigMap |
+| `observability` | `otel.endpoint` (OTLP/HTTP, see below), `grafanaDashboard` ConfigMap |
+| `metrics.enabled` | `prometheus.io/{scrape,port,path}` pod annotations on api and worker (default on); no ServiceMonitor is shipped |
 | `podSecurityContext`, `containerSecurityContext`, `topologySpread` | restricted baseline, zone spread |
 | `api`, `worker`, `web` | replicas, resources, HPA, PDB, `tmpSize`, grace periods |
 | `migrate` | hook Job resources and deadline (1500 s) |
@@ -175,7 +176,13 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 | `networkPolicy` | see 4.6 |
 
 Observability (Prometheus, Grafana, Loki, OTel collector) are separate releases: see
-[`deploy/observability/README.md`](../../deploy/observability/README.md). The backend exports no metrics or traces yet (P11b).
+[`deploy/observability/README.md`](../../deploy/observability/README.md). 
+Probes and metrics (api and worker):
+
+- api `readinessProbe` is `GET /readyz`: Postgres `SELECT 1`, Elasticsearch ping and S3 `head_bucket`, each limited to 2 s. It answers 503 with `{"checks":{"db","es","s3"}}` (`ok`/`fail`, no error text) while a dependency is down. `/healthz` stays static and is the startup and liveness probe.
+- worker serves `/healthz` and `/metrics` on `ROR_WORKER_HEALTH_PORT` (chart `worker.healthPort`, default `8001`, `0` = off). `/healthz` answers 503 when the job loop has not iterated for 5 min (liveness restarts the pod). While a job is running the worker reports healthy regardless of duration (long ingests are expected), so a hung handler is not detected by liveness.
+- `GET /metrics` on api and worker is unauthenticated Prometheus text. The ingress routes only `/mcp`, `/.well-known/oauth-protected-resource` and `/` (web), and the web pod's nginx returns 404 for `/api/metrics`, so it is reachable only inside the cluster (NetworkPolicy `scrape` admits the monitoring namespace).
+- OTel is opt-in: set `observability.otel.endpoint` (OTLP/HTTP, e.g. `http://collector:4318`; open `networkPolicy.egressCIDRs.otel`, default port 4318). The image bundles the `otel` extra and the entrypoint re-execs `api`/`worker` under `opentelemetry-instrument` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (FastAPI, SQLAlchemy and httpx are instrumented). Without the variable nothing changes.
 
 ### 4.9 Keycloak and reverse proxy
 
@@ -211,6 +218,7 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` | empty | Comma or JSON list of CIDRs (e.g. `10.20.0.0/16,fd12:3456::/32`) that HTTP crawl connectors may reach although they are not public addresses. Empty = only public internet hosts. Needed for air-gapped/internal crawling. Link-local (`169.254.0.0/16`, `fe80::/10`, cloud metadata), the IPv4 inside a mapped address when it is link-local/metadata, multicast and unspecified addresses are blocked even inside an allowed CIDR. IPv4-mapped answers (`::ffff:a.b.c.d`) follow the IPv4 rules (allowlist `10.0.0.0/8`, not a mapped CIDR). Any IPv6 CIDR overlapping a translator/tunnel range (`::/96`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `2001::/32`) must be a `/96` (e.g. `64:ff9b::/96` for NAT64); its low 32 bits are vetted as IPv4. The translator CIDR must be the translator's real `/96` prefix (RFC 6052 `/96` layout); NAT64 deployments using `/32`-`/64` layouts are unsupported. IPv6 loopback (`::1`) cannot be allowlisted: use IPv4 `127.0.0.0/8` for local test crawls. Invalid CIDR = startup error |
 | `ROR_CONNECTOR_HTTP_TIMEOUT_S` | `60` | Per-request cap for HTTP crawl connectors, connect to last byte (also bounded by the remaining run time) |
 | `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
+| `ROR_WORKER_HEALTH_PORT` | `8001` | Worker `/healthz` + `/metrics` port; `0` disables the listener (set by the chart from `worker.healthPort`) |
 | `ROR_CLAMAV_PORT` | `3310` | clamd port (chart: `parsers.clamav.port` when bundled; external clamd: set `config.ROR_CLAMAV_PORT`) |
 | `ROR_ELASTIC_USERNAME`, `ROR_ELASTIC_PASSWORD` | empty | ES basic auth, instead of URL userinfo (secret keys `secrets.keys.elasticUsername/elasticPassword`, optional) |
 | `ROR_DATABASE_PASSWORD` | empty | Injected into `ROR_DATABASE_URL` (URL-escaped for you; the URL must carry a username); secret key `secrets.keys.databasePassword`, optional. `ROR_DATABASE_URL` itself accepts `postgresql://`, `postgres://` or `postgresql+psycopg://` (driver normalised) |

@@ -31,6 +31,7 @@ from roracle.ingest.state import (
     update_version,
 )
 from roracle.ingest.summary import summarize
+from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
 from roracle.queue import NonRetryable
 from roracle.storage import BlobStore
@@ -198,7 +199,15 @@ def handle_ingest(
     session.refresh(d)
     if v.stage in TERMINAL or d.deleted_at is not None:
         return
+    try:
+        _advance(session, v, d, settings=settings, store=store, es=es, llm=llm, sf=sf)
+    except Exception:
+        INGEST_STAGE_FAILURES.labels(v.stage).inc()  # stage being advanced (last refreshed value)
+        raise
 
+
+def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
+    vid = v.id
     doc: dict | None = None
     if v.stage == "uploaded":
         _scan(session, v, settings, store, sf)

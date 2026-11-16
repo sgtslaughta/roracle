@@ -1,7 +1,7 @@
 import logging
 from functools import partial
 
-from roracle import clients
+from roracle import clients, worker_health
 from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
@@ -46,4 +46,5 @@ def main() -> None:
     sf = make_session_factory(settings.database_url)
     HANDLERS.update(build_handlers(settings, sf))
     ensure_tick(sf)
+    worker_health.serve(settings.worker_health_port)
     run_forever(sf, HANDLERS)

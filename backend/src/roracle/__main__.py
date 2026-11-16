@@ -1,10 +1,30 @@
 import argparse
+import os
+import shutil
+import sys
 from pathlib import Path
 
 DEFAULT_INI = Path(__file__).parents[2] / "alembic.ini"
 
 
+def maybe_wrap_otel(argv: list[str]) -> None:
+    """Opt-in OTel: re-exec api/worker under opentelemetry-instrument when an OTLP endpoint is set."""
+    if (
+        argv[:1] not in (["api"], ["worker"])
+        or not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        or os.environ.get("ROR_OTEL_WRAPPED")
+    ):
+        return
+    exe = shutil.which("opentelemetry-instrument")
+    if exe:
+        os.environ["ROR_OTEL_WRAPPED"] = "1"
+        os.execvp(
+            "opentelemetry-instrument", ["opentelemetry-instrument", sys.executable, "-m", "roracle", *argv]
+        )
+
+
 def main(argv: list[str] | None = None) -> None:
+    maybe_wrap_otel(sys.argv[1:] if argv is None else argv)
     p = argparse.ArgumentParser(prog="roracle")
     sub = p.add_subparsers(dest="cmd", required=True)
     api = sub.add_parser("api", help="run the HTTP API")

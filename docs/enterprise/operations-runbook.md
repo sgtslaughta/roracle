@@ -7,14 +7,21 @@ CNPG cluster `roracle-pg`, ECK cluster `roracle` (service `roracle-es-http`). Ad
 
 | Signal | Where | Healthy |
 |---|---|---|
-| API | `GET /healthz` | `{"status":"ok","version":"x.y.z"}` |
-| Queue depth | `SELECT kind, status, count(*) FROM jobs GROUP BY 1,2;` | `queued` drains; few `failed` |
-| Oldest queued job | `SELECT now() - min(run_after) FROM jobs WHERE status='queued';` | < 5 min |
+| API liveness | `GET /healthz` | `{"status":"ok","version":"x.y.z"}` |
+| API readiness | `GET /readyz` | 200; on 503 the body names the failing check (`db`, `es` or `s3`) |
+| Worker | `GET :8001/healthz` | 200; 503 = job loop stalled > 5 min |
+| Queue depth | `roracle_jobs{kind,status}` (or `SELECT kind, status, count(*) FROM jobs GROUP BY 1,2;`) | `queued` drains; few `failed` |
+| Oldest queued job | `roracle_jobs_oldest_queued_seconds{kind}` | < 5 min |
+| Job outcomes | `rate(roracle_job_runs_total{outcome=~"retry|failed"}[5m])` (worker) | near 0 |
+| Ingest failures | `roracle_ingest_stage_failures_total{stage}` | near 0 |
+| API traffic | `roracle_http_requests_total{method,route,status}`, `roracle_http_request_duration_seconds` (route = matched template) | 5xx < 1% |
 | Search latency | Grafana: `roracle_search_seconds` p95 | < 500 ms |
 | Chat TTFT | `roracle_chat_ttft_seconds` p95 | < 2 s |
 | Ingest latency | `roracle_ingest_seconds` p95 (upload → searchable) | < 120 s |
 | Elastic | `GET _cluster/health` | green |
 | Postgres | `kubectl cnpg status roracle-pg` | primary + replicas streaming |
+
+Metrics come from `/metrics` on the api (also the DB-backed `roracle_jobs*` gauges, collected at scrape time with a 2 s statement timeout; with several api replicas aggregate with `max by`) and on the worker (`roracle_job_runs_total`, `roracle_ingest_stage_failures_total`). Both endpoints are cluster-internal only.
 
 ### Suggested alerts
 

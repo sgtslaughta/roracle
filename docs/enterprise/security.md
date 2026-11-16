@@ -179,6 +179,7 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
 
 ## 10. Residual risks / review items
 
+- `/metrics` (api and worker) is unauthenticated and exposes job counts per kind, route templates and status codes (no user data, no document identifiers). It must stay cluster-internal: the ingress does not route it, the web pod's nginx returns 404 for `/api/metrics`, and the NetworkPolicy admits only `networkPolicy.monitoringNamespace`. `/readyz` returns only `ok`/`fail` per dependency, never error text.
 - LLM answers can be wrong despite citations; UI always shows sources and passages read.
 - Near-duplicate prompts compare only against documents the user can see; cross-tenant near-dup
   information never surfaces, which can leave invisible duplicates in the corpus (accepted).
@@ -226,7 +227,7 @@ Cross-Origin-Opener-Policy: same-origin
 | api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
 | api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |
 | api, worker | MinIO (bundled, or `s3Cidrs`) | 9000 | |
-| api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4317 (configurable) | empty = denied |
+| api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4318 (configurable) | empty = denied |
 | worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
 | all pods | DNS (`networkPolicy.dns`) | 53 | |
 | `monitoringNamespace` | api/worker | 8000 | only if `scrape.enabled` (backend has no `/metrics` yet) |
