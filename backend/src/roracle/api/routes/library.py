@@ -261,6 +261,9 @@ def delete_collection(cid: UUID, p: Who, session: Session_) -> Response:
 @router.put("/collections/{cid}/items/{doc_id}")
 def add_item(cid: UUID, doc_id: UUID, p: Who, session: Session_) -> dict:
     _own(session, p, cid)
+    # lock the collection so a concurrent delete can't slip between the check and the insert
+    if session.scalar(select(Collection.id).where(Collection.id == cid).with_for_update()) is None:
+        raise HTTPException(404, "not found")
     _visible(session, p, doc_id)
     session.execute(
         insert(CollectionItem).values(collection_id=cid, document_id=doc_id).on_conflict_do_nothing()

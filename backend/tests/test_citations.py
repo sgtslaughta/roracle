@@ -3,7 +3,7 @@ from api_seed import seed
 from sqlalchemy import select
 
 from roracle.citations import backfill_for, handle_citations, resolve_references
-from roracle.models import DocCitation
+from roracle.models import DocCitation, DocumentVersion
 
 
 def lib(db, owner, title, *, year=2020, doi=None, **kw):
@@ -263,7 +263,7 @@ def test_handler_noop_when_not_searchable_or_deleted(db_session, ana):
 
 def test_mark_searchable_and_enqueue_is_atomic(db_session, session_factory, ana):
     from roracle.ingest.state import mark_searchable_and_enqueue
-    from roracle.models import DocumentVersion, Job
+    from roracle.models import Job
 
     _, v = citing(db_session, ana, [], stage="embedded")
     db_session.commit()
@@ -298,3 +298,19 @@ def test_cited_by_limit_param(client, as_bob, ana, db_session):
     assert len(client.get(url, headers=as_bob).json()) == 2
     assert len(client.get(url + "?limit=1", headers=as_bob).json()) == 1
     assert client.get(url + "?limit=0", headers=as_bob).status_code == 422
+
+
+def test_cited_by_pages_count_documents_not_version_rows(client, as_bob, ana, db_session):
+    t, _ = lib(db_session, ana, "Target Work Of Interest", year=2020)
+    ref = [{"title": "Target Work Of Interest", "year": 2020}]
+    d1, _ = citing(db_session, ana, ref, versions=2)
+    for v in db_session.scalars(select(DocumentVersion).where(DocumentVersion.document_id == d1.id)):
+        v.is_latest, v.references = True, ref  # corrupted: both versions flagged latest
+        db_session.flush()
+        resolve_references(db_session, v)
+    d2, v2 = citing(db_session, ana, ref)
+    resolve_references(db_session, v2)
+    url = f"/documents/{t.id}/cited-by"
+    pages = [client.get(f"{url}?limit=1&offset={o}", headers=as_bob).json() for o in (0, 1, 2)]
+    assert [len(x) for x in pages] == [1, 1, 0]
+    assert {pages[0][0]["doc_id"], pages[1][0]["doc_id"]} == {str(d1.id), str(d2.id)}

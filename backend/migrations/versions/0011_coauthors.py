@@ -36,6 +36,8 @@ def upgrade() -> None:
                 CASE WHEN jsonb_typeof(d.coauthors->'users') = 'array' THEN d.coauthors->'users' ELSE '[]'::jsonb END
             ) AS c(val)
             JOIN users u ON u.id::text = lower(c.val) AND u.id <> doc.owner_id
+            JOIN document_shares s ON s.document_id = d.document_id AND s.principal_kind = 'user'
+                 AND s.principal = u.id::text
             WHERE (d.submitted_version IS NOT NULL OR EXISTS (
                 SELECT 1 FROM document_versions v WHERE v.document_id = d.document_id AND v.stage = 'searchable'))
             ON CONFLICT DO NOTHING
@@ -45,7 +47,8 @@ def upgrade() -> None:
         SELECT 'acl_sync', jsonb_build_object('doc_id', document_id::text) FROM (SELECT DISTINCT document_id FROM ins) x
         """
     )
-    # is_latest: exactly one per document = its highest searchable version (documents with none keep theirs).
+    # is_latest: exactly one per document = its highest searchable version; documents with none get none
+    # (ingest sets the flag when a version turns searchable; owner views fall back to the newest version).
     op.execute(
         """
         UPDATE document_versions v SET is_latest = (v.stage = 'searchable' AND v.version = m.top)
@@ -53,6 +56,10 @@ def upgrade() -> None:
               WHERE stage = 'searchable' GROUP BY document_id) m
         WHERE v.document_id = m.document_id AND v.is_latest IS DISTINCT FROM (v.stage = 'searchable' AND v.version = m.top)
         """
+    )
+    op.execute(
+        "UPDATE document_versions SET is_latest = false WHERE is_latest AND document_id NOT IN "
+        "(SELECT document_id FROM document_versions WHERE stage = 'searchable')"
     )
     op.alter_column("document_versions", "is_latest", server_default=sa.false())
 

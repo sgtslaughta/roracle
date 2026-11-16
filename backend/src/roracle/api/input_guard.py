@@ -16,8 +16,8 @@ _MARGIN = 64 * 1024
 
 
 def json_cap(draft_max_bytes: int) -> int:
-    """Largest legit JSON body is a draft; ensure_ascii escapes non-ASCII to up to 2x its UTF-8 size."""
-    return max(JSON_MAX, 2 * draft_max_bytes + _MARGIN)
+    """Largest legit JSON body is a draft; ensure_ascii escapes non-ASCII to up to 3x its UTF-8 size (astral: 4 -> 12 bytes)."""
+    return max(JSON_MAX, 3 * draft_max_bytes + _MARGIN)
 
 
 _RAW_NUL = (b"%00", b"\x00")

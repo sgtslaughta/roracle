@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
@@ -101,10 +102,12 @@ def cited_by(
 ) -> list[dict]:
     _readable(session, p, doc_id)
     bt = best_targets(p)
-    rows = session.execute(
-        select(Document, DocumentVersion)
-        .join(DocumentVersion, DocumentVersion.document_id == Document.id)
+    # one row per citing document (newest qualifying version), so limit/offset page documents
+    one = (
+        select(DocumentVersion.id.label("vid"))
+        .ext(distinct_on(Document.id))
         .join(bt, bt.c.src_version_id == DocumentVersion.id)
+        .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             bt.c.rn == 1,
             bt.c.target_document_id == doc_id,
@@ -112,6 +115,13 @@ def cited_by(
             DocumentVersion.stage == "searchable",
             visible_documents(p),
         )
+        .order_by(Document.id, DocumentVersion.created_at.desc())
+        .subquery()
+    )
+    rows = session.execute(
+        select(Document, DocumentVersion)
+        .join(DocumentVersion, DocumentVersion.document_id == Document.id)
+        .join(one, one.c.vid == DocumentVersion.id)
         .order_by(DocumentVersion.created_at.desc(), Document.id)
         .limit(limit)
         .offset(offset)

@@ -219,6 +219,16 @@ def test_collection_rules(client, as_ana, as_bob, up):
     assert client.post("/collections", headers=as_bob, json={"name": "n" * 101}).status_code == 422
 
 
+def test_add_item_to_concurrently_deleted_collection_is_404(client, as_ana, up, monkeypatch):
+    from roracle.api.routes import library
+
+    d = up(as_ana)
+    # the ownership check passed, then the collection vanished before the insert: 404, not an FK 500
+    monkeypatch.setattr(library, "_own", lambda *a: None)
+    r = client.put(f"/collections/{uuid.uuid4()}/items/{d}", headers=as_ana)
+    assert r.status_code == 404
+
+
 def test_unicode_normalization_is_stable():
     for raw in ("Größe", "数学", "naïve", "ＡＢＣ"):
         n = normalize_tag(raw)

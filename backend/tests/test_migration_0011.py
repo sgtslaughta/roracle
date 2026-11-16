@@ -7,7 +7,7 @@ from api_seed import seed
 from conftest import _alembic_config
 from sqlalchemy import select, text
 
-from roracle.models import Document, DocumentCoauthor, DocumentVersion, Job, User
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, Job, User
 from roracle.models_writing import Draft
 
 
@@ -20,12 +20,17 @@ def _user(db, name):
 
 def test_backfill_and_is_latest_repair(session_factory, db_session):
     owner, co, other = (_user(db_session, n) for n in ("o", "c", "x"))
+    no_share = _user(
+        db_session, "n"
+    )  # in the draft list but never held a share (added after publish / revoked)
     ghost = str(uuid.uuid4())  # unknown user id in a draft: skipped, not an FK error
     pub, _ = seed(db_session, owner, visibility="everyone", stage="searchable")
     db_session.add(Draft(document_id=pub.id, status="submitted", submitted_version=1,
-                         coauthors={"users": [str(co), str(owner), ghost], "groups": []}))  # fmt: skip
+                         coauthors={"users": [str(co), str(owner), str(no_share), ghost], "groups": []}))  # fmt: skip
+    db_session.add(DocumentShare(document_id=pub.id, principal_kind="user", principal=str(co)))
     wip, _ = seed(db_session, owner, visibility="private", stage="uploaded")  # unpublished draft: no grant
     db_session.add(Draft(document_id=wip.id, status="draft", coauthors={"users": [str(other)], "groups": []}))
+    pending, _ = seed(db_session, owner, stage="review", versions=2)  # no searchable version: no flag at all
     multi, _ = seed(db_session, owner, stage="searchable", versions=3)  # is_latest only on v3 here
     vs = {
         v.version: v
@@ -34,7 +39,7 @@ def test_backfill_and_is_latest_repair(session_factory, db_session):
     vs[2].stage, vs[3].stage = "searchable", "review"  # newest is not searchable
     vs[1].is_latest = vs[2].is_latest = vs[3].is_latest = True  # corrupted: all flagged
     db_session.commit()
-    pub_id, wip_id, multi_id = pub.id, wip.id, multi.id
+    pub_id, wip_id, multi_id, pending_id = pub.id, wip.id, multi.id, pending.id
     db_session.rollback()  # release locks before DDL
     cfg = _alembic_config()
     command.downgrade(cfg, "0010")
@@ -49,6 +54,9 @@ def test_backfill_and_is_latest_repair(session_factory, db_session):
         for v in db_session.scalars(select(DocumentVersion).where(DocumentVersion.document_id == multi_id))
     }
     assert flags == {1: False, 2: True, 3: False}
+    assert not db_session.scalars(
+        select(DocumentVersion).where(DocumentVersion.document_id == pending_id, DocumentVersion.is_latest)
+    ).all()
     assert db_session.get(Document, pub_id) is not None
     default = db_session.scalar(
         text("select column_default from information_schema.columns "
