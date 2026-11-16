@@ -1,9 +1,26 @@
+import ipaddress
 import json
 from functools import lru_cache
 from typing import Annotated
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# IPv6 prefixes that wrap or translate an IPv4 address (mapped, compat, NAT64, 6to4, Teredo).
+WRAPPERS = [
+    ipaddress.ip_network(n)
+    for n in (
+        "::/96",
+        "::ffff:0:0/96",
+        "::ffff:0:0:0/96",
+        "64:ff9b::/96",
+        "64:ff9b:1::/48",
+        "2002::/16",
+        "2001::/32",
+    )
+]
+# 6to4/Teredo embed their IPv4 outside the low 32 bits: never allowlistable, whatever the prefix length.
+UNALLOWABLE = [ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/32")]
 
 
 class Settings(BaseSettings):
@@ -49,6 +66,17 @@ class Settings(BaseSettings):
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6
+    rerank_depth: int = 50
+    upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
+    rate_limit_per_minute: int = 0  # stored only; enforced at ingress in P11
+    connector_fs_roots: Annotated[list[str], NoDecode] = []  # fs connectors may only read under these
+    connector_max_items: int = 1000  # per run
+    connector_max_run_s: int = 3600
+    connector_tick_s: int = 60
+    connector_http_allow_cidrs: Annotated[
+        list[str], NoDecode
+    ] = []  # http crawl may reach these private ranges
+    connector_http_timeout_s: int = 60  # per HTTP request (connect to last byte)
 
     @property
     def chat_model_list(self) -> list[str]:
@@ -61,7 +89,23 @@ class Settings(BaseSettings):
             raise ValueError("chat_models must list at least one model")
         return v
 
-    @field_validator("oidc_allowed_clients", mode="before")
+    @field_validator("connector_http_allow_cidrs")
+    @classmethod
+    def _cidrs(cls, v: list[str]) -> list[str]:
+        for c in v:
+            net = ipaddress.ip_network(c, strict=False)  # ValueError -> settings validation error
+            if net.version == 6 and any(net.overlaps(u) for u in UNALLOWABLE):
+                raise ValueError(f"{c}: 6to4 (2002::/16) and Teredo (2001::/32) ranges cannot be allowlisted")
+            if net.version == 6 and net.prefixlen != 96 and any(net.overlaps(w) for w in WRAPPERS):
+                raise ValueError(
+                    f"{c}: an IPv6 allowlist CIDR overlapping a mapped/translator/tunnel range "
+                    "(::/96, ::ffff:0:0/96, 64:ff9b::/96, 64:ff9b:1::/48, 2002::/16, 2001::/32) must be a /96 translator prefix"
+                )
+        return v
+
+    @field_validator(
+        "oidc_allowed_clients", "connector_fs_roots", "connector_http_allow_cidrs", mode="before"
+    )
     @classmethod
     def _parse_clients(cls, v):
         if isinstance(v, str):

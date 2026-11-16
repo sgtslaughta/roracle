@@ -65,6 +65,9 @@ class Document(Base):
     visibility: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(TZ)
+    connector_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("connectors.id", ondelete="SET NULL"), index=True
+    )
 
 
 class DocumentVersion(Base):
@@ -455,3 +458,74 @@ class EvidenceReproduction(Base):
     outcome: Mapped[str] = mapped_column(String)
     note: Mapped[str] = mapped_column(String(2000), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Connector(Base):
+    __tablename__ = "connectors"
+    __table_args__ = (
+        CheckConstraint("kind IN ('s3','fs','http')", name="ck_connectors_kind"),
+        CheckConstraint("visibility IN ('private','org_unit','everyone')", name="ck_connectors_visibility"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    kind: Mapped[str] = mapped_column(String)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    visibility: Mapped[str] = mapped_column(String)
+    org_unit: Mapped[str] = mapped_column(String, default="", server_default="")
+    schedule_minutes: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    next_run_at: Mapped[datetime | None] = mapped_column(TZ)
+    last_run_at: Mapped[datetime | None] = mapped_column(TZ)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class ConnectorRun(Base):
+    __tablename__ = "connector_runs"
+    __table_args__ = (
+        CheckConstraint("status IN ('running','ok','partial','failed')", name="ck_connector_runs_status"),
+        Index("ix_connector_runs_connector_id_id", "connector_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    connector_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("connectors.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String)
+    started_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(TZ)
+    stats: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    log: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+
+class ConnectorItem(Base):
+    __tablename__ = "connector_items"
+
+    connector_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("connectors.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    etag: Mapped[str] = mapped_column(String, default="", server_default="")
+    sha256: Mapped[str] = mapped_column(String)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    seen_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_user_id_id", "user_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(TZ)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))

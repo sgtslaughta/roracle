@@ -126,7 +126,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
         def go(session: Session, p: Principal) -> dict:
             cols = [collection] if collection else None
             search_routes.validate_search_params(query, {"collection": cols}, limit)
-            settings = dep(app, get_app_settings)
+            settings = dep(app, get_app_settings, session)
             body = search_routes.search(
                 p,
                 session,

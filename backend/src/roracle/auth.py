@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from roracle import runtime
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import AuditLog, User
@@ -121,8 +122,8 @@ def get_jwks(request: Request) -> JwksCache:
     return request.app.state.jwks
 
 
-def get_app_settings(request: Request) -> Settings:
-    return request.app.state.settings
+def get_app_settings(request: Request, session: Annotated[Session, Depends(get_session)]) -> Settings:
+    return runtime.effective(session, request.app.state.settings)
 
 
 def _unauthorized() -> HTTPException:

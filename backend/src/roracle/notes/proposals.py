@@ -15,6 +15,7 @@ from roracle.models import Annotation, Proposal
 from roracle.notes import service
 from roracle.notes.access import get_readable
 from roracle.notes.schemas import BODY_MAX, SHARES_MAX, NoteIn, ReplyIn, Share, Visibility
+from roracle.notify import emit
 
 PENDING_MAX = 50
 _META = ("document_id", "parent_id")
@@ -70,6 +71,7 @@ def propose(session: Session, p: Principal, kind: str, payload: dict) -> Proposa
     session.add(row)
     session.flush()
     session.refresh(row)
+    emit(session, p.user_id, "proposal.new", {"proposal_id": str(row.id), "kind": kind, "client": p.client})
     return row
 
 

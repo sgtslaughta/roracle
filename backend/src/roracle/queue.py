@@ -75,6 +75,16 @@ def fail(session: Session, job: Job, error: str, *, retryable: bool = True) -> N
     session.refresh(job)
 
 
+def _notify_failed(session: Session, job: Job) -> None:
+    from roracle import notify  # lazy: keeps queue importable without the notification layer
+
+    try:
+        with session.begin_nested():
+            notify.on_job_failed(session, job)
+    except Exception:
+        log.exception("failure notification for job %s", job.id)
+
+
 def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler]) -> bool:
     """Run at most one job; return True if one was claimed.
 
@@ -99,6 +109,8 @@ def run_once(session_factory: sessionmaker[Session], handlers: dict[str, Handler
             elif msg.startswith(USER_PREFIX):
                 msg = "err:" + msg  # only NonRetryable may produce a leading "user:"
             fail(session, job, msg, retryable=not user_safe)
+            if job.status == "failed":
+                _notify_failed(session, job)
         else:
             complete(session, job.id)
         session.commit()

@@ -8,6 +8,9 @@ from starlette.routing import Route
 from roracle import __version__
 from roracle.api.routes import (
     admin,
+    admin_connectors,
+    admin_ops,
+    admin_settings,
     annotations,
     chats,
     chats_read,
@@ -22,6 +25,7 @@ from roracle.api.routes import (
     library,
     me,
     near_dup,
+    notifications,
     proposals,
     search,
     tokens,
@@ -47,7 +51,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.jwks = JwksCache(app.state.settings.oidc_jwks_url)
     app.include_router(health.router)
     app.include_router(admin.router)
+    app.include_router(admin_settings.router)
+    app.include_router(admin_connectors.router)
+    app.include_router(admin_ops.router)
     app.include_router(me.router)
+    app.include_router(notifications.router)
     app.include_router(tokens.router)
     app.include_router(handoffs.router)
     app.include_router(documents.router)

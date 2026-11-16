@@ -107,7 +107,67 @@ Handoff loads are audited. Planned: per-user rate limits on search, chat, upload
 rate-limited handoff loads (P11); PAT misuse alerts, i.e. use from a new client or burst rate (P11);
 max 50 pending agent proposals per session (P8).
 
-## 9. Residual risks / review items
+## 9. Connectors
+
+Admins (never PATs) configure connectors that ingest from S3-compatible buckets, mounted filesystems and HTTP sites.
+
+- **Filesystem allowlist.** Paths are accepted only if their `realpath` equals or is under a root in
+  `ROR_CONNECTOR_FS_ROOTS` (empty = disabled); checked at create/update and again at every run, so a
+  config changed in the database cannot widen access. The walk never follows symlinks (`..`, symlinked
+  directories and symlinked files are skipped); files are opened relative to their directory descriptor with
+  `O_NOFOLLOW` and must be regular files (no FIFOs or devices), dot-files and dot-directories are skipped.
+  Mount sources read-only; a writer who can swap a parent directory of the root during a run is outside the
+  guarantee.
+- Hardlinks are not detected: a hardlink inside a root to a file outside it reads like any regular file.
+  Keep roots on a dedicated read-only mount so no such links can exist.
+- **S3 credentials** are stored in the connector's database row and are write-only through the API
+  (`secret_key` reads back as `***`; sending `***` on update keeps the stored value; audit entries are
+  redacted). S3 endpoints are admin-chosen and not SSRF-filtered. Without keys the client is unsigned (public buckets).
+- **Ownership.** Connector documents are owned by the admin who created the connector, with the connector's
+  visibility. Versions that look like near-duplicates park in review and surface in the admin review queue
+  (`GET /admin/review`).
+- Connector documents are matched for exact duplicates only against the same connector's own documents, so a
+  user's private document is never referenced by (or revealed through) a connector. They are exempt from the
+  per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES` applies to `POST /documents` only). Changing a connector's
+  visibility or org unit updates its existing documents and re-syncs their search ACLs.
+- S3 endpoints must be http(s) URLs without embedded credentials.
+- **HTTP crawl (SSRF controls).** Admin-chosen URLs make the server fetch, so the fetch path is locked down:
+  - Only `http`/`https` URLs without embedded credentials (`file:`, `ftp:`, etc. rejected at create and at every
+    fetch and redirect hop).
+  - **Connect-time IP vetting.** Name resolution happens once, inside the socket connect: every address the
+    name resolves to is checked (one bad address blocks the host: fail closed) and the connection goes to a
+    vetted IP literal. There is no separate pre-check lookup, so DNS rebinding cannot swap the address. TLS
+    still verifies the certificate against the URL host. Encodings such as `0x7f.1` and decimal IPs are judged on the resolved
+    address. IPv4-mapped IPv6 (`::ffff:a.b.c.d`) is judged by the IPv4 it
+    wraps. Other translator/tunnel forms (NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4, Teredo, `::/96`) are
+    blocked unless an allowlisted **/96** translator prefix covers them (NAT64, `::/96`; any other IPv6 CIDR
+    overlapping those ranges is a startup error, and 6to4 `2002::/16` and Teredo `2001::/32` can never be allowlisted); the low 32 bits are then judged as an IPv4 (never-list, public or allowlisted).
+    NAT64-only networks therefore allowlist their translator prefix (e.g. `64:ff9b::/96`) plus the IPv4 ranges
+    they need.
+  - Anything not globally routable (private, loopback, CGNAT, ULA, reserved) is blocked unless inside an
+    explicit `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` entry (for air-gapped internal crawling; empty by default).
+    `::1` cannot be allowlisted (use IPv4 `127.0.0.0/8` for local test crawls); an allowlisted translator CIDR must be the
+    translator's real RFC 6052 `/96` prefix (`/32`-`/64` NAT64 layouts are unsupported).
+    Link-local (incl. `169.254.169.254` metadata), multicast, unspecified and the other known metadata
+    addresses (`fd00:ec2::254`, `100.100.100.200`, `168.63.129.16`, `192.0.0.192`) are never reachable, allowlist
+    or not.
+  - No proxies: proxy environment variables are ignored. Redirects are followed manually (max 5), each hop
+    re-vetted; a crawl keeps only content whose final URL is on the seed's origin.
+  - Caps: per-file size (`max_upload_bytes`, checked on `Content-Length` and while streaming), per-request time
+    (`ROR_CONNECTOR_HTTP_TIMEOUT_S`, absolute: every connect/TLS/read/write is clamped to it, so slow headers or a
+    dripping body cannot outlast it); responses with a `Content-Encoding` are skipped; the crawl frontier never
+    exceeds the page budget, robots.txt 512 KiB, HTML link parsing 5 MiB, <= 1000 pages and depth <= 3
+    per run, plus the run item/time caps.
+  - `robots.txt` is honoured by default (`respect_robots`): 2xx is parsed, 5xx disallows the whole origin
+    (RFC 9309), 4xx or a network error/oversize file allows everything (advisory control, fail open); the crawl is same-origin per seed (scheme, host,
+    port) and sends `User-Agent: rOracle-connector/<version>`.
+  - Accepted risk: `getaddrinfo` has no application-level timeout (bounded by the resolver's `resolv.conf`
+    timeout/attempts), so a hanging DNS server can delay a fetch beyond its deadline by that bound.
+  - Residual: with an allowlisted internal CIDR, the connector can read any HTTP service in that range;
+    allowlist only ranges meant to be crawled.
+- Failed or partial runs notify every admin (`ops.connector_run`); run logs keep only the last 500 lines.
+
+## 10. Residual risks / review items
 
 - LLM answers can be wrong despite citations; UI always shows sources and passages read.
 - Near-duplicate prompts compare only against documents the user can see; cross-tenant near-dup

@@ -43,12 +43,12 @@ def _need_write(p: Principal) -> None:
 
 
 def _abs(app: FastAPI, m: dict) -> dict:
-    base = dep(app, get_app_settings).public_base_url.rstrip("/")
+    base = app.state.settings.public_base_url.rstrip("/")
     return {**m, "url": base + m["url"]} if base else m
 
 
 def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection: str | None) -> dict:
-    s = dep(app, get_app_settings)
+    s = dep(app, get_app_settings, session)
     llm = dep(app, search_routes.get_llm)
     scope = f"collection:{collection}" if collection else "all"
     try:
@@ -83,7 +83,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
 
 def _upload(app, session, p, filename, b64, title, visibility) -> dict:
     _need_write(p)
-    s = dep(app, get_app_settings)
+    s = dep(app, get_app_settings, session)
     if len(b64) * 3 // 4 > s.mcp_max_upload_bytes + 3:
         raise HTTPException(413, "file too large for MCP upload; use POST /documents")
     try:

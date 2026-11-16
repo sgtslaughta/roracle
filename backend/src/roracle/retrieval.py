@@ -21,7 +21,6 @@ from roracle.search_index import index_name
 log = logging.getLogger(__name__)
 
 LIST_SIZE = 100
-RERANK_TOP = 50
 PASSAGES_PER_DOC = 2
 FACET_FIELDS = {
     "tags": "tags",
@@ -108,7 +107,7 @@ def _passage(hit: dict, score: float = 0.0) -> Passage:
 def _rerank(
     settings: Settings, query: str, passages: list[Passage], http: httpx.Client | None
 ) -> list[Passage]:
-    head = passages[:RERANK_TOP]
+    head = passages[: settings.rerank_depth]
     if not head:
         return passages
     try:
@@ -132,7 +131,7 @@ def _rerank(
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
         log.warning("rerank failed, keeping fused order: %s", e)
         return passages
-    return reranked + passages[RERANK_TOP:]
+    return reranked + passages[settings.rerank_depth :]
 
 
 def embed_query(llm, settings: Settings, query: str) -> list[float]:

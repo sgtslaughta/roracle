@@ -4,15 +4,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from roracle.access import org_units, visible_documents
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import Blob, Document, DocumentVersion
+from roracle.ingest.intake import add_document
+from roracle.models import Document, DocumentVersion
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, EmptyFile, TooLarge, blob_store_from, stage
 
@@ -49,6 +49,22 @@ def upload(
             413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
         ) from None
     try:
+        if settings.upload_quota_bytes > 0:
+            # serialize per user until commit so concurrent uploads cannot overshoot the quota
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:u, 0))"), {"u": str(p.user_id)}
+            )
+            used = session.scalar(
+                select(func.coalesce(func.sum(DocumentVersion.size), 0))
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(
+                    Document.owner_id == p.user_id,
+                    Document.connector_id.is_(None),  # connector documents are exempt
+                    DocumentVersion.stage.not_in(("rejected", "cancelled")),
+                )
+            )
+            if used + staged.size > settings.upload_quota_bytes:
+                raise HTTPException(413, "upload quota exceeded")
         if not force:
             dup = session.scalar(
                 select(DocumentVersion.document_id)
@@ -58,34 +74,17 @@ def upload(
             )
             if dup is not None:
                 raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
-        filename = file.filename or "upload"
-        content_type = file.content_type or "application/octet-stream"
-        # ponytail: object written before DB commit can orphan on DB failure; a P2 GC job deletes blob objects without a blobs row
-        store.put(staged, content_type)
-        session.execute(
-            insert(Blob)
-            .values(sha256=staged.sha256, size=staged.size)
-            .on_conflict_do_update(index_elements=[Blob.sha256], set_={"refcount": Blob.refcount + 1})
-        )
-        doc = Document(
+        doc, version = add_document(
+            session,
+            store,
+            staged,
             owner_id=p.user_id,
-            title=title or None,
             org_unit=units[0] if units else "",  # "" matches no ancestor (fail closed)
             visibility=visibility,
+            filename=file.filename or "upload",
+            content_type=file.content_type or "application/octet-stream",
+            title=title or None,
         )
-        session.add(doc)
-        session.flush()
-        version = DocumentVersion(
-            document_id=doc.id,
-            version=1,
-            blob_sha256=staged.sha256,
-            filename=filename,
-            content_type=content_type,
-            size=staged.size,
-        )
-        session.add(version)
-        session.flush()
-        enqueue(session, "ingest", {"version_id": str(version.id)})
         session.commit()
         return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
     finally:
