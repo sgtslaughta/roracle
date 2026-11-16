@@ -48,7 +48,8 @@ def test_backfill_and_is_latest_repair(session_factory, db_session):
     rows = db_session.execute(select(DocumentCoauthor.document_id, DocumentCoauthor.user_id)).all()
     assert rows == [(pub_id, co)]
     jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
-    assert [j.payload for j in jobs] == [{"doc_id": str(pub_id)}] and wip_id
+    # 0012 also enqueues one acl_sync per live document; the co-author one must be among them
+    assert {"doc_id": str(pub_id)} in [j.payload for j in jobs] and wip_id
     flags = {
         v.version: v.is_latest
         for v in db_session.scalars(select(DocumentVersion).where(DocumentVersion.document_id == multi_id))

@@ -12,6 +12,7 @@ from roracle.api.routes import (
     admin,
     admin_connectors,
     admin_index,
+    admin_labels,
     admin_ops,
     admin_settings,
     admin_writing,
@@ -32,6 +33,7 @@ from roracle.api.routes import (
     export,
     handoffs,
     health,
+    labels,
     library,
     me,
     near_dup,
@@ -68,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(admin_settings.router)
+    app.include_router(admin_labels.router)
+    app.include_router(labels.router)
     app.include_router(admin_connectors.router)
     app.include_router(admin_index.router)
     app.include_router(admin_ops.router)

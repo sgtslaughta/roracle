@@ -68,6 +68,11 @@ class Document(Base):
     connector_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("connectors.id", ondelete="SET NULL"), index=True
     )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("labels.id", ondelete="RESTRICT"),
+        index=True,
+        default=text("(SELECT id FROM labels WHERE is_default)"),
+    )
 
 
 class DocumentVersion(Base):
@@ -346,6 +351,7 @@ class Connector(Base):
     org_unit: Mapped[str] = mapped_column(String, default="", server_default="")
     schedule_minutes: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    label_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("labels.id", ondelete="RESTRICT"))
     next_run_at: Mapped[datetime | None] = mapped_column(TZ)
     last_run_at: Mapped[datetime | None] = mapped_column(TZ)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
@@ -401,7 +407,8 @@ class AppSetting(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
-from roracle import models_notes, models_writing  # noqa: F401  (register tables)
+from roracle import models_labels, models_notes, models_writing  # noqa: F401  (register tables)
+from roracle.models_labels import Label  # noqa: F401
 from roracle.models_notes import (  # noqa: F401
     Annotation,
     AnnotationReport,

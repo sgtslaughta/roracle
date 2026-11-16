@@ -59,6 +59,11 @@ def db_session(session_factory):
     with session_factory() as session:
         tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
         session.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        session.execute(  # the migration's seed row; documents.label_id defaults to it
+            text(
+                "INSERT INTO labels (id, name, colour, rank, is_default) VALUES (gen_random_uuid(), 'General', '#496580', 0, true)"
+            )
+        )
         session.commit()
         yield session
         session.rollback()
