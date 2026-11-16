@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
-from roracle.ingest.state import bump_attempts, demote_older_versions, set_stage, update_version
+from roracle.ingest.state import _demote, bump_attempts, set_stage, update_version
 from roracle.models import DocumentVersion, Job
 from roracle.queue import claim, enqueue
 
@@ -17,6 +17,12 @@ def _version(db_session, document, blob):
     db_session.add(v)
     db_session.commit()
     return v.id
+
+
+def demote_older_versions(session_factory, doc_id, version_id):  # test harness over the internal helper
+    with session_factory() as s:
+        _demote(s, doc_id, version_id)
+        s.commit()
 
 
 def test_set_stage_and_bump_attempts(session_factory, db_session, document, blob):

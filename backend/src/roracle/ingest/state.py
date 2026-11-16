@@ -113,19 +113,6 @@ def _demote(s: Session, doc_id: UUID, version_id: UUID) -> None:
     s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(is_latest=~newer))
 
 
-def demote_older_versions(
-    session_factory: sessionmaker[Session],
-    doc_id: UUID,
-    version_id: UUID,
-    *,
-    lock_timeout_s: float = LOCK_TIMEOUT_S,
-) -> None:
-    with session_factory() as s:
-        _lock_timeout(s, lock_timeout_s)
-        _demote(s, doc_id, version_id)
-        s.commit()
-
-
 def clear_outdated_reasons(
     session_factory: sessionmaker[Session],
     doc_id: UUID,

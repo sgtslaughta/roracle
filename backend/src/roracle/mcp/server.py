@@ -30,6 +30,16 @@ MAX_IDS = 50
 _SOURCE = ["chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title"]
 
 
+def _msg(detail: Any) -> str:
+    """Agent-facing error text: no Python reprs for structured HTTPException details."""
+    if isinstance(detail, dict):
+        extra = ", ".join(f"{k}={v}" for k, v in detail.items() if k != "code")
+        return f"{detail.get('code', 'error')}" + (f" ({extra})" if extra else "")
+    if isinstance(detail, list):
+        return "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail)
+    return str(detail)
+
+
 def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], target: str = "") -> Any:
     p = current()
     with open_session(app) as session:
@@ -42,7 +52,7 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
             session.rollback()
             audit(session, p, f"mcp.{tool}", target[:200], {"error": True})
             session.commit()
-            raise ToolError(str(e.detail if isinstance(e, HTTPException) else e)) from None
+            raise ToolError(_msg(e.detail) if isinstance(e, HTTPException) else str(e)) from None
         except Exception:
             session.rollback()
             try:

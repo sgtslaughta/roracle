@@ -21,7 +21,7 @@ def test_create_then_save_and_acl(mc, ana, bob, db_session, fes):  # noqa: F811
     err, out2 = call(mc, h, "save_draft", content="v2", draft_id=out["draft_id"], base_version=1)
     assert not err and out2["version"] == 2
     err, text = call(mc, h, "save_draft", content="v3", draft_id=out["draft_id"], base_version=1)
-    assert err and "draft_changed" in text
+    assert err and "draft_changed" in text and "{" not in text and "version=2" in text  # clean, not a repr
     err, text = call(mc, h, "save_draft", content="x")
     assert err and "title" in text
     err, text = call(mc, h, "save_draft", content="x", title="T", profile="nope")
