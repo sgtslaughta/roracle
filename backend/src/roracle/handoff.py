@@ -17,6 +17,7 @@ from roracle.access import agent_visible, org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
+from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 
@@ -242,18 +243,27 @@ def view(session: Session, p: Principal, h: Handoff) -> dict:
     elif h.kind in ("chat", "collection") and not mine:
         src = {}  # creator's private handles
     withheld = len(every - set(shown) - {x["doc_id"] for x in passages})
+    stripped = gated_docs(session, p, {*shown, *doc_ids_of(passages)})  # text withheld by label
     author = session.get(User, h.creator_id)
-    titles = dict(
-        session.execute(
-            select(Document.id, Document.title).where(Document.id.in_([UUID(d) for d in shown]))
-        ).all()
-    )
+    policy = Policy.load(session)
+    docs = {
+        str(i): (t, lid)
+        for i, t, lid in session.execute(
+            select(Document.id, Document.title, Document.label_id).where(
+                Document.id.in_([UUID(d) for d in shown])
+            )
+        )
+    }
     out = {
         "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
         "uri": "roracle://handoff/" + h.code, "kind": h.kind, "title": h.title, "goal": h.goal,
         "brief": h.brief, "source": src, "doc_ids": shown,
-        "documents": [{"id": d, "title": titles.get(UUID(d))} for d in shown], "passages": passages,
+        "documents": [
+            {"id": d, "title": docs[d][0], "label": label_json(policy.get(docs[d][1])), "text_withheld": d in stripped}
+            for d in shown
+        ], "passages": passages,
         "notes": h.notes[-PAGE:], "withheld": withheld,
+        "withheld_by_reason": {"unavailable": withheld, "label_text": len(stripped)},
         "parts": {"transcript": ceil(len(h.transcript) / PAGE), "notes": ceil(len(h.notes) / PAGE)},
         "audience": h.audience, "expires_at": _iso(h.expires_at), "created_at": _iso(h.created_at),
         "created_by": author.username if author else "", "created_via": h.created_via,

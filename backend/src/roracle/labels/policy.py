@@ -55,6 +55,22 @@ def label_json(label: LabelInfo) -> dict[str, Any]:
     }
 
 
+def label_brief(label: LabelInfo) -> dict[str, Any]:
+    """Agent-facing label: name and rank only (no colour, no gates)."""
+    return {"name": label.name, "rank": label.rank}
+
+
+def brief_labels(obj: Any) -> Any:
+    """Recursively replace full label JSON (has `gates`) with `label_brief` shape, for MCP output."""
+    if isinstance(obj, dict):
+        if "gates" in obj and "rank" in obj and "name" in obj:
+            return {"name": obj["name"], "rank": obj["rank"]}
+        return {k: brief_labels(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [brief_labels(v) for v in obj]
+    return obj
+
+
 def admin_json(label: LabelInfo) -> dict[str, Any]:
     return {**label_json(label), "description": label.description, "is_default": label.is_default}
 

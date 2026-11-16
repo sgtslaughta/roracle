@@ -10,19 +10,22 @@ from fastapi import FastAPI, HTTPException
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from roracle.access import readable_documents
 from roracle.api.routes import documents_read, library
 from roracle.api.routes import search as search_routes
 from roracle.api.routes.search import BadInput
 from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
-from roracle.labels.policy import Policy
+from roracle.labels.policy import Policy, brief_labels, label_json
 from roracle.labels.textgate import gated_docs, withheld_text
 from roracle.mcp import tools_notes, tools_writing
 from roracle.mcp.auth import current, dep, open_session
 from roracle.mcp.tools_write import digest, register
+from roracle.models import CollectionItem, Document
 from roracle.notes.community import attach_notes, strict_gate
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
@@ -46,7 +49,7 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
     p = current()
     with open_session(app) as session:
         try:
-            out = fn(session, p)
+            out = brief_labels(fn(session, p))
             audit(session, p, f"mcp.{tool}", target[:200])
             session.commit()
             return out
@@ -103,12 +106,19 @@ def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], cont
     srcs = [s for s in srcs if (s["doc_id"], s["version_id"]) in ok]
     srcs.sort(key=lambda s: (s["version_id"], _split(s["chunk_id"])[1]))
     gated = gated_docs(session, p, {s["doc_id"] for s in srcs})  # exclude_llm: no text for agents
+    policy = Policy.load(session)
+    labels = dict(
+        session.execute(
+            select(Document.id, Document.label_id).where(Document.id.in_({UUID(s["doc_id"]) for s in srcs}))
+        ).all()
+    )
     return [
         {
             "chunk_id": s["chunk_id"],
             "doc_id": s["doc_id"],
             "version_id": s["version_id"],
             "title": s.get("title"),
+            "label": label_json(policy.get(labels[UUID(s["doc_id"])])),
             "pages": s.get("pages") or [],
             "bboxes": s.get("bboxes") or [],
             "text": withheld_text(gated[s["doc_id"]]) if s["doc_id"] in gated else s["text"],
@@ -117,9 +127,24 @@ def _passages(app: FastAPI, session: Session, p: Principal, ids: list[str], cont
     ]
 
 
+def _collections(session: Session, p: Principal) -> list[dict]:
+    out = library.list_collections(p, session)
+    policy = Policy.load(session)
+    top: dict[str, str] = {}
+    rows = session.execute(
+        select(CollectionItem.collection_id, Document.label_id)
+        .join(Document, Document.id == CollectionItem.document_id)
+        .where(CollectionItem.collection_id.in_([UUID(c["id"]) for c in out]), readable_documents(p))
+    )
+    for cid, lid in rows:
+        if str(cid) not in top or policy.get(lid).rank > policy.get(top[str(cid)]).rank:
+            top[str(cid)] = str(lid)
+    return [{**c, "max_label": label_json(policy.get(top[c["id"]])) if c["id"] in top else None} for c in out]
+
+
 def _slim(hit: dict) -> dict:
     return {
-        **{k: hit[k] for k in ("doc_id", "title", "authors", "year", "score")},
+        **{k: hit[k] for k in ("doc_id", "title", "authors", "year", "score", "label")},
         "passages": [
             {"chunk_id": x["chunk_id"], "text": x["text"], "page": x["page"]} for x in hit["passages"]
         ],
@@ -199,8 +224,9 @@ def build_mcp(app: FastAPI) -> MCPServer:
 
     @mcp.tool()
     def list_collections() -> list[dict]:
-        """List the caller's own collections (id, name, document count)."""
-        return _run(app, "list_collections", lambda s, p: library.list_collections(p, s))
+        """List the caller's own collections (id, name, document count, `max_label`: the most sensitive
+        label among the documents you may see in it, null when empty)."""
+        return _run(app, "list_collections", lambda s, p: _collections(s, p))
 
     register(mcp, app, _run)
     tools_notes.register(mcp, app, _run)

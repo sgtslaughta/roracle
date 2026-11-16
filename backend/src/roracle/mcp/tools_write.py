@@ -17,6 +17,7 @@ from elasticsearch import TransportError
 from fastapi import FastAPI, HTTPException
 from mcp.server import MCPServer
 from pydantic import Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers, UploadFile
 
@@ -26,7 +27,10 @@ from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
+from roracle.labels.policy import Policy, label_json
+from roracle.labels.service import label_by_name
 from roracle.mcp.auth import dep
+from roracle.models import Document
 
 
 def digest(text: str) -> str:
@@ -79,7 +83,17 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
         raise HTTPException(503, "search unavailable") from None
     text = r.choices[0].message.content or ""
     ns = parse_citations(text, len(passages))
-    return {"answer": text, "citations": [citation_item(n, passages[n - 1]) for n in ns]}
+    cites = [citation_item(n, passages[n - 1]) for n in ns]
+    policy = Policy.load(session)
+    labels = dict(
+        session.execute(
+            select(Document.id, Document.label_id).where(Document.id.in_({UUID(c["doc_id"]) for c in cites}))
+        ).all()
+    )
+    return {
+        "answer": text,
+        "citations": [{**c, "label": label_json(policy.get(labels[UUID(c["doc_id"])]))} for c in cites],
+    }
 
 
 def _upload(app, session, p, filename, b64, title, visibility, label_id=None) -> dict:
@@ -125,14 +139,17 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         content_base64: Annotated[str, Field(max_length=max_b64)],
         title: Annotated[str | None, Field(max_length=200)] = None,
         visibility: Literal["private", "shared", "org_unit", "everyone"] = "private",
-        label_id: UUID | None = None,
+        label: Annotated[str | None, Field(max_length=40)] = None,
     ) -> dict:
         """Upload a document (base64 content; needs a write token; size-capped, larger files use
-        POST /documents). Returns document_id/version_id, or {"duplicate_of": id} if already present."""
-        return run(
-            app, "upload",
-            lambda s, p: _upload(app, s, p, filename, content_base64, title, visibility, label_id), filename,
-        )  # fmt: skip
+        POST /documents). `label` is a sensitivity label name (default: the library default; choosing a
+        lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}."""
+
+        def go(session: Session, p: Principal) -> dict:
+            lid = label_by_name(session, label).id if label else None
+            return _upload(app, session, p, filename, content_base64, title, visibility, lid)
+
+        return run(app, "upload", go, filename)
 
     @mcp.tool()
     def load_handoff(code: Annotated[str, Field(min_length=1, max_length=200)]) -> dict:

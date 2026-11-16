@@ -183,3 +183,12 @@ def set_note_label(
             },
         )
     return new
+
+
+def label_by_name(session: Session, name: str):
+    """Case-insensitive name lookup; 422 listing the valid names when unknown (agent-facing)."""
+    policy = Policy.load(session)
+    for x in policy.labels:
+        if x.name.lower() == name.strip().lower():
+            return x
+    raise HTTPException(422, f"unknown label; valid labels: {', '.join(x.name for x in policy.labels)}")
