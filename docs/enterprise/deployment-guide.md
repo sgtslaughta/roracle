@@ -107,6 +107,13 @@ Post hooks run in weight order: `minio-policy` (-10, creates users, policies, re
 Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
 `helm test` is not provided.
 
+### 4.3a Deploy with Terraform
+
+`deploy/terraform` wraps the steps above (namespaces, pull secret, operator charts, Secrets, the `roracle` release) for an existing cluster
+reached through a kubeconfig; it creates no cloud resources and does not replace the chart ([ADR-0016](../adr/0016-terraform-iac.md)).
+Operator chart repositories/versions are placeholders until you set your mirror values; `apply` refuses to run while any remain.
+See [deploy/terraform/README.md](../../deploy/terraform/README.md) for prerequisites, the placeholder table, plan/apply order, state backends and destroy cautions.
+
 ### 4.4 Ingress
 
 | Path | Backend | Type |

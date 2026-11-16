@@ -40,6 +40,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `gcr.io/kaniko-project/executor` | `v1.23.2-debug` | CI image builds | `sha256:c3109d5926a997b100c4343944e06c6b30a6804b2f9abe0994d3de6ef92b028e` |
 | `alpine/helm` | `3.17.3` | CI `helm` job (`HELM_IMAGE`) | `sha256:d899e6316789fec04ee95300a18e454b7942539cbb3d89bde3e0655d6ca2e895` |
 | `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | CI `kubeconform` job (`KUBECONFORM_IMAGE`) | `sha256:824e0c248809e4b2da2a768b16b107cf17ada88a89ec6aa6050e566ba93ebbc6` |
+| `hashicorp/terraform` | `1.15.8` | CI `terraform` job (`TERRAFORM_IMAGE`) and the operator workstation | pin in mirror |
 
 Dev only (`deploy/dev/compose.yaml`): `quay.io/keycloak/keycloak:26.0` (pin in mirror), docling-serve-cpu `:latest` (use the chart tag instead).
 Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB). Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
@@ -56,6 +57,16 @@ Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 G
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 
 Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator, Prometheus, Grafana, Loki, collector-contrib) must be mirrored at the tag the chosen chart version pins.
+
+### Terraform providers (`deploy/terraform`, mirror via `provider_installation` in the CLI config / `TF_CLI_CONFIG_FILE`)
+
+| Provider | Constraint | Lock file |
+|---|---|---|
+| `registry.terraform.io/hashicorp/kubernetes` | `~> 3.0` (locked 3.5.0) | `deploy/terraform/.terraform.lock.hcl` |
+| `registry.terraform.io/hashicorp/helm` | `~> 3.0` (locked 3.3.0) | same |
+
+Populate with `terraform providers mirror <dir>` on a connected host. The Terraform stack also consumes the operator charts above and,
+when the optional inference module is enabled, a vLLM-style OpenAI-spec image plus `ghcr.io/huggingface/text-embeddings-inference` (GPU build; pin in mirror).
 
 ### Other build-time inputs
 

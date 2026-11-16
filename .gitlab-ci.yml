@@ -1,6 +1,6 @@
 # Air-gapped: set REGISTRY_MIRROR (with trailing slash), UV_INDEX_URL, NPM_CONFIG_REGISTRY and
 # (optionally) KUBECONFORM_SCHEMA_LOCATION as CI/CD variables. HELM_IMAGE/KUBECONFORM_IMAGE may be overridden too.
-stages: [lint, test, build]
+stages: [lint, test, terraform, build]
 
 variables:
   REGISTRY_MIRROR: ""
@@ -13,6 +13,7 @@ variables:
   HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
   KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
+  TERRAFORM_IMAGE: "${REGISTRY_MIRROR}hashicorp/terraform:1.15.8"
 
 workflow:
   rules:
@@ -153,6 +154,20 @@ kubeconform:
     - |
       if [ -n "$KUBECONFORM_SCHEMA_LOCATION" ]; then SCHEMA="-schema-location $KUBECONFORM_SCHEMA_LOCATION"; else SCHEMA="-schema-location default -ignore-missing-schemas"; fi
       for f in rendered/min.yaml rendered/full.yaml; do /kubeconform -strict -summary $SCHEMA "$f"; done
+
+# Air-gapped: providers (hashicorp/kubernetes, hashicorp/helm) must come from a mirror. Provide a CI/CD *file* variable
+# TF_CLI_CONFIG_FILE (Terraform CLI config with a filesystem/network provider_installation mirror).
+terraform:
+  extends: .helm-rules
+  stage: terraform
+  image:
+    name: $TERRAFORM_IMAGE
+    entrypoint: [""]
+  script:
+    - cd deploy/terraform
+    - terraform fmt -check -recursive
+    - terraform init -backend=false -input=false
+    - terraform validate
 
 build-web:
   stage: build
