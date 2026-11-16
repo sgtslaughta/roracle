@@ -99,7 +99,14 @@ def _delete_prefix(store: BlobStore, prefix: str) -> None:
     for page in pages:
         keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
         if keys:
-            store.client.delete_objects(Bucket=store.bucket, Delete={"Objects": keys, "Quiet": True})
+            resp = store.client.delete_objects(Bucket=store.bucket, Delete={"Objects": keys, "Quiet": True})
+            if resp.get("Errors"):
+                log.warning(
+                    "delete_objects under %s failed for %d keys: %s",
+                    prefix,
+                    len(resp["Errors"]),
+                    resp["Errors"][:3],
+                )
 
 
 def _referenced(session: Session, sha: str) -> bool:

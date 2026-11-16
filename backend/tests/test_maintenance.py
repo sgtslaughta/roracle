@@ -317,6 +317,24 @@ def test_purge_deletes_derived_objects(db_session, user, store, s3):
     assert f"derived/{keep.id}/docling.json" in keys
 
 
+def test_delete_prefix_logs_errors(caplog):
+    class Pager:
+        def paginate(self, **kw):
+            return [{"Contents": [{"Key": "derived/x/a"}]}]
+
+    class Client:
+        def get_paginator(self, name):
+            return Pager()
+
+        def delete_objects(self, **kw):
+            return {"Errors": [{"Key": "derived/x/a", "Code": "AccessDenied"}]}
+
+    store = SimpleNamespace(client=Client(), bucket="b")
+    with caplog.at_level("WARNING"):
+        maintenance._delete_prefix(store, "derived/x/")
+    assert "failed for 1 keys" in caplog.text
+
+
 class _Indices:
     def __init__(self, alias, index):
         self.alias, self.index = alias, index

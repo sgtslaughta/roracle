@@ -90,7 +90,7 @@ through image or link URLs.
 
 - TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/MinIO).
 - Encryption at rest via storage class / MinIO SSE (KMS-backed where available).
-- Soft delete → purge after retention (default 30 days); purge (default `0` = off) removes chunks,
+- Soft delete → purge after retention; purge (default `0` = off) removes chunks,
   vectors, rows and `derived/<version>/` objects; blob objects are removed by GC once unreferenced and a day old.
   On a versioned bucket noncurrent versions persist until a noncurrent-expiry rule removes them (see the runbook). Backups age out per backup policy.
 - Inference endpoint receives only the minimum context (retrieved passages, the question); no
