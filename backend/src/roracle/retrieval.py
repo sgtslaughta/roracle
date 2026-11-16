@@ -150,6 +150,7 @@ def search_chunks(
     size: int = LIST_SIZE,
     http: httpx.Client | None = None,
     qvec: list[float] | None = None,
+    min_similarity: float | None = None,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead)."""
     if not query.strip():
@@ -169,18 +170,16 @@ def search_chunks(
         highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
     )["hits"]["hits"]
     vec = qvec if qvec is not None else embed_query(llm, settings, query)
-    knn = es.search(
-        index=index,
-        size=size,
-        source=_SOURCE,
-        knn={
-            "field": "embedding",
-            "query_vector": vec,
-            "k": size,
-            "num_candidates": 4 * size,
-            "filter": flt,
-        },
-    )["hits"]["hits"]
+    knn_q: dict[str, Any] = {
+        "field": "embedding",
+        "query_vector": vec,
+        "k": size,
+        "num_candidates": 4 * size,
+        "filter": flt,
+    }
+    if min_similarity:
+        knn_q["similarity"] = min_similarity
+    knn = es.search(index=index, size=size, source=_SOURCE, knn=knn_q)["hits"]["hits"]
     by_id = {h["_source"]["chunk_id"]: h for h in knn}
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight
     fused = rrf([[h["_source"]["chunk_id"] for h in bm25], [h["_source"]["chunk_id"] for h in knn]])

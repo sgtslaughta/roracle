@@ -6,6 +6,8 @@ from fastapi import FastAPI
 from roracle import __version__
 from roracle.api.routes import (
     admin,
+    chats,
+    chats_read,
     citations,
     documents,
     documents_read,
@@ -42,4 +44,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_write.router)
     app.include_router(citations.router)
     app.include_router(search.router)
+    app.include_router(chats_read.router)
+    app.include_router(chats.router)
     return app

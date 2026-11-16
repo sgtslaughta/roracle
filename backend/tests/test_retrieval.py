@@ -112,3 +112,41 @@ def test_rerank_timeout_and_non_json():
 
     assert _rerank(_settings(), "q", ps, _http(boom)) is ps
     assert _rerank(_settings(), "q", ps, _http(lambda r: httpx.Response(200, content=b"nope"))) is ps
+
+
+def _knn_of(**kw):
+    from types import SimpleNamespace
+
+    from roracle.auth import Principal
+    from roracle.retrieval import search_chunks
+
+    calls = []
+
+    class ES:
+        def search(self, **k):
+            calls.append(k)
+            return {"hits": {"hits": []}}
+
+    llm = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=lambda model, input: SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[0.1])])
+        )
+    )
+    import uuid
+
+    p = Principal(uuid.uuid4(), "s", "u", (), False)
+    s = Settings(embed_dims=1)
+    search_chunks(ES(), llm, s, p, "q", filters={}, **kw)
+    return next(c["knn"] for c in calls if "knn" in c)
+
+
+def test_min_similarity_goes_to_knn():
+    assert _knn_of(min_similarity=0.4)["similarity"] == 0.4
+    assert "similarity" not in _knn_of()
+    assert "similarity" not in _knn_of(min_similarity=0.0)
+
+
+def test_chat_settings():
+    s = Settings(chat_models=" a:1, ,b:2 ")
+    assert s.chat_model_list == ["a:1", "b:2"]
+    assert Settings().chat_min_similarity == 0.35 and Settings().chat_passages == 8

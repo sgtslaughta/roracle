@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     rerank_url: str = ""
     rerank_model: str = ""
     near_dup_threshold: float = 0.85
+    chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
+    chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
+    chat_passages: int = 8  # clamped 4-12 at use
+
+    @property
+    def chat_model_list(self) -> list[str]:
+        return [m.strip() for m in self.chat_models.split(",") if m.strip()]
+
+    @field_validator("chat_models")
+    @classmethod
+    def _models_nonempty(cls, v: str) -> str:
+        if not [m for m in v.split(",") if m.strip()]:
+            raise ValueError("chat_models must list at least one model")
+        return v
 
     @field_validator("oidc_allowed_clients", mode="before")
     @classmethod
