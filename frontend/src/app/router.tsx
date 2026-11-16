@@ -1,36 +1,39 @@
 import {
-  createMemoryHistory, createRootRoute, createRoute, createRouter, redirect,
+  createMemoryHistory, createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect,
 } from "@tanstack/react-router";
+import type { RouteComponent } from "@tanstack/react-router";
 import { Shell } from "./Shell";
 import { LibraryRoute } from "@/routes/LibraryRoute";
 import { DraftsRoute } from "@/routes/placeholders";
-import { ProposalsPage } from "@/features/proposals/ProposalsPage";
-import { NotificationsPage } from "@/features/notifications/NotificationsPage";
 import { AskRoute } from "@/routes/AskRoute";
 import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
-import { SettingsRoute } from "@/routes/SettingsRoute";
 import { HandoffRoute } from "@/routes/HandoffRoute";
-import { ConnectorDetailRoute } from "@/routes/AdminRoute";
-import { AdminLayout } from "@/features/admin/AdminLayout";
-import { ConnectorsPage } from "@/features/admin/ConnectorsPage";
-import { JobsPage } from "@/features/admin/JobsPage";
-import { ReviewPage } from "@/features/admin/ReviewPage";
-import { SettingsPage } from "@/features/admin/SettingsPage";
-import { TagsPage } from "@/features/admin/TagsPage";
-import { AuditPage } from "@/features/admin/AuditPage";
-import { UsersPage } from "@/features/admin/UsersPage";
-import { StatsPage } from "@/features/admin/StatsPage";
-import { HealthPage } from "@/features/admin/HealthPage";
-import { NeedsTitlePage } from "@/features/admin/NeedsTitlePage";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
+// Admin and low-traffic pages load on demand to keep the entry chunk small.
+const ProposalsPage = lazyRouteComponent(() => import("@/features/proposals/ProposalsPage"), "ProposalsPage");
+const NotificationsPage = lazyRouteComponent(() => import("@/features/notifications/NotificationsPage"), "NotificationsPage");
+const SettingsRoute = lazyRouteComponent(() => import("@/routes/SettingsRoute"), "SettingsRoute");
+const ConnectorDetailRoute = lazyRouteComponent(() => import("@/routes/AdminRoute"), "ConnectorDetailRoute");
+const AdminLayout = lazyRouteComponent(() => import("@/features/admin/AdminLayout"), "AdminLayout");
+const ConnectorsPage = lazyRouteComponent(() => import("@/features/admin/ConnectorsPage"), "ConnectorsPage");
+const JobsPage = lazyRouteComponent(() => import("@/features/admin/JobsPage"), "JobsPage");
+const ReviewPage = lazyRouteComponent(() => import("@/features/admin/ReviewPage"), "ReviewPage");
+const SettingsPage = lazyRouteComponent(() => import("@/features/admin/SettingsPage"), "SettingsPage");
+const TagsPage = lazyRouteComponent(() => import("@/features/admin/TagsPage"), "TagsPage");
+const AuditPage = lazyRouteComponent(() => import("@/features/admin/AuditPage"), "AuditPage");
+const UsersPage = lazyRouteComponent(() => import("@/features/admin/UsersPage"), "UsersPage");
+const StatsPage = lazyRouteComponent(() => import("@/features/admin/StatsPage"), "StatsPage");
+const HealthPage = lazyRouteComponent(() => import("@/features/admin/HealthPage"), "HealthPage");
+const NeedsTitlePage = lazyRouteComponent(() => import("@/features/admin/NeedsTitlePage"), "NeedsTitlePage");
+
 const rootRoute = createRootRoute({ component: Shell });
-const r = <P extends string>(path: P, component: () => React.ReactNode) =>
+const r = <P extends string>(path: P, component: RouteComponent) =>
   createRoute({ getParentRoute: () => rootRoute, path, component });
 
 const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: "/admin", component: AdminLayout });
-const a = (path: string, component: () => React.ReactNode) => createRoute({ getParentRoute: () => adminRoute, path, component });
+const a = (path: string, component: RouteComponent) => createRoute({ getParentRoute: () => adminRoute, path, component });
 const adminTree = adminRoute.addChildren([
   createRoute({ getParentRoute: () => adminRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/admin/connectors" }); } }),
   a("connectors", ConnectorsPage),

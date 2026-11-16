@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { Bell as BellIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { showNote } from "@/features/notes/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -42,9 +42,10 @@ export function Bell() {
   const unread = data?.unread ?? 0;
   const items = data?.items ?? [];
   const qc = useQueryClient();
-  const newProposal = items.some((n) => n.kind === "proposal.new" && !n.read_at);
-  // an agent proposed something since we last looked: refresh the inbox and the sidebar badge
-  useEffect(() => { if (newProposal) void qc.invalidateQueries({ queryKey: ["proposals"] }); }, [newProposal, data?.items, qc]);
+  const newest = items.reduce((m, n) => (n.kind === "proposal.new" && !n.read_at ? Math.max(m, Number(n.id)) : m), 0);
+  const seen = useRef(0);
+  // an agent proposed something newer than we last saw: refresh the inbox and the sidebar badge
+  useEffect(() => { if (newest > seen.current) { seen.current = newest; void qc.invalidateQueries({ queryKey: ["proposals"] }); } }, [newest, qc]);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>

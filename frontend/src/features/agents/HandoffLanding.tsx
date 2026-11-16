@@ -1,3 +1,4 @@
+import { isDocId } from "@/lib/ids";
 import { Bot, FileText, Link2Off, Terminal } from "lucide-react";
 import { useState } from "react";
 import { ApiError } from "@/api/client";
@@ -13,6 +14,11 @@ import { fmtDate } from "./TokensPanel";
 const PAGE = 10;
 
 function DocRow({ id }: { id: string }) {
+  if (!isDocId(id)) return <li><span className="hdoc"><FileText aria-hidden /><span className="trunc">Document not available</span></span></li>;
+  return <DocLink id={id} />;
+}
+
+function DocLink({ id }: { id: string }) {
   const { data, isError } = useDoc(id);
   const title = data?.title ?? (isError ? "Document not available" : "Loading…");
   return (

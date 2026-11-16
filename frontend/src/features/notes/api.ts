@@ -10,10 +10,10 @@ const key = (docId: string) => ["notes", docId];
 export const useNotes = (docId: string) =>
   useQuery({ queryKey: key(docId), queryFn: async () => (await apiFetch<{ items: Note[] }>(`/documents/${seg(docId)}/annotations`)).items });
 
-/** Every note write refreshes the document's list (re-anchoring, reply visibility and votes all come from the server). */
+/** Every note write refreshes the document's list and search results (note hits) (re-anchoring, reply visibility and votes all come from the server). */
 function useNoteMutation<V, R>(docId: string, fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: fn, onSettled: () => qc.invalidateQueries({ queryKey: key(docId) }) });
+  return useMutation({ mutationFn: fn, onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(docId) }), qc.invalidateQueries({ queryKey: ["search"] })]) });
 }
 
 export const useCreateNote = (docId: string) =>

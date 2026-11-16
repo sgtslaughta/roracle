@@ -21,7 +21,7 @@ function useEvidenceMutation<V, R>(noteId: string, docId: string, fn: (v: V) => 
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(noteId) }), qc.invalidateQueries({ queryKey: ["notes", docId] })]),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(noteId) }), qc.invalidateQueries({ queryKey: ["notes", docId] }), qc.invalidateQueries({ queryKey: ["search"] })]),
   });
 }
 
@@ -32,7 +32,7 @@ export const useDeleteEvidence = (noteId: string, docId: string) =>
   useEvidenceMutation(noteId, docId, (id: string) => apiFetch<void>(`/evidence/${seg(id)}`, { method: "DELETE" }));
 export function useEvidenceAdded(noteId: string, docId: string) {
   const qc = useQueryClient();
-  return () => Promise.all([qc.invalidateQueries({ queryKey: key(noteId) }), qc.invalidateQueries({ queryKey: ["notes", docId] })]);
+  return () => Promise.all([qc.invalidateQueries({ queryKey: key(noteId) }), qc.invalidateQueries({ queryKey: ["notes", docId] }), qc.invalidateQueries({ queryKey: ["search"] })]);
 }
 
 /** Mirror of the backend's safe_filename: last path part, no control chars or quotes, no leading/trailing dots. */

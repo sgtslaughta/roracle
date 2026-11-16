@@ -12,7 +12,7 @@
 @media (max-width: 860px) { .prop { grid-template-columns: minmax(0, 1fr); } }
 
 .bell { position: relative; }
-.bell-badge { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--apricot); color: #1f2e3d; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.bell-badge { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--apricot); color: var(--on-apricot); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
 .bellpop { width: min(360px, calc(100vw - 32px)); max-height: min(520px, 80vh); overflow: auto; }
 .bellhead { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 6px; }
 .bellempty { padding: 8px; }

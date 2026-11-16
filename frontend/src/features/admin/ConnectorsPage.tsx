@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import type { Connector } from "@/api/admin";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { isDocId } from "@/lib/ids";
+import { isUuid } from "@/lib/ids";
 import { useConnectors, useDeleteConnector, useRunConnector, useSaveConnector } from "./api";
 import { ConnectorDialog } from "./ConnectorForm";
 import { StatusPill } from "./StatusPill";
@@ -63,7 +63,7 @@ export function ConnectorsPage() {
             <tbody>
               {data.slice(0, shown).map((c) => (
                 <tr key={c.id} className={c.enabled ? undefined : "dim"}>
-                  <td className="trunc" title={c.name}>{isDocId(c.id) ? <Link to="/admin/connectors/$id" params={{ id: c.id }}>{c.name}</Link> : c.name}</td>
+                  <td className="trunc" title={c.name}>{isUuid(c.id) ? <Link to="/admin/connectors/$id" params={{ id: c.id }}>{c.name}</Link> : c.name}</td>
                   <td>{c.kind}</td>
                   <td><input type="checkbox" aria-label={`Enabled: ${c.name}`} checked={c.enabled} disabled={save.isPending} onChange={(e) => setEnabled(c, e.target.checked)} /></td>
                   <td>{scheduleText(c.schedule_minutes)}</td>

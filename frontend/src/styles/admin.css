@@ -3,7 +3,6 @@
 .subnav a, .subnav span { padding: 7px 12px; font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .subnav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--primary); }
 .subnav a:hover { color: var(--ink); }
-.subnav span[aria-disabled="true"] { opacity: .5; cursor: default; }
 .admin-page { display: flex; flex-direction: column; gap: 14px; }
 .admin-page h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .admin-table td.wrap { white-space: normal; max-width: 360px; overflow-wrap: anywhere; }

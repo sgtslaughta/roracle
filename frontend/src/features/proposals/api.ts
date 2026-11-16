@@ -41,12 +41,12 @@ export const useProposals = (status: ProposalStatus) =>
     refetchInterval: status === "pending" ? 60_000 : false,
   });
 
-/** Every decision refreshes all proposal lists (the sidebar badge too) and the reader's notes. */
+/** Every decision refreshes all proposal lists (the sidebar badge too) the reader's notes and search. */
 function useDecision<V, R>(fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] })]),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] })]),
   });
 }
 

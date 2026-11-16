@@ -1,3 +1,4 @@
+import { isDocId } from "@/lib/ids";
 import { ArrowUpRight, Bot, EyeOff, FileSearch, Globe, Lock, Reply, Users } from "lucide-react";
 import { forwardRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,12 @@ export function KindPill({ kind }: { kind: Note["kind"] }) {
 }
 
 function RelationLine({ note }: { note: Note }) {
+  const rel = note.relation!;
+  if (!isDocId(rel.target_document_id)) return <div className="nhead nrel"><span>{rel.type} →</span><span>a related document</span></div>;
+  return <RelationLink note={note} />;
+}
+
+function RelationLink({ note }: { note: Note }) {
   const rel = note.relation!;
   const t = useDoc(rel.target_document_id).data;
   const title = t?.title || "a related document";

@@ -34,4 +34,3 @@ export const inFilter = (u: Pick<UploadItem, "stage" | "status">, k: FilterKey) 
 export const VIS_LABEL: Record<Visibility, string> = { everyone: "Everyone", org_unit: "My org unit", private: "Only me", shared: "Shared" };
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
-export const fmtSize = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);

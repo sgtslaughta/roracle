@@ -22,7 +22,7 @@ export function useMergeTags() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { sources: string[]; target: string }) => apiFetch<{ documents: number }>("/admin/tags/merge", { method: "POST", json: body }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "tags"] }),
+    onSuccess: () => Promise.all(["admin", "search", "doc"].map((k) => qc.invalidateQueries({ queryKey: k === "admin" ? ["admin", "tags"] : [k] }))),
   });
 }
 

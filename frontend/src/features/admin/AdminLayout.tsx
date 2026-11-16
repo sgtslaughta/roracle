@@ -2,18 +2,17 @@ import { Link, Outlet } from "@tanstack/react-router";
 import { ShieldAlert } from "lucide-react";
 import { useMe } from "@/features/library/useMe";
 
-/** `ready: false` entries are listed but not linked until their page exists. */
-export const ADMIN_SECTIONS: { to: string; label: string; ready: boolean }[] = [
-  { to: "/admin/connectors", label: "Connectors", ready: true },
-  { to: "/admin/jobs", label: "Jobs", ready: true },
-  { to: "/admin/review", label: "Review", ready: true },
-  { to: "/admin/needs-title", label: "Needs title", ready: true },
-  { to: "/admin/settings", label: "Settings", ready: true },
-  { to: "/admin/tags", label: "Tags", ready: true },
-  { to: "/admin/audit", label: "Audit", ready: true },
-  { to: "/admin/users", label: "Users", ready: true },
-  { to: "/admin/stats", label: "Stats", ready: true },
-  { to: "/admin/health", label: "Health", ready: true },
+export const ADMIN_SECTIONS: { to: string; label: string }[] = [
+  { to: "/admin/connectors", label: "Connectors" },
+  { to: "/admin/jobs", label: "Jobs" },
+  { to: "/admin/review", label: "Review" },
+  { to: "/admin/needs-title", label: "Needs title" },
+  { to: "/admin/settings", label: "Settings" },
+  { to: "/admin/tags", label: "Tags" },
+  { to: "/admin/audit", label: "Audit" },
+  { to: "/admin/users", label: "Users" },
+  { to: "/admin/stats", label: "Stats" },
+  { to: "/admin/health", label: "Health" },
 ];
 
 /** Admin shell: non-admins get a notice and the child pages never mount, so no admin request is sent. */
@@ -32,13 +31,9 @@ export function AdminLayout() {
     <section className="view">
       <h1>Admin</h1>
       <nav className="subnav" aria-label="Admin sections">
-        {ADMIN_SECTIONS.map(({ to, label, ready }) =>
-          ready ? (
-            <Link key={to} to={to} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>{label}</Link>
-          ) : (
-            <span key={to} aria-disabled="true" title="Coming soon">{label}</span>
-          ),
-        )}
+        {ADMIN_SECTIONS.map(({ to, label }) => (
+          <Link key={to} to={to} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>{label}</Link>
+        ))}
       </nav>
       <Outlet />
     </section>

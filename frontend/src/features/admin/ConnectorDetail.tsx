@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Play } from "lucide-react";
 import type { Connector } from "@/api/admin";
 import { Button } from "@/components/ui/button";
-import { isDocId } from "@/lib/ids";
+import { isUuid } from "@/lib/ids";
 import { useConnector } from "./api";
 import { fmtTime, scheduleText, useRunNow } from "./ConnectorsPage";
 import { ConnectorRuns } from "./ConnectorRuns";
@@ -27,7 +27,7 @@ function Summary({ c }: { c: Connector }) {
 
 /** `/admin/connectors/$id`: config summary, Run now, and run history. An id that isn't a UUID sends no request. */
 export function ConnectorDetail({ id }: { id: string }) {
-  const ok = isDocId(id);
+  const ok = isUuid(id);
   const { data: c, isError } = useConnector(ok ? id : undefined);
   const { runNow, pending } = useRunNow();
   return (

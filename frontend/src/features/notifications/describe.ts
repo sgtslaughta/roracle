@@ -1,4 +1,4 @@
-import { isDocId } from "@/lib/ids";
+import { isDocId, isUuid } from "@/lib/ids";
 
 /** P10 notification kinds and their payloads (untrusted: read defensively, render as plain text). */
 export interface AppNotification { id: number; kind: string; payload: Record<string, unknown>; created_at: string; read_at: string | null }
@@ -29,7 +29,7 @@ export function describe(kind: string, payload: Record<string, unknown> | null |
       return { text: `A ${str(p.kind) || "background"} job failed${str(p.error) ? `: ${str(p.error)}` : ""}.`, to: "/admin/jobs" };
     case "ops.connector_run": {
       const s = str(p.status);
-      return { text: `${str(p.name) ? `Connector ${q(p.name, "")}` : "A connector run"} finished${s ? `: ${s}` : ""}.`, to: isDocId(p.connector_id) ? `/admin/connectors/${p.connector_id}` : "/admin/connectors" };
+      return { text: `${str(p.name) ? `Connector ${q(p.name, "")}` : "A connector run"} finished${s ? `: ${s}` : ""}.`, to: isUuid(p.connector_id) ? `/admin/connectors/${p.connector_id}` : "/admin/connectors" };
     }
     case "proposal.new":
       return { text: `${str(p.client) || "An agent"} proposed a note.`, to: "/proposals" };

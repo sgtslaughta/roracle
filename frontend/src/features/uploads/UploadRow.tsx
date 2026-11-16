@@ -1,9 +1,10 @@
+import { humanBytes } from "@/lib/bytes";
 import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Lock, Pencil, Users } from "lucide-react";
 import type { UploadItem } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { NearDupPrompt } from "./NearDupPrompt";
 import { TitlePrompt } from "./TitlePrompt";
-import { fmtSize, pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
+import { pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
 
 const PILL_ICON = { done: Check, running: Loader, failed: CircleAlert, review: GitCompare, title: Pencil } as const;
 const VIS_ICON = { everyone: Globe, private: Lock, org_unit: Users, shared: Users } as const;
@@ -22,7 +23,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
         <div style={{ minWidth: 0 }}>
           <b title={u.title ?? u.filename}>{u.title ?? u.filename}</b>
           {u.title && <small className="fn" title={u.filename}>{u.filename}</small>}
-          <small>{fmtSize(u.size)}. {new Date(u.uploaded_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small>
+          <small>{humanBytes(u.size)}. {new Date(u.uploaded_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small>
         </div>
       </div>
       <div className="pipe" aria-label="Progress">

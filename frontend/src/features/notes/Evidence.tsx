@@ -1,3 +1,4 @@
+import { humanBytes } from "@/lib/bytes";
 import { CircleCheck, CircleDashed, CircleX, Download, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -18,8 +19,6 @@ const SCAN_LABEL: Record<ScanStatus, string> = {
 const ITEMS_SHOWN = 3;
 const EVIDENCE_SHOWN = 5;
 
-export const fmtBytes = (n: number | null) =>
-  n == null ? "" : n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${(n / (1 << 30)).toFixed(2)} GB`;
 const fmtTime = (s: string) => { const d = new Date(s); return Number.isNaN(d.getTime()) ? s : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); };
 
 function Items({ label, list }: { label: string; list: { name: string; uri: string; sha256: string }[] }) {
@@ -86,7 +85,7 @@ function EvidenceItemCard({ ev, noteId, docId, me }: { ev: Evidence; noteId: str
         <dt>Ran</dt><dd>{fmtTime(c.started)} – {fmtTime(c.ended)}</dd>
         <Items label="Inputs" list={c.inputs} />
         <Items label="Outputs" list={c.outputs} />
-        {ev.file && <><dt>File</dt><dd>{[ev.file.filename || "evidence", fmtBytes(ev.file.size), ev.file.scan_status === "clean" || ev.file.scan_status === "unscanned" ? SCAN_LABEL[ev.file.scan_status] : ""].filter(Boolean).join(" · ")}<br /><span className="mono">sha256 {ev.file.sha256}</span></dd></>}
+        {ev.file && <><dt>File</dt><dd>{[ev.file.filename || "evidence", humanBytes(ev.file.size), ev.file.scan_status === "clean" || ev.file.scan_status === "unscanned" ? SCAN_LABEL[ev.file.scan_status] : ""].filter(Boolean).join(" · ")}<br /><span className="mono">sha256 {ev.file.sha256}</span></dd></>}
         {ev.uri && <><dt>Link</dt><dd>{ev.uri}<br /><span className="mono">sha256 {ev.uri_sha256}</span></dd></>}
         {c.description && <><dt>Description</dt><dd className="pre">{c.description}</dd></>}
       </dl>

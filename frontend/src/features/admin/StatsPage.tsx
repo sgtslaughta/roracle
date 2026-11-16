@@ -1,4 +1,4 @@
-import { humanBytes } from "./bytes";
+import { humanBytes } from "@/lib/bytes";
 import { useStats } from "./dataApi";
 
 export function StatsPage() {
@@ -20,10 +20,10 @@ export function StatsPage() {
       <h2>Top uploaders</h2>
       {!s.top_uploaders.length && <p className="sub">No uploads yet.</p>}
       {s.top_uploaders.length > 0 && (
-        <table className="agent-table admin-table">
+        <div className="tok-wrap"><table className="agent-table admin-table">
           <thead><tr><th>User</th><th>Documents</th><th>Storage</th></tr></thead>
           <tbody>{s.top_uploaders.slice(0, 10).map((u) => <tr key={u.user_id}><td>{u.username}</td><td>{u.documents}</td><td>{humanBytes(u.bytes)}</td></tr>)}</tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

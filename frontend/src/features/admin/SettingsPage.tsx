@@ -5,7 +5,7 @@ import type { SettingValue } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { invalidText } from "@/features/agents/api";
 import { ChipInput } from "@/features/ask/ChipInput";
-import { humanBytes } from "./bytes";
+import { humanBytes } from "@/lib/bytes";
 import { useSaveSetting, useSettings } from "./dataApi";
 
 /** Backend bounds (runtime.SettingsIn); the server stays authoritative. */
