@@ -16,6 +16,7 @@ _FM = re.compile(r"\A---[ \t]*\n(.*?)^---[ \t]*$", re.DOTALL | re.MULTILINE)
 _FENCE = re.compile(
     r"^ {0,3}(`{3,}+|~{3,}+)[^\n]*\n.*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.DOTALL | re.MULTILINE
 )
+# inline code spans longer than 1000 chars are not blanked (bounded-cost trade-off)
 _CODE = re.compile(r"``[^\n]{0,1000}?``|`[^`\n]{0,1000}`")
 _DISPLAY = re.compile(r"\$\$.*?\$\$", re.DOTALL)
 _INLINE = re.compile(r"(?<![\\$])\$(?![\s$])[^$\n]+?(?<![\s\\])\$(?![\d$])")
@@ -38,7 +39,10 @@ TITLE_MAX = 300
 SECTIONS_MAX = 5000  # headings beyond this are ignored
 ITEMS_MAX = 20000  # citations / inline math kept (the rest are ignored; the citation cap rejects such drafts)
 FM_MAX = 64 * 1024
-_ALIAS = re.compile(r"(?:^|[\s\[{,:-])[&*][\w-]")
+
+
+class _Anchors(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -171,11 +175,13 @@ def parse(md: str) -> Parsed:
         raw = fm.group(1)
         if len(raw) > FM_MAX:
             p.meta_issue = "front matter is too large"
-        elif _ALIAS.search(raw):
-            p.meta_issue = "front matter anchors and aliases are not allowed"
         else:
             try:
+                if any(isinstance(t, (yaml.AliasToken, yaml.AnchorToken)) for t in yaml.scan(raw)):
+                    raise _Anchors
                 data = yaml.safe_load(raw)
+            except _Anchors:
+                p.meta_issue = "front matter anchors and aliases are not allowed"
             except yaml.YAMLError:
                 p.meta_issue = "front matter is not valid YAML"
             else:

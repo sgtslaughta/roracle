@@ -130,3 +130,10 @@ def test_citations_same_wording_for_invisible_and_missing():
     assert out[0].replace(str(a), "K") == out[1].replace(str(b), "K")
     assert "does not resolve to a library document you can access" in out[0] and len(out) == 3
     assert "malformed" in out[2]
+
+
+def test_frontmatter_anchor_token_scan():
+    ok = parse('---\nabstract: "We study *Drosophila* and R&D"\n---\n')
+    assert ok.meta_issue is None and ok.meta["abstract"] == "We study *Drosophila* and R&D"
+    assert parse("---\na: &x 1\nb: *x\n---\n").meta_issue
+    assert parse("---\na: *x\n---\n").meta_issue
