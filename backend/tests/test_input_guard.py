@@ -54,3 +54,13 @@ def test_multipart_is_not_scanned(client, as_ana):
     big = b"x" * (4 * 1024 * 1024)
     r = client.post("/documents", headers=as_ana, files={"file": ("a.pdf", big)})
     assert r.status_code != 413
+
+
+def test_missing_content_type_still_capped(client, as_ana):
+    r = client.post("/collections", headers=as_ana, content=b'{"name": "' + b"a" * (3 * 1024 * 1024) + b'"}')
+    assert r.status_code == 413
+
+
+def test_merge_patch_json_nul_is_422(client, as_ana):
+    h = {**as_ana, "content-type": "application/merge-patch+json"}
+    assert client.post("/collections", headers=h, content=b'{"name": "a\\u0000b"}').status_code == 422

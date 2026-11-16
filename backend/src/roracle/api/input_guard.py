@@ -13,7 +13,7 @@ BIGINT_MAX = 2**63 - 1
 _JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000|\x00", re.IGNORECASE)
 JSON_MAX = (
     3 * 1024 * 1024
-)  # largest legit JSON body is a 2 MiB draft; /mcp and non-JSON bodies are never buffered
+)  # largest legit JSON body is a 2 MiB draft; /mcp (own cap) and multipart/octet-stream uploads are never buffered
 _RAW_NUL = (b"%00", b"\x00")
 
 
@@ -38,7 +38,7 @@ class InputGuard:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         bad = _problem(scope)
-        scan = bad is None and _is_json(scope) and not scope["path"].startswith("/mcp")
+        scan = bad is None and not _streams(scope) and not scope["path"].startswith("/mcp")
         if scan and _length(scope) > JSON_MAX:
             bad = _reply(413, "request body too large")
         if scan and bad is None:
@@ -82,10 +82,12 @@ def _length(scope: Scope) -> int:
     return 0
 
 
-def _is_json(scope: Scope) -> bool:
+def _streams(scope: Scope) -> bool:
+    """Upload bodies (own streaming caps) are never buffered; everything else, even without a
+    Content-Type (FastAPI still parses it as JSON), is capped and scanned: fail closed."""
     for k, v in scope["headers"]:
         if k == b"content-type":
-            return v.lower().startswith(b"application/json")
+            return v.lower().startswith((b"multipart/form-data", b"application/octet-stream"))
     return False
 
 
