@@ -46,14 +46,12 @@ def _matches(h: Hit, g: GoldItem) -> bool:
 
 
 def match_ranks(hits: list[Hit], gold: list[GoldItem]) -> list[tuple[int, int]]:
-    """(rank, grade) per credited gold, in rank order. Each gold is credited once, at its first matching
-    hit; a hit credits at most one gold (its best-graded uncredited match) so nDCG stays within [0, 1]."""
+    """(rank, grade) per credited gold, in rank order. Each gold is credited once, at its first matching hit;
+    one hit may credit several golds."""
     open_ = list(gold)
     out: list[tuple[int, int]] = []
     for rank, h in enumerate(hits[:DEPTH], 1):
-        m = [g for g in open_ if _matches(h, g)]
-        if m:
-            g = max(m, key=lambda x: x.grade)  # max keeps the first of equal grades
+        for g in [g for g in open_ if _matches(h, g)]:
             open_.remove(g)
             out.append((rank, g.grade))
     return out
@@ -68,7 +66,9 @@ def _rank_scores(credited: list[tuple[int, int]], grades: list[int], prefix: str
     out = {f"{prefix}_recall@{k}": sum(r <= k for r, _ in credited) / n for k in KS}
     out[f"{prefix}_mrr"] = 1 / credited[0][0] if credited else 0.0
     ideal = [(i, g) for i, g in enumerate(sorted(grades, reverse=True), 1)]
-    out[f"{prefix}_ndcg@10"] = _dcg(credited, 10) / _dcg(ideal, 10)
+    out[f"{prefix}_ndcg@10"] = min(
+        1.0, _dcg(credited, 10) / _dcg(ideal, 10)
+    )  # co-credited golds can exceed ideal
     return out
 
 

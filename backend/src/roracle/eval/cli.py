@@ -19,7 +19,7 @@ def add_parser(sub) -> None:
     r = ev.add_parser("run", help="score a gold set per principal")
     g = r.add_mutually_exclusive_group(required=True)
     g.add_argument("--set", dest="set_name")
-    g.add_argument("--fixture", metavar="PATH")
+    g.add_argument("--fixture", metavar="PATH", help="not implemented yet (use `eval ci`, task 2)")
     r.add_argument("--path", choices=["chat", "search"], default="chat")
     r.add_argument("--label", default="")
     r.add_argument("--set-override", action="append", default=[], metavar="KEY=VAL")
@@ -57,29 +57,39 @@ def table(agg: dict) -> str:
 
 
 def run(args) -> int:
+    """0 ok; 1 ACL violation or run error; 2 bad input / unusable set (R5)."""
+    if args.fixture:
+        print(
+            "error: --fixture runs are not implemented yet (`eval ci` seeds and runs fixtures)",
+            file=sys.stderr,
+        )
+        return 2
     settings = get_settings()
     sf = make_session_factory(settings.database_url)
     with sf() as session:
         try:
             overrides = parse_overrides(args.set_override, args.index)
-            if args.fixture:
-                fx = gold.load_file(args.fixture)  # seeding a fixture into PG/ES is `eval ci` (task 2)
-                print(f"fixture ok: {len(fx.documents)} documents, {len(fx.queries)} queries")
-                return 0
-            es_set = store.set_by_name(session, args.set_name)
-            if es_set is None:
+            db_set = store.set_by_name(session, args.set_name)
+            if db_set is None:
                 raise ValueError(f"no eval set named {args.set_name!r}")
-            gs = gold.load_db(session, es_set.id)
-            settings = runtime.apply(settings, runtime.overrides(session))
+            gs = gold.load_db(session, db_set.id)
+            gold.resolve_principals(session, gs)  # R5 and unknown principals are input errors
+        except (ValueError, ValidationError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        settings = runtime.effective(session, settings)  # incl. the active (cutover) embedding model/index
+        try:
             run_id = runner.run_set(
                 session, clients.es(settings), clients.llm(settings), settings, gs,
                 path=args.path, trigger="cli", label=args.label, overrides=overrides,
             )  # fmt: skip
-        except (ValueError, ValidationError, OSError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
+        except Exception as e:  # noqa: BLE001  (the failed run row is already stored)
+            print(f"run failed: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
         r = session.get(EvalRun, run_id)
         print(table(r.metrics))
+        if r.metrics["es_acl_violations"]:
+            print("warning: Elasticsearch returned documents the principal may not see", file=sys.stderr)
         if args.json_out:
             with open(args.json_out, "w") as f:
                 json.dump({"run_id": str(run_id), "status": r.status, "metrics": r.metrics}, f, indent=2)

@@ -94,3 +94,22 @@ def test_load_db_active_only(db_session):
     db_session.flush()
     gs = gold.load_db(db_session, s.id)
     assert [q.key for q in gs.queries] == ["a"] and gs.queries[0].relevant[0].grade == 2
+
+
+def test_load_db_normalizes_doc_ids(db_session):
+    s = EvalSet(name="s")
+    db_session.add(s)
+    db_session.flush()
+    d = uuid.uuid4()
+    db_session.add(
+        EvalQuery(
+            set_id=s.id,
+            key="a",
+            text="t",
+            kind="fact",
+            principals=[uuid.uuid4()],
+            relevant=[{"doc": "{" + str(d).upper() + "}"}],
+        )
+    )
+    db_session.flush()
+    assert gold.load_db(db_session, s.id).queries[0].relevant[0].doc == str(d)

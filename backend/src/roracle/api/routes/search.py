@@ -301,6 +301,7 @@ def _query_rows(
     filters: dict[str, list[str]],
     coll_docs: list[str] | None,
     qvec: list[float],
+    raw: list[Passage] | None = None,
 ) -> list[Row]:
     if coll_docs is not None and not coll_docs:
         return []
@@ -320,6 +321,8 @@ def _query_rows(
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []
+    if raw is not None:  # eval: ES hits before the Postgres re-check
+        raw.extend(passages)
     ids = []
     for x in passages:
         try:
@@ -336,6 +339,25 @@ def _query_rows(
             r.score, r.passages = h.score, h.passages
             rows.append(r)
     return rows
+
+
+def rank_for_search(
+    session: Session,
+    es: Elasticsearch,
+    llm,
+    settings: Settings,
+    p: Principal,
+    q: str,
+    *,
+    filters: dict[str, list[str]] | None = None,
+    raw: list[Passage] | None = None,
+) -> list[Passage]:
+    """Library ranking as the `/search` endpoint produces it (PG-rechecked, grouped per document, votes),
+    flattened to passages in document-rank order. `raw` (out-param, eval) receives the ES hits pre-recheck."""
+    rows = _query_rows(
+        session, es, llm, settings, p, q, filters or {}, None, embed_query(llm, settings, q), raw
+    )
+    return [x for r in rows for x in r.passages]
 
 
 def _empty(page: int) -> dict:

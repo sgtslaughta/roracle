@@ -21,12 +21,7 @@ def test_norm_case_whitespace_hyphen():
 
 def test_quote_page_and_doc_matching_and_credit_once():
     hits = [h("a", "nothing"), h("a", "Alpha!"), h("a", "alpha again"), h("c", "x", [4])]
-    assert match_ranks(hits, [A, GoldItem(doc="c", page=4, grade=2), C]) == [(2, 3), (4, 2)]
-    # whole-doc gold C is credited by the first c hit, once; the page-4 gold needs its own hit
-    assert match_ranks([h("c", "x", [4]), h("c", "y", [4])], [GoldItem(doc="c", page=4, grade=2), C]) == [
-        (1, 2),
-        (2, 1),
-    ]
+    assert match_ranks(hits, [A, GoldItem(doc="c", page=4, grade=2), C]) == [(2, 3), (4, 2), (4, 1)]
 
 
 def test_three_gold_exact_metrics():
@@ -76,3 +71,13 @@ def test_empty_gold_rejected_and_empty_pairs_counted():
     assert agg["by_kind"]["global"]["p_mrr"] == 0.5
     assert agg["by_principal"]["u1"]["pairs"] == 1
     assert (agg["latency_p50_ms"], agg["latency_p95_ms"]) == (20, 30)
+
+
+def test_one_passage_credits_every_matching_gold():
+    s = score_pair([h("a", "alpha and beta"), h("b", "beta")], [A, GoldItem(doc="a", quote="beta", grade=3)])
+    assert s["p_recall@5"] == 1.0 and s["p_mrr"] == 1.0
+    assert s["p_ndcg@10"] <= 1.0
+    s = score_pair(
+        [h("a", "alpha and beta")], [GoldItem(doc="a", grade=3), GoldItem(doc="a", page=1, grade=3)]
+    )
+    assert s["p_recall@5"] == 1.0 and 0.0 < s["p_ndcg@10"] <= 1.0

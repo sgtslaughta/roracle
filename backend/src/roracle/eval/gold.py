@@ -100,6 +100,15 @@ def load_file(path: str | Path) -> FixtureSet:
     return FixtureSet.model_validate(data)
 
 
+def _item(i: dict) -> GoldItem:
+    g = GoldItem.model_validate(i)
+    try:
+        g.doc = str(UUID(g.doc))  # canonical form: hits carry lowercase hyphenated ids
+    except ValueError:
+        pass
+    return g
+
+
 def load_db(session: Session, set_id: UUID) -> GoldSet:
     """Active queries only (drafts wait for admin review)."""
     es = session.get(EvalSet, set_id)
@@ -119,7 +128,7 @@ def load_db(session: Session, set_id: UUID) -> GoldSet:
                 kind=r.kind,
                 principals=[str(u) for u in r.principals],
                 as_pat=r.as_pat,
-                relevant=[GoldItem.model_validate(i) for i in r.relevant],
+                relevant=[_item(i) for i in r.relevant],
                 reference_answer=r.reference_answer,
             )
             for r in rows

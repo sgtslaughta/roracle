@@ -4,31 +4,28 @@ Every hit is re-checked against Postgres independently of the retrieval code; a 
 invisible document is an ACL leak and fails the run.
 """
 
-import logging
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from typing import Literal
 from uuid import UUID
 
-from elasticsearch import NotFoundError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle import runtime
 from roracle.access import llm_allowed, visible_documents
+from roracle.api.routes.search import rank_for_search
 from roracle.auth import Principal
 from roracle.chat.retrieve import rank_for_chat
 from roracle.config import Settings
 from roracle.eval import metrics as m
 from roracle.eval import store
 from roracle.eval.gold import GoldSet, resolve_principals
-from roracle.labels.policy import Policy
 from roracle.models import Document
 from roracle.models_eval import EvalSet
-from roracle.retrieval import Passage, search_chunks
+from roracle.retrieval import Passage
 
-log = logging.getLogger(__name__)
 Rank = Callable[[Principal, str, list[Passage]], list[Passage]]  # (principal, query, raw out-param) -> hits
 
 
@@ -53,14 +50,7 @@ def default_rank(session: Session, es, llm, settings: Settings, path: str) -> Ra
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
-        try:
-            hits = search_chunks(
-                es, llm, settings, p, q, policy=Policy.load(session), filters={}, size=m.DEPTH
-            )
-        except NotFoundError:
-            hits = []
-        raw.extend(hits)  # library search has no Postgres post-filter: ES is the only filter
-        return hits
+        return rank_for_search(session, es, llm, settings, p, q, raw=raw)
 
     return chat if path == "chat" else search
 
@@ -87,7 +77,7 @@ def run_set(
     principals = resolve_principals(session, gs)  # R5 before anything is written
     settings = runtime.apply(settings, overrides or {})
     rank = rank or default_rank(session, es, llm, settings, path)
-    es_set = store.set_by_name(session, gs.name) if gs.name else None
+    db_set = store.set_by_name(session, gs.name) if gs.name else None
     config = {
         "overrides": overrides or {},
         "embed_model": settings.embed_model,
@@ -95,7 +85,7 @@ def run_set(
     }
     with sf() if sf else nullcontext(session) as ws:
         run_id = store.start_run(
-            ws, set_id=es_set.id if isinstance(es_set, EvalSet) else None, set_name=gs.name,
+            ws, set_id=db_set.id if isinstance(db_set, EvalSet) else None, set_name=gs.name,
             trigger=trigger, label=label, path=path, config=config,
         )  # fmt: skip
         try:
