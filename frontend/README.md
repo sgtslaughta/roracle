@@ -27,7 +27,7 @@ corepack pnpm contours             # regenerate public/contour-*.svg (determinis
 
 ## Layout
 
-- `src/app` shell, router, top bar, sidebar · `src/routes` route components · `src/features/{library,reader,uploads,palette}`
+- `src/app` shell, router, top bar, sidebar · `src/routes` route components · `src/features/{library,reader,uploads,palette,ask}`
 - `src/api` typed client and shared types · `src/auth` OIDC · `src/mocks` MSW handlers, sample data, generated sample PDFs
 - `src/styles` design tokens (spec §11) and per-area CSS
 
@@ -37,6 +37,7 @@ Run from `frontend/` (Node >= 22, `corepack enable` or `npx pnpm@9`):
 
 ```sh
 corepack pnpm install --frozen-lockfile
+corepack pnpm lint                     # tsc --noEmit
 corepack pnpm exec vitest run          # tests (must print no warnings)
 corepack pnpm build                    # tsc --noEmit (strict) + vite build
 corepack pnpm check:dist               # no CDN URLs in html/css/js, no mockServiceWorker.js in dist

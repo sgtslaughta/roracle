@@ -1,0 +1,41 @@
+name: literature-review
+title: Literature review
+doc_types: [literature-review, review]
+citation_style: author-year
+required_metadata: [title, authors, keywords]
+required_sections: [Abstract, Introduction, Search strategy, Synthesis, Gaps and future work, Conclusion, References]
+limits:
+  words_max: 10000
+  abstract_words_max: 250
+  title_chars_max: 150
+  references_max: 250
+review_required: false
+style_guidance: |
+  Organise the synthesis by theme, not by paper.
+  State databases, search terms, date range and inclusion criteria in the search strategy.
+  Distinguish what studies found from what you infer; flag conflicting evidence.
+  Cite the primary source for every empirical claim.
+template: |
+  ---
+  title: ""
+  doc_type: literature-review
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Abstract
+
+  ## Introduction
+
+  ## Search strategy
+
+  ## Synthesis
+
+  ## Gaps and future work
+
+  ## Conclusion
+
+  ## References

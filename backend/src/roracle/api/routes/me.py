@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import String, cast, func, select, true
+from sqlalchemy import String, cast, exists, func, select, true
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
@@ -50,7 +50,8 @@ def my_uploads(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     owned = (Document.owner_id == p.user_id, Document.deleted_at.is_(None))
-    total = session.scalar(select(func.count()).select_from(Document).where(*owned))
+    has_ver = exists().where(DocumentVersion.document_id == Document.id)  # drafts have none
+    total = session.scalar(select(func.count()).select_from(Document).where(*owned, has_ver))
     # latest version per document, then its most recent job (both lateral: no N+1)
     ver = (
         select(DocumentVersion)

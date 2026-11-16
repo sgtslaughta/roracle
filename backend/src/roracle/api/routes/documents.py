@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from roracle.access import org_units, visible_documents
+from roracle.access import org_unit_error, org_units, visible_documents
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
@@ -38,8 +38,8 @@ def upload(
     force: Annotated[bool, Form()] = False,
 ) -> dict:
     units = org_units(list(p.groups))
-    if visibility == "org_unit" and not units:
-        raise HTTPException(422, "cannot determine org unit; choose another visibility")
+    if err := org_unit_error(visibility, units[0] if units else ""):
+        raise HTTPException(422, err)
     try:
         staged = stage(file.file, settings.max_upload_bytes)
     except EmptyFile:

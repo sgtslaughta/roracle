@@ -24,13 +24,17 @@ describe("routes", () => {
   });
 
   it.each([
-    ["/ask", "Ask"],
     ["/uploads", "My uploads"],
     ["/proposals", "Agent proposals"],
     ["/drafts", "Drafts"],
   ])("renders %s", async (path, title) => {
     await renderAt(path);
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+  });
+
+  it("renders the ask view with a new-chat heading", async () => {
+    await renderAt("/ask");
+    expect(await screen.findByRole("heading", { level: 1, name: "New chat" })).toBeInTheDocument();
   });
 
   it("renders doc routes inside the shell", async () => {

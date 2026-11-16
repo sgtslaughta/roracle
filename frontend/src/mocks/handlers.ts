@@ -3,9 +3,17 @@ import { API_BASE } from "@/api/client";
 import type { CitedByItem, Collection, DocumentDetail, NearDupAction, ReferenceItem, VoteRequest } from "@/api/types";
 import { DOCS } from "./docs";
 import { buildPdf, docById, docling } from "./pdf";
-import { citedBy, ownerOf, runSearch, tagsOf, votesOf } from "./search";
+import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
+import { adminHandlers } from "./admin";
+import { adminOpsHandlers } from "./adminOps";
+import { adminDataHandlers } from "./adminData";
+import { chatHandlers } from "./chat";
+import { agentHandlers } from "./agents";
+import { noteHandlers, withCommunityNotes } from "./notes";
 import { advance, newUpload } from "./uploads";
+import { proposalHandlers } from "./proposals";
+import { notificationHandlers } from "./notifications";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const notFound = () => HttpResponse.json({ detail: "not found" }, { status: 404 });
@@ -24,11 +32,13 @@ function detail(id: string): DocumentDetail | null {
 }
 
 export const handlers = [
-  http.get(url("/me"), () => HttpResponse.json({ id: "u-me", username: "researcher", groups: ["/Mathematics/Spectral Theory"], is_admin: false })),
-  http.get(url("/search"), ({ request }) => HttpResponse.json(runSearch(new URL(request.url).searchParams))),
+  http.get(url("/me"), () => HttpResponse.json({ id: "u-me", username: "researcher", groups: ["/Mathematics/Spectral Theory"], is_admin: state.admin })),
+  http.get(url("/search"), ({ request }) => {
+    const sp = new URL(request.url).searchParams;
+    return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
+  }),
   http.get(url("/collections"), () => {
-    const names = [...new Set(DOCS.flatMap((d) => d.collections))];
-    return HttpResponse.json(names.map((name, i): Collection => ({ id: `c${i + 1}`, name, count: DOCS.filter((d) => d.collections.includes(name)).length })));
+    return HttpResponse.json(COLLECTION_NAMES.map((name, i): Collection => ({ id: `c${i + 1}`, name, count: DOCS.filter((d) => d.collections.includes(name)).length })));
   }),
   http.get(url("/documents/:id"), ({ params }) => {
     const d = detail(String(params.id));
@@ -45,7 +55,7 @@ export const handlers = [
     if (!d) return notFound();
     const tag = String(((await request.json()) as { tag: string }).tag).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
     if (tag && !tagsOf(d).includes(tag)) (state.extraTags[d.id] ??= []).push(tag);
-    return HttpResponse.json({ tags: tagsOf(d) });
+    return HttpResponse.json({ tag, tags: tagsOf(d) });
   }),
   http.delete(url("/documents/:id/tags/:tag"), ({ params }) => {
     const d = docById(String(params.id));
@@ -91,13 +101,23 @@ export const handlers = [
   }),
   http.post(url("/documents/:id/versions/:vid/near-dup"), async ({ params, request }) => {
     const u = state.uploads.find((x) => x.version_id === params.vid);
-    if (!u || u.stage !== "review") return HttpResponse.json({ detail: "not found" }, { status: 404 });
+    if (!u) return notFound();
+    if (u.stage !== "review") return HttpResponse.json({ detail: "not awaiting a decision" }, { status: 409 });
     const { action } = (await request.json()) as { action: NearDupAction };
-    if (action === "cancel") state.uploads = state.uploads.filter((x) => x !== u);
+    const target = u.near_dup_of?.document_id;
+    if (action === "cancel") { u.stage = "cancelled"; u.status = "done"; }
     else {
-      if (action === "new_version" && u.near_dup) state.versions[u.near_dup.document_id]++;
-      u.stage = "deduped"; u.status = "running"; u.near_dup = null; u.near_dup_of = null;
+      if (action === "new_version" && target) state.versions[target]++;
+      u.stage = "deduped"; u.status = "running"; u.near_dup_of = null;
     }
-    return HttpResponse.json({ ok: true });
+    return HttpResponse.json({ version_id: u.version_id, document_id: u.document_id, stage: u.stage });
   }),
+  ...adminHandlers,
+  ...adminOpsHandlers,
+  ...adminDataHandlers,
+  ...chatHandlers,
+  ...agentHandlers,
+  ...noteHandlers,
+  ...proposalHandlers,
+  ...notificationHandlers,
 ];

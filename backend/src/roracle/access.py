@@ -27,6 +27,14 @@ def normalize_path(s: str) -> str:
     return s.rstrip("/") or "/"
 
 
+def group_path(s: str) -> str:
+    """normalize_path for a share/co-author group: "/" (everyone) is not a group."""
+    s = normalize_path(s)
+    if s == "/":
+        raise ValueError("group must not be the root")
+    return s
+
+
 def org_units(groups: list[str]) -> list[str]:
     """Rooted, normalized org units from token groups; blank/root-only groups are skipped (never widen to "/")."""
     out: list[str] = []
@@ -38,6 +46,14 @@ def org_units(groups: list[str]) -> list[str]:
         if u not in out:
             out.append(u)
     return out
+
+
+ORG_UNIT_ERROR = "cannot determine org unit; choose another visibility"
+
+
+def org_unit_error(visibility: str, org_unit: str) -> str | None:
+    """Fail closed: `org_unit` visibility needs a usable (non-root, non-empty) org unit."""
+    return ORG_UNIT_ERROR if visibility == "org_unit" and not org_units([org_unit]) else None
 
 
 def org_ancestors(groups: list[str]) -> list[str]:

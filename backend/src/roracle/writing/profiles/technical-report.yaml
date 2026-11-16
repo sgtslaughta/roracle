@@ -1,0 +1,39 @@
+name: technical-report
+title: Technical report
+doc_types: [technical-report, report]
+citation_style: numeric
+required_metadata: [title, authors]
+required_sections: [Summary, Background, Methods, Findings, Recommendations, References]
+limits:
+  words_max: 20000
+  abstract_words_max: 300
+  title_chars_max: 150
+  references_max: 150
+review_required: false
+style_guidance: |
+  Open with an executive summary that a non-specialist can act on.
+  Separate findings (what was observed) from recommendations (what to do).
+  Number figures and tables and refer to them by label.
+  Give units in SI and state the date and version of every data source.
+template: |
+  ---
+  title: ""
+  doc_type: technical-report
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Summary
+
+  ## Background
+
+  ## Methods
+
+  ## Findings
+
+  ## Recommendations
+
+  ## References

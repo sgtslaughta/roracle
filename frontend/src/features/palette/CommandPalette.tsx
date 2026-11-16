@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { FileText, Search, SunMoon } from "lucide-react";
+import { FileText, MessageCircle, Plus, Search, SunMoon } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/api/client";
 import type { SearchResponse } from "@/api/types";
-import { NAV } from "@/app/nav";
+import { useChats } from "@/features/ask/api";
+import { EXTRA_PAGES, NAV } from "@/app/nav";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useMe } from "@/features/library/useMe";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { shortCite } from "@/lib/cite";
 import { stringifySearch } from "@/lib/searchParams";
@@ -27,22 +29,29 @@ export function CommandPalette() {
   useEffect(() => { if (open) { setQ(""); setSel(0); } }, [open]);
   useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 150); return () => clearTimeout(t); }, [q]);
 
+  const chats = useChats().data;
+  const isAdmin = useMe().data?.is_admin;
   const found = useQuery({
     queryKey: ["palette-search", debounced],
     enabled: open && debounced.length >= 2,
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { size: 5 })}`),
+    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { size: 5, notes: false })}`),
   });
 
   const items = useMemo<Item[]>(() => {
     const needle = q.trim().toLowerCase();
     const match = (s: string) => !needle || s.toLowerCase().includes(needle);
-    const pages: Item[] = NAV.filter((n) => match(n.label)).map((n) => ({ key: n.to, label: n.label, hint: "Page", icon: n.icon, run: () => void navigate({ to: n.to }) }));
-    const actions: Item[] = match("Switch theme") ? [{ key: "theme", label: "Switch theme", hint: "Action", icon: SunMoon, run: () => toast(`Theme: ${cycleTheme()}`) }] : [];
+    const pages: Item[] = [...NAV, ...EXTRA_PAGES.filter((n) => !n.admin || isAdmin)].filter((n) => match(n.label)).map((n) => ({ key: n.to, label: n.label, hint: "Page", icon: n.icon, run: () => void navigate({ to: n.to }) }));
+    const actions: Item[] = [
+      ...(match("New chat") ? [{ key: "new-chat", label: "New chat", hint: "Action", icon: Plus, run: () => void navigate({ to: "/ask" }) }] : []),
+      ...(match("Switch theme") ? [{ key: "theme", label: "Switch theme", hint: "Action", icon: SunMoon, run: () => toast(`Theme: ${cycleTheme()}`) }] : []),
+    ];
+    const chatItems: Item[] = (chats ?? []).filter((c) => match(c.title)).slice(0, 5)
+      .map((c) => ({ key: `chat-${c.id}`, label: c.title, hint: "Chat", icon: MessageCircle, run: () => void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }) }));
     const docs = new Map<string, Item>();
     for (const r of getRecent().filter((d) => match(d.title))) docs.set(r.id, { key: r.id, label: r.title, hint: "Recent", icon: FileText, run: () => openDoc(r.id) });
     for (const r of found.data?.results ?? []) if (!docs.has(r.doc_id)) docs.set(r.doc_id, { key: r.doc_id, label: r.title, hint: shortCite(r.authors, r.year), icon: FileText, run: () => openDoc(r.doc_id) });
-    return [...pages, ...actions, ...docs.values()];
-  }, [q, found.data, navigate]);
+    return [...pages, ...actions, ...chatItems, ...docs.values()];
+  }, [q, found.data, chats, isAdmin, navigate]);
 
   const active = Math.min(sel, Math.max(0, items.length - 1));
   const pick = (it?: Item) => { if (!it) return; closePalette(); it.run(); };

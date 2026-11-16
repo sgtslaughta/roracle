@@ -26,6 +26,13 @@ export interface AuthHooks {
 let hooks: AuthHooks | null = null;
 export const setAuthHooks = (h: AuthHooks | null) => { hooks = h; };
 
+/** For transports apiFetch can't serve (XHR upload with progress): the same token, silent renew and sign-in. */
+export const auth = {
+  token: async () => (await hooks?.getToken()) ?? null,
+  renew: async () => (hooks ? hooks.renew() : false),
+  signIn: async () => { await hooks?.signIn(); },
+};
+
 export type ApiInit = Omit<RequestInit, "body"> & { json?: unknown; body?: BodyInit | null };
 
 async function send(path: string, init: ApiInit): Promise<Response> {
@@ -40,18 +47,27 @@ async function send(path: string, init: ApiInit): Promise<Response> {
   return fetch(`${API_BASE}${path}`, { ...rest, headers, body });
 }
 
-export async function apiFetch<T = unknown>(path: string, init: ApiInit = {}): Promise<T> {
+/** Build an ApiError from a non-OK response (detail from a JSON body when present). */
+export async function errorOf(res: Response): Promise<ApiError> {
+  let detail: unknown = res.statusText;
+  try { detail = ((await res.json()) as { detail?: unknown }).detail ?? detail; } catch { /* no JSON body */ }
+  return new ApiError(res.status, detail);
+}
+
+/** Authenticated fetch returning the raw Response (one silent renew on 401, then sign-in). Non-OK is NOT thrown. */
+export async function authedFetch(path: string, init: ApiInit = {}): Promise<Response> {
   let res = await send(path, init);
   if (res.status === 401 && hooks) {
     // one silent renew + retry; anything else goes to sign-in
     if (await hooks.renew()) res = await send(path, init);
     if (res.status === 401) await hooks.signIn();
   }
-  if (!res.ok) {
-    let detail: unknown = res.statusText;
-    try { detail = ((await res.json()) as { detail?: unknown }).detail ?? detail; } catch { /* no JSON body */ }
-    throw new ApiError(res.status, detail);
-  }
+  return res;
+}
+
+export async function apiFetch<T = unknown>(path: string, init: ApiInit = {}): Promise<T> {
+  const res = await authedFetch(path, init);
+  if (!res.ok) throw await errorOf(res);
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") ?? "";
   return (ct.includes("json") ? res.json() : res.blob()) as Promise<T>;

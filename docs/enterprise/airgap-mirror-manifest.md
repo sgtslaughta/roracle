@@ -42,7 +42,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | CI `kubeconform` job (`KUBECONFORM_IMAGE`) | `sha256:824e0c248809e4b2da2a768b16b107cf17ada88a89ec6aa6050e566ba93ebbc6` |
 
 Dev only (`deploy/dev/compose.yaml`): `quay.io/keycloak/keycloak:26.0` (pin in mirror), docling-serve-cpu `:latest` (use the chart tag instead).
-Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB), `pandoc/core`.
+Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB). Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
 
 ### Operator and observability charts (floor, pin in mirror)
 
@@ -73,7 +73,8 @@ Runtime: fastapi, uvicorn[standard], sqlalchemy ≥ 2, psycopg[binary] ≥ 3, al
 pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch ≥ 8, openai (client for
 the OpenAI-spec endpoint), mcp (official SDK), datasketch (MinHash), docling-core (chunker),
 tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), bleach/nh3
-(sanitizing). Dev: pytest, ruff.
+(sanitizing), pyyaml, pypandoc-binary (wheel bundling the pinned pandoc binary for draft builds; hash-locked in
+`uv.lock`, so the PyPI mirror is the only source: no apt/pandoc image needed). Dev: pytest, ruff.
 
 ## npm (registry mirror via `NPM_CONFIG_REGISTRY`)
 

@@ -1,0 +1,37 @@
+name: grant-proposal
+title: Grant proposal
+doc_types: [grant-proposal, proposal]
+citation_style: author-year
+required_metadata: [title, authors]
+required_sections: [Specific aims, Significance, Approach, Budget justification, References]
+limits:
+  words_max: 6000
+  title_chars_max: 200
+  figures_max: 6
+  references_max: 100
+review_required: false
+style_guidance: |
+  Specific aims: two to four aims, each a testable statement with an expected outcome.
+  Significance: say what changes in the field if the aims succeed.
+  Approach: for each aim give methods, expected results, pitfalls and alternatives.
+  Budget justification: tie every line item to an aim; no unexplained totals.
+template: |
+  ---
+  title: ""
+  doc_type: grant-proposal
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Specific aims
+
+  ## Significance
+
+  ## Approach
+
+  ## Budget justification
+
+  ## References
