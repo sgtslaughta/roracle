@@ -14,6 +14,7 @@ from roracle.labels.policy import admin_json, snapshot
 router = APIRouter()
 Db = Annotated[Session, Depends(get_session)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+Rank = Annotated[int, Field(ge=0, le=10_000)]
 Colour = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
 
 
@@ -30,7 +31,7 @@ class LabelIn(BaseModel):
     name: Name
     colour: Colour
     description: str = Field("", max_length=500)
-    rank: int
+    rank: Rank
     gates: GatesIn = GatesIn()
     is_default: bool = False
 
@@ -40,7 +41,7 @@ class LabelPatch(BaseModel):
     name: Name | None = None
     colour: Colour | None = None
     description: str | None = Field(None, max_length=500)
-    rank: int | None = None
+    rank: Rank | None = None
     gates: GatesIn | None = None
     is_default: bool | None = None
 

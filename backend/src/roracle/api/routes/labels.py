@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from roracle import search_index
 from roracle.acl_sync import durable_job as _durable_job
-from roracle.api.routes.documents_read import Session_, _doc, _privileged
-from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, _recover
+from roracle.api.routes.documents_read import Session_, privileged, visible_doc
+from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, recover
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
@@ -49,9 +49,9 @@ def set_label(
     es: Annotated[Elasticsearch, Depends(get_es)],
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
-    doc = _doc(session, p, doc_id)
+    doc = visible_doc(session, p, doc_id)
     session.refresh(doc, with_for_update=True)
-    if not _privileged(doc, p) and not session.scalar(
+    if not privileged(doc, p) and not session.scalar(
         select(DocumentVersion.id).where(
             DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
         )
@@ -69,7 +69,7 @@ def set_label(
     except Exception:
         log.exception("document %s label update failed; rolling back", doc_id)
         session.rollback()
-        _recover(es, sf, doc_id)
+        recover(es, sf, doc_id)
         raise HTTPException(503, "update failed, please retry") from None
     return {"label": label_json(new)}
 

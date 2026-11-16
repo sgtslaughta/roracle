@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 from roracle import search_index
 from roracle.access import visible_documents
 from roracle.acl_sync import durable_job
-from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
-from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, _recover
+from roracle.api.routes.documents_read import Session_, Who, detail, privileged, visible_doc
+from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, recover
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.audit import audit
 from roracle.models import Document, DocumentVersion, User
@@ -33,11 +33,11 @@ class TransferBody(BaseModel):
 
 def _owned(session: Session, p, doc_id: UUID) -> Document:
     """Visible doc, row-locked FIRST, then authorized against the locked (fresh) owner."""
-    doc = _doc(session, p, doc_id)
+    doc = visible_doc(session, p, doc_id)
     session.refresh(doc, with_for_update=True)
     if doc.deleted_at is not None:
         raise HTTPException(404, "not found")
-    if not _privileged(doc, p):
+    if not privileged(doc, p):
         if not session.scalar(
             select(DocumentVersion.id).where(
                 DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
@@ -108,7 +108,7 @@ def transfer_document(
     except Exception:
         log.exception("document %s transfer failed; rolling back", doc_id)
         session.rollback()
-        _recover(es, sf, doc_id)
+        recover(es, sf, doc_id)
         raise HTTPException(503, "transfer failed, please retry") from None
     return detail(doc_id, p, session) if _can_see(session, p, doc_id) else {"id": str(doc_id)}
 

@@ -14,7 +14,7 @@ from roracle import search_index
 from roracle.access import normalize_path, org_unit_error
 from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
-from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
+from roracle.api.routes.documents_read import Session_, Who, detail, privileged, visible_doc
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
@@ -79,7 +79,7 @@ def _remove_coauthors(session: Session, doc: Document, keep: set[UUID]) -> None:
         }
 
 
-def _recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
+def recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
     """After a rollback/failed commit: re-sync ES from committed Postgres; if that fails too, leave a
     durable acl_sync job (fresh session) so the index converges. Never silent."""
     try:
@@ -101,11 +101,11 @@ def patch_document(
     es: Annotated[Elasticsearch, Depends(get_es)],
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
-    doc = _doc(session, p, doc_id)
+    doc = visible_doc(session, p, doc_id)
     # Serialize concurrent PATCHes per document (flush -> ES -> commit runs under this row lock) and
     # authorize against the LOCKED owner: a transfer committing between load and lock must win.
     session.refresh(doc, with_for_update=True)
-    if not _privileged(doc, p):
+    if not privileged(doc, p):
         if not session.scalar(
             select(DocumentVersion.id).where(
                 DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
@@ -158,6 +158,6 @@ def patch_document(
     except Exception:
         log.exception("document %s update failed; rolling back", doc_id)
         session.rollback()
-        _recover(es, sf, doc_id)
+        recover(es, sf, doc_id)
         raise HTTPException(503, "update failed, please retry") from None
     return detail(doc_id, p, session)
