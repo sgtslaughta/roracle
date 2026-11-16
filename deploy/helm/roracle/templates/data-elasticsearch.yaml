@@ -5,6 +5,7 @@
 {{- if $sn.enabled }}
 {{- $_ := required "elasticsearch.snapshot.credentialsSecret is required when snapshots are enabled" $sn.credentialsSecret }}
 {{- end }}
+{{- $caSnap := and $sn.enabled (eq (include "roracle.snapProtocol" .) "https") (or (and (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert .Values.caBundle.kubeRootCa) $sn.extraCASecret.name) }}
 {{- $img := merge (deepCopy $es.image) (dict "tag" $es.version) }}
 apiVersion: elasticsearch.k8s.elastic.co/v1
 kind: Elasticsearch
@@ -56,9 +57,47 @@ spec:
             runAsNonRoot: true
             fsGroup: 1000
             seccompProfile: {type: RuntimeDefault}
+          {{- if $caSnap }}
+          initContainers:
+            - name: truststore
+              imagePullPolicy: {{ $es.image.pullPolicy }}
+              command: [sh, -ec]
+              args:
+                - |
+                  J=/usr/share/elasticsearch/jdk
+                  cp $J/lib/security/cacerts /trust/cacerts && chmod u+w /trust/cacerts
+                  for f in /ca/*.crt; do [ ! -f "$f" ] || $J/bin/keytool -importcert -noprompt -alias "$(basename $f)" -file "$f" -keystore /trust/cacerts -storepass changeit; done
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: trust, mountPath: /trust}
+                - {name: snap-ca, mountPath: /ca, readOnly: true}
+          volumes:
+            - name: trust
+              emptyDir: {sizeLimit: 2Mi}
+            - name: snap-ca
+              projected:
+                sources:
+                  {{- if and (eq $.Values.minio.mode "tenant") $.Values.minio.requestAutoCert $.Values.caBundle.kubeRootCa }}
+                  - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: kube-root.crt}]}
+                  {{- end }}
+                  {{- with $sn.extraCASecret.name }}
+                  - secret: {name: {{ . | quote }}, items: [{key: {{ default "ca.crt" $sn.extraCASecret.key | quote }}, path: extra.crt}]}
+                  {{- end }}
+          {{- end }}
           containers:
             - name: elasticsearch
               imagePullPolicy: {{ $es.image.pullPolicy }}
+              {{- if $caSnap }}
+              env:
+                - {name: ES_JAVA_OPTS, value: "-Djavax.net.ssl.trustStore=/trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit"}
+              volumeMounts:
+                - {name: trust, mountPath: /trust, readOnly: true}
+              {{- end }}
               resources: {{ toYaml $es.resources | nindent 16 }}
       volumeClaimTemplates:
         - metadata: {name: elasticsearch-data}

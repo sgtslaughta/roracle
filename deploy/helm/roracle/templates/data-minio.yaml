@@ -19,10 +19,6 @@ spec:
     - name: {{ .Values.config.ROR_S3_BUCKET }}
     - {name: {{ include "roracle.pgBucket" . }}, objectLock: true}
     - {name: {{ .Values.elasticsearch.snapshot.bucket }}, objectLock: true}
-  users:
-    {{- range $k := list "app" "pgBackup" "esSnapshot" }}
-    - name: {{ required (printf "minio.users.%s is required when minio.mode=tenant" $k) (get $m.users $k) | quote }}
-    {{- end }}
   pools:
     - name: pool-0
       servers: {{ $m.servers }}

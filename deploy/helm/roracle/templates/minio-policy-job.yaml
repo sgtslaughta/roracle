@@ -2,8 +2,9 @@
 {{- $m := .Values.minio }}
 {{- $name := include "roracle.fullname" . }}
 {{- $tls := $m.requestAutoCert }}
+{{- range $k := list "app" "pgBackup" "esSnapshot" }}{{ $_ := required (printf "minio.users.%s is required when minio.mode=tenant" $k) (get $m.users $k) }}{{ end }}
 {{- $grants := list (list $m.users.app .Values.config.ROR_S3_BUCKET "app") (list $m.users.pgBackup (include "roracle.pgBucket" .) "pg-backup") (list $m.users.esSnapshot .Values.elasticsearch.snapshot.bucket "es-snapshot") }}
-# The operator creates users as consoleAdmin. This hook replaces that with a one-bucket RW policy per user.
+# Users are created here (not via Tenant users:, which grants consoleAdmin): one user + one-bucket RW policy each.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -38,21 +39,23 @@ spec:
               . /cfg/config.env
               export MC_HOST_local="{{ ternary "https" "http" $tls }}://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio.{{ .Release.Namespace }}.svc"
               until mc admin info local >/dev/null 2>&1; do echo waiting for minio; sleep 10; done
+              # user secrets are read from mounted files; mc takes them as args (visible only inside this container, never logged)
               grant() { # user-secret-dir bucket policy-name
                 key=$(cat "/users/$1/CONSOLE_ACCESS_KEY")
-                until mc admin user info local "$key" >/dev/null 2>&1; do echo waiting for user "$3"; sleep 10; done
+                mc admin user add local "$key" "$(cat "/users/$1/CONSOLE_SECRET_KEY")" >/dev/null
                 cat > "/tmp/$3.json" <<EOP
               {"Version":"2012-10-17","Statement":[
                {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket","s3:ListBucketMultipartUploads"],"Resource":["arn:aws:s3:::$2"]},
                {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::$2/*"]}]}
               EOP
                 mc admin policy create local "roracle-$3" "/tmp/$3.json"
-                mc admin policy detach local consoleAdmin --user "$key" >/dev/null 2>&1 || true
                 out=$(mc admin policy attach local "roracle-$3" --user "$key" 2>&1) || case "$out" in *lready*) ;; *) echo "$out"; exit 1;; esac
               }
               {{- range $i, $g := $grants }}
               grant u{{ $i }} {{ index $g 1 }} {{ index $g 2 }}
               {{- end }}
+              mc version enable "local/{{ include "roracle.pgBucket" . }}"
+              mc version enable "local/{{ .Values.elasticsearch.snapshot.bucket }}"
           env:
             - {name: HOME, value: /tmp}
             {{- if $tls }}
