@@ -187,4 +187,5 @@ def build_mcp(app: FastAPI) -> MCPServer:
     register(mcp, app, _run)
     tools_notes.register(mcp, app, _run)
     tools_writing.register(mcp, app, _run)
+    tools_writing.register_guides(mcp, app, _run)
     return mcp

@@ -149,3 +149,13 @@ def list_effective(session: Session) -> list[dict]:
         p, v, src = _named(session, n, db)
         out.append({"name": n, "title": p.title, "version": v, "source": src, "active": True})
     return out
+
+
+def yaml_text(session: Session, name: str) -> str:
+    """Source YAML of the effective profile `name` (KeyError if unknown)."""
+    db = _latest_db(session)
+    if name in db:
+        return db[name].yaml
+    if name in builtin():
+        return resources.files(__package__).joinpath("profiles", f"{name}.yaml").read_text(encoding="utf-8")
+    raise KeyError(name)

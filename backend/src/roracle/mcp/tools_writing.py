@@ -13,7 +13,7 @@ from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.mcp.auth import dep
 from roracle.mcp.tools_write import Run, _need_write
-from roracle.writing import cite_check, drafts, validate
+from roracle.writing import cite_check, drafts, skill, validate
 
 
 def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
@@ -83,3 +83,41 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
             )
 
         return run(app, "check_citations", go, draft_id)
+
+
+def register_guides(mcp: MCPServer, app: FastAPI, run: Run) -> None:
+    """`write_paper` prompt + `roracle://writing/*` resources: same text as the skill zip."""
+
+    def read(name: str, fn) -> str:
+        def go(session: Session, p: Principal) -> str:
+            try:
+                return fn(session)
+            except KeyError:
+                raise HTTPException(404, "not found") from None
+
+        return run(app, name, go)
+
+    @mcp.prompt()
+    def write_paper(topic: Annotated[str, Field(max_length=2000)], profile: str = "journal-article") -> str:
+        """Instructions for writing a paper on `topic` as a rOracle draft under a writing profile."""
+        return read("write_paper", lambda s: skill.prompt_text(s, topic, profile[:100]))
+
+    @mcp.resource("roracle://writing/profiles", mime_type="application/json")
+    def profiles_resource() -> str:
+        """Effective writing profiles (name, title, version, source)."""
+        return read("writing_profiles", skill.profile_list)
+
+    @mcp.resource("roracle://writing/profiles/{name}", mime_type="application/yaml")
+    def profile_resource(name: str) -> str:
+        """One writing profile as YAML (limits, required sections, template, style guidance)."""
+        return read("writing_profile", lambda s: skill.profile_yaml(s, name[:100]))
+
+    @mcp.resource("roracle://writing/style-guide", mime_type="text/markdown")
+    def style_guide() -> str:
+        """Writing style guide."""
+        return read("writing_style_guide", lambda s: skill.guide("style-guide"))
+
+    @mcp.resource("roracle://writing/citation-rules", mime_type="text/markdown")
+    def citation_rules() -> str:
+        """Citation key and verification rules."""
+        return read("writing_citation_rules", lambda s: skill.guide("citation-rules"))
