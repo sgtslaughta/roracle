@@ -4,6 +4,7 @@ R19: Postgres is the authority. Every passage (and the selection) must belong to
 `visible_documents(p)` whose latest `searchable` version it comes from; tab/pin ids never bypass that.
 """
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from elasticsearch import NotFoundError
@@ -185,6 +186,73 @@ def _pin(top: list[Passage], ranked: list[Passage], pins: list[str], k: int) -> 
     return sorted(top, key=lambda x: -x.score)
 
 
+def rank_for_chat(
+    session: Session,
+    es,
+    llm,
+    settings: Settings,
+    p: Principal,
+    question: str,
+    *,
+    viewer: Viewer | None = None,
+    scope: str = "all",
+    excludes: Sequence[str] = (),
+    depth: int = 100,
+    excluded: list[dict] | None = None,
+    raw: list[Passage] | None = None,
+) -> list[Passage]:
+    """Post-filtered, boosted, ranked passages before truncation, pins, selection and notes.
+
+    `excluded` (out-param) receives [{doc_id, label}] for requested tabs dropped by gate (a); `raw` (out-param,
+    eval) receives the corpus-search hits before the Postgres post-filter."""
+    viewer = viewer or Viewer()
+    dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
+    tab_pages: dict[str, set[int]] = {}
+    for t in viewer.tabs:
+        tid = _uid(t.doc_id)
+        if tid and tid not in dropped:
+            tab_pages.setdefault(tid, set()).add(t.page)
+    if excluded is not None:
+        excluded.extend(_blocked(session, p, set(tab_pages)))
+    live_tabs = _live(session, p, set(tab_pages))
+    tab_ids = [d for d in tab_pages if d in live_tabs]
+
+    if scope == "all":
+        scoped: list[str] | None = None
+    elif scope == "open":
+        scoped = tab_ids
+    elif scope.startswith("collection:"):
+        _, scoped = _own_collections(session, p, [scope.partition(":")[2]])
+    else:
+        raise ValueError(f"unknown scope: {scope}")
+
+    found: dict[str, Passage] = {}
+    if scoped is None or scoped:
+        qvec = embed_query(llm, settings, question)  # embed once per turn
+        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec)
+        tab = (
+            _search(session, es, llm, settings, p, question, tab_ids, 20, qvec)
+            if tab_ids and scope != "open"
+            else []
+        )
+        found = _merge(main, tab)
+    if raw is not None:
+        raw.extend(found.values())
+
+    live = _live(session, p, {x.doc_id for x in found.values()})
+    ranked: list[Passage] = []
+    for x in found.values():
+        v = live.get(x.doc_id)
+        if v is None or x.doc_id in dropped or x.version_id != str(v.id):
+            continue
+        if x.doc_id in tab_pages:
+            x.score *= PAGE_BOOST if tab_pages[x.doc_id] & set(x.pages) else TAB_BOOST
+        x.text = x.text[:MAX_CHARS]
+        ranked.append(x)
+    ranked.sort(key=lambda x: -x.score)
+    return ranked
+
+
 def retrieve_for_chat(
     session: Session,
     es,
@@ -203,54 +271,20 @@ def retrieve_for_chat(
     """`excluded` (out-param) receives [{doc_id, label}] for requested tabs/selection/pins dropped by gate (a)."""
     k = max(MIN_K, min(MAX_K, k or settings.chat_passages))
     dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
-    tab_pages: dict[str, set[int]] = {}
-    for t in viewer.tabs:
-        tid = _uid(t.doc_id)
-        if tid and tid not in dropped:
-            tab_pages.setdefault(tid, set()).add(t.page)
-    sel0 = _uid(viewer.selection.doc_id) if viewer.selection else None
-    if excluded is not None:
-        excluded.extend(
-            _blocked(session, p, (set(tab_pages) | set(_uids(pins)) | ({sel0} if sel0 else set())) - dropped)
-        )
-    live_tabs = _live(session, p, set(tab_pages))
-    tab_ids = [d for d in tab_pages if d in live_tabs]
-
-    if scope == "all":
-        scoped: list[str] | None = None
-    elif scope == "open":
-        scoped = tab_ids
-    elif scope.startswith("collection:"):
-        _, scoped = _own_collections(session, p, [scope.partition(":")[2]])
-    else:
-        raise ValueError(f"unknown scope: {scope}")
-
-    found: dict[str, Passage] = {}
-    if scoped is None or scoped:
-        qvec = embed_query(llm, settings, question)  # embed once per turn
-        main = _search(session, es, llm, settings, p, question, scoped, 50, qvec)
-        tab = (
-            _search(session, es, llm, settings, p, question, tab_ids, 20, qvec)
-            if tab_ids and scope != "open"
-            else []
-        )
-        found = _merge(main, tab)
-
     sel = viewer.selection
     sel_id = _uid(sel.doc_id) if sel else None
-    live = _live(session, p, {x.doc_id for x in found.values()} | ({sel_id} if sel_id else set()))
-    ranked: list[Passage] = []
-    for x in found.values():
-        v = live.get(x.doc_id)
-        if v is None or x.doc_id in dropped or x.version_id != str(v.id):
-            continue
-        if x.doc_id in tab_pages:
-            x.score *= PAGE_BOOST if tab_pages[x.doc_id] & set(x.pages) else TAB_BOOST
-        x.text = x.text[:MAX_CHARS]
-        ranked.append(x)
-    ranked.sort(key=lambda x: -x.score)
-
+    if excluded is not None:  # tabs + pins + selection, one gate-(a) query (same as before the split)
+        tabs = {t for x in viewer.tabs if (t := _uid(x.doc_id))}
+        excluded.extend(
+            _blocked(session, p, (tabs | set(_uids(pins)) | ({sel_id} if sel_id else set())) - dropped)
+        )
+    ranked = rank_for_chat(
+        session, es, llm, settings, p, question,
+        viewer=viewer, scope=scope, excludes=excludes, depth=50,
+    )  # fmt: skip
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
-    if sel and sel_id in live and sel_id not in dropped:
-        out.insert(0, _selection(session, sel, sel_id, live))
+    if sel and sel_id and sel_id not in dropped:
+        live = _live(session, p, {sel_id})
+        if sel_id in live:
+            out.insert(0, _selection(session, sel, sel_id, live))
     return out + (note_passages(session, p, out, strict_gate(settings)) if include_notes else [])

@@ -1,0 +1,29 @@
+# Tiny synthetic fixture (format reference + loader tests). The CI-sized fixture arrives with `eval ci`.
+principals:
+  alice: {groups: [/eng]}
+  root: {admin: true}
+labels:
+  - {name: Secret, exclude_llm: true}
+  - {name: Internal, block_agents: true}
+documents:
+  - key: open
+    title: Open paper
+    owner: root
+    visibility: everyone
+    chunks:
+      - {text: "Spectral gaps bound mixing times.", headings: [Intro], pages: [1]}
+  - key: private
+    title: Private memo
+    owner: root
+    visibility: private
+    chunks:
+      - {text: "Budget figures for the spectral project.", pages: [2]}
+queries:
+  - key: q1
+    text: What bounds mixing times?
+    kind: fact
+    principals: [alice, root]
+    as_pat: true
+    relevant:
+      - {doc: open, quote: spectral gaps, grade: 3}
+      - {doc: private, page: 2, grade: 1}
