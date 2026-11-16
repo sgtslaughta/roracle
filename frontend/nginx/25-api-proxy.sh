@@ -15,7 +15,15 @@ location /api/ {
   proxy_http_version 1.1;
   proxy_set_header Host \$host;
   proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-  proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
+  proxy_set_header X-Forwarded-Proto \$ror_fwd_proto;
+  proxy_set_header X-Forwarded-Host \$host;
+  proxy_set_header X-Forwarded-Prefix /api;
+  proxy_hide_header Content-Security-Policy;
+  proxy_hide_header X-Frame-Options;
+  proxy_hide_header X-Content-Type-Options;
+  proxy_hide_header Referrer-Policy;
+  proxy_hide_header Permissions-Policy;
+  proxy_hide_header Cross-Origin-Opener-Policy;
   proxy_request_buffering off;
   proxy_read_timeout 300s;
   include $out/security-headers.conf;

@@ -1,15 +1,17 @@
 # Sourced by the nginx entrypoint before envsubst. Validates input: values land in nginx config.
+# case patterns, not grep: grep matches per line and a newline would smuggle in extra config.
 ror_fail() { echo "ror-web: $1" >&2; exit 1; }
+ror_check() { # name value kind(url|id)
+  case "$2" in ''|*[!A-Za-z0-9._~:/%@+-]*) ror_fail "invalid $1";; esac
+  if [ "$3" = url ]; then case "$2" in http://?*|https://?*) ;; *) ror_fail "invalid $1";; esac; fi
+}
 
 [ -n "${ROR_OIDC_AUTHORITY:-}" ] || ror_fail "ROR_OIDC_AUTHORITY is required"
+ror_check ROR_OIDC_AUTHORITY "$ROR_OIDC_AUTHORITY" url
 export ROR_OIDC_CLIENT_ID="${ROR_OIDC_CLIENT_ID:-roracle-web}"
 export ROR_OIDC_ORIGIN="${ROR_OIDC_ORIGIN:-$(printf '%s' "$ROR_OIDC_AUTHORITY" | sed -nE 's#^(https?://[^/]+).*#\1#p')}"
-
-printf '%s' "$ROR_OIDC_AUTHORITY" | grep -qE '^https?://[A-Za-z0-9._~:/%@+-]+$' || ror_fail "invalid ROR_OIDC_AUTHORITY"
-printf '%s' "$ROR_OIDC_CLIENT_ID" | grep -qE '^[A-Za-z0-9._:@-]+$' || ror_fail "invalid ROR_OIDC_CLIENT_ID"
-printf '%s' "$ROR_OIDC_ORIGIN" | grep -qE '^https?://[A-Za-z0-9._:-]+$' || ror_fail "invalid ROR_OIDC_ORIGIN"
-if [ -n "${API_UPSTREAM:-}" ]; then
-  printf '%s' "$API_UPSTREAM" | grep -qE '^https?://[A-Za-z0-9._:/-]+$' || ror_fail "invalid API_UPSTREAM"
-fi
+ror_check ROR_OIDC_CLIENT_ID "$ROR_OIDC_CLIENT_ID" id
+ror_check ROR_OIDC_ORIGIN "$ROR_OIDC_ORIGIN" url
+[ -z "${API_UPSTREAM:-}" ] || ror_check API_UPSTREAM "$API_UPSTREAM" url
 export ROR_OIDC_AUTHORITY
 mkdir -p /tmp/nginx/conf.d

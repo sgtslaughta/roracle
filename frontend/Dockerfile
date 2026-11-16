@@ -4,9 +4,12 @@ ARG REGISTRY_MIRROR=""
 FROM ${REGISTRY_MIRROR}node:22-slim AS build
 ARG NPM_CONFIG_REGISTRY=""
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY} CI=1
+# corepack downloads pnpm via COREPACK_NPM_REGISTRY (set below from NPM_CONFIG_REGISTRY when given).
+# Mirrors that re-sign packages may also need COREPACK_INTEGRITY_KEYS=0 (build-arg/env) to skip signature checks.
 WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN corepack enable && corepack pnpm install --frozen-lockfile
+RUN if [ -n "$NPM_CONFIG_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_CONFIG_REGISTRY"; fi \
+ && corepack enable && corepack pnpm install --frozen-lockfile
 COPY frontend/ ./
 # Placeholders are swapped at request time by nginx sub_filter (see nginx/default.conf.template).
 ENV VITE_OIDC_AUTHORITY=__ROR_OIDC_AUTHORITY__ VITE_OIDC_CLIENT_ID=__ROR_OIDC_CLIENT_ID__
