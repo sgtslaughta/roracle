@@ -1,4 +1,3 @@
-@import "katex/dist/katex.min.css";
 
 /* chat thread */
 .thread{flex:1;overflow:auto;padding-block:24px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}

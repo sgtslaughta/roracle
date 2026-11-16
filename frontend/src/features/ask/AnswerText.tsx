@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { isAvailable, type Citation, type CitationOk } from "@/api/chat";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { safeComponents } from "@/components/SafeMarkdown";
