@@ -11,6 +11,7 @@ from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import require_exportable
+from roracle.labels.textgate import require_text
 from roracle.writing import build, drafts
 from roracle.writing.markdown import parse
 
@@ -23,6 +24,7 @@ Cfg = Annotated[Settings, Depends(get_app_settings)]
 @router.post("/drafts/{doc_id}/build")
 def build_pdf(doc_id: UUID, p: Who, session: Db, cfg: Cfg) -> Response:
     doc, d = drafts.owned_or_coauthored(session, p, doc_id)
+    require_text(session, p, doc)  # a PDF is the text
     require_exportable(session, p, doc, "draft.build")  # owner/admin exempt
     v = drafts.latest_version(session, doc_id)
     content = v.content if v else ""

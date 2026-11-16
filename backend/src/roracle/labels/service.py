@@ -83,8 +83,9 @@ def initial_label(
     if requested_id is None:
         return uuid.UUID(default.id)
     chosen = resolve(policy, requested_id)
-    if chosen.rank < default.rank and not (p and p.is_admin):
-        raise HTTPException(422, "label is below the default; only admins can choose it")
+    if chosen.rank < default.rank and not (p and p.is_admin and p.via == "jwt"):
+        who = "agents cannot" if p and p.via != "jwt" else "only admins can"
+        raise HTTPException(422, f"label is below the default; {who} choose it")
     return uuid.UUID(chosen.id)
 
 

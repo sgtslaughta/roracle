@@ -146,6 +146,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}."""
 
         def go(session: Session, p: Principal) -> dict:
+            _need_write(p)  # scope error before any label lookup
             lid = label_by_name(session, label).id if label else None
             return _upload(app, session, p, filename, content_base64, title, visibility, lid)
 
