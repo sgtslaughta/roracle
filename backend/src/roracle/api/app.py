@@ -11,6 +11,7 @@ from roracle.api.routes import (
     admin_connectors,
     admin_ops,
     admin_settings,
+    admin_writing,
     annotations,
     chats,
     chats_read,
@@ -54,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_settings.router)
     app.include_router(admin_connectors.router)
     app.include_router(admin_ops.router)
+    app.include_router(admin_writing.router)
     app.include_router(me.router)
     app.include_router(notifications.router)
     app.include_router(tokens.router)

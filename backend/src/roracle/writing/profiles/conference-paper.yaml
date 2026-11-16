@@ -1,0 +1,42 @@
+name: conference-paper
+title: Conference paper
+doc_types: [conference-paper, proceedings]
+citation_style: numeric
+required_metadata: [title, authors, keywords]
+required_sections: [Abstract, Introduction, Related work, Method, Experiments, Conclusion, References]
+limits:
+  words_max: 6000
+  abstract_words_max: 200
+  title_chars_max: 120
+  figures_max: 8
+  references_max: 50
+review_required: false
+style_guidance: |
+  Lead with the contribution: state it in the first paragraph of the introduction.
+  Compare against the closest prior work explicitly in Related work.
+  Describe experiments so that they can be reproduced: data, hyperparameters, seeds, hardware.
+  Keep sentences short; avoid unexplained abbreviations.
+template: |
+  ---
+  title: ""
+  doc_type: conference-paper
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Abstract
+
+  ## Introduction
+
+  ## Related work
+
+  ## Method
+
+  ## Experiments
+
+  ## Conclusion
+
+  ## References
