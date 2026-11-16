@@ -6,7 +6,7 @@ export interface LabelBody { name: string; colour: string; description: string; 
 
 function useLabelMutation<V, R>(fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
-  return useMutation({ meta: QUIET, mutationFn: fn, onSuccess: () => Promise.all(["labels", "search", "doc"].map((k) => qc.invalidateQueries({ queryKey: [k] }))) });
+  return useMutation({ meta: QUIET, mutationFn: fn, onSuccess: () => Promise.all(["labels", "search", "doc", "uploads", "notes", "proposals", "drafts"].map((k) => qc.invalidateQueries({ queryKey: [k] }))) });
 }
 
 export const useCreateLabel = () => useLabelMutation((b: LabelBody) => apiFetch<AdminLabel>("/admin/labels", { method: "POST", json: b }));

@@ -15,7 +15,7 @@ export const D1 = "d0000001-0000-4000-8000-000000000001";
 export const D2 = "d0000002-0000-4000-8000-000000000002";
 export const D3 = "d0000003-0000-4000-8000-000000000003";
 
-export interface MockDraft extends DraftSummary { vers: (VersionRef & { content: string })[]; reports: { validation?: Validation; citations?: Citations }; acks: string[] }
+export interface MockDraft extends Omit<DraftSummary, "label"> { vers: (VersionRef & { content: string })[]; reports: { validation?: Validation; citations?: Citations }; acks: string[] }
 
 const AI = `ai_assistance: {"used": false, "tools": [], "description": ""}`;
 function mk(id: string, title: string, status: DraftSummary["status"], owner: MockDraft["owner"], texts: string[], extra: Partial<MockDraft> = {}): MockDraft {
@@ -29,7 +29,7 @@ const seed = (): MockDraft[] => [
 ];
 const all = () => (state.drafts ??= seed()) as MockDraft[];
 const find = (id: unknown) => all().find((d) => d.id === id);
-const summary = ({ vers: _v, reports: _r, acks: _a, ...s }: MockDraft): DraftSummary => s;
+const summary = ({ vers: _v, reports: _r, acks: _a, ...s }: MockDraft): DraftSummary => ({ ...s, label: labelJson(state.docLabels[s.id] ?? defaultLabel().id) });
 const detail = (d: MockDraft): DraftDetail => ({ ...summary(d), content: d.vers.at(-1)!.content, versions: d.vers.map(({ content: _c, ...v }) => v).reverse() });
 const latest = (d: MockDraft) => d.vers.at(-1)!;
 const hasAi = (d: MockDraft) => /^ai_assistance:/m.test(latest(d).content);

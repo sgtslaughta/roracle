@@ -43,9 +43,11 @@ describe("reader rendition", () => {
 
   it("404 on a Markdown doc renders the file as sanitized markdown", async () => {
     noPdf(); named("notes.md");
-    server.use(http.get(`${API_BASE}/documents/:id/versions/:n/file`, () => new HttpResponse("# Hello\n\n<img src=x onerror=alert(1)> **bold**", { headers: { "Content-Type": "text/markdown" } })));
+    const urls: string[] = [];
+    server.use(http.get(`${API_BASE}/documents/:id/versions/:n/file`, ({ request }) => { urls.push(request.url); return new HttpResponse("# Hello\n\n<img src=x onerror=alert(1)> **bold**", { headers: { "Content-Type": "text/markdown" } }); }));
     await open();
     expect(await screen.findByRole("heading", { name: "Hello" })).toBeInTheDocument();
+    expect(urls[0]).toContain("inline=true"); // reading is not downloading: works under block_export
     expect(document.querySelector(".doctext img")).toBeNull();
   });
 

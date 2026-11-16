@@ -14,6 +14,8 @@ export interface ProposalPayload {
   shares?: NoteShare[];
   /** kind "label": the proposed label (body is empty) */
   label_id?: string;
+  /** kind "label": set when the change is for a note thread root, not the document */
+  annotation_id?: string;
   reason?: string;
 }
 export type ProposalStatus = "pending" | "approved" | "rejected";
@@ -50,7 +52,7 @@ function useDecision<V, R>(fn: (v: V) => Promise<R>) {
   return useMutation({
     meta: QUIET,
     mutationFn: fn,
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] })]),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] }), qc.invalidateQueries({ queryKey: ["doc"] })]),
   });
 }
 

@@ -16,7 +16,7 @@ import { NoteComposer } from "@/features/notes/NoteComposer";
 import { resetReaderStore } from "@/features/reader/useReaderStore";
 import { DOCS } from "@/mocks/docs";
 import { D1 } from "@/mocks/drafts";
-import { labelJson, SEED_LABELS } from "@/mocks/labels";
+import { labelJson, labels, SEED_LABELS } from "@/mocks/labels";
 import { server } from "@/mocks/server";
 import { state } from "@/mocks/state";
 import type { Proposal } from "@/features/proposals/api";
@@ -198,6 +198,18 @@ describe("proposals", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(state.docLabels[DOC_MINE]).toBe(CONF.id));
   });
+  it("a note label change is compared with the note's own label and shows the agent's reason", async () => {
+    state.admin = true;
+    state.noteLabels["n-finding"] = CONF.id; // the note is Confidential; its document is Internal
+    state.proposals = [{ ...label(INTERNAL), payload: { document_id: DOC_MINE, label_id: INTERNAL.id, body: "", annotation_id: "n-finding", reason: "looks public" } }];
+    await renderApp("/proposals");
+    const card = await screen.findByRole("article", { name: /Label change proposed by claude-code/ });
+    expect(await within(card).findByText("Note label change")).toBeInTheDocument();
+    expect(await within(card).findByText(/Lowers the label/)).toBeInTheDocument();
+    expect(within(card).getByLabelText(/Reason for lowering \(required\)/)).toBeInTheDocument();
+    expect(within(card).getByText(/looks public/)).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Approve" })).toBeDisabled();
+  });
   it("a lowering by a non-admin is refused and the API error shown", async () => {
     state.proposals = [label(GEN)];
     await renderApp("/proposals");
@@ -209,13 +221,24 @@ describe("proposals", () => {
 
 describe("admin labels page", () => {
   beforeEach(() => { state.admin = true; });
-  it("reorders with the arrows", async () => {
+  const names = (list: HTMLElement) => within(list).getAllByRole("listitem").map((li) => /General|Internal|Confidential/.exec(li.textContent ?? "")?.[0]);
+  it("reorders with the arrows and shows the new order", async () => {
+    labels().find((l) => l.id === INTERNAL.id)!.gates = { ...GEN.gates }; // equal gates: either order is valid
+    await renderApp("/admin/labels");
+    const list = await screen.findByRole("list", { name: /Sensitivity labels/ });
+    await within(list).findByText("Confidential");
+    await userEvent.click(within(list).getByRole("button", { name: "Move Internal up" }));
+    await waitFor(() => expect(sent("PUT", /\/admin\/labels\/order$/)).toHaveLength(1));
+    expect((await sent("PUT", /order$/)[0].json()).ids).toEqual([INTERNAL.id, GEN.id, CONF.id]);
+    await waitFor(() => expect(names(list)).toEqual(["Internal", "General", "Confidential"]));
+  });
+  it("shows the API's error when a reorder breaks the gates and keeps the order", async () => {
     await renderApp("/admin/labels");
     const list = await screen.findByRole("list", { name: /Sensitivity labels/ });
     await within(list).findByText("Confidential");
     await userEvent.click(within(list).getByRole("button", { name: "Move Confidential up" }));
-    await waitFor(() => expect(sent("PUT", /\/admin\/labels\/order$/)).toHaveLength(1));
-    expect((await sent("PUT", /order$/)[0].json()).ids).toEqual([GEN.id, CONF.id, INTERNAL.id]);
+    expect(await screen.findByRole("alert")).toHaveTextContent("gates must not decrease with rank");
+    expect(names(list)).toEqual(["General", "Internal", "Confidential"]);
   });
   it("shows the API's monotonic-gates error next to the toggle", async () => {
     await renderApp("/admin/labels");
@@ -269,6 +292,10 @@ describe("drafts", () => {
     const sel = await within(dlg).findByLabelText(/Sensitivity label/);
     expect(within(sel).getByRole("option", { name: /Keep the draft's label/ })).toBeInTheDocument();
     expect(within(sel).getByRole("option", { name: "Confidential" })).toBeInTheDocument();
+    await userEvent.selectOptions(sel, "Confidential");
+    await userEvent.click(within(dlg).getByRole("button", { name: "Submit" }));
+    await waitFor(() => expect(sent("POST", /\/submit$/)).toHaveLength(1));
+    expect((await sent("POST", /\/submit$/)[0].json()).label_id).toBe(CONF.id);
   });
 });
 

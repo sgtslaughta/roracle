@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { fmtDate } from "@/lib/dates";
 import { useLabels } from "@/features/labels/api";
 import { useMe } from "@/features/library/useMe";
+import { useNotes } from "@/features/notes/api";
 import { useDoc } from "@/features/reader/api";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { useApprove, useReject, type Proposal } from "./api";
@@ -19,7 +20,10 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
   const approve = useApprove(), reject = useReject();
   const labels = useLabels().data ?? [];
   const doc = p.document;
-  const current = useDoc(doc?.id ?? "").data?.label;
+  const noteId = p.payload.annotation_id; // a note label change: compare with the note's effective label, not the document's
+  const docLabel = useDoc(doc?.id ?? "").data?.label;
+  const noteLabel = useNotes(noteId ? doc?.id ?? "" : "").data?.find((n) => n.id === noteId)?.effective_label;
+  const current = noteId ? noteLabel : docLabel;
   const target = labels.find((l) => l.id === p.payload.label_id);
   const lowering = !!current && !!target && target.rank < current.rank;
   const admin = !!useMe().data?.is_admin; // only admins can lower, so only they are asked for a reason
@@ -33,7 +37,7 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
       <div className="prop-main">
         <div className="nhead">
           {onSelect && <Checkbox checked={!!selected} onCheckedChange={(c) => onSelect(c === true)} aria-label={`Select label change on ${doc?.title || "missing document"}`} />}
-          <span className="tpill t-comment">Label change</span>
+          <span className="tpill t-comment">{noteId ? "Note label change" : "Label change"}</span>
           <span>on</span>
           {doc
             ? <button className="badge-o" title={title} onClick={() => openDoc(doc.id)}><span className="t">{title}</span><ArrowUpRight aria-hidden /></button>
@@ -52,6 +56,7 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
             <textarea className="ta short" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
         )}
+        {p.payload.reason && <p className="sub">Agent&apos;s reason (untrusted): {p.payload.reason}</p>}
         {error && <p className="chipin-err" role="alert">{error}</p>}
       </div>
       <div className="side2">

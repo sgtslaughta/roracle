@@ -17,7 +17,7 @@ export function TextFallback({ docId, version, filename, onDownload, blocked }: 
     enabled: textual,
     staleTime: Infinity,
     queryFn: async () => {
-      const blob = await apiFetch<Blob>(`/documents/${seg(docId)}/versions/${seg(version)}/file`);
+      const blob = await apiFetch<Blob>(`/documents/${seg(docId)}/versions/${seg(version)}/file?inline=true`);
       return blob.size > MAX_TEXT ? null : blob.text(); // too large to render: offer the download
     },
   });

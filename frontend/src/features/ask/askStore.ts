@@ -31,7 +31,7 @@ const ctrls = new Map<string, AbortController>();
 const viewers = new Map<string, number>();
 
 export const usePendingTurn = (chatId: string | undefined) => turns.use((s) => (chatId ? s[chatId] : undefined));
-export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); turns.reset(); gone.reset(); };
+export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); excludedByMessage.clear(); turns.reset(); gone.reset(); };
 
 const put = (id: string, p: PendingTurn | null) =>
   turns.set((s) => {

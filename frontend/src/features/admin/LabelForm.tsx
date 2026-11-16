@@ -42,7 +42,7 @@ export function LabelForm({ label, top, onClose }: { label?: AdminLabel; top?: A
             <label>Hex<input className="inp" value={colour} maxLength={7} aria-invalid={!HEX.test(colour)} onChange={(e) => setColour(e.target.value)} /></label>
           </div>
           <label>Description (shown in the badge tooltip)<textarea className="ta short" maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
-          <label className="ck"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />Default label for new documents</label>
+          <label className="ck"><input type="checkbox" checked={isDefault} disabled={!!label?.is_default} onChange={(e) => setDefault(e.target.checked)} />Default label for new documents{label?.is_default && " (make another label the default instead)"}</label>
           {error && <p className="chipin-err" role="alert">{error}</p>}
           <div className="foot">
             <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>

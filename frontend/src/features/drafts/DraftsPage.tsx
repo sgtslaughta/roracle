@@ -11,7 +11,7 @@ import { fmtDate } from "@/lib/dates";
 import { useMe } from "@/features/library/useMe";
 import { draftError, useCreateDraft, useDeleteDraft, useDrafts } from "./api";
 import { StatusBadge } from "./StatusBadge";
-import { DocLabelBadge } from "@/features/labels/DocLabelBadge";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
 
 const PAGE = 12;
 
@@ -64,7 +64,7 @@ export function DraftsPage() {
       <div className="dmain">
         <Link to="/drafts/$id" params={{ id: d.id }}><b>{d.title}</b></Link>
         <small>{d.profile ?? "default profile"} · v{d.latest_version} · {d.owner.id === me?.id ? "you" : d.owner.username} · {fmtDate(d.updated_at)}</small>
-        <DocLabelBadge docId={d.id} />
+        <SensitivityBadge label={d.label} />
       </div>
       <StatusBadge status={d.status} />
       <RowMenu label={`Actions for ${d.title}`} actions={[
