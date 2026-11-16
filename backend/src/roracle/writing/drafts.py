@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from roracle.access import group_path, org_units
 from roracle.audit import audit
 from roracle.auth import Principal
-from roracle.labels.policy import Policy
+from roracle.labels.policy import Policy, label_json
 from roracle.models import Document, DocumentShare, User
 from roracle.models_writing import Draft, DraftVersion
 from roracle.writing import profiles
@@ -177,8 +177,11 @@ def who(session: Session, uid: UUID) -> dict:
     return {"id": str(uid), "username": u.username if u else None}
 
 
-def summary(session: Session, d: Draft, doc: Document, latest: int | None = None) -> dict:
-    """`latest`: the draft's newest version number when the caller already knows it (saves a query)."""
+def summary(
+    session: Session, d: Draft, doc: Document, latest: int | None = None, policy: Policy | None = None
+) -> dict:
+    """`latest`: the draft's newest version number when the caller already knows it (saves a query);
+    `policy`: a loaded label policy, to share one load across a list."""
     if latest is None:
         latest = session.scalar(
             select(func.max(DraftVersion.version)).where(DraftVersion.document_id == doc.id)
@@ -193,4 +196,5 @@ def summary(session: Session, d: Draft, doc: Document, latest: int | None = None
         "latest_version": latest or 0,
         "updated_at": d.updated_at,
         "review_note": d.review_note,
+        "label": label_json((policy or Policy.load(session)).get(doc.label_id)),
     }

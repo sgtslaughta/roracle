@@ -303,7 +303,7 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
         cites = [c for m in items for c in m.get("citations", [])]
         ok = visible_versions(session, p, cites, agent_gate=True)
         gated = gated_docs(
-            session, p, {d for m in items for d in (*m.get("doc_ids", []), *doc_ids_of(cites))}
+            session, p, {d for m in items for d in (*m.get("doc_ids", []), *doc_ids_of(cites))}, handoff=True
         )
         items = [
             {

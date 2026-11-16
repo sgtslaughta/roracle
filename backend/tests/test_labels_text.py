@@ -138,7 +138,10 @@ def test_handoff_transcript_withheld_per_loader(client, as_ana, as_bob, ana, bob
     assert [m["content"] for m in agent["items"]] == ["q", "[withheld: Sec]"]
     assert "SECRET" not in json.dumps(agent) and "doc_ids" not in json.dumps(agent)
     human = client.get(url, headers=as_bob).json()
-    assert human["items"][1]["content"] == "SECRET-ANSWER [1]"
+    # R10: block_agents sources are withheld from every loader; exclude_llm text only from agents
+    assert human["items"][1]["content"] == (
+        "[withheld: Sec]" if gate == "block_agents" else "SECRET-ANSWER [1]"
+    )
     assert "doc_ids" not in json.dumps(human)
     man = client.get(f"/handoffs/{code}", headers=pat(db_session, bob, ["read"])).json()
     assert "SECRET" not in json.dumps(man)

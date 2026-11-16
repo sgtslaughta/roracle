@@ -20,12 +20,15 @@ def withheld_text(label: str) -> str:
     return f"[withheld: {label}]"
 
 
-def gated_docs(session: Session, p: Principal, doc_ids: Iterable, *, llm: bool = False) -> dict[str, str]:
+def gated_docs(
+    session: Session, p: Principal, doc_ids: Iterable, *, llm: bool = False, handoff: bool = False
+) -> dict[str, str]:
     """doc id -> label name for documents whose text (or text derived from it) `p` may not receive.
 
-    PAT: `block_agents` or `exclude_llm`. `llm=True` (LLM replay): `exclude_llm` for everyone."""
+    PAT: `block_agents` or `exclude_llm`. `llm=True` (LLM replay): `exclude_llm` for everyone.
+    `handoff=True` (transcripts, R10): `block_agents` sources are withheld from every loader."""
     agent = p.via == "pat"
-    if not (agent or llm):
+    if not (agent or llm or handoff):
         return {}
     ids = []
     for d in doc_ids:
@@ -39,7 +42,7 @@ def gated_docs(session: Session, p: Principal, doc_ids: Iterable, *, llm: bool =
     out = {}
     for did, lid in session.execute(select(Document.id, Document.label_id).where(Document.id.in_(ids))):
         lab = policy.get(lid)
-        if lab.exclude_llm or (agent and lab.block_agents):
+        if (lab.exclude_llm and (agent or llm)) or (lab.block_agents and (agent or handoff)):
             out[str(did)] = lab.name
     return out
 
