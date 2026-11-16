@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 from roracle import __version__
@@ -97,6 +98,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+def _no_get(inner):
+    """Stateless JSON mode has nothing to stream: a GET would hold an SSE connection open forever."""
+
+    async def app(scope, receive, send):
+        if scope["type"] == "http" and scope["method"] == "GET":
+            return await PlainTextResponse("method not allowed", 405, {"Allow": "POST"})(scope, receive, send)
+        await inner(scope, receive, send)
+
+    return app
+
+
 def _mount_mcp(app: FastAPI) -> None:
     """Stateless JSON MCP at exactly POST /mcp (a Mount would 307 to /mcp/); bearer-only so no DNS-rebinding guard (R5)."""
     s = app.state.settings
@@ -108,7 +120,7 @@ def _mount_mcp(app: FastAPI) -> None:
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         max_request_body_size=s.mcp_max_upload_bytes * 4 // 3 + 64 * 1024,
     )
-    app.router.routes.append(Route("/mcp", BearerAuth(inner, app)))
+    app.router.routes.append(Route("/mcp", BearerAuth(_no_get(inner), app)))
 
     @app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
     def protected_resource(request: Request) -> dict:  # R6
