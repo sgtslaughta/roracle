@@ -6,7 +6,7 @@
 .q .avatar{margin:0;flex:none}
 .q .qt{font:600 18px/1.4 var(--f-read);text-wrap:balance;padding-top:3px}
 .q .quote{display:block;font:italic 400 14.5px/1.5 var(--f-read);color:var(--muted);border-left:3px solid var(--sky);padding-left:10px;margin-bottom:6px}
-.answer{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;position:relative;padding-left:40px}
+.answer{display:grid;grid-template-columns:minmax(0,1fr) 300px;column-gap:32px;row-gap:0;position:relative;padding-left:40px}
 .ans-text{font:17px/1.7 var(--f-read);max-width:72ch;overflow-wrap:anywhere}
 .ans-text p{margin:0 0 12px}
 .ans-text a{color:var(--primary);text-decoration:underline}
@@ -22,7 +22,7 @@ sup .c,sup.c{font:600 10.5px var(--f-ui);color:var(--primary);background:var(--p
 sup button.c{cursor:pointer}
 sup button.c.hot,sup button.c:hover{background:var(--primary);color:var(--primary-fg)}
 sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
-.margin{position:relative;min-height:10px}
+.margin{position:relative;min-height:10px;grid-column:2;grid-row:1 / span 3;align-self:start}
 .ovl-flat{display:contents}
 .margin .ovl-more{position:absolute;left:0}
 .note{position:absolute;left:0;right:0;display:block;width:auto;text-align:left;color:var(--ink);font-family:var(--f-ui);padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;font-size:12.5px;line-height:1.4;transition:border-color .15s,box-shadow .15s}
@@ -63,7 +63,8 @@ sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
 @media (prefers-reduced-motion:reduce){.ans-text.streaming:empty::after,.ans-text.streaming>:last-child::after{animation:none}}
 
 @media (max-width:1100px){
-  .answer{grid-template-columns:minmax(0,1fr);padding-left:0;gap:12px}
+  .answer{grid-template-columns:minmax(0,1fr);padding-left:0;row-gap:12px}
+  .margin{grid-column:1;grid-row:auto}
   .margin{display:flex;flex-direction:column;gap:8px;min-height:0 !important}
   .note,.margin .ovl-more{position:static !important;top:auto !important}
 }

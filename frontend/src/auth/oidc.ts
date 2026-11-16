@@ -25,6 +25,10 @@ export function createUserManager() {
   });
 }
 
+/** Sign-out only exists with a real identity provider (mock mode has no session). */
+export const signOutAvailable = () => import.meta.env.VITE_MOCK !== "1";
+export const signOut = () => createUserManager().signoutRedirect();
+
 /** Only same-origin relative paths survive a sign-in round trip ("/x", never "//host" or absolute URLs). */
 export function safeReturnTo(v: unknown): string {
   return typeof v === "string" && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") ? v : "/";

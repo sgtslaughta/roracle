@@ -12,7 +12,7 @@ import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
 import { ChatMenu } from "./ChatMenu";
 import { Composer } from "./Composer";
 import { Thread } from "./Thread";
-import { initials } from "./Turn";
+import { initials } from "@/lib/initials";
 import { buildTurns } from "./turns";
 import { focusComposer, getAskContext, setDraft, setQuote } from "./useAskContext";
 import { useViewer } from "./viewer";
