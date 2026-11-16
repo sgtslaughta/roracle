@@ -96,3 +96,38 @@ def test_neardup_notification_title_resolved_at_read(client, as_ana, as_bob, ana
     db_session.commit()
     item = client.get("/me/notifications", headers=as_bob).json()["items"][0]
     assert item["payload"]["match_title"] == "Ana secret"
+
+
+@pytest.mark.usefixtures("_blob_store_override")
+def test_dup_check_per_version_not_doc_wide(client, as_ana, as_bob, ana, db_session):
+    d, _ = seed(db_session, ana, title="Ana", versions=1)
+    v2 = DocumentVersion(
+        document_id=d.id, version=2, blob_sha256=_sha(b"%PDF-v2"), filename="f", content_type="x",
+        size=1, stage="needs_title", is_latest=False,
+    )  # fmt: skip
+    db_session.add(Blob(sha256=v2.blob_sha256, size=1))
+    db_session.flush()
+    db_session.add(v2)
+    db_session.commit()
+    r = _up(client, as_bob, b"%PDF-v2")
+    assert r.status_code == 201, r.text
+
+
+def _sha(b):
+    import hashlib
+
+    return hashlib.sha256(b).hexdigest()
+
+
+def test_neardup_notification_nulls_unreadable_id(client, as_ana, as_bob, ana, bob, db_session):
+    d, _ = seed(db_session, ana, title="Ana secret", stage="needs_title")
+    notify.emit(db_session, bob, "upload.near_dup", {"match_document_id": str(d.id)})
+    db_session.commit()
+    p = client.get("/me/notifications", headers=as_bob).json()["items"][0]["payload"]
+    assert p["match_document_id"] is None and p["match_title"] is None
+    db_session.execute(
+        update(DocumentVersion).where(DocumentVersion.document_id == d.id).values(stage="searchable")
+    )
+    db_session.commit()
+    p = client.get("/me/notifications", headers=as_bob).json()["items"][0]["payload"]
+    assert p["match_document_id"] == str(d.id)

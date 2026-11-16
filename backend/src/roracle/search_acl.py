@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from roracle.access import org_ancestors
+from roracle.access import org_ancestors, org_units
 from roracle.auth import Principal
 
 
@@ -18,7 +18,7 @@ def acl_filter(p: Principal) -> dict[str, Any]:
         {"term": {"share_users": uid}},
     ]
     if p.groups:
-        should.append({"terms": {"share_groups": list(p.groups)}})
+        should.append({"terms": {"share_groups": org_units(list(p.groups))}})
     should.append(
         {
             "bool": {

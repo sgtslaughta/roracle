@@ -63,9 +63,12 @@ def list_notifications(
         if n.kind != "upload.near_dup":
             return n.payload
         mid = n.payload.get("match_document_id")
+        readable = bool(mid) and UUID(str(mid)) in titles
+        title = titles[UUID(str(mid))] if readable else None
         return {
-            **{k: v for k, v in n.payload.items() if k != "match_title"},
-            "match_title": titles.get(UUID(str(mid))) if mid else None,
+            **{k: v for k, v in n.payload.items() if k not in ("match_title", "match_document_id")},
+            "match_document_id": mid if readable else None,
+            "match_title": title,
         }
 
     return {

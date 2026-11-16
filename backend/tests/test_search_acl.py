@@ -130,3 +130,8 @@ def test_sql_es_parity(es, model, db_session, blob):
         assert deleted_id not in {
             str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))
         }
+
+
+def test_share_groups_normalised_like_sql():
+    should = acl_filter(_p(["Physics", "/Chem/", "/", ""]))["bool"]["should"]
+    assert {"terms": {"share_groups": ["/Physics", "/Chem"]}} in should

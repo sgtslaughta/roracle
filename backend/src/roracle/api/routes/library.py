@@ -18,7 +18,7 @@ from roracle.access import readable_documents
 from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
-from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
+from roracle.models import Collection, CollectionItem, Document, Tag, Vote
 from roracle.search_index import MUTATE_ALIAS, run_update_by_query
 
 router = APIRouter()
