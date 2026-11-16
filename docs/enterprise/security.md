@@ -324,9 +324,11 @@ visibility; labels never grant access.
 
 Export routes under `block_export`: `GET /documents/{id}/versions/{n}/file` (attachment), the same
 `file`/`pdf`/`docling` for non-owner PATs, `GET /export/bibtex` and MCP `export_bibtex` (gated documents are
-silently omitted), `GET /chats/{id}/export.md` (passage text and answers derived from gated documents become
-`[withheld: <label>]`), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block
-is audited `label.export_blocked` (detail `{route}`). Invisible stays 404, so naming the label leaks nothing.
+silently omitted), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block
+is audited `label.export_blocked` (detail `{route}`). `GET /chats/{id}/export.md` does not 403: it returns
+200 with passage text and answers derived from gated documents replaced by `[withheld: <label>]`. A PAT
+reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withheld by label: <name>` first, and
+`evidence.file` 403 `withheld by label`; so the `export blocked by label` body above is not the only 403 a PAT sees. Invisible stays 404, so naming the label leaks nothing.
 
 ### Deterrent, not DRM
 
@@ -336,17 +338,19 @@ is audited `label.export_blocked` (detail `{route}`). Invisible stays 404, so na
 - Non-owner humans can still **read inline in the reader**; only download/export is blocked. In-app viewing
   transfers the content to the browser, so copying, screenshots and printing are not prevented. Each inline
   read (`/file`, `/pdf`, `/docling`) by a non-owner non-admin is audited `label.view`, one row per user,
-  document and UTC day.
+  document and UTC day. Markdown and plain-text documents are served inline as `text/plain` with a
+  restrictive CSP sandbox (`GET .../file?inline=true`); PATs never get the inline variant.
 - `exclude_llm` binds LLM *context*, not embeddings: chunks are still embedded, and summaries written before
   a label was raised are not deleted. Past chat answers are not redacted for their owner, but replaying an
   old turn into an LLM drops it.
 - A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
   job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak).
-- Handoff transcripts of chats are redacted for agents only (`block_agents` citations are dropped or marked unavailable for all
-  loaders, but assistant message text is replaced only for PAT loaders). Passages that came from notes are always
-  dropped from handoff manifests.
-- Pending hardening (tracked, not yet in this document's guarantees): draft text and PDF of an `exclude_llm`
-  document are still readable through the owner's own PAT.
+- Handoff transcripts of chats: assistant message text derived from `block_agents` sources is withheld
+  (`[withheld: <label>]`) for **every** loader, humans included; text derived from `exclude_llm` sources is
+  withheld for PAT loaders. Passages that came from notes are always dropped from handoff manifests.
+- Drafts are text: a PAT (owner or co-author too) gets 403 `withheld by label` on `GET /drafts/{id}`,
+  `GET /drafts/{id}/versions/{n}` and `POST /drafts/{id}/build` for an `exclude_llm` document. The drafts list
+  (metadata and label) stays available.
 
 ### Who may change a label
 
@@ -354,9 +358,9 @@ is audited `label.export_blocked` (detail `{route}`). Invisible stays 404, so na
 |---|---|---|
 | Document | Owner or admin | Admin only (403 `only admins can lower a label`); reason required when the current label has `reason_on_lower` |
 | Note (thread root) | Author or admin | Admin only, same reason rule; never below the document label (422) |
-| Upload / connector / draft submit | Upload may choose any label ranking at or above the default (lower: admin); connector docs get the connector label or the default; submit and near-duplicate `new_version` merge only raise (`max`) | n/a |
+| Upload / connector / draft submit | Upload may choose any label ranking at or above the default (lower: admin human; PATs, admin or not, never); connector docs get the connector label or the default; submit and near-duplicate `new_version` merge only raise (`max`) | n/a |
 
-All label write routes are human-only (PAT: 403 `agents must propose`). Agents use MCP `propose_label`; a
+The two label write routes `PUT /documents/{id}/label` and `PUT /annotations/{id}/label` are human-only (PAT: 403 `agents must propose`); `/admin/labels*` are admin-only and never reachable with a PAT. Agents use MCP `propose_label`; a
 human approves it and the **approver's** rights apply (an owner approving a lowering gets 403; an admin
 supplies the reason). A label in use by any document, note or connector, or the default, cannot be deleted
 (409 `label in use`). Someone else changing your document's or note's label sends you a `label.changed`

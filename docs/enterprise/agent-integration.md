@@ -42,7 +42,7 @@ Example client configuration (generic MCP JSON):
 | `get_handoff_part(code, part?, page?)` | read | `transcript` or `notes`, 20 items per page |
 | `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, dropped}` |
 | `append_to_handoff(code, note)` | write | Add a note (max 200 per handoff) |
-| `upload(filename, content_base64, title?, visibility?, label?)` | write | Add a document (default `private`, default label); `label` is a label name, lower than the default is refused; duplicate returns `{"duplicate_of": id}` |
+| `upload(filename, content_base64, title?, visibility?, label?)` | write | Add a document (default `private`, default label); `label` is a label name, lower than the default is refused for every token (agents cannot lower; scope is checked before the name); duplicate returns `{"duplicate_of": id}` |
 | `list_annotations(doc_id)` | read | Notes the caller may read on a document (≤ 500, oldest first) |
 | `propose_annotation(doc_id, kind, body, quote?, prefix?, suffix?, ...)` | write | Create a pending proposal (never published directly); returns its id |
 | `reply_to_annotation(annotation_id, body)` | write | Propose a reply to a readable note |
@@ -131,7 +131,8 @@ Labels only restrict; they never widen what a token can see.
   context.
 - **`block_export`.** `export_bibtex` silently omits gated documents. Owner and admin PATs are exempt
   (R9); any other PAT is always treated as a download, so it gets 403 `export blocked by label` from the
-  file, pdf and docling routes of gated documents.
+  file, pdf and docling routes of gated documents (on an `exclude_llm` document the 403 is `withheld by
+  label: <name>` instead). Drafts of an `exclude_llm` document return 403 `withheld by label` to PATs too.
 - **`propose_label`.** Needs a write token (read-only: insufficient scope). Unknown names return an error
   listing the valid labels. Nothing changes until a human approves; lowering needs an admin approver, and
   the approver supplies the reason (the agent's `reason` is advisory and not stored). Agents cannot call the

@@ -168,16 +168,21 @@ Background: [security, section 13](security.md#13-sensitivity-labels).
 
 ```sql
 -- blocked download attempts, last 7 days
-SELECT at, user_id, target AS document_id, detail->>'route' AS route
+SELECT at, user_id, target AS target_id, detail->>'route' AS route
 FROM audit_log WHERE action = 'label.export_blocked' AND at > now() - interval '7 days' ORDER BY at DESC;
 -- inline reads of block_export documents (one row per user, document and UTC day)
 SELECT at, user_id, target AS document_id, detail->>'route' AS route
 FROM audit_log WHERE action = 'label.view' ORDER BY at DESC LIMIT 200;
--- label changes for one document
-SELECT at, user_id, detail FROM audit_log WHERE action IN ('document.label','annotation.label') AND target = '<id>' ORDER BY at;
+-- label changes for one document, then for its notes (annotation.label targets the note id)
+SELECT at, user_id, detail FROM audit_log WHERE action = 'document.label' AND target = '<doc id>' ORDER BY at;
+SELECT at, user_id, detail FROM audit_log WHERE action = 'annotation.label'
+  AND target IN (SELECT id::text FROM annotations WHERE document_id = '<doc id>') ORDER BY at;
 ```
 
-  The same events are reachable via `GET /admin/audit?action=label.`. For `document.label`, `from`/`to`
+  `target_id` is the document id, except `chat.export` rows where it is the chat id.
+
+  `label.*` events are reachable via `GET /admin/audit?action=label.` (a prefix match); `document.label` and
+  `annotation.label` via `action=document.label` and `action=annotation.label`. For `document.label`, `from`/`to`
   are label ids.
 - **Elasticsearch drift.** After a label change `acl_sync` converges the index; a stuck job shows as a
   failed `acl_sync` in `GET /admin/jobs?status=failed&kind=acl_sync` (retry with `retry-failed`). Until it
@@ -190,7 +195,7 @@ SELECT at, user_id, detail FROM audit_log WHERE action IN ('document.label','ann
 5. Verify `/healthz` version, upload + search + chat smoke test.
 Migration 0011 backfills `document_coauthors` from the drafts of already-published papers, repairs `document_versions.is_latest` (one per document: its highest searchable version) and queues one `acl_sync` job per backfilled document, so Elasticsearch gains `coauthor_users` once the worker drains the queue. No manual step; re-running is idempotent. Separately, the API rejects JSON bodies above `max(3 MiB, 2 x ROR_DRAFT_MAX_BYTES + 64 KiB)`.
 
-Migration 0012 (sensitivity labels) runs as one transaction: it creates `labels`, seeds `General`, adds `label_id` to `documents` (backfilled and set NOT NULL, plus an index), `annotations` and `connectors`, and widens the proposals kind check. The `documents` changes hold an exclusive lock until the migration commits, so reads and writes on `documents` block for a time that grows with the row count. Run the upgrade in a maintenance window (or at least off-peak) and size the `migrate` hook timeout accordingly. It also inserts one `acl_sync` job per non-deleted document in the same transaction. Until those jobs drain, Elasticsearch lacks `label_id` and the Postgres post-filter is authoritative (search may over-fetch briefly, never leaks). After the upgrade watch the drain: `SELECT status, count(*) FROM jobs WHERE kind='acl_sync' GROUP BY 1;` (or `roracle_jobs{kind="acl_sync"}` and `roracle_jobs_oldest_queued_seconds`) until `queued` is 0 and `failed` stays empty; scale workers if it is slow, and retry failures with `POST /admin/jobs/retry-failed {"kind":"acl_sync"}`. Downgrading drops all labels and label proposals.
+Migration 0012 (sensitivity labels) runs as one transaction: it creates `labels`, seeds `General`, adds `label_id` to `documents` (backfilled and set NOT NULL, plus an index), `annotations` and `connectors`, and widens the proposals kind check. The `documents` changes hold an exclusive lock until the migration commits, so reads and writes on `documents` block for a time that grows with the row count. Run the upgrade in a maintenance window (or at least off-peak) and raise `migrate.activeDeadlineSeconds` (values.yaml, migrate-job.yaml) and `helm --timeout` accordingly. The backfill rewrites every `documents` row, so bloat and WAL scale with the row count (`annotations` and `connectors` ALTERs also lock, briefly). It also inserts one `acl_sync` job per non-deleted document in the same transaction. Until those jobs drain, Elasticsearch lacks `label_id` and the Postgres post-filter is authoritative (search may over-fetch briefly, never leaks). After the upgrade watch the drain: `SELECT status, count(*) FROM jobs WHERE kind='acl_sync' GROUP BY 1;` (or `roracle_jobs{kind="acl_sync"}` and `roracle_jobs_oldest_queued_seconds`) until `queued` is 0 and `failed` stays empty; scale workers if it is slow, and retry failures with `POST /admin/jobs/retry-failed {"kind":"acl_sync"}`. Downgrading drops all labels and label proposals.
 
 Rollback: `helm rollback` restores manifests but does NOT revert database migrations. Migrations are additive within a minor line, so the previous release normally still runs;
 otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is `POST /admin/reindex`).

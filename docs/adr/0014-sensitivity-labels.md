@@ -27,7 +27,7 @@ without introducing a second access-control system. Visibility and shares stay t
   adds `must_not terms label_id`, `readable_notes` applies the effective label. Result: 404, absent from
   lists, search, facets and counts, with no "blocked" hint.
 - **R8 Gate (a) `exclude_llm`.** Chat/`ask` retrieval, community note passages, `cite_check`, draft
-  style/validate and the ingest summary skip such content (ES `must_not` plus Postgres re-check). Chat
+  style/validate and the ingest summary skip such content (`cite_check` on an excluded document yields verdict `unchecked`, "label excludes LLM review"; a draft whose own label excludes LLM skips the style and cite judges) (ES `must_not` plus Postgres re-check). Chat
   context the user asked for explicitly (open tabs, selection, pins) is dropped and reported as
   `excluded_by_label` in the SSE `meta` frame. Agents (PAT) additionally receive no passage text of these
   documents anywhere: metadata and label stay visible, text is replaced or emptied and flagged `withheld`.
