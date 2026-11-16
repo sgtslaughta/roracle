@@ -54,3 +54,50 @@ export interface NoteIn {
   shares?: NoteShare[];
 }
 export interface NotePatch { body?: string; visibility?: NoteVisibility; shares?: NoteShare[] }
+
+/* ---- evidence (P8 /annotations/{id}/evidence, /evidence/{id}) ---- */
+export const STANCES = ["supports", "refutes", "inconclusive"] as const;
+export type Stance = (typeof STANCES)[number];
+/** pending → clean | infected | failed; unscanned when no scanner is configured. Download only for clean | unscanned. */
+export type ScanStatus = "pending" | "clean" | "infected" | "failed" | "unscanned";
+export type ReproOutcome = "reproduced" | "failed";
+export const EVIDENCE_MAX_BYTES = 1 << 30; // ROR_EVIDENCE_MAX_BYTES default
+export const EVIDENCE_ITEMS_MAX = 100;
+export const EVIDENCE_PARAMS_MAX = 64 * 1024;
+export const EVIDENCE_DESC_MAX = 5000;
+export const REPRO_NOTE_MAX = 2000;
+
+export interface EvidenceItem { name: string; uri?: string | null; sha256?: string | null }
+/** Multipart `meta` field: Provenance + stance. Datetimes must carry an offset; uri and uri_sha256 go together. */
+export interface EvidenceMeta {
+  stance: Stance;
+  code: { repo: string; commit: string };
+  environment: { image_digest: string };
+  inputs: EvidenceItem[];
+  outputs: EvidenceItem[];
+  parameters: Record<string, unknown>;
+  seed: number | string | null;
+  agent: { client: string; model: string };
+  started_at: string;
+  ended_at: string;
+  description: string;
+  uri: string | null;
+  uri_sha256: string | null;
+}
+export interface Evidence {
+  id: string;
+  annotation_id: string;
+  stance: Stance;
+  /** RO-Crate 1.1 JSON-LD; untrusted, read defensively (features/notes/crate.ts) */
+  crate: unknown;
+  file: { filename: string | null; size: number | null; sha256: string; scan_status: ScanStatus } | null;
+  uri: string | null;
+  uri_sha256: string | null;
+  reproductions: { reproduced: number; failed: number; mine: ReproOutcome | null };
+  /** creator user id (no username in the contract) */
+  created_by: string;
+  created_at: string | null;
+}
+
+/** GET /search?notes=true: up to 2 community notes per hit (6 per page), body cut to 500 chars. */
+export interface CommunityNote { id: string; kind: NoteKind; body: string; author: { id: string; username: string }; score: number; page: number | null }

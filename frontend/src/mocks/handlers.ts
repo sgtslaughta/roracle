@@ -8,7 +8,7 @@ import { state } from "./state";
 import { adminHandlers } from "./admin";
 import { chatHandlers } from "./chat";
 import { agentHandlers } from "./agents";
-import { noteHandlers } from "./notes";
+import { noteHandlers, withCommunityNotes } from "./notes";
 import { advance, newUpload } from "./uploads";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -29,7 +29,10 @@ function detail(id: string): DocumentDetail | null {
 
 export const handlers = [
   http.get(url("/me"), () => HttpResponse.json({ id: "u-me", username: "researcher", groups: ["/Mathematics/Spectral Theory"], is_admin: state.admin })),
-  http.get(url("/search"), ({ request }) => HttpResponse.json(runSearch(new URL(request.url).searchParams))),
+  http.get(url("/search"), ({ request }) => {
+    const sp = new URL(request.url).searchParams;
+    return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
+  }),
   http.get(url("/collections"), () => {
     return HttpResponse.json(COLLECTION_NAMES.map((name, i): Collection => ({ id: `c${i + 1}`, name, count: DOCS.filter((d) => d.collections.includes(name)).length })));
   }),

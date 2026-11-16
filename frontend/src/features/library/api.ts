@@ -10,7 +10,7 @@ export const RESULT_CAP = 200;
 export const useSearch = (s: LibrarySearch) =>
   useQuery({
     queryKey: ["search", s],
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch(s, { size: PAGE_SIZE })}`),
+    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch(s, { size: PAGE_SIZE, notes: true })}`),
     placeholderData: keepPreviousData,
   });
 

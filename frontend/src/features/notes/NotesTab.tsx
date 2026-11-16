@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { notesUi, useNotes } from "./api";
+import { EvidencePanel } from "./Evidence";
 import { KIND_LABEL } from "./labels";
 import { NoteCard } from "./NoteCard";
 import { NoteComposer } from "./NoteComposer";
@@ -71,6 +72,7 @@ export function NotesTab({ docId, docOwnerId, version, latest }: { docId: string
             flash={!!flash && (flash === note.id || replies.some((r) => r.id === flash))}
             expand={flashRoot?.note.id === note.id && flash !== note.id}
             onGoTo={(page) => openDoc(docId, { page, version })}
+            evidence={note.kind === "finding" ? <EvidencePanel note={note} docId={docId} me={me} /> : undefined}
           />
         ))}
         {list.length > limit && <Button onClick={() => setLimit(limit + NOTES_PAGE)}>Show more ({list.length - limit} left)</Button>}

@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { API_BASE } from "@/api/client";
-import { NOTE_BODY_MAX, type Note, type NoteIn, type NotePatch } from "@/api/notes";
+import { EVIDENCE_MAX_BYTES, NOTE_BODY_MAX, STANCES, type CommunityNote, type Evidence, type EvidenceMeta, type Note, type NoteIn, type NotePatch } from "@/api/notes";
+import type { SearchResponse } from "@/api/types";
 import { anchorBbox } from "@/features/notes/anchor";
 import { DOCS } from "./docs";
 import { docById, docling } from "./pdf";
@@ -59,7 +60,7 @@ const notes = () => (state.notes ??= seed());
 const find = (id: string) => notes().find((n) => n.id === id);
 /** Readable to the mock user: not removed; hidden only for its author, the document owner or an admin. */
 const readable = (n: Note) => n.status !== "removed" && (n.status === "visible" || n.author.id === ME.id || state.admin || ownerOf(docById(n.document_id)!) === ME.id);
-const out = (n: Note): Note => ({ ...n, shares: n.author.id === ME.id ? n.shares : [] });
+const out = (n: Note): Note => ({ ...n, shares: n.author.id === ME.id ? n.shares : [], evidence: evidenceCounts(n.id) });
 const bodyOk = (b: unknown) => typeof b === "string" && b.length >= 1 && b.length <= NOTE_BODY_MAX;
 const now = () => new Date().toISOString();
 
@@ -69,6 +70,7 @@ function getNote(id: string): Note | Response {
 }
 
 export const noteHandlers = [
+  ...evidenceHandlers(),
   http.get(url("/documents/:id/annotations"), ({ params }) => {
     if (!docById(String(params.id))) return err(404, "not found");
     return HttpResponse.json({ items: notes().filter((n) => n.document_id === params.id && readable(n)).map(out) });
@@ -153,3 +155,129 @@ export const noteHandlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 ];
+
+/* ---- evidence: seeded on the agent finding (clean file, infected file, link only) ---- */
+type MockEvidence = NonNullable<typeof state.evidence>[number];
+const H = (c: string) => c.repeat(64).slice(0, 64);
+
+/** Same RO-Crate shape as the backend's notes/evidence.py crate(). */
+function crate(m: EvidenceMeta) {
+  const items = (xs: EvidenceMeta["inputs"]) => xs.map((i) => ({ "@type": "File", name: i.name, ...(i.uri ? { url: i.uri } : {}), ...(i.sha256 ? { sha256: i.sha256 } : {}) }));
+  return { "@context": "https://w3id.org/ro/crate/1.1/context", "@graph": [
+    { "@id": "./", "@type": "Dataset", name: "rOracle evidence", description: m.description, ...(m.uri ? { url: m.uri, sha256: m.uri_sha256 } : {}) },
+    { "@id": "#run", "@type": "CreateAction", startTime: m.started_at, endTime: m.ended_at, object: items(m.inputs), result: items(m.outputs),
+      environment: { "@type": "PropertyValue", name: "image_digest", value: m.environment.image_digest }, parameters: m.parameters, seed: m.seed },
+    { "@id": "#code", "@type": "SoftwareSourceCode", codeRepository: m.code.repo, version: m.code.commit },
+    { "@id": "#agent", "@type": "SoftwareApplication", name: m.agent.client, version: m.agent.model },
+  ] };
+}
+
+const META: EvidenceMeta = {
+  stance: "supports", code: { repo: "https://git.lab/spectral/sweeps", commit: "4e1c9a2" }, environment: { image_digest: `sha256:${H("9f2c")}` },
+  inputs: [{ name: "graphs_k3_d4.npz", sha256: H("a1") }], outputs: Array.from({ length: 6 }, (_, i) => ({ name: `gap_sweep_${i + 1}.parquet` })),
+  parameters: { k: 3, d: 4, n_max: 100000, trials: 200 }, seed: 1729, agent: { client: "claude-code", model: "opus" },
+  started_at: "2026-10-01T08:00:00Z", ended_at: "2026-10-01T09:42:00Z", description: "Spectral gap sweep.\nSee sweep.ipynb.", uri: null, uri_sha256: null,
+};
+function ev(id: string, m: EvidenceMeta, by: string, extra: Partial<MockEvidence>): MockEvidence {
+  return { id, annotation_id: "n-finding", stance: m.stance, crate: crate(m), file: null, uri: m.uri, uri_sha256: m.uri_sha256,
+    reproductions: { reproduced: 0, failed: 0, mine: null }, created_by: by, created_at: "2026-10-02T10:00:00Z", ...extra };
+}
+const seedEvidence = (): MockEvidence[] => [
+  ev("ev-clean", META, RUIZ.id, { file: { filename: "gap_sweep.tar", size: 48_213, sha256: H("c3"), scan_status: "clean" }, content: "mock evidence archive\n", reproductions: { reproduced: 2, failed: 0, mine: null } }),
+  ev("ev-infected", META, RUIZ.id, { file: { filename: "sweep.ipynb", size: 9_120, sha256: H("d4"), scan_status: "infected" } }),
+  ev("ev-uri", { ...META, stance: "inconclusive", uri: "s3://lab-runs/sweep-2026-10.tar", uri_sha256: H("e5"), description: "" }, ME.id, { reproductions: { reproduced: 0, failed: 1, mine: null } }),
+];
+const evidence = () => (state.evidence ??= seedEvidence());
+function evidenceCounts(noteId: string): Note["evidence"] {
+  const c = { supports: 0, refutes: 0, inconclusive: 0 };
+  for (const e of evidence()) if (e.annotation_id === noteId) c[e.stance]++;
+  return c;
+}
+/** A pending scan turns clean a few seconds after upload (a file named *eicar* turns infected). */
+function evOut({ content: _c, ready, ...e }: MockEvidence): Evidence {
+  if (e.file?.scan_status === "pending" && ready && Date.now() >= ready) e.file = { ...e.file, scan_status: /eicar/i.test(e.file.filename ?? "") ? "infected" : "clean" };
+  return e;
+}
+function getEvidence(id: string): MockEvidence | Response {
+  const e = evidence().find((x) => x.id === id);
+  if (!e) return err(404, "not found");
+  const n = getNote(e.annotation_id);
+  if (n instanceof Response) return n;
+  if (e.file?.scan_status === "pending" && e.ready && Date.now() >= e.ready) Object.assign(e, evOut(e));
+  return e;
+}
+
+function evidenceHandlers() {
+  return [
+    http.get(url("/annotations/:id/evidence"), ({ params }) => {
+      const n = getNote(String(params.id));
+      return n instanceof Response ? n : HttpResponse.json({ items: evidence().filter((e) => e.annotation_id === n.id).map(evOut) });
+    }),
+    http.post(url("/annotations/:id/evidence"), async ({ params, request }) => {
+      const n = getNote(String(params.id));
+      if (n instanceof Response) return n;
+      if (n.kind !== "finding") return err(422, "evidence requires a finding note");
+      const form = await request.formData();
+      let m: EvidenceMeta;
+      try { m = JSON.parse(String(form.get("meta"))) as EvidenceMeta; } catch { return err(422, "meta must be JSON"); }
+      if (!STANCES.includes(m.stance) || !m.code?.repo || !m.started_at || m.started_at > m.ended_at) return err(422, "invalid evidence metadata");
+      if ((m.uri == null) !== (m.uri_sha256 == null)) return err(422, "uri and uri_sha256 must be given together");
+      const f = form.get("file");
+      const file = f instanceof File ? f : null;
+      if (file && m.uri) return err(422, "provide either a file or a uri, not both");
+      if (file && !file.size) return err(400, "empty file");
+      if (file && file.size > EVIDENCE_MAX_BYTES) return err(413, "file exceeds the evidence size limit");
+      const e = ev(`ev-${++seq}`, m, ME.id, { annotation_id: n.id, created_at: now(),
+        ...(file ? { file: { filename: file.name, size: file.size, sha256: H("f6"), scan_status: "pending" as const }, content: await file.text(), ready: Date.now() + 3000 } : {}) });
+      evidence().push(e);
+      return HttpResponse.json(evOut(e), { status: 201 });
+    }),
+    http.get(url("/evidence/:id"), ({ params }) => {
+      const e = getEvidence(String(params.id));
+      return e instanceof Response ? e : HttpResponse.json(evOut(e));
+    }),
+    http.get(url("/evidence/:id/file"), ({ params }) => {
+      const e = getEvidence(String(params.id));
+      if (e instanceof Response) return e;
+      if (!e.file || !(e.file.scan_status === "clean" || e.file.scan_status === "unscanned")) return err(409, "not available");
+      return new HttpResponse(e.content ?? "", { headers: {
+        "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${e.file.filename}"`, "X-Content-Type-Options": "nosniff",
+      } });
+    }),
+    http.put(url("/evidence/:id/reproduction"), async ({ params, request }) => {
+      const e = getEvidence(String(params.id));
+      if (e instanceof Response) return e;
+      const { outcome, note } = (await request.json()) as { outcome: "reproduced" | "failed" | null; note: string };
+      if ((note ?? "").length > 2000) return err(422, "note too long");
+      const r = { ...e.reproductions };
+      if (r.mine) r[r.mine]--;
+      if (outcome) r[outcome]++;
+      e.reproductions = { ...r, mine: outcome };
+      return HttpResponse.json(evOut(e));
+    }),
+    http.delete(url("/evidence/:id"), ({ params }) => {
+      const e = getEvidence(String(params.id));
+      if (e instanceof Response) return e;
+      if (e.created_by !== ME.id && !state.admin) return err(403, "only the creator or an admin can delete evidence");
+      state.evidence = evidence().filter((x) => x !== e);
+      return new HttpResponse(null, { status: 204 });
+    }),
+  ];
+}
+
+/* ---- community notes on search hits (backend notes/community.py): everyone-visible top-level notes on the
+   latest version with score >= 0.4; up to 2 per document and 6 per page, best first, body cut to 500 ---- */
+export function withCommunityNotes(res: SearchResponse, on: boolean): SearchResponse {
+  let left = 6;
+  const pick = (docId: string): CommunityNote[] => {
+    if (!on) return [];
+    const ns = notes()
+      .filter((n) => n.document_id === docId && !n.parent_id && n.status === "visible" && n.visibility === "everyone"
+        && n.version === state.versions[docId] && n.may_not_apply_to_version == null && n.votes.score >= 0.4)
+      .sort((a, b) => b.votes.score - a.votes.score)
+      .slice(0, Math.min(2, left));
+    left -= ns.length;
+    return ns.map((n) => ({ id: n.id, kind: n.kind, body: n.body.slice(0, 500), author: n.author, score: n.votes.score, page: n.anchor?.page ?? null }));
+  };
+  return { ...res, results: res.results.map((h) => ({ ...h, notes: pick(h.doc_id) })) };
+}

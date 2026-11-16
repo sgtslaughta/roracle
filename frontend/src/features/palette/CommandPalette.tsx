@@ -32,7 +32,7 @@ export function CommandPalette() {
   const found = useQuery({
     queryKey: ["palette-search", debounced],
     enabled: open && debounced.length >= 2,
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { size: 5 })}`),
+    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { size: 5, notes: false })}`),
   });
 
   const items = useMemo<Item[]>(() => {

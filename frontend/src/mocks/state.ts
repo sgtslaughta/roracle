@@ -3,7 +3,7 @@ import type { ChatDetail } from "@/api/chat";
 import { seedUploads, type MockUpload } from "./uploads";
 import type { AccessToken } from "@/api/agents";
 import type { MockHandoff } from "./agents";
-import type { Note } from "@/api/notes";
+import type { Evidence, Note } from "@/api/notes";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
@@ -23,6 +23,8 @@ export interface MockState {
   handoffs: Record<string, MockHandoff>;
   /** mocks/notes.ts; seeded lazily there (import cycle) */
   notes: Note[] | null;
+  /** mocks/notes.ts; `content` is the file body served by /evidence/{id}/file, `ready` when a pending scan finishes */
+  evidence: (Evidence & { content?: string; ready?: number })[] | null;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -41,6 +43,7 @@ const fresh = (): MockState => ({
   tokens: null,
   handoffs: {},
   notes: null,
+  evidence: null,
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

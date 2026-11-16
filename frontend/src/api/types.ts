@@ -3,6 +3,7 @@
 //   P2  ingest stage names, POST /documents/{id}/versions/{vid}/near-dup
 //   P3  /search, /documents/{id}, votes, tags, references, cited-by, collections
 // Fields marked "ui:" are additions the UI needs beyond the plan text (flagged in the P5 report).
+import type { CommunityNote } from "./notes";
 
 export interface Me { id: string; username: string; groups: string[]; is_admin: boolean }
 
@@ -35,6 +36,8 @@ export interface SearchHit {
   flag: string | null; // always null today; render when present
   cited_by_count: number;
   owner_id: string;
+  /** community notes (search with notes=true); absent in older responses */
+  notes?: CommunityNote[];
 }
 
 export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author";
