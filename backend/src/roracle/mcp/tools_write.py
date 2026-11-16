@@ -95,9 +95,9 @@ def _upload(app, session, p, filename, b64, title, visibility) -> dict:
     ctype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     f = UploadFile(BytesIO(data), filename=filename, headers=Headers({"content-type": ctype}))
     try:
-        return documents.upload(
-            p, session, dep(app, documents.get_blob_store), s, file=f, title=title,
-            visibility=visibility, force=False,
+        return documents.upload_file(
+            p, session, dep(app, documents.get_blob_store), s, f,
+            documents.UploadForm(title=title, visibility=visibility),
         )  # fmt: skip
     except HTTPException as e:
         if e.status_code == 409 and isinstance(e.detail, dict):  # already in the library: not an error

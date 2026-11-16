@@ -81,6 +81,15 @@ first-hand; owners only via the document list). Do not use on a production corpu
 Planned (P11b): the admin *Maintenance* action does not exist yet; use the stage-reset statement above. Elastic holds no unique data. Create a fresh index and enqueue `index` jobs for every latest
 version (admin → Maintenance → *Rebuild index*). Search stays on the old alias until done.
 
+### Clean up `tmp/` upload leftovers
+
+API uploads stage in the blob bucket under `tmp/<uuid>` and are deleted after the copy to `blobs/`. A crash
+mid-upload leaves an object or an incomplete multipart upload behind. The bucket lifecycle rule (`tmp/`, 1 day)
+removes objects; check it with `mc ilm rule ls <alias>/<bucket>` and add it if missing (`mc ilm rule add --prefix
+tmp/ --expire-days 1 <alias>/<bucket>`). Incomplete multipart uploads: MinIO discards stale ones after 24 h;
+on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplete <alias>/<bucket>/tmp/` and
+`mc rm --incomplete --recursive --force <alias>/<bucket>/tmp/`. Never touch `blobs/`.
+
 ### Rotate secrets
 - DB / S3 / Elastic credentials: update secret → `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
 - Keycloak signing keys: rotate in Keycloak; rOracle refetches JWKS on unknown `kid` automatically.

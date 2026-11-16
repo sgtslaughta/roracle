@@ -70,7 +70,7 @@ api:
   resources:
     requests: {cpu: "2", memory: 4Gi}
     limits: {memory: 4Gi}
-  tmpSize: 20Gi            # multipart uploads spool to /tmp: size >= evidence limit x concurrent uploads
+  tmpSize: 1Gi             # uploads stream to object storage (no spool); /tmp is only scratch for the parsers/ClamAV client
   autoscaling: {enabled: true, minReplicas: 3, maxReplicas: 10, targetCPUUtilizationPercentage: 70}
   pdb: {enabled: true, minAvailable: 1}
   terminationGracePeriodSeconds: 60

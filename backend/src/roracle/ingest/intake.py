@@ -8,12 +8,13 @@ from sqlalchemy.orm import Session
 
 from roracle.models import Blob, Document, DocumentVersion
 from roracle.queue import enqueue
-from roracle.storage import BlobStore, StagedFile
+from roracle.storage import BlobStore, StagedBlob, StagedFile
 
 
-def _put(session: Session, store: BlobStore, staged: StagedFile, content_type: str) -> None:
+def _put(session: Session, store: BlobStore, staged: StagedFile | StagedBlob, content_type: str) -> None:
     # ponytail: object written before DB commit can orphan on DB failure; a P2 GC job deletes blob objects without a blobs row
-    store.put(staged, content_type)
+    if isinstance(staged, StagedFile):  # streamed uploads were promoted by the route before intake
+        store.put(staged, content_type)
     session.execute(
         insert(Blob)
         .values(sha256=staged.sha256, size=staged.size)
@@ -22,7 +23,12 @@ def _put(session: Session, store: BlobStore, staged: StagedFile, content_type: s
 
 
 def _version(
-    session: Session, staged: StagedFile, doc_id: UUID, number: int, filename: str, content_type: str
+    session: Session,
+    staged: StagedFile | StagedBlob,
+    doc_id: UUID,
+    number: int,
+    filename: str,
+    content_type: str,
 ) -> DocumentVersion:
     version = DocumentVersion(
         document_id=doc_id,
@@ -41,7 +47,7 @@ def _version(
 def add_document(
     session: Session,
     store: BlobStore,
-    staged: StagedFile,
+    staged: StagedFile | StagedBlob,
     *,
     owner_id: UUID,
     org_unit: str,
@@ -63,7 +69,7 @@ def add_document(
 def add_version(
     session: Session,
     store: BlobStore,
-    staged: StagedFile,
+    staged: StagedFile | StagedBlob,
     doc: Document,
     *,
     filename: str,

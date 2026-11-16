@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from roracle import ratelimit
 from roracle.auth import Principal, get_app_settings, get_jwks, resolve_principal
 from roracle.db import get_session
 
@@ -55,14 +56,12 @@ def open_session(app: FastAPI) -> Iterator[Session]:
 def _resolve(app: FastAPI, authorization: str | None) -> Principal:
     with open_session(app) as session:
         try:
+            settings = dep(app, get_app_settings)
             p = resolve_principal(
-                session,
-                dep(app, get_jwks),
-                dep(app, get_app_settings),
-                authorization,
-                app.state.session_factory,
+                session, dep(app, get_jwks), settings, authorization, app.state.session_factory
             )
             session.commit()
+            ratelimit.check(p, settings.rate_limit_per_minute)
             return p
         except Exception:
             session.rollback()
@@ -83,7 +82,9 @@ class BearerAuth:
             resp = JSONResponse(
                 {"detail": e.detail},
                 status_code=e.status_code,
-                headers={"WWW-Authenticate": f'Bearer resource_metadata="{meta}"'},
+                headers=e.headers
+                if e.status_code == 429
+                else {"WWW-Authenticate": f'Bearer resource_metadata="{meta}"'},
             )
             return await resp(scope, receive, send)
         token = _current.set(p)

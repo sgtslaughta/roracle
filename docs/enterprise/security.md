@@ -113,9 +113,26 @@ Loki/OTel. Admin viewer with filters; retention per policy.
 
 ## 8. Abuse and rate limits
 
-Handoff loads are audited. Planned: per-user rate limits on search, chat, upload and MCP calls and
-rate-limited handoff loads (P11); PAT misuse alerts, i.e. use from a new client or burst rate (P11);
+Handoff loads are audited. Planned: PAT misuse alerts, i.e. use from a new client or burst rate (P11);
 max 50 pending agent proposals per session (P8).
+
+**Per-token rate limit** (`ROR_RATE_LIMIT_PER_MINUTE`, runtime-adjustable, `0` = off). Every authenticated REST and
+MCP request takes one token from an in-process token bucket: capacity = the limit, refilled continuously at
+limit/60 per second. The bucket key is `pat:<token id>` for personal access tokens and `user:<id>` for Keycloak
+JWTs, so a user's PAT and browser session have separate budgets. Over the limit the API answers `429
+{"detail":"rate limited"}` with `Retry-After` (seconds). Unauthenticated requests are not counted (they fail with
+401); `/healthz`, `/readyz` and `/metrics` are unauthenticated and therefore never limited.
+
+The bucket lives in each API replica's memory (idle buckets are evicted after 10 min). With N replicas the
+effective cluster-wide limit is about N x the configured value, and a restart resets it. For a hard global cap or
+IP-level protection also set limits on the ingress (e.g. nginx `limit-rps`/`limit-connections`).
+
+**Upload path.** `POST /documents` and evidence uploads are streamed from the request body into object storage
+(S3 multipart, 8 MiB parts, SHA-256 computed on the fly) under `tmp/<uuid>`; nothing is spooled to the pod's disk.
+The size cap is enforced while streaming (413, upload aborted); after authorisation, quota and duplicate checks the
+object is server-side copied to `blobs/<sha[:2]>/<sha>` (skipped when that content already exists) and `tmp/` is
+deleted. Any error aborts the multipart upload. Orphans from a crashed pod are expired by a bucket lifecycle rule
+on `tmp/` (1 day, installed by the chart's `minio-policy` hook; add the same rule on external S3).
 
 ## 9. Connectors
 

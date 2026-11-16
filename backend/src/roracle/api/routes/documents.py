@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,8 @@ from roracle.db import get_session
 from roracle.ingest.intake import add_document
 from roracle.models import Document, DocumentVersion
 from roracle.queue import enqueue
-from roracle.storage import BlobStore, EmptyFile, TooLarge, blob_store_from, stage
+from roracle.storage import BlobStore, EmptyFile, StagedBlob, StagedFile, TooLarge, blob_store_from, stage
+from roracle.upload_stream import Received, multipart_body, receive
 
 router = APIRouter()
 
@@ -26,20 +27,81 @@ def get_blob_store(request: Request) -> BlobStore:
     return app.state.blob_store
 
 
-@router.post("/documents", status_code=201)
+class UploadForm(BaseModel):
+    title: Annotated[str | None, Field(max_length=500)] = None
+    visibility: Literal["private", "shared", "org_unit", "everyone"] = "everyone"
+    force: bool = False
+
+
+async def _received(
+    request: Request,
+    p: Annotated[Principal, Depends(current_principal)],
+    store: Annotated[BlobStore, Depends(get_blob_store)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> Received:
+    try:
+        return await receive(request, store, settings.max_upload_bytes)
+    except TooLarge:
+        raise HTTPException(
+            413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
+        ) from None
+    except EmptyFile:
+        raise HTTPException(400, "empty file") from None
+
+
+@router.post(
+    "/documents",
+    status_code=201,
+    openapi_extra=multipart_body(
+        {
+            "file": {"type": "string", "format": "binary"},
+            "title": {"type": "string", "maxLength": 500},
+            "visibility": {
+                "type": "string",
+                "enum": ["private", "shared", "org_unit", "everyone"],
+                "default": "everyone",
+            },
+            "force": {"type": "boolean", "default": False},
+        },
+        ["file"],
+    ),
+)
 def upload(
     p: Annotated[Principal, Depends(current_principal)],
     session: Annotated[Session, Depends(get_session)],
     store: Annotated[BlobStore, Depends(get_blob_store)],
     settings: Annotated[Settings, Depends(get_app_settings)],
-    file: Annotated[UploadFile, File()],
-    title: Annotated[str | None, Form(max_length=500)] = None,
-    visibility: Annotated[Literal["private", "shared", "org_unit", "everyone"], Form()] = "everyone",
-    force: Annotated[bool, Form()] = False,
+    rec: Annotated[Received, Depends(_received)],
 ) -> dict:
-    units = org_units(list(p.groups))
-    if err := org_unit_error(visibility, units[0] if units else ""):
-        raise HTTPException(422, err)
+    """Streams the multipart body to object storage; fields may come before or after `file`."""
+    staged = rec.staged
+    try:
+        try:
+            form = UploadForm.model_validate(rec.fields)
+        except ValidationError as e:
+            raise HTTPException(
+                422, e.errors(include_url=False, include_context=False, include_input=False)
+            ) from None
+        if staged is None:
+            raise HTTPException(422, "file is required")
+        return accept(
+            p, session, store, settings, staged, form,
+            filename=staged.filename, content_type=staged.content_type,
+        )  # fmt: skip
+    finally:
+        if staged is not None:
+            staged.upload.abort()
+
+
+def upload_file(
+    p: Principal,
+    session: Session,
+    store: BlobStore,
+    settings: Settings,
+    file: UploadFile,
+    form: UploadForm,
+) -> dict:
+    """Same as `upload` for an already-buffered file (MCP base64 uploads)."""
     try:
         staged = stage(file.file, settings.max_upload_bytes)
     except EmptyFile:
@@ -49,46 +111,67 @@ def upload(
             413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
         ) from None
     try:
-        if settings.upload_quota_bytes > 0:
-            # serialize per user until commit so concurrent uploads cannot overshoot the quota
-            session.execute(
-                text("SELECT pg_advisory_xact_lock(hashtextextended(:u, 0))"), {"u": str(p.user_id)}
-            )
-            used = session.scalar(
-                select(func.coalesce(func.sum(DocumentVersion.size), 0))
-                .join(Document, Document.id == DocumentVersion.document_id)
-                .where(
-                    Document.owner_id == p.user_id,
-                    Document.connector_id.is_(None),  # connector documents are exempt
-                    DocumentVersion.stage.not_in(("rejected", "cancelled")),
-                )
-            )
-            if used + staged.size > settings.upload_quota_bytes:
-                raise HTTPException(413, "upload quota exceeded")
-        if not force:
-            dup = session.scalar(
-                select(DocumentVersion.document_id)
-                .join(Document, Document.id == DocumentVersion.document_id)
-                .where(DocumentVersion.blob_sha256 == staged.sha256, visible_documents(p))
-                .limit(1)
-            )
-            if dup is not None:
-                raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
-        doc, version = add_document(
-            session,
-            store,
-            staged,
-            owner_id=p.user_id,
-            org_unit=units[0] if units else "",  # "" matches no ancestor (fail closed)
-            visibility=visibility,
+        return accept(
+            p, session, store, settings, staged, form,
             filename=file.filename or "upload",
             content_type=file.content_type or "application/octet-stream",
-            title=title or None,
-        )
-        session.commit()
-        return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
+        )  # fmt: skip
     finally:
         Path(staged.path).unlink(missing_ok=True)
+
+
+def accept(
+    p: Principal,
+    session: Session,
+    store: BlobStore,
+    settings: Settings,
+    staged: StagedFile | StagedBlob,
+    form: UploadForm,
+    *,
+    filename: str,
+    content_type: str,
+) -> dict:
+    units = org_units(list(p.groups))
+    if err := org_unit_error(form.visibility, units[0] if units else ""):
+        raise HTTPException(422, err)
+    if settings.upload_quota_bytes > 0:
+        # serialize per user until commit so concurrent uploads cannot overshoot the quota
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:u, 0))"), {"u": str(p.user_id)})
+        used = session.scalar(
+            select(func.coalesce(func.sum(DocumentVersion.size), 0))
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                Document.owner_id == p.user_id,
+                Document.connector_id.is_(None),  # connector documents are exempt
+                DocumentVersion.stage.not_in(("rejected", "cancelled")),
+            )
+        )
+        if used + staged.size > settings.upload_quota_bytes:
+            raise HTTPException(413, "upload quota exceeded")
+    if not form.force:
+        dup = session.scalar(
+            select(DocumentVersion.document_id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(DocumentVersion.blob_sha256 == staged.sha256, visible_documents(p))
+            .limit(1)
+        )
+        if dup is not None:
+            raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
+    if isinstance(staged, StagedBlob):
+        store.promote(staged, content_type)
+    doc, version = add_document(
+        session,
+        store,
+        staged,
+        owner_id=p.user_id,
+        org_unit=units[0] if units else "",  # "" matches no ancestor (fail closed)
+        visibility=form.visibility,
+        filename=filename,
+        content_type=content_type,
+        title=form.title or None,
+    )
+    session.commit()
+    return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
 
 
 class TitleBody(BaseModel):

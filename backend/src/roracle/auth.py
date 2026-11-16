@@ -15,7 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle import runtime
+from roracle import ratelimit, runtime
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import AuditLog, User
@@ -38,6 +38,7 @@ class Principal:
     scopes: frozenset[str] = frozenset({"read", "write"})
     client: str = ""
     via: Literal["jwt", "pat"] = "jwt"
+    pat_id: str = ""
 
 
 def httpx_fetch(url: str) -> dict:
@@ -187,6 +188,7 @@ def current_principal(
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
     p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
+    ratelimit.check(p, settings.rate_limit_per_minute)
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
         raise HTTPException(403, "insufficient scope")
     if p.via == "pat":
