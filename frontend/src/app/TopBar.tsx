@@ -61,7 +61,7 @@ function AccountMenu() {
           <ul className="menu-list">
             <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>
             {me?.is_admin && <li><Link to="/admin" className="menu-link" onClick={() => setOpen(false)}><Shield aria-hidden />Admin</Link></li>}
-          {signOutAvailable() && <li><button className="menu-link" onClick={() => void signOut()}><LogOut aria-hidden />Sign out</button></li>}
+            {signOutAvailable() && <li><button className="menu-link" onClick={() => void signOut()}><LogOut aria-hidden />Sign out</button></li>}
           </ul>
         </nav>
       </PopoverContent>

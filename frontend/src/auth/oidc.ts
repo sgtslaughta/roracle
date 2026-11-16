@@ -11,8 +11,10 @@ export interface GateClient extends AuthClient {
   signinRedirectCallback(): Promise<{ state?: unknown }>;
 }
 
+let shared: UserManager | null = null;
+/** One UserManager per page: sign-in, silent renew and sign-out share its state. */
 export function createUserManager() {
-  return new UserManager({
+  return (shared ??= new UserManager({
     authority: import.meta.env.VITE_OIDC_AUTHORITY ?? "http://localhost:8080/realms/roracle",
     client_id: import.meta.env.VITE_OIDC_CLIENT_ID ?? "roracle-web",
     redirect_uri: `${window.location.origin}/auth/callback`,
@@ -22,12 +24,13 @@ export function createUserManager() {
     scope: "openid profile",
     automaticSilentRenew: true,
     userStore: new WebStorageStateStore({ store: window.sessionStorage }),
-  });
+  }));
 }
 
 /** Sign-out only exists with a real identity provider (mock mode has no session). */
 export const signOutAvailable = () => import.meta.env.VITE_MOCK !== "1";
-export const signOut = () => createUserManager().signoutRedirect();
+let signingOut = false;
+export const signOut = () => { signingOut = true; return createUserManager().signoutRedirect(); };
 
 /** Only same-origin relative paths survive a sign-in round trip ("/x", never "//host" or absolute URLs). */
 export function safeReturnTo(v: unknown): string {
@@ -44,7 +47,7 @@ export function createAuthHooks(um: AuthClient): AuthHooks {
   let redirect: Promise<void> | null = null;
   const renew = () =>
     (inflight ??= um.signinSilent().then((u) => !!u && !u.expired, () => false).finally(() => { inflight = null; }));
-  const signIn = () => (redirect ??= um.signinRedirect({ state: { returnTo: currentPath() } }));
+  const signIn = () => (signingOut ? new Promise<void>(() => {}) : (redirect ??= um.signinRedirect({ state: { returnTo: currentPath() } })));
   return {
     async getToken() {
       if (redirect) throw new SignInInProgress();

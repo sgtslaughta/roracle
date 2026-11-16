@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ export function Sidebar() {
   const { data: collections } = useCollections();
   const { data: chats, hasNextPage, isFetchingNextPage, fetchNextPage } = useChats();
   const { data: me } = useMe();
+  const [railOpen, setRailOpen] = useState(false);
+  const close = () => setRailOpen(false);
   const attention = useUploadAttention();
   const waiting = useProposals("pending").data?.total ?? 0;
   return (
@@ -39,27 +42,25 @@ export function Sidebar() {
             <span>Admin</span>
           </Link>
         )}
-        <Popover>
+        <Popover open={railOpen} onOpenChange={setRailOpen}>
           <PopoverTrigger asChild>
             <button className="rail-only" aria-label="Chats and collections" title="Chats and collections"><History aria-hidden /></button>
           </PopoverTrigger>
           <PopoverContent side="top" align="start" collisionPadding={8} className="rail-pop">
             <h5>Recent chats</h5>
-            <ul className="menu-list">
-              {(chats ?? []).map((c) => (
-                <li key={c.id}><Link to="/ask/$chatId" params={{ chatId: c.id }} className="menu-link" title={c.title}><MessageCircle aria-hidden /><span>{c.title}</span></Link></li>
-              ))}
-              <li><Link to="/ask" className="menu-link"><Plus aria-hidden /><span>New chat</span></Link></li>
-            </ul>
-            {hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
+            <OverflowList
+              items={chats ?? []} max={5} layout="stack" menuLabel="More chats" getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
+              footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
+              renderItem={(c) => <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} className="menu-link" title={c.title} onClick={close}><MessageCircle aria-hidden /><span>{c.title}</span></Link>}
+            />
+            <Link to="/ask" className="menu-link" onClick={close}><Plus aria-hidden /><span>New chat</span></Link>
             {!!collections?.length && (
               <>
                 <h5>Collections</h5>
-                <ul className="menu-list">
-                  {collections.map((c) => (
-                    <li key={c.id}><Link to="/library" search={{ collection: [c.id] }} className="menu-link" title={c.name}><Folder aria-hidden /><span>{c.name}</span></Link></li>
-                  ))}
-                </ul>
+                <OverflowList
+                  items={collections} max={6} layout="stack" menuLabel="More collections" getLabel={(c) => c.name} moreLabel={(k) => `+${k} more`}
+                  renderItem={(c) => <Link key={c.id} to="/library" search={{ collection: [c.id] }} className="menu-link" title={c.name} onClick={close}><Folder aria-hidden /><span>{c.name}</span></Link>}
+                />
               </>
             )}
           </PopoverContent>

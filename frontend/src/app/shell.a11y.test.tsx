@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -56,8 +56,13 @@ describe("shell accessibility", () => {
 
   it("offers a way back from the admins-only page", async () => {
     await renderAt("/admin");
-    // default mock user may be admin; only assert when the notice shows
-    const back = screen.queryByRole("link", { name: "Back to Library" });
-    if (back) expect(back).toHaveAttribute("href", "/library");
+    expect(await screen.findByRole("link", { name: "Back to Library" })).toHaveAttribute("href", "/library");
+  });
+
+  it("closes the rail popover after following a link", async () => {
+    await renderAt("/library");
+    await userEvent.click(await screen.findByRole("button", { name: "Chats and collections" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("link", { name: "New chat" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
