@@ -51,6 +51,12 @@ locals {
   values    = concat(var.values_docs, var.extra_values == "" ? [] : [file(var.extra_values)])
 }
 
+# Upgrade path from the single-resource layout: keeps existing states from uninstalling the release (protect=true).
+moved {
+  from = helm_release.roracle
+  to   = helm_release.protected[0]
+}
+
 # lifecycle.prevent_destroy cannot take a variable, so there are two identical resources selected by var.protect.
 # Switching var.protect on a live install: `terraform state mv` between them first (README), never a plain apply.
 resource "helm_release" "protected" {

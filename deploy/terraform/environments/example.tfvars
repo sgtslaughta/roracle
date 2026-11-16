@@ -10,7 +10,7 @@ ha              = false                       # 1 PG, 1 ES node, 1 MinIO server 
 # Operators: pin chart repo + version from your mirror (see README placeholder table).
 charts = {
   cnpg           = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
-  barman         = { repository = "oci://registry.internal.example/charts", version = "0.3.0" }
+  barman         = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
   cert_manager   = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
   eck            = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
   minio_operator = { repository = "oci://registry.internal.example/charts", version = "7.0.0" }
@@ -19,13 +19,13 @@ charts = {
 # Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
 operator_images = {
   cnpg           = { tag = "1.26.0" }
-  barman         = { tag = "0.3.0" }
+  barman         = { tag = "v0.9.0", sidecar_tag = "v0.9.0" }
   cert_manager   = { tag = "v1.17.0" }
   eck            = { tag = "2.16.0" }
   minio_operator = { tag = "v7.0.0" }
 }
 
-protect_data = false # disposable dev: allows `terraform destroy` (see README Destroy cautions)
+protect_data = false # WARNING: never flip on a live install with a plain apply (re-creates the release, deletes data); disposable dev: allows `terraform destroy` (see README Destroy cautions)
 
 quota = {
   requests_cpu    = "24"

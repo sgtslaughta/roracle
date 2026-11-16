@@ -11,7 +11,7 @@ Providers: `hashicorp/kubernetes ~> 3.0`, `hashicorp/helm ~> 3.0`; Terraform `>=
 | operators | `modules/operators` | `helm_release` per operator (toggle with `charts.<key>.enabled`), operator namespaces, CRD readiness check |
 | secrets | `modules/secrets` | every Secret the chart references (`secrets_mode=create`) |
 | app | `modules/app` | `helm_release` of the chart, values from typed variables |
-| inference | `modules/inference` | optional GPU OpenAI-spec server + TEI reranker (off by default) |
+| inference | `modules/inference` | optional GPU OpenAI-spec server + reranker (vLLM score engine; off by default) |
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ component remains, unless `allow_placeholders = true` (dry runs only: the placeh
 |---|---|---|
 | `mirror_registry` | `variables.tf` | image registry host/path; replaces `MIRROR.example.com` in `deploy/observability/*.values.yaml` and becomes `global.imageRegistry` |
 | `charts.cnpg` / `barman` / `cert_manager` / `eck` / `minio_operator` | `variables.tf` `charts` | `repository` (e.g. `oci://registry/charts`), `version` pinned in the mirror; `chart` if renamed |
-| `operator_images.<chart>` (`repository`, `tag`) | `variables.tf` | operator images: default `<mirror_registry>/<upstream path>` + tag `0.0.0-PLACEHOLDER`, pushed to the chart values (cnpg, barman, cert-manager, eck incl. `config.containerRegistry`, minio operator). Operands/sidecars (e.g. the barman-cloud sidecar) differ per chart: verify the value keys against the mirrored chart and extend with `charts.<key>.values`. Alternative: containerd/CRI registry mirroring, then set these to the upstream names |
+| `operator_images.<chart>` (`repository`, `tag`) | `variables.tf` | operator images: default `<mirror_registry>/<upstream path>` + tag `0.0.0-PLACEHOLDER`, pushed to the chart values (cnpg, barman, cert-manager, eck incl. `config.containerRegistry`, minio operator). Operands/sidecars differ per chart (barman is wired for chart 0.9.0: `image.registry` + `sidecarImage.registry`, tags `operator_images.barman.tag`/`.sidecar_tag`): verify the value keys against the mirrored chart and extend with `charts.<key>.values`. Alternative: containerd/CRI registry mirroring, then set these to the upstream names |
 | `pull_secret` | `variables.tf` | mirror credentials; the Secret is created in the app, every operator and the inference namespace and referenced by the charts |
 | `charts.kube_prometheus_stack` / `loki` / `otel_collector` | same (disabled by default) | as above, set `enabled = true`; Loki also needs `loki_s3_credentials` and its `s3.example.com` endpoint (override via `charts.loki.values`) |
 | `app_chart.repository` / `.version` | `variables-app.tf` | only when installing the chart from an OCI mirror instead of the local path |
@@ -66,6 +66,8 @@ Staged alternative (also for first installs where operator CRDs are slow): `-var
 Prod: `environments/prod.example.tfvars` (`ha = true`, `secrets_mode = "existing"`, observability on). Dev profile (`ha = false`) is single-instance with small resources.
 Anything not exposed as a variable: `extra_values_file = "my-values.yaml"` (merged last, wins).
 
+Note: the placeholder gate is replaced on every plan (`plantimestamp()`), so plans are never empty and `-detailed-exitcode` returns 2; this is deliberate (a static gate would stick after a failed apply on Terraform < 1.10). It also defers data sources (e.g. `kube-root-ca.crt`) to apply, showing an in-place update of the CA Secret on every plan.
+
 ## State backend
 
 Default is local state. `backend.tf` holds commented examples: S3-compatible (MinIO outside this cluster, `use_lockfile`) and the Kubernetes Secret backend.
@@ -89,6 +91,8 @@ Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs
   `prevent_destroy` cannot take a variable, so the module holds two identical resources (`protected` / `unprotected`). To change the setting on a live install:
   `terraform state mv 'module.app[0].helm_release.protected[0]' 'module.app[0].helm_release.unprotected[0]'` (or the reverse), then apply with the new value.
   Disposable environments set `protect_data = false`.
+  **Warning:** flipping `protect_data` with a plain apply destroys and re-creates (uninstalls, then installs) the release in either direction, deleting the data tier: always `state mv` first.
+  A `moved` block maps the pre-0.1 address `helm_release.roracle` to `protected[0]`, so states from the first commit keep their release when `protect_data = true`.
 - Before any deliberate teardown: backups and snapshots (and replicate the backup buckets off-cluster: bundled backups live on the same MinIO that would be destroyed), StorageClass `Retain`.
 - Operator namespaces are created by Terraform; destroying operators before their CRs are gone leaves orphaned finalizers. Terraform destroys app before operators.
 - In `existing` mode the Secrets are not Terraform-owned and survive destroy.

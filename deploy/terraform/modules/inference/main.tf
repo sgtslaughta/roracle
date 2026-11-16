@@ -68,13 +68,15 @@ locals {
     }
     rerank = {
       cfg = var.rerank
-      args = local.tei ? concat(["--model-id", var.rerank.model_path, "--port", tostring(local.port)], var.rerank.args) : concat(
-        ["--model", var.rerank.model_path, "--served-model-name", var.rerank.served_name, "--task", "score", "--port", tostring(local.port)], var.rerank.args
+      args = local.tei ? concat(["--model-id", var.rerank.model_path, "--port", tostring(local.port)], local.rerank_extra) : concat(
+        ["--model", var.rerank.model_path, "--served-model-name", var.rerank.served_name, "--port", tostring(local.port)], local.rerank_extra
       )
       key_env = var.rerank.api_key_enabled ? { name = local.tei ? "API_KEY" : "VLLM_API_KEY", key = "RERANK_API_KEY" } : null
     }
   }
   home = "/home/inference"
+  # null args = engine default. Newer vLLM auto-detects the score model / uses `--runner pooling`: override per mirrored version.
+  rerank_extra = try(var.rerank.args, null) != null ? var.rerank.args : (local.tei ? [] : ["--task", "score"])
 }
 
 resource "kubernetes_secret_v1" "keys" {

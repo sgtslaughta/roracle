@@ -32,12 +32,18 @@ locals {
       tag        = coalesce(try(var.operator_images[k].tag, null), local.placeholder_version)
     }
   }
-  pull_list = local.pull ? [{ name = local.pull_name }] : []
+  barman_sidecar_tag = coalesce(try(var.operator_images["barman"].sidecar_tag, null), local.placeholder_version)
+  pull_list          = local.pull ? [{ name = local.pull_name }] : []
 
   # Built-in values (YAML). Observability files are reused verbatim with the mirror host substituted.
   builtin_values = {
-    cnpg   = yamlencode({ image = local.img.cnpg, imagePullSecrets = local.pull_list })
-    barman = yamlencode({ image = local.img.barman, imagePullSecrets = local.pull_list })
+    cnpg = yamlencode({ image = local.img.cnpg, imagePullSecrets = local.pull_list })
+    # barman chart renders {registry}/{repository}:{tag} (registry defaults to ghcr.io) for the plugin AND the sidecar CNPG injects into PG pods
+    barman = yamlencode({
+      image            = { registry = var.mirror_registry, repository = local.image_defaults.barman, tag = local.img.barman.tag }
+      sidecarImage     = { registry = var.mirror_registry, repository = "${local.image_defaults.barman}-sidecar", tag = local.barman_sidecar_tag }
+      imagePullSecrets = local.pull_list
+    })
     cert_manager = yamlencode({
       crds            = { enabled = true }
       image           = { repository = "${local.img.cert_manager.repository}-controller", tag = local.img.cert_manager.tag }
@@ -49,7 +55,7 @@ locals {
     eck = yamlencode({
       image            = local.img.eck
       config           = { containerRegistry = var.mirror_registry }
-      imagePullSecrets = [for p in local.pull_list : p.name]
+      imagePullSecrets = local.pull_list
     })
     minio_operator        = yamlencode({ operator = { image = local.img.minio_operator, imagePullSecrets = local.pull_list } })
     kube_prometheus_stack = replace(file("${local.obs_dir}/kube-prometheus-stack.values.yaml"), "MIRROR.example.com", var.mirror_registry)
@@ -90,11 +96,11 @@ locals {
   placeholder_probe = merge(
     { for k, c in local.enabled_charts : "chart.${k}.repository" => c.repository },
     { for k, c in local.enabled_charts : "chart.${k}.version" => c.version },
-    { for k, i in local.img : "operator_images.${k}" => "${i.repository} ${i.tag}" if local.charts[k].enabled },
+    { for k, i in local.img : "operator_images.${k}" => "${i.repository} ${i.tag}${k == "barman" ? " ${local.barman_sidecar_tag}" : ""}" if local.charts[k].enabled },
     { "var.mirror_registry" = var.mirror_registry, "images.registry" = var.images.registry,
     "images.digests" = "${var.images.backend_digest} ${var.images.web_digest}" },
     # loki's bundled values point at s3.example.com unless overridden
-    try(local.enabled_charts["loki"].enabled, false) && !strcontains(try(var.charts["loki"].values, ""), "endpoint") ? { "loki.s3.endpoint" = "MIRROR.example.com (s3.example.com in loki values)" } : {},
+    try(local.enabled_charts["loki"].enabled, false) && !can(regex("endpoint", var.charts["loki"].values)) ? { "loki.s3.endpoint" = "MIRROR.example.com (s3.example.com in loki values)" } : {},
     local.app_chart_remote ? { "app_chart.repository" = var.app_chart.repository, "app_chart.version" = var.app_chart.version } : {},
     local.inference_enabled ? {
       "inference.llm"    = "${var.inference.llm.image} ${var.inference.llm.model_path}"

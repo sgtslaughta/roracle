@@ -203,7 +203,7 @@ variable "secret_data" {
 
 # ---- Optional in-cluster GPU inference ----
 variable "inference" {
-  description = "Optional in-cluster OpenAI-spec LLM/embedding server (vLLM-style) + TEI reranker (bge-reranker-v2-m3). Disabled by default; images are placeholders."
+  description = "Optional in-cluster OpenAI-spec LLM/embedding server (vLLM-style) + reranker (bge-reranker-v2-m3; vLLM score engine, TEI optional). Disabled by default; images are placeholders."
   type = object({
     enabled = optional(bool, false)
     llm = optional(object({
@@ -225,7 +225,7 @@ variable "inference" {
       image           = optional(string, "MIRROR.example.com/vllm/vllm-openai:0.0.0-PLACEHOLDER")
       model_path      = optional(string, "/models/bge-reranker-v2-m3")
       served_name     = optional(string, "bge-reranker-v2-m3")
-      args            = optional(list(string), [])
+      args            = optional(list(string)) # null = engine default (vllm: ["--task","score"]; change/clear per mirrored vLLM version)
       gpus            = optional(number, 1)
       node_selector   = optional(map(string), {})
       tolerations     = optional(list(object({ key = string, operator = optional(string, "Exists"), value = optional(string), effect = optional(string, "NoSchedule") })), [{ key = "nvidia.com/gpu" }])

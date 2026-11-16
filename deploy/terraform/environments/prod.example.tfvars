@@ -7,7 +7,7 @@ ha              = true # 3 PG, 3 ES, 4x4 MinIO, HPA + PDB, topology spread (char
 
 charts = {
   cnpg                  = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
-  barman                = { repository = "oci://registry.internal.example/charts", version = "0.3.0" }
+  barman                = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
   cert_manager          = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
   eck                   = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
   minio_operator        = { repository = "oci://registry.internal.example/charts", version = "7.0.0" }
@@ -26,7 +26,7 @@ secrets_mode = "existing" # all names in secret_names (defaults) must exist in t
 # Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
 operator_images = {
   cnpg           = { tag = "1.26.0" }
-  barman         = { tag = "0.3.0" }
+  barman         = { tag = "v0.9.0", sidecar_tag = "v0.9.0" }
   cert_manager   = { tag = "v1.17.0" }
   eck            = { tag = "2.16.0" }
   minio_operator = { tag = "v7.0.0" }
