@@ -55,7 +55,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="rOracle", version=__version__, lifespan=_lifespan)
     app.state.settings = settings or get_settings()
-    app.state.session_factory = make_session_factory(app.state.settings.database_url)
+    app.state.session_factory = make_session_factory(
+        app.state.settings.database_url, app.state.settings.db_connect_timeout_s
+    )
     app.state.jwks = JwksCache(app.state.settings.oidc_jwks_url)
     app.middleware("http")(http_middleware)
     app.include_router(health.router)

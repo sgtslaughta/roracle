@@ -178,7 +178,7 @@ async def receive(
             with anyio.CancelScope(shield=True):
                 await run_in_threadpool(sink.upload.abort)
         if isinstance(e, FormParserError):
-            if "header" in str(e).lower():  # the parser's own header limits, same answer as ours
+            if "Maximum header" in str(e):  # the parser's own header limits, same answer as ours
                 raise HTTPException(400, HEADER_DETAIL) from None
             raise _bad("invalid multipart data") from None
         raise

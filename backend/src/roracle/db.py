@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 
-def make_session_factory(url: str) -> sessionmaker[Session]:
-    return sessionmaker(
-        create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 2}), expire_on_commit=False
-    )
+def make_session_factory(url: str, connect_timeout_s: int = 5) -> sessionmaker[Session]:
+    """`?connect_timeout=` in the URL wins over `connect_timeout_s` (ROR_DB_CONNECT_TIMEOUT_S)."""
+    args = {} if "connect_timeout" in make_url(url).query else {"connect_timeout": connect_timeout_s}
+    return sessionmaker(create_engine(url, pool_pre_ping=True, connect_args=args), expire_on_commit=False)
 
 
 def get_session(request: Request) -> Iterator[Session]:

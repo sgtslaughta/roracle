@@ -65,7 +65,7 @@ spec:
               # API uploads stream to tmp/<uuid> before the server-side copy to blobs/; expire crash leftovers
               # (MinIO itself drops stale incomplete multipart uploads after 24 h).
               mc ilm rule ls "local/{{ .Values.config.ROR_S3_BUCKET }}" 2>/dev/null | grep -q 'tmp/' ||
-                mc ilm rule add --prefix tmp/ --expire-days 1 "local/{{ .Values.config.ROR_S3_BUCKET }}"
+                mc ilm rule add --prefix tmp/ --expire-days 1 --noncurrent-expire-days 1 "local/{{ .Values.config.ROR_S3_BUCKET }}"
               for b in {{ include "roracle.pgBucket" . }} {{ .Values.elasticsearch.snapshot.bucket }}; do
                 mc retention set --default GOVERNANCE "{{ $m.backupRetentionDays }}d" "local/$b"
               done

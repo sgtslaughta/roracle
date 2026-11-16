@@ -21,7 +21,7 @@ def test_main_warns_when_scanning_disabled(settings, monkeypatch, caplog):
     from roracle import worker
 
     monkeypatch.setattr(worker, "get_settings", lambda: settings.model_copy(update={"clamav_host": ""}))
-    monkeypatch.setattr(worker, "make_session_factory", lambda url: None)
+    monkeypatch.setattr(worker, "make_session_factory", lambda url, *a: None)
     monkeypatch.setattr(worker, "build_handlers", lambda s, sf: {})
     monkeypatch.setattr(worker, "run_forever", lambda sf, h: None)
     monkeypatch.setattr(worker, "ensure_tick", lambda sf: None)
@@ -37,3 +37,19 @@ def test_handle_citations_takes_no_session_factory():
     from roracle.citations import handle_citations
 
     assert list(inspect.signature(handle_citations).parameters) == ["session", "payload"]
+
+
+def test_health_server_starts_before_blocking_startup_work(settings, monkeypatch):
+    from roracle import worker
+
+    order = []
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker, "make_session_factory", lambda url, *a: None)
+    monkeypatch.setattr(worker, "build_handlers", lambda s, sf: {})
+    monkeypatch.setattr(worker, "run_forever", lambda sf, h: None)
+    monkeypatch.setattr(worker.worker_health, "serve", lambda port: order.append("serve"))
+    monkeypatch.setattr(worker, "ensure_active_index", lambda s, sf: order.append("index"))
+    monkeypatch.setattr(worker, "ensure_tick", lambda sf: order.append("tick"))
+    monkeypatch.setattr(worker, "ensure_maintenance", lambda sf: order.append("maint"))
+    worker.main()
+    assert order[0] == "serve"

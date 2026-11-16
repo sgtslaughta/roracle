@@ -19,3 +19,18 @@ def test_20mib_roundtrip_through_real_minio(client, as_ana, s3, s3_client, test_
     assert hashlib.sha256(got).hexdigest() == sha
     assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118
     assert s3_client.list_multipart_uploads(Bucket=test_bucket).get("Uploads", []) == []
+
+
+def test_same_content_second_upload_recopies_object(client, as_ana, s3_client, test_bucket):
+    """ADR-0008: dedup is DB-only; every upload copies tmp/ -> blobs/, healing a missing/stale object."""
+    data = os.urandom(1024)
+    sha = hashlib.sha256(data).hexdigest()
+    key = f"blobs/{sha[:2]}/{sha}"
+    up = {"file": ("a.bin", data, "application/x-test")}
+    assert client.post("/documents", headers=as_ana, files=up).status_code == 201
+    first = s3_client.head_object(Bucket=test_bucket, Key=key)["LastModified"]
+    s3_client.delete_object(Bucket=test_bucket, Key=key)  # simulate a lost object behind a live blobs row
+    assert client.post("/documents", headers=as_ana, files=up, data={"force": "true"}).status_code == 201
+    head = s3_client.head_object(Bucket=test_bucket, Key=key)
+    assert head["ContentLength"] == len(data) and head["LastModified"] >= first
+    assert not [o for o in s3_client.list_objects_v2(Bucket=test_bucket, Prefix="tmp/").get("Contents", [])]

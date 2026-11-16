@@ -48,6 +48,24 @@ def post(client, h, nid, prov=None, stance="supports", data=b"results", **extra)
     )
 
 
+def test_note_deleted_during_upload_is_404_not_500(client, as_ana, note, db_session, s3, monkeypatch):
+    from roracle.api.routes import evidence as route
+    from roracle.models import Annotation
+
+    real = route.receive
+
+    async def receive_then_delete(*a, **kw):
+        got = await real(*a, **kw)
+        db_session.execute(Annotation.__table__.delete().where(Annotation.id == uuid.UUID(note)))
+        db_session.commit()
+        return got
+
+    monkeypatch.setattr(route, "receive", receive_then_delete)
+    r = post(client, as_ana, note)
+    assert r.status_code == 404 and r.json() == NF
+    assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118
+
+
 def test_crate_shape():
     c = ev.crate(ev.Provenance(**PROV))
     assert c["@context"] == "https://w3id.org/ro/crate/1.1/context"

@@ -11,7 +11,17 @@ from sqlalchemy import select
 from test_evidence import PROV
 
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationShare, Connector, Job, Notification, Proposal, Tag, User
+from roracle.models import (
+    Annotation,
+    AnnotationShare,
+    Connector,
+    ConnectorRun,
+    Job,
+    Notification,
+    Proposal,
+    Tag,
+    User,
+)
 from roracle.notes import proposals
 from roracle.notes.community import attach_notes
 
@@ -254,13 +264,17 @@ def test_connector_last_run_queued(client, adm, db_session, user):
     db_session.add(c)
     db_session.commit()
     assert client.get(f"/admin/connectors/{c.id}", headers=adm).json()["last_run"] is None
+    db_session.add(
+        ConnectorRun(connector_id=c.id, status="ok", finished_at=datetime.now(UTC), stats={"n": 1})
+    )
     j = Job(kind="connector_run", status="queued", payload={"connector_id": str(c.id)})
     db_session.add(j)
     db_session.commit()
     lr = client.get(f"/admin/connectors/{c.id}", headers=adm).json()["last_run"]
     assert lr["status"] == "queued" and lr["job_id"] == j.id
+    assert lr["finished_at"] is None and lr["stats"] == {}  # the previous run's result must not leak
     lr = client.get("/admin/connectors", headers=adm).json()["items"][0]["last_run"]
     assert lr["status"] == "queued" and lr["job_id"] == j.id
     j.status = "running"
     db_session.commit()
-    assert client.get(f"/admin/connectors/{c.id}", headers=adm).json()["last_run"] is None
+    assert client.get(f"/admin/connectors/{c.id}", headers=adm).json()["last_run"]["status"] == "ok"

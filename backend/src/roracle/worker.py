@@ -69,10 +69,12 @@ def main() -> None:
     settings = get_settings()
     if not settings.clamav_host:
         log.warning("clamav_host is empty: malware scanning disabled")
-    sf = make_session_factory(settings.database_url)
+    sf = make_session_factory(settings.database_url, settings.db_connect_timeout_s)
     HANDLERS.update(build_handlers(settings, sf))
+    worker_health.serve(
+        settings.worker_health_port
+    )  # first: startup work below can block (legacy adopt, slow ES)
     ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
-    worker_health.serve(settings.worker_health_port)
     run_forever(sf, HANDLERS)

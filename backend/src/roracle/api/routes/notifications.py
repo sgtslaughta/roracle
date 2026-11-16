@@ -26,6 +26,8 @@ def list_notifications(
     since_id: int | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict:
+    """Newest first. `since_id` polls for newer rows: if more than `limit` are new, the page holds the newest
+    `limit` and the older gap is reachable via `next_before_id` (page back until it is null or <= since_id)."""
     mine = Notification.user_id == p.user_id
     q = select(Notification).where(mine).order_by(Notification.id.desc()).limit(limit + 1)
     if unread_only:

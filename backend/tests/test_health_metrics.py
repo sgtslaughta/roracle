@@ -163,7 +163,11 @@ def test_db_connect_timeout_bounded(monkeypatch):
     seen = {}
     monkeypatch.setattr(db, "create_engine", lambda url, **kw: seen.update(kw))
     db.make_session_factory("postgresql+psycopg://x/y")
-    assert seen["connect_args"]["connect_timeout"] <= 3  # bounds /readyz DB check and the metrics collector
+    assert seen["connect_args"]["connect_timeout"] == 5  # bounds /readyz DB check and the metrics collector
+    db.make_session_factory("postgresql+psycopg://x/y", 9)
+    assert seen["connect_args"]["connect_timeout"] == 9
+    db.make_session_factory("postgresql+psycopg://x/y?connect_timeout=30")
+    assert seen["connect_args"] == {}  # the URL's own value applies
 
 
 def test_readyz_s3_client_has_short_timeouts(app):

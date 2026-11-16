@@ -95,3 +95,20 @@ def test_mcp_bearer_path_is_limited(app, settings, as_ana):
         r = mc.post("/mcp", headers=h, content=body)
         assert r.status_code == 429 and r.json() == {"detail": "rate limited"}
         assert int(r.headers["retry-after"]) >= 1 and "www-authenticate" not in r.headers
+
+
+def test_runtime_setting_drives_the_limit(client, as_ana, make_token):
+    adm = bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+    r = client.put("/admin/settings", json={"rate_limit_per_minute": 2}, headers=adm)
+    assert r.status_code == 200, r.text
+    ratelimit.LIMITER._b.clear()
+    assert [client.get("/me", headers=as_ana).status_code for _ in range(3)] == [200, 200, 429]
+
+
+@pytest.mark.usefixtures("_blob_store_override")
+def test_upload_429_before_any_tmp_object(app, client, settings, as_ana, s3):
+    limited(app, settings, 1)
+    assert client.get("/me", headers=as_ana).status_code == 200
+    r = client.post("/documents", headers=as_ana, files={"file": ("a.pdf", b"%PDF-1", "application/pdf")})
+    assert r.status_code == 429
+    assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118

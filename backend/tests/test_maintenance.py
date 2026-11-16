@@ -69,7 +69,7 @@ def test_purge_respects_age_and_leaves_live_docs(db_session, user, store):
     trash(db_session, db_session.get(Document, old.document_id), 40)
     trash(db_session, db_session.get(Document, recent.document_id), 5)
     es = FakeEs()
-    maintenance.purge(db_session, es, settings(30))
+    maintenance.purge(db_session, es, settings(30), store)
     db_session.commit()
     assert es.deleted == [str(old.document_id)]
     assert db_session.get(Document, old.document_id) is None
@@ -84,7 +84,7 @@ def test_purge_off_when_days_zero(db_session, user, store):
     v = make_version(db_session, store, user)
     trash(db_session, db_session.get(Document, v.document_id), 400)
     es = FakeEs()
-    maintenance.purge(db_session, es, settings(0))
+    maintenance.purge(db_session, es, settings(0), store)
     assert es.deleted == [] and db_session.get(Document, v.document_id) is not None
 
 
@@ -100,7 +100,7 @@ def test_purge_removes_notes_and_near_dup_links(db_session, user, store):
     )  # fmt: skip
     db_session.commit()
     trash(db_session, db_session.get(Document, old.document_id), 40)
-    maintenance.purge(db_session, FakeEs(), settings(30))
+    maintenance.purge(db_session, FakeEs(), settings(30), store)
     db_session.commit()
     assert db_session.scalar(select(func.count()).select_from(Annotation)) == 0
     db_session.refresh(other)
@@ -113,7 +113,7 @@ def test_gc_keeps_blob_shared_by_live_and_purged_version(db_session, user, store
     b.blob_sha256 = a.blob_sha256  # same content, two documents
     db_session.commit()
     trash(db_session, db_session.get(Document, a.document_id), 40)
-    maintenance.purge(db_session, FakeEs(), settings(30))
+    maintenance.purge(db_session, FakeEs(), settings(30), store)
     db_session.commit()
     age_blobs(db_session)
     fs = fake_store()
@@ -282,7 +282,7 @@ def test_purge_poison_doc_is_skipped_and_others_purged(db_session, user, store):
                 raise RuntimeError("boom")
             return super().delete_by_query(**kw)
 
-    maintenance.purge(db_session, Es(), settings())
+    maintenance.purge(db_session, Es(), settings(), store)
     assert db_session.get(Document, bad.document_id) is not None
     assert db_session.get(Document, good.document_id) is None
 
@@ -300,8 +300,52 @@ def test_purge_decrements_evidence_blob_refcount(db_session, user, store):
         Evidence(annotation_id=note.id, creator_id=user.id, stance="supports", crate={}, blob_sha256="4" * 64)
     )
     trash(db_session, db_session.get(Document, v.document_id), 40)
-    maintenance.purge(db_session, FakeEs(), settings())
+    maintenance.purge(db_session, FakeEs(), settings(), store)
     assert db_session.get(Blob, "4" * 64).refcount == 0
+
+
+def test_purge_deletes_derived_objects(db_session, user, store, s3):
+    v = make_version(db_session, store, user)
+    keep = make_version(db_session, store, user)
+    for x in (v, keep):
+        for name in ("rendition.pdf", "docling.json"):
+            store.put_bytes(f"derived/{x.id}/{name}", b"text", "application/octet-stream")
+    trash(db_session, db_session.get(Document, v.document_id), 40)
+    maintenance.purge(db_session, FakeEs(), settings(30), store)
+    keys = s3.keys()
+    assert not [k for k in keys if k.startswith(f"derived/{v.id}/")]
+    assert f"derived/{keep.id}/docling.json" in keys
+
+
+class _Indices:
+    def __init__(self, alias, index):
+        self.alias, self.index = alias, index
+
+    def exists_alias(self, name):
+        return self.alias
+
+    def exists(self, index):
+        return self.index
+
+
+def _missing_es(alias, index):
+    from elasticsearch import NotFoundError
+
+    class Es(FakeEs):
+        indices = _Indices(alias, index)
+
+        def delete_by_query(self, **kw):
+            raise NotFoundError("nf", SimpleNamespace(status=404), {})
+
+    return Es()
+
+
+@pytest.mark.parametrize(("alias", "index", "purged"), [(False, False, True), (False, True, False)])
+def test_purge_missing_alias_only_ignored_when_nothing_indexed(db_session, user, store, alias, index, purged):
+    v = make_version(db_session, store, user)
+    trash(db_session, db_session.get(Document, v.document_id), 40)
+    maintenance.purge(db_session, _missing_es(alias, index), settings(30), store)
+    assert (db_session.get(Document, v.document_id) is None) is purged
 
 
 def test_periodic_reschedule_survives_failed_step_and_ensure(db_session, user, session_factory, monkeypatch):

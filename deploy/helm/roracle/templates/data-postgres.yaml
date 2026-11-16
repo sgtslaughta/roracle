@@ -125,7 +125,7 @@ spec:
 {{- end }}
 {{- if $pg.monitoring.enabled }}
 ---
-# Queue metrics from the existing jobs table (the backend exposes no /metrics yet).
+# Queue metrics from the existing jobs table (not used by the dashboard: the backend exposes /metrics).
 apiVersion: v1
 kind: ConfigMap
 metadata:

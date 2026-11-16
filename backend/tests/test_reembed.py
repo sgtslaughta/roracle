@@ -395,7 +395,7 @@ def test_mutations_target_chunks_all(db_session, es):
 def test_purge_deletes_via_chunks_all(db_session, es):
     from roracle import maintenance
 
-    maintenance._purge_doc(db_session, es, __import__("uuid").uuid4())
+    maintenance._purge_doc(db_session, es, None, __import__("uuid").uuid4())
     assert es.mutations == ["chunks-all"]
 
 

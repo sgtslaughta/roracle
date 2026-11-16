@@ -7,3 +7,9 @@ def test_metrics_blocked_before_api_proxy():
     text = SCRIPT.read_text()
     assert "location ^~ /api/metrics { return 404; }" in text
     assert text.index("/api/metrics") < text.index("location /api/ {")
+
+
+def test_readyz_blocked_before_api_proxy():
+    text = SCRIPT.read_text()
+    assert "location = /api/readyz { return 404; }" in text
+    assert text.index("/api/readyz") < text.index("location /api/ {")

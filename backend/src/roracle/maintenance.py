@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue
-from roracle.search_index import MUTATE_ALIAS
+from roracle.search_index import ALIAS, MUTATE_ALIAS
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ RECONCILE_BATCH = 500
 _MISSING = {"404", "NoSuchKey", "NotFound"}
 
 
-def purge(session: Session, es: Elasticsearch, settings: Any) -> int:
+def purge(session: Session, es: Elasticsearch, settings: Any, store: BlobStore) -> int:
     """Hard-delete up to PURGE_BATCH documents soft-deleted more than N days ago; 0 days = off."""
     if settings.retention_deleted_days <= 0:
         return 0
@@ -48,13 +48,13 @@ def purge(session: Session, es: Elasticsearch, settings: Any) -> int:
     for doc_id in docs:
         try:
             with session.begin_nested():  # one poison document must not stall the rest
-                _purge_doc(session, es, doc_id)
+                _purge_doc(session, es, store, doc_id)
         except Exception:
             log.exception("purge of document %s failed; skipped", doc_id)
     return len(docs)
 
 
-def _purge_doc(session: Session, es: Elasticsearch, doc_id: UUID) -> None:
+def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UUID) -> None:
     try:  # chunks first: a retry after a later failure finds nothing left to delete
         r = es.delete_by_query(
             index=MUTATE_ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
@@ -62,7 +62,10 @@ def _purge_doc(session: Session, es: Elasticsearch, doc_id: UUID) -> None:
         if r and r.get("failures"):
             raise RuntimeError(f"delete_by_query failures: {r['failures'][:1]}")
     except NotFoundError:
-        pass  # nothing indexed yet
+        # only "no index at all" means nothing was indexed; a missing `chunks-all` alias with a live
+        # `chunks` index would orphan the ES chunks, so raise (savepoint skips the doc, retried next run)
+        if es.indices.exists_alias(name=MUTATE_ALIAS) or es.indices.exists(index=ALIAS):
+            raise
     versions = session.execute(
         select(DocumentVersion.id, DocumentVersion.blob_sha256).where(DocumentVersion.document_id == doc_id)
     ).all()
@@ -85,6 +88,18 @@ def _purge_doc(session: Session, es: Elasticsearch, doc_id: UUID) -> None:
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc_id))
     session.execute(delete(DocumentVersion).where(DocumentVersion.document_id == doc_id))
     session.execute(delete(Document).where(Document.id == doc_id))  # notes, tags, votes, citations cascade
+    for (
+        vid
+    ) in vids:  # derived text (docling json, rendition) outlives the rows otherwise; blob GC skips derived/
+        _delete_prefix(store, f"derived/{vid}/")
+
+
+def _delete_prefix(store: BlobStore, prefix: str) -> None:
+    pages = store.client.get_paginator("list_objects_v2").paginate(Bucket=store.bucket, Prefix=prefix)
+    for page in pages:
+        keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+        if keys:
+            store.client.delete_objects(Bucket=store.bucket, Delete={"Objects": keys, "Quiet": True})
 
 
 def _referenced(session: Session, sha: str) -> bool:
@@ -172,7 +187,7 @@ def handle_maintenance(
         return False
 
     steps = {
-        "purge": lambda: purge(session, es, settings) == PURGE_BATCH,
+        "purge": lambda: purge(session, es, settings, store) == PURGE_BATCH,
         "gc": lambda: gc_blobs(session, store) == GC_BATCH,
         "reconcile": _reconcile,
     }

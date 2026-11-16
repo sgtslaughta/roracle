@@ -83,6 +83,9 @@ def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depe
     note, rec = got
     staged = rec.staged
     try:
+        note = get_readable(
+            session, p, note.id
+        )  # the note may have been hidden/deleted during the body stream
         if "meta" not in rec.fields:
             raise HTTPException(422, "meta is required")
         m = _meta(rec.fields["meta"])

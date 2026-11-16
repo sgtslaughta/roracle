@@ -6,7 +6,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -152,21 +153,40 @@ def _out(c: Connector) -> dict:
 
 
 def _with_last(session: Session, c: Connector) -> dict:
-    last = _last_run(session, c.id)
-    out = _run(last) if last else None
-    queued = session.scalar(
-        select(Job.id)
-        .where(
-            Job.kind == "connector_run",
-            Job.status == "queued",
-            Job.payload["connector_id"].astext == str(c.id),
+    return _with_lasts(session, [c])[0]
+
+
+def _with_lasts(session: Session, cs: list[Connector]) -> list[dict]:
+    """Connectors + last run, in two queries total (not per connector)."""
+    ids = [c.id for c in cs]
+    last = {
+        r.connector_id: r
+        for r in session.scalars(
+            select(ConnectorRun)
+            .where(ConnectorRun.connector_id.in_(ids))
+            .ext(distinct_on(ConnectorRun.connector_id))
+            .order_by(ConnectorRun.connector_id, ConnectorRun.id.desc())
         )
-        .limit(1)
-    )
-    if queued is not None:  # a trigger waiting for the worker outranks the previous run's status
-        out = {"id": None, "started_at": None, "finished_at": None, "stats": {}, **(out or {})}
-        out |= {"status": "queued", "job_id": queued}
-    return {**_out(c), "last_run": out}
+    }
+    cid = Job.payload["connector_id"].astext
+    queued = {
+        k: j
+        for k, j in session.execute(
+            select(cid, func.min(Job.id))
+            .where(Job.kind == "connector_run", Job.status == "queued", cid.in_([str(i) for i in ids]))
+            .group_by(cid)
+        )
+    }
+    out = []
+    for c in cs:
+        run = _run(last[c.id]) if c.id in last else None
+        if (
+            job := queued.get(str(c.id))
+        ) is not None:  # a trigger waiting for the worker outranks the last run
+            run = {"id": None, "started_at": None, **(run or {})}  # id/started_at stay: the previous run's
+            run |= {"status": "queued", "job_id": job, "finished_at": None, "stats": {}}
+        out.append({**_out(c), "last_run": run})
+    return out
 
 
 def _run(r: ConnectorRun, log: bool = False) -> dict:
@@ -204,7 +224,7 @@ def _name_free(session: Session, name: str, skip: UUID | None = None) -> None:
 @router.get("/admin/connectors")
 def list_connectors(p: Admin, session: Db) -> dict:
     cs = session.scalars(select(Connector).order_by(Connector.name)).all()
-    return {"items": [_with_last(session, c) for c in cs]}
+    return {"items": _with_lasts(session, list(cs))}
 
 
 @router.post("/admin/connectors", status_code=201)
