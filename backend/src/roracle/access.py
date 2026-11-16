@@ -77,8 +77,10 @@ def visible_documents(p: Principal) -> ColumnElement[bool]:
         or_(
             Document.visibility == "everyone",
             Document.owner_id == p.user_id,
-            _share("user", [str(p.user_id)]),
-            _share("group", groups) if groups else false(),
+            and_(
+                Document.visibility == "shared",  # stale share rows under other visibilities are inert
+                or_(_share("user", [str(p.user_id)]), _share("group", groups) if groups else false()),
+            ),
             org,
         ),
     )

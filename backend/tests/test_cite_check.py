@@ -321,7 +321,7 @@ def _co(client, as_ana, cara, i):
 
 
 def test_report_is_per_principal(client, as_ana, ana, cara, db_session, es, llm):
-    d, v = seed(db_session, ana, title="CARA ONLY TITLE", visibility="private")
+    d, v = seed(db_session, ana, title="CARA ONLY TITLE", visibility="shared")
     db_session.flush()
     i = mk(client, as_ana, cite(f"psg:{v.id}:0"))
     _co(client, as_ana, cara, i)

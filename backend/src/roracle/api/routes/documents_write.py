@@ -108,6 +108,8 @@ def patch_document(
         _set_shares(session, doc, "user", users)
     if body.share_groups is not None:
         _set_shares(session, doc, "group", body.share_groups)
+    if doc.visibility != "shared":  # shares are inert unless shared; drop them so re-sharing starts clean
+        session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
     session.flush()
     # Ordering: ES first, then commit. The acl_sync job is enqueued in the same transaction, so even
     # a crash after commit converges. If ES or the commit fails we roll back and re-sync ES from the

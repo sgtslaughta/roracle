@@ -17,6 +17,18 @@ def _p(groups=(), admin=False, uid=None):
     return Principal(user_id=uid or uuid.uuid4(), sub="s", username="u", groups=tuple(groups), is_admin=admin)
 
 
+def _shared(uid, *groups):
+    grants = [{"term": {"share_users": uid}}]
+    if groups:
+        grants.append({"terms": {"share_groups": list(groups)}})
+    return {
+        "bool": {
+            "must": [{"term": {"visibility": "shared"}}],
+            "filter": [{"bool": {"should": grants, "minimum_should_match": 1}}],
+        }
+    }
+
+
 def test_admin_matches_all():
     assert acl_filter(_p(admin=True)) == {"match_all": {}}
 
@@ -28,15 +40,16 @@ def test_groupless_shape_has_no_share_groups_clause():
     assert f["bool"]["should"] == [
         {"term": {"visibility": "everyone"}},
         {"term": {"owner_id": str(p.user_id)}},
-        {"term": {"share_users": str(p.user_id)}},
+        _shared(str(p.user_id)),
         {"bool": {"must": [{"term": {"visibility": "org_unit"}}, {"terms": {"org_unit": ["/"]}}]}},
     ]
 
 
 def test_groups_add_share_groups_and_ancestor_terms():
-    f = acl_filter(_p(["/A/B"]))
+    p = _p(["/A/B"])
+    f = acl_filter(p)
     should = f["bool"]["should"]
-    assert {"terms": {"share_groups": ["/A/B"]}} in should
+    assert _shared(str(p.user_id), "/A/B") in should
     assert should[-1]["bool"]["must"][1] == {"terms": {"org_unit": ["/", "/A", "/A/B"]}}
 
 
@@ -78,6 +91,10 @@ def test_sql_es_parity(es, model, db_session, blob):
         "org_underscore": (eve, "org_unit", "/Chem_Lab", []),
         "org_lookalike": (eve, "org_unit", "/ChemXLab", []),
         "org_percent": (eve, "org_unit", "/Chem%Lab", []),
+        "private_stale_user": (eve, "private", "/", [("user", str(bob.id))]),
+        "private_stale_group": (eve, "private", "/", [("group", "/Physics")]),
+        "org_stale_share": (eve, "org_unit", "/Zoology", [("user", str(carol.id)), ("group", "/Physics")]),
+        "everyone_with_shares": (eve, "everyone", "/", [("user", str(carol.id))]),
         "deleted": (eve, "everyone", "/", []),
     }
     docs: dict[str, Document] = {}
@@ -133,5 +150,5 @@ def test_sql_es_parity(es, model, db_session, blob):
 
 
 def test_share_groups_normalised_like_sql():
-    should = acl_filter(_p(["Physics", "/Chem/", "/", ""]))["bool"]["should"]
-    assert {"terms": {"share_groups": ["/Physics", "/Chem"]}} in should
+    p = _p(["Physics", "/Chem/", "/", ""])
+    assert _shared(str(p.user_id), "/Physics", "/Chem") in acl_filter(p)["bool"]["should"]

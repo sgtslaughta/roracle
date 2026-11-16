@@ -61,7 +61,7 @@ def test_owner_updates_and_es_params(client, as_ana, ana, bob, db_session, fes):
 
 
 def test_shares_replace_and_title_omitted(client, as_ana, ana, bob, db_session, fes):
-    d, _ = seed(db_session, ana)
+    d, _ = seed(db_session, ana, visibility="shared")
     patch(client, as_ana, d, share_users=[str(bob)], share_groups=["/A"])
     patch(client, as_ana, d, share_users=[])
     rows = db_session.execute(select(DocumentShare.principal_kind, DocumentShare.principal)).all()
