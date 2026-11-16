@@ -65,6 +65,13 @@ def _remove_coauthors(session: Session, doc: Document, keep: set[UUID]) -> None:
             DocumentCoauthor.document_id == doc.id, DocumentCoauthor.user_id.in_(have - keep)
         )
     )
+    session.execute(  # a removed co-author must not keep access via a user share either
+        delete(DocumentShare).where(
+            DocumentShare.document_id == doc.id,
+            DocumentShare.principal_kind == "user",
+            DocumentShare.principal.in_([str(u) for u in have - keep]),
+        )
+    )
     if d := session.get(Draft, doc.id):  # a later re-publish must not bring them back
         d.coauthors = {
             **d.coauthors,

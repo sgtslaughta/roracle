@@ -105,3 +105,32 @@ def test_checks_are_callers_own(client, as_ana, ana, as_bob, bob, db_session):
     assert theirs["validation"] is None and theirs["citations"] is None
     stranger = client.get(f"/drafts/{uuid.uuid4()}/checks", headers=as_bob)
     assert stranger.status_code == 404
+
+
+def test_removing_coauthor_revokes_share(client, as_ana, ana, as_bob, bob, db_session, s3, app):
+    from api_seed import FakeES
+    from test_search_api import FakeLLM, hit
+
+    from roracle.api.routes.library import get_es
+    from roracle.api.routes.search import get_llm
+
+    class UES(FakeES):
+        def update_by_query(self, **kw):
+            return {}
+
+    fes = UES()
+    app.dependency_overrides[get_es] = lambda: fes
+    app.dependency_overrides[get_llm] = lambda: FakeLLM()
+    i = publish(client, db_session, as_ana, ana, bob)
+    r = client.patch(
+        f"/documents/{i}", headers=as_ana, json={"visibility": "shared", "share_users": [str(bob)]}
+    )
+    assert r.status_code == 200
+    r = client.patch(f"/documents/{i}", headers=as_ana, json={"coauthors": []})
+    assert r.status_code == 200
+    assert db_session.scalars(select(DocumentShare)).all() == []
+    assert client.get(f"/documents/{i}", headers=as_bob).status_code == 404
+    doc = db_session.get(Document, uuid.UUID(i))
+    ver = db_session.scalars(select(DocumentVersion).where(DocumentVersion.document_id == doc.id)).first()
+    fes.hits = [hit(doc, ver)]
+    assert client.get("/search", headers=as_bob, params={"q": "alpha"}).json()["results"] == []
