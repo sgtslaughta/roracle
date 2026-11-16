@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
     writing_max_citations: int = 200  # distinct citation keys a draft may use
     writing_validate_budget_s: float = 10  # deterministic checks wall-clock budget (fail closed)
+    draft_gotenberg_url: str = ""  # separate Chromium-enabled Gotenberg for draft PDF builds; empty = 503
+    build_timeout_s: float = 120.0  # per pandoc call and for the Gotenberg request
+    build_max_pdf_bytes: int = 100 * 1024 * 1024
+    latex_builder: str = "disabled"  # `disabled` -> format: latex builds return 501
     writing_model: str = ""  # P9 style check / citation judge; empty = first chat model
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)

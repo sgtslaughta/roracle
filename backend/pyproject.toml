@@ -22,6 +22,7 @@ dependencies = [
   "rapidfuzz>=3.14.6",
   "mcp>=2.3,<3",
   "pyyaml>=6.0.3",
+  "pypandoc-binary>=1.17",
 ]
 
 [dependency-groups]
