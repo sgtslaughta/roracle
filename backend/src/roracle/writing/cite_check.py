@@ -23,6 +23,7 @@ from roracle.config import Settings
 from roracle.models import Document, DocumentVersion
 from roracle.models_writing import Draft
 from roracle.notes.access import readable_doc_ids
+from roracle.queue import NonRetryable
 from roracle.search_acl import acl_filter
 from roracle.search_index import index_name
 from roracle.writing import drafts
@@ -216,11 +217,13 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
                     _item(key, s, status="resolved", verdict=verdict, reason=reason,
                           chunk_id=psg["chunk_id"], doc_id=psg["doc_id"], title=psg.get("title") or "")
                 )  # fmt: skip
-    except (openai.APIError, httpx.HTTPError):
+    except (openai.APIError, httpx.HTTPError, RuntimeError, NonRetryable):  # judge or embedding outage
         raise HTTPException(503, "inference unavailable") from None
     except (TransportError, ApiError):
         raise HTTPException(503, "search unavailable") from None
-    report = apply_acks({"version": v.version, "ok": False, "items": items}, d.acks or [])
+    report = apply_acks(
+        {"version": v.version, "checked_by": str(p.user_id), "ok": False, "items": items}, d.acks or []
+    )
     v.citations = report
     session.flush()
     return report
@@ -232,7 +235,8 @@ ACKS_MAX = 1000
 def _stored(session: Session, p: Principal, doc_id: UUID):
     _, d = drafts.owned_or_coauthored(session, p, doc_id, lock=True)
     v = drafts.latest_version(session, doc_id)
-    if v is None or not v.citations or v.citations.get("version") != v.version:
+    rep = v.citations if v else None  # reports are per principal: another author's is "absent"
+    if not rep or rep.get("version") != v.version or rep.get("checked_by") != str(p.user_id):
         raise HTTPException(409, {"code": "checks_required"})
     return d, v
 
@@ -245,13 +249,16 @@ def acknowledge(
     item = next((i for i in v.citations["items"] if i["key"] == key and i["sentence_hash"] == shash), None)
     if item is None or (reason is not None and item["status"] != "resolved"):
         raise HTTPException(422, "not an acknowledgeable citation of the latest check")
-    acks = [a for a in d.acks or [] if (a["key"], a["sentence_hash"]) != (key, shash)]
+    live = {(i["key"], i["sentence_hash"]) for i in v.citations["items"]}
+    acks = [a for a in d.acks or [] if (a["key"], a["sentence_hash"]) in live - {(key, shash)}]
+    if reason is not None and len(acks) >= ACKS_MAX:
+        raise HTTPException(422, "too many acknowledgements")
     if reason is not None:
         acks.append(
             {"key": key, "sentence_hash": shash, "reason": reason, "user_id": str(p.user_id),
              "at": datetime.now(UTC).isoformat()}
         )  # fmt: skip
-    d.acks = acks[-ACKS_MAX:]
+    d.acks = acks
     v.citations = apply_acks(json.loads(json.dumps(v.citations)), d.acks)
     audit(
         session, p, "draft.cite_ack" if reason is not None else "draft.cite_unack", str(doc_id), {"key": key}

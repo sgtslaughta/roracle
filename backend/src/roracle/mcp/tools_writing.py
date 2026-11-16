@@ -54,6 +54,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         blocking, warnings}; each finding is {rule, message, line}. Blocking findings must be fixed."""
 
         def go(session: Session, p: Principal) -> dict:
+            _need_write(p)  # stores a report
             try:
                 doc_id = UUID(draft_id)
             except ValueError:
@@ -71,6 +72,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         acknowledged}. Unresolved keys do not exist or are not readable by you (indistinguishable)."""
 
         def go(session: Session, p: Principal) -> dict:
+            _need_write(p)  # stores a report
             try:
                 doc_id = UUID(draft_id)
             except ValueError:

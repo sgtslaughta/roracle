@@ -90,6 +90,7 @@ def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UU
     report = {
         "version": v.version if v else 0,
         "profile": {"name": prof.name, "version": pver, "source": src},
+        "checked_by": str(p.user_id),  # resolved under this principal's ACL: show it to nobody else
         "ok": not blocking,
         "blocking": blocking,
         "warnings": warnings,

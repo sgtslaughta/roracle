@@ -145,10 +145,10 @@ def test_mcp_validate(mc, ana, bob, db_session, fes, llm):  # noqa: F811
     h = pat(db_session, ana, ["read", "write"])
     _, out = call(mc, h, "save_draft", content=BASE, title="T")
     llm.text = '{"warnings": []}'
-    err, rep = call(mc, pat(db_session, ana, ["read"]), "validate_draft", draft_id=out["draft_id"])
+    err, rep = call(mc, pat(db_session, ana, ["read", "write"]), "validate_draft", draft_id=out["draft_id"])
     assert not err and rep["version"] == 1 and rep["profile"]["name"] == "journal-article"
     assert db_session.scalar(select(DraftVersion.validation)) == rep
-    err, text = call(mc, pat(db_session, bob, ["read"]), "validate_draft", draft_id=out["draft_id"])
+    err, text = call(mc, pat(db_session, bob, ["read", "write"]), "validate_draft", draft_id=out["draft_id"])
     assert err and "not found" in text
     assert call(mc, h, "validate_draft", draft_id="zzz")[0]
 
