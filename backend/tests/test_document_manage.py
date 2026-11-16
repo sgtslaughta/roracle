@@ -107,3 +107,37 @@ def test_owner_rechecked_after_lock(client, as_ana, ana, bob, db_session, sessio
     assert client.delete(f"/documents/{d.id}", headers=as_ana).status_code == 403
     db_session.expire_all()
     assert db_session.get(Document, d.id).deleted_at is None
+
+
+def test_patch_owner_rechecked_after_lock(
+    client, as_ana, ana, bob, db_session, session_factory, fes, monkeypatch
+):
+    from roracle.api.routes import documents_write as m
+
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    real = m._doc
+
+    def racing(session, p, doc_id):
+        doc = real(session, p, doc_id)
+        with session_factory() as s:  # transfer commits between load and lock
+            s.get(Document, doc_id).owner_id = bob
+            s.commit()
+        return doc
+
+    monkeypatch.setattr(m, "_doc", racing)
+    assert (
+        client.patch(f"/documents/{d.id}", json={"visibility": "private"}, headers=as_ana).status_code == 403
+    )
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).visibility == "everyone"
+
+
+@pytest.mark.parametrize("unit", ["/", ""])
+def test_patch_rejects_root_org_unit(client, as_ana, ana, db_session, fes, unit):
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    r = client.patch(f"/documents/{d.id}", json={"visibility": "org_unit", "org_unit": unit}, headers=as_ana)
+    assert r.status_code == 422
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).visibility == "everyone"

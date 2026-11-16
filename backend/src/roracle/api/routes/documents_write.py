@@ -102,6 +102,9 @@ def patch_document(
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
     doc = _doc(session, p, doc_id)
+    # Serialize concurrent PATCHes per document (flush -> ES -> commit runs under this row lock) and
+    # authorize against the LOCKED owner: a transfer committing between load and lock must win.
+    session.refresh(doc, with_for_update=True)
     if not _privileged(doc, p):
         if not session.scalar(
             select(DocumentVersion.id).where(
@@ -114,8 +117,6 @@ def patch_document(
         select(Draft.document_id).where(Draft.document_id == doc_id, Draft.status.in_(("draft", "in_review")))
     ):
         raise HTTPException(409, "use the /drafts endpoints")  # after the 404/403 checks: leaks nothing
-    # Serialize concurrent PATCHes per document: flush -> ES -> commit runs under this row lock.
-    session.refresh(doc, with_for_update=True)
     users: list[str] | None = None
     if body.share_users is not None:
         ids = {u for u in body.share_users if u != doc.owner_id}
@@ -133,8 +134,10 @@ def patch_document(
         doc.visibility = body.visibility
     if body.org_unit is not None:
         doc.org_unit = body.org_unit
-    if session.get(Draft, doc_id) and (err := org_unit_error(doc.visibility, doc.org_unit)):
-        raise HTTPException(422, err)  # published drafts: same fail-closed rule as submit
+    if (body.visibility is not None or body.org_unit is not None) and (
+        err := org_unit_error(doc.visibility, doc.org_unit)
+    ):
+        raise HTTPException(422, err)  # same fail-closed rule as upload/submit
     if users is not None:
         _set_shares(session, doc, "user", users)
     if body.share_groups is not None:

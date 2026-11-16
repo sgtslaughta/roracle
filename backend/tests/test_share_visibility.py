@@ -106,7 +106,12 @@ def test_patch_to_private_drops_shares_and_revokes(app, client, as_ana, as_bob, 
         client.patch(
             f"/documents/{d.id}", headers=as_ana, json={"visibility": "shared", "share_users": [str(bob)]}
         )
-        assert client.patch(f"/documents/{d.id}", headers=as_ana, json={"visibility": vis}).status_code == 200
+        assert (
+            client.patch(
+                f"/documents/{d.id}", headers=as_ana, json={"visibility": vis, "org_unit": "/Physics"}
+            ).status_code
+            == 200
+        )
         assert db_session.scalars(select(DocumentShare).where(DocumentShare.document_id == d.id)).all() == []
         assert db_session.scalars(select(Job).where(Job.kind == "acl_sync")).first() is not None
     client.patch(f"/documents/{d.id}", headers=as_ana, json={"visibility": "private"})
