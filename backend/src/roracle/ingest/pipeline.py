@@ -140,8 +140,8 @@ def _index(
     set_stage(sf, v.id, "chunked")
     prompts = [doc_prompt(title, c.contextual, v.summary) for c in chunks]
     shas = [prompt_sha(p) for p in prompts]
-    search_index.ensure_index(es, settings.embed_model, settings.embed_dims)
-    cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims)
+    index = search_index.active_index(settings)
+    cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
     miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
     fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
     vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
@@ -159,9 +159,11 @@ def _index(
         update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
     elif sv is not None and len(sv) != settings.embed_dims:
         sv = None
+    runtime.assert_embedding_unchanged(session, settings)  # a cutover mid-ingest: vectors are stale
+    search_index.ensure_index(es, settings.embed_model, settings.embed_dims, name=index)
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-        summary_vector=sv, prompt_shas=shas,
+        summary_vector=sv, prompt_shas=shas, index=index,
     )  # fmt: skip
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.

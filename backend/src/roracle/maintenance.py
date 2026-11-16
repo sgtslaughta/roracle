@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue
-from roracle.search_index import ALIAS
+from roracle.search_index import MUTATE_ALIAS
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def purge(session: Session, es: Elasticsearch, settings: Any) -> int:
 def _purge_doc(session: Session, es: Elasticsearch, doc_id: UUID) -> None:
     try:  # chunks first: a retry after a later failure finds nothing left to delete
         r = es.delete_by_query(
-            index=ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
+            index=MUTATE_ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
         )
         if r and r.get("failures"):
             raise RuntimeError(f"delete_by_query failures: {r['failures'][:1]}")

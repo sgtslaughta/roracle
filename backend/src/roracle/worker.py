@@ -1,7 +1,7 @@
 import logging
 from functools import partial
 
-from roracle import clients, worker_health
+from roracle import clients, runtime, search_index, worker_health
 from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
@@ -11,6 +11,7 @@ from roracle.ingest import handle_ingest
 from roracle.maintenance import ensure_maintenance, handle_maintenance, handle_reconcile_tags
 from roracle.notes.evidence import handle_evidence_scan
 from roracle.queue import Handler, run_forever
+from roracle.reembed import handle_reembed
 from roracle.storage import blob_store_from
 
 log = logging.getLogger(__name__)
@@ -41,7 +42,26 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             handle_maintenance, settings=settings, store=blob_store_from(settings), es=clients.es(settings)
         ),
         "reconcile_tags": handle_reconcile_tags,
+        "reembed": partial(
+            handle_reembed,
+            settings=settings,
+            es=clients.es(settings),
+            llm=clients.llm(settings),
+            session_factory=session_factory,
+        ),
     }
+
+
+def ensure_active_index(settings, sf) -> None:
+    """Worker start: create `chunks-all`/legacy aliases for the active index (upgrade path); never fatal."""
+    try:
+        with sf() as s:
+            eff = runtime.effective(s, settings)
+        search_index.ensure_index(
+            clients.es(settings), eff.embed_model, eff.embed_dims, name=search_index.active_index(eff)
+        )
+    except Exception:
+        log.exception("could not ensure the active search index at startup")
 
 
 def main() -> None:
@@ -50,6 +70,7 @@ def main() -> None:
         log.warning("clamav_host is empty: malware scanning disabled")
     sf = make_session_factory(settings.database_url)
     HANDLERS.update(build_handlers(settings, sf))
+    ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
     worker_health.serve(settings.worker_health_port)

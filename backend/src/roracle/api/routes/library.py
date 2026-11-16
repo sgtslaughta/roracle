@@ -19,7 +19,7 @@ from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
-from roracle.search_index import ALIAS, run_update_by_query
+from roracle.search_index import MUTATE_ALIAS, run_update_by_query
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
     def build() -> dict:
         tags[:] = tags_of(session, doc_id)  # re-read on every try to shrink the stale window
         return {
-            "index": ALIAS,
+            "index": MUTATE_ALIAS,
             "query": {"term": {"doc_id": str(doc_id)}},
             "script": {
                 "source": "ctx._source.tags = params.tags",

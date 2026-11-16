@@ -1,4 +1,5 @@
-"""Elasticsearch chunk index: `chunks-<model-slug>-1` behind alias `chunks` (ADR-0002 ACL fields)."""
+"""Elasticsearch chunk index: `chunks-<model-slug>-<gen>`; read alias `chunks` (one index), mutation alias
+`chunks-all` (all live generations, ADR-0002 ACL fields)."""
 
 import re
 from collections.abc import Callable
@@ -15,12 +16,21 @@ from roracle.queue import NonRetryable
 if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeline -> here)
     from roracle.ingest.chunking import Chunk
 
-ALIAS = "chunks"
+ALIAS = "chunks"  # read alias: exactly one (the active) index
+MUTATE_ALIAS = "chunks-all"  # every live generation: ALL update_by_query / delete_by_query go here
 
 
-def index_name(model: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")
-    return f"chunks-{slug}-1"
+def slug(model: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")
+
+
+def index_name(model: str, gen: int = 1) -> str:
+    return f"chunks-{slug(model)}-{gen}"
+
+
+def active_index(settings: Any) -> str:
+    """Index that kNN/BM25 reads and bulk writes target: persisted by re-embed cutover (R4), else the env default."""
+    return settings.embed_index or index_name(settings.embed_model)
 
 
 def _mapping(dims: int) -> dict[str, Any]:
@@ -62,9 +72,36 @@ def _mapping(dims: int) -> dict[str, Any]:
     }
 
 
-def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -> str:
-    """Create the index and alias if absent. Idempotent and race-safe."""
-    name = index_name(model)
+def _adopt_plain_index(es: Elasticsearch, name: str, dims: int) -> None:
+    """A concrete index called `chunks` (pre-alias deployment) blocks the read alias: copy it into `name`,
+    then drop it and add both aliases in ONE atomic update_aliases. Idempotent (same `_id`s)."""
+    if not es.indices.exists(index=ALIAS) or es.indices.exists_alias(name=ALIAS):
+        return
+    if not es.indices.exists(index=name):
+        es.indices.create(index=name, mappings=_mapping(dims))
+    r = (
+        es.reindex(source={"index": ALIAS}, dest={"index": name}, refresh=True, wait_for_completion=True)
+        or {}
+    )
+    if r.get("failures"):
+        raise RuntimeError(f"legacy reindex failed: {r['failures'][:1]}")
+    es.indices.update_aliases(
+        actions=[
+            {"remove_index": {"index": ALIAS}},
+            {"add": {"index": name, "alias": ALIAS}},
+            {"add": {"index": name, "alias": MUTATE_ALIAS}},
+        ]
+    )
+
+
+def ensure_index(
+    es: Elasticsearch, model: str, dims: int, alias: str = ALIAS, name: str | None = None
+) -> str:
+    """Create the (active) index and its aliases if absent. Idempotent and race-safe.
+    Only ever call with the ACTIVE index: it (re)adds the read alias."""
+    name = name or index_name(model)
+    if alias == ALIAS:
+        _adopt_plain_index(es, name, dims)
     if not es.indices.exists(index=name):
         try:
             es.indices.create(index=name, mappings=_mapping(dims))
@@ -84,8 +121,9 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
-    if not es.indices.exists_alias(name=alias, index=name):
-        es.indices.put_alias(index=name, name=alias)
+    for a in (alias, MUTATE_ALIAS):
+        if not es.indices.exists_alias(name=a, index=name):
+            es.indices.put_alias(index=name, name=a)
     return name
 
 
@@ -124,6 +162,7 @@ def index_chunks(
     tags: list[str] | None = None,
     summary_vector: list[float] | None = None,
     prompt_shas: list[str] | None = None,
+    index: str | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -143,7 +182,7 @@ def index_chunks(
     actions = [
         {
             "_op_type": "index",
-            "_index": index_name(model),
+            "_index": index or index_name(model),
             "_id": f"{version.id}:{c.n}",
             "_source": {
                 **base,
@@ -166,7 +205,7 @@ def index_chunks(
 
 
 def cached_vectors(
-    es: Elasticsearch, model: str, doc_id, shas: list[str], dims: int
+    es: Elasticsearch, model: str, doc_id, shas: list[str], dims: int, index: str | None = None
 ) -> dict[str, list[float]]:
     """Embeddings already indexed for this document under the same prompt hash. Scope is the one
     document only: cross-document reuse would leak content existence via timing."""
@@ -175,7 +214,7 @@ def cached_vectors(
         batch = shas[i : i + 1000]
         try:
             r = es.search(
-                index=index_name(model),
+                index=index or index_name(model),
                 query={
                     "bool": {"filter": [{"term": {"doc_id": str(doc_id)}}, {"terms": {"prompt_sha": batch}}]}
                 },
@@ -197,7 +236,7 @@ def cached_vectors(
     return out
 
 
-def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = ALIAS) -> None:
+def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = MUTATE_ALIAS) -> None:
     """Remove chunks of this version with n >= keep (a re-run may produce fewer chunks)."""
     es.delete_by_query(
         index=alias,
@@ -212,7 +251,7 @@ def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = A
     )
 
 
-def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str = ALIAS) -> None:
+def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str = MUTATE_ALIAS) -> None:
     """Flag every chunk of this document's versions older than `version` as not latest."""
     es.update_by_query(
         index=alias,
@@ -264,10 +303,10 @@ def sync_acl(
     def build() -> dict[str, Any]:
         got = compute()
         if got is None:
-            return {"index": ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
+            return {"index": MUTATE_ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
         acl, title = got
         return {
-            "index": ALIAS,
+            "index": MUTATE_ALIAS,
             "query": {"term": {"doc_id": str(doc_id)}},
             "script": {"source": _ACL_SCRIPT, "lang": "painless", "params": {**acl, "title": title}},
         }

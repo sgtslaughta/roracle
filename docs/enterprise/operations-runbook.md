@@ -56,11 +56,27 @@ WHERE kind='evidence_scan' AND status='failed';
 For `failed` rows caused by size, raise ClamAV limits (see deployment guide) and re-queue.
 
 ### Change the embedding model (zero downtime)
-Planned flow (ADR-0006, P11b): the admin UI, `reembed` jobs and alias flip below are not implemented in the backend yet; use the downtime procedure in the next section until then.
-1. Admin → Models → Embeddings → choose model → *Start re-embed*. A new index
-   `chunks-<model>-<n>` is created and filled by `reembed` jobs.
-2. Watch progress (admin dashboard or `SELECT count(*) FROM jobs WHERE kind='reembed' AND status<>'done'`).
-3. When complete, rOracle flips the `chunks` alias. Old index is kept 7 days, then delete it.
+Indices are `chunks-<model-slug>-<gen>`. Read alias `chunks` points at exactly one (the active) index; mutation
+alias `chunks-all` points at every live generation, and every ACL/tag/delete/`is_latest` write goes through it, so
+changes made during a re-embed reach both generations. Search and ingest use the active model persisted by cutover
+(`app_settings` keys `embed_model`, `embed_dims`, `embed_index`); `ROR_EMBED_MODEL/_DIMS` is only the bootstrap default.
+1. Make sure the new model is served by the embedding endpoint and ES has room for a second copy of the vectors.
+2. `POST /admin/reindex {"model": "...", "dims": N}` -> `202 {job_id}` (409 if one is running). Same model is allowed
+   (builds the next generation).
+3. Follow `GET /admin/reindex` (`running.phase`: `copy` -> `cutover` -> `catchup`, `copied`/`total`). Search keeps
+   using the old index until cutover; ingest during the copy keeps writing to the old index.
+4. Cutover is one atomic alias swap plus persisting the active model. It also nulls `document_versions.summary_embedding`
+   when the model or dims changed (derived cache; re-created on re-ingest; near-duplicate summary matching is skipped
+   for those versions meanwhile) and queues `reconcile_tags` (ACL/tags of every live document re-pushed from Postgres).
+5. Two catch-up passes (300 s apart) copy chunks that reached the old index meanwhile. Ingests that straddle the
+   cutover fail once and are retried with the new model.
+6. After verifying search, free the space: `DELETE /admin/reindex/old` (204; 409 while running). Until then the old
+   generation stays in `chunks-all` and keeps receiving mutations.
+Failure: a failed `reembed` job (see `GET /admin/jobs?kind=reembed`) can be retried; copy is idempotent. To abandon,
+`DELETE /admin/reindex/old` drops the half-built generation (it is never behind `chunks` before cutover).
+Upgrade note: the worker creates `chunks-all` and adopts a legacy concrete index named `chunks` (reindex +
+atomic alias swap) at start. Roll out workers first; until a worker has started, ACL/tag updates find no `chunks-all`
+and are no-ops, healed by the next `reconcile` maintenance run (run it after the upgrade).
 Capacity: plan for double vector storage during the re-embed.
 
 ### Re-embed after embedding prompt/model change (pre-production only)
@@ -217,6 +233,7 @@ Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, n
 | `GET /admin/audit?action=<prefix>&user_id=` | Audit trail search. |
 | `GET/POST/PUT/DELETE /admin/connectors*` | Manage connectors, trigger runs, inspect `runs`; retrying a failed `connector_run` job returns 409 (skipped in bulk) while that connector has an active run. |
 | `GET/PUT /admin/settings` | Runtime setting overrides. |
+| `POST/GET /admin/reindex`, `DELETE /admin/reindex/old` | Embedding-model switch (background re-embed, alias cutover); see "Change the embedding model". |
 | `GET /admin/needs-title` | Documents awaiting a title. |
 | `GET /admin/ratings` | Rating overview. |
 | `GET /me/notifications`, `POST /me/notifications/read` | Caller's inbox (any user); admins also receive `ops.job_failed`; kinds also include `proposal.new`, `note.reply`, `note.on_document` (public notes only). |

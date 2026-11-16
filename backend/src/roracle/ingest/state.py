@@ -39,6 +39,18 @@ def update_version(
         s.commit()
 
 
+def clear_summary_embeddings(session_factory: sessionmaker[Session]) -> None:
+    """Re-embed cutover: summary vectors of the old model are unusable (derived cache; summary text kept)."""
+    with session_factory() as s:
+        _lock_timeout(s, 60)
+        s.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.summary_embedding.is_not(None))
+            .values(summary_embedding=None)
+        )
+        s.commit()
+
+
 def update_document(
     session_factory: sessionmaker[Session],
     doc_id: UUID,

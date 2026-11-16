@@ -78,8 +78,33 @@ def apply(base: Settings, ov: dict[str, Any]) -> Settings:
     return base.model_copy(update=upd)
 
 
+ACTIVE_EMBED_KEYS = ("embed_model", "embed_dims", "embed_index")  # set only by re-embed cutover (R4)
+
+
+def active_embedding(session: Session) -> dict[str, Any]:
+    rows = session.scalars(select(AppSetting).where(AppSetting.key.in_(ACTIVE_EMBED_KEYS)))
+    return {r.key: r.value for r in rows}
+
+
+def set_active_embedding(session: Session, model: str, dims: int, index: str) -> None:
+    for k, v in zip(ACTIVE_EMBED_KEYS, (model, dims, index), strict=True):
+        session.merge(AppSetting(key=k, value=v))
+    session.flush()
+
+
 def effective(session: Session, base: Settings) -> Settings:
-    return apply(base, overrides(session))
+    return apply(base, {**overrides(session), **active_embedding(session)})
+
+
+def assert_embedding_unchanged(session: Session, settings: Settings) -> None:
+    """Raise (retryable) if a re-embed cutover switched the model since `settings` was read."""
+    now = effective(session, settings)
+    if (now.embed_model, now.embed_dims, now.embed_index) != (
+        settings.embed_model,
+        settings.embed_dims,
+        settings.embed_index,
+    ):
+        raise RuntimeError("embedding model changed during ingest; retrying with the new model")
 
 
 def view(s: Settings) -> dict[str, Any]:

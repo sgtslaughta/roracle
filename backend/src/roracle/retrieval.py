@@ -16,7 +16,7 @@ from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest.embed import embed, query_prompt
 from roracle.search_acl import acl_filter
-from roracle.search_index import index_name
+from roracle.search_index import active_index
 
 log = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ def search_chunks(
     if not query.strip():
         raise ValueError("empty query")
     flt = _filters(p, filters, doc_ids)
-    index = index_name(settings.embed_model)
+    index = active_index(settings)
     bm25 = es.search(
         index=index,
         size=size,
