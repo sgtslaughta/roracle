@@ -10,7 +10,7 @@ const url = (p: string) => `${API_BASE}${p}`;
 const err = (status: number, detail: string) => HttpResponse.json({ detail }, { status });
 const CLIENT = "claude-code";
 
-/** Three pending proposals from one agent session: an anchored finding, a relation and a comment. */
+/** Four pending proposals from one agent session: an anchored finding, a relation, a comment and a reply. */
 function seed(): Proposal[] {
   const mk = (id: string, kind: Proposal["kind"], doc: number, payload: Omit<ProposalPayload, "document_id">, at: string): Proposal => ({
     id, kind, client: CLIENT, status: "pending", annotation_id: null, created_at: at, decided_at: null,
@@ -22,6 +22,7 @@ function seed(): Proposal[] {
     mk("p-finding", "note", 0, { kind: "finding", body: "Re-ran the k = 3 sweep to n = 2·10⁵: the gap stays ~6% above the bound.\n<b>Raw</b> numbers are in the run log.", anchor }, "2026-11-15T09:40:00Z"),
     mk("p-relation", "relation", 2, { kind: "relation", body: "Uses the same trace-method estimate as the spectral gap paper.", relation: { type: "extends", target_document_id: DOCS[0].id } }, "2026-11-15T09:39:00Z"),
     mk("p-comment", "note", 1, { kind: "comment", body: "Section 4 restates Lemma 2 without the polylog factor." }, "2026-11-15T09:38:00Z"),
+    { ...mk("p-reply", "note", 0, { body: "" }, "2026-11-15T09:37:00Z"), payload: { document_id: DOCS[0].id, parent_id: "n-question", body: "Below 10⁶ the polylog factor moved the gap by under 1% in our runs." } },
   ];
 }
 
@@ -32,8 +33,10 @@ function decide(id: string, edits: ApproveBody | null): Proposal | Response {
   if (!p) return err(404, "not found");
   if (p.status !== "pending") return err(409, `proposal already ${p.status}`);
   if (edits?.body !== undefined && !(edits.body.length >= 1 && edits.body.length <= NOTE_BODY_MAX)) return err(422, "body: must be 1-10000 characters");
-  const { document_id, parent_id: _p, ...fields } = p.payload;
-  const n = addNote(document_id, { ...fields, kind: fields.kind ?? "comment", ...edits } as NoteIn, { agent_assisted: true });
+  const { document_id, parent_id, ...fields } = p.payload;
+  if (parent_id && (edits?.visibility || edits?.shares)) return err(422, "replies follow the root");
+  const extra = parent_id ? { agent_assisted: true, parent_id, visibility: state.notes?.find((x) => x.id === parent_id)?.visibility ?? "everyone" } : { agent_assisted: true };
+  const n = addNote(document_id, { ...fields, kind: fields.kind ?? "comment", ...edits } as NoteIn, extra);
   Object.assign(p, { status: "approved", annotation_id: n.id, decided_at: new Date().toISOString() });
   return p;
 }

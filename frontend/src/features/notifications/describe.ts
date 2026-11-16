@@ -2,7 +2,8 @@ import { isDocId } from "@/lib/ids";
 
 /** P10 notification kinds and their payloads (untrusted: read defensively, render as plain text). */
 export interface AppNotification { id: number; kind: string; payload: Record<string, unknown>; created_at: string; read_at: string | null }
-export interface Described { text: string; to?: string }
+/** `note`: open this note in the reader's Notes tab instead of following `to`. */
+export interface Described { text: string; to?: string; note?: { docId: string; noteId: string } }
 
 const MAX = 120;
 /** A payload string, trimmed to one line; anything else is "". */
@@ -10,6 +11,9 @@ const str = (v: unknown) => (typeof v === "string" || typeof v === "number" ? St
 const q = (v: unknown, fallback: string) => (str(v) ? `“${str(v)}”` : fallback);
 /** Internal links only, built from a validated id, never from a payload URL. */
 const docLink = (id: unknown) => (isDocId(id) ? `/d/${id}` : undefined);
+
+const noteLink = (docId: unknown, noteId: unknown): Omit<Described, "text"> =>
+  isDocId(docId) ? { to: `/d/${docId}`, ...(isDocId(noteId) && { note: { docId, noteId } }) } : {};
 
 /** One plain sentence and an optional in-app link for a notification. Unknown kinds get a generic sentence. */
 export function describe(kind: string, payload: Record<string, unknown> | null | undefined): Described {
@@ -27,6 +31,12 @@ export function describe(kind: string, payload: Record<string, unknown> | null |
       const s = str(p.status);
       return { text: `${str(p.name) ? `Connector ${q(p.name, "")}` : "A connector run"} finished${s ? `: ${s}` : ""}.`, to: "/admin/connectors" };
     }
+    case "proposal.new":
+      return { text: `${str(p.client) || "An agent"} proposed a note.`, to: "/proposals" };
+    case "note.reply":
+      return { text: "Someone replied to your note.", ...noteLink(p.document_id, p.reply_id) };
+    case "note.on_document":
+      return { text: "Someone added a note to your document.", ...noteLink(p.document_id, p.note_id) };
     default:
       return { text: "Something changed." };
   }

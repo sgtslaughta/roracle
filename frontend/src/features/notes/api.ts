@@ -3,6 +3,7 @@ import { apiFetch, seg } from "@/api/client";
 import type { Note, NoteIn, NotePatch, NoteVotes, ReportReason } from "@/api/notes";
 import type { Bbox } from "@/api/types";
 import { createStore } from "@/lib/store";
+import { openDoc, setView } from "@/features/reader/useReaderStore";
 
 const key = (docId: string) => ["notes", docId];
 
@@ -44,3 +45,10 @@ export function useVoteNote(docId: string) {
 export interface NoteDraft { docId: string; version: number; quote: string; page: number; bbox: Bbox | null }
 interface NotesUi { adding: string | null; draft: NoteDraft | null; page: number; flash: string | null }
 export const notesUi = createStore<NotesUi>({ adding: null, draft: null, page: 1, flash: null });
+
+/** Open a note in the reader's Notes tab and flash it. */
+export function showNote(docId: string, noteId: string) {
+  openDoc(docId);
+  setView("notes");
+  notesUi.set((s) => ({ ...s, flash: noteId }));
+}

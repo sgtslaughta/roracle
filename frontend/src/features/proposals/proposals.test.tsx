@@ -52,7 +52,7 @@ describe("proposals inbox", () => {
   it("groups pending proposals by client, marks them agent-assisted and shows payload text as plain text", async () => {
     await renderApp();
     const group = await screen.findByRole("region", { name: "From claude-code" });
-    expect(within(group).getByText("3 waiting")).toBeInTheDocument();
+    expect(within(group).getByText("4 waiting")).toBeInTheDocument();
     const f = await card(/Finding proposed by claude-code/);
     expect(within(f).getByText("Agent-assisted")).toBeInTheDocument();
     expect(within(f).getByText(/<b>Raw<\/b> numbers/)).toBeInTheDocument();
@@ -65,10 +65,10 @@ describe("proposals inbox", () => {
   it("sidebar badge counts pending proposals and drops after a decision", async () => {
     const user = userEvent.setup();
     await renderApp();
-    expect(await screen.findByLabelText("3 waiting")).toBeInTheDocument();
+    expect(await screen.findByLabelText("4 waiting")).toBeInTheDocument();
     await user.click(within(await card(/Comment proposed by/)).getByRole("button", { name: "Reject" }));
     expect(await bodyOf("/p-comment/reject")).toBeNull();
-    expect(await screen.findByLabelText("2 waiting")).toBeInTheDocument();
+    expect(await screen.findByLabelText("3 waiting")).toBeInTheDocument();
     expect(await screen.findByText("Proposal rejected.")).toBeInTheDocument();
   });
 
@@ -131,5 +131,51 @@ describe("proposals inbox", () => {
     await user.click(screen.getByRole("tab", { name: "Approved" }));
     await user.click(await screen.findByRole("button", { name: "Open note" }));
     expect(await screen.findByRole("complementary", { name: "Reader" })).toBeInTheDocument();
+  });
+
+  it("editing a reply sends only the body", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const c = await card(/Reply proposed by/);
+    await user.click(within(c).getByRole("button", { name: "Edit" }));
+    expect(within(c).queryByRole("combobox", { name: "Visible to" })).toBeNull();
+    const box = within(c).getByRole("textbox", { name: "Reply" });
+    await user.clear(box);
+    await user.type(box, "Shorter reply");
+    await user.click(within(c).getByRole("button", { name: "Approve with edits" }));
+    expect(await bodyOf("/p-reply/approve")).toEqual({ body: "Shorter reply" });
+    await waitFor(() => expect(state.notes!.some((n) => n.parent_id === "n-question" && n.body === "Shorter reply" && n.agent_assisted)).toBe(true));
+  });
+
+  it("editing to shared sends the shares", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    const c = await card(/Comment proposed by/);
+    await user.click(within(c).getByRole("button", { name: "Edit" }));
+    await user.selectOptions(within(c).getByRole("combobox", { name: "Visible to" }), "shared");
+    await user.type(within(c).getByRole("textbox", { name: "Groups" }), "/Mathematics{Enter}");
+    await user.type(within(c).getByRole("textbox", { name: "People (user IDs)" }), "u-ruiz");
+    await user.click(within(c).getByRole("button", { name: "Approve with edits" }));
+    expect(await bodyOf("/p-comment/approve")).toEqual({
+      body: "Section 4 restates Lemma 2 without the polylog factor.", visibility: "shared",
+      shares: [{ kind: "group", principal: "/Mathematics" }, { kind: "user", principal: "u-ruiz" }],
+    });
+  });
+
+  it("a failed bulk request reports a user-facing reason", async () => {
+    server.use(http.post(`${API_BASE}/proposals/bulk-approve`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+    const user = userEvent.setup();
+    await renderApp();
+    await screen.findByRole("region", { name: "From claude-code" });
+    await user.click(screen.getByRole("button", { name: "Approve all" }));
+    expect(await screen.findByText("Approved 0. 4 couldn't be approved: The request failed. Try again.")).toBeInTheDocument();
+  });
+
+  it("does not link a relation target that isn't a document id", async () => {
+    const [p] = many(1);
+    state.proposals = [{ ...p, kind: "relation", payload: { ...p.payload, kind: "relation", relation: { type: "extends", target_document_id: "../admin" } } }];
+    await renderApp();
+    await card(/Relation proposed by/);
+    expect(screen.queryByText("extends →")).toBeNull();
   });
 });

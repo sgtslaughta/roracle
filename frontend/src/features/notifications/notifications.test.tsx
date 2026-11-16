@@ -48,6 +48,21 @@ group("describe", () => {
   });
 });
 
+group("describe: notes and proposals", () => {
+  const D = DOCS[0].id, N = "11111111-2222-4333-8444-555555555555";
+  it("proposal.new names the client and links to the inbox", () => {
+    expect(describe("proposal.new", { proposal_id: N, kind: "note", client: "claude-code" })).toEqual({ text: "claude-code proposed a note.", to: "/proposals" });
+    expect(describe("proposal.new", {}).text).toBe("An agent proposed a note.");
+  });
+  it("note.reply opens the reply in the document's notes", () => {
+    expect(describe("note.reply", { document_id: D, note_id: "x", reply_id: N })).toEqual({ text: "Someone replied to your note.", to: `/d/${D}`, note: { docId: D, noteId: N } });
+  });
+  it("note.on_document opens the note; bad ids give no link", () => {
+    expect(describe("note.on_document", { document_id: D, note_id: N })).toEqual({ text: "Someone added a note to your document.", to: `/d/${D}`, note: { docId: D, noteId: N } });
+    expect(describe("note.on_document", { document_id: "../x", note_id: N })).toEqual({ text: "Someone added a note to your document." });
+  });
+});
+
 group("bell", () => {
   it("shows the unread count, hides admin kinds from non-admins, and marks all read with {all:true}", async () => {
     const user = userEvent.setup();
@@ -93,6 +108,26 @@ group("bell", () => {
     expect(within(pop).getByText(/<img src=x onerror="alert\(1\)">/)).toBeInTheDocument();
     expect(within(pop).getByText("Something changed.")).toBeInTheDocument();
     expect(pop.querySelector("img, b.bad, i")).toBeNull();
+  });
+});
+
+group("bell: notes and proposals", () => {
+  it("clicking a note notification opens the reader on its Notes tab", async () => {
+    state.notifications = [row(1, "note.on_document", { document_id: DOCS[0].id, note_id: "11111111-2222-4333-8444-555555555555" })];
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+    await user.click(await screen.findByRole("button", { name: /Someone added a note/ }));
+    const reader = await screen.findByRole("complementary", { name: "Reader" });
+    expect(await within(reader).findByRole("tab", { name: /Notes/, selected: true })).toBeInTheDocument();
+  });
+
+  it("an unread proposal.new refreshes the proposals badge", async () => {
+    state.notifications = [row(1, "proposal.new", { client: "claude-code" })];
+    await renderApp();
+    expect(await screen.findByLabelText("4 waiting")).toBeInTheDocument();
+    const pend = () => seen.filter((r) => new URL(r.url).pathname.endsWith("/me/proposals"));
+    await waitFor(() => expect(pend().length).toBeGreaterThanOrEqual(2));
   });
 });
 

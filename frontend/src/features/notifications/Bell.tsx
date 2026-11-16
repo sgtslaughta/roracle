@@ -1,6 +1,8 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { Bell as BellIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { showNote } from "@/features/notes/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,8 +17,9 @@ export function useOpenNotification() {
   const mark = useMarkRead();
   return (n: AppNotification) => {
     if (!n.read_at) mark.mutate({ ids: [n.id] });
-    const to = describe(n.kind, n.payload).to;
-    if (to) router.history.push(to);
+    const { to, note } = describe(n.kind, n.payload);
+    if (note) showNote(note.docId, note.noteId); // the reader opens over the current page, straight on its Notes tab
+    else if (to) router.history.push(to);
   };
 }
 
@@ -38,6 +41,10 @@ export function Bell() {
   const openOne = useOpenNotification();
   const unread = data?.unread ?? 0;
   const items = data?.items ?? [];
+  const qc = useQueryClient();
+  const newProposal = items.some((n) => n.kind === "proposal.new" && !n.read_at);
+  // an agent proposed something since we last looked: refresh the inbox and the sidebar badge
+  useEffect(() => { if (newProposal) void qc.invalidateQueries({ queryKey: ["proposals"] }); }, [newProposal, data?.items, qc]);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>

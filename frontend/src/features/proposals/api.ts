@@ -38,6 +38,7 @@ export const useProposals = (status: ProposalStatus) =>
     queryKey: ["proposals", status],
     queryFn: () => apiFetch<{ total: number; items: Proposal[] }>(`/me/proposals?status=${status}`),
     refetchOnWindowFocus: true,
+    refetchInterval: status === "pending" ? 60_000 : false,
   });
 
 /** Every decision refreshes all proposal lists (the sidebar badge too) and the reader's notes. */
@@ -64,7 +65,7 @@ export const useBulkApprove = () =>
         out.approved.push(...r.approved);
         out.failed.push(...r.failed);
       } catch {
-        out.failed.push(...chunk.map((proposal_id) => ({ proposal_id, detail: "request failed" })));
+        out.failed.push(...chunk.map((proposal_id) => ({ proposal_id, detail: "The request failed. Try again." })));
       }
     }
     return out;

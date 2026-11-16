@@ -7,24 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { invalidText } from "@/features/agents/api";
 import { ChipInput } from "@/features/ask/ChipInput";
-import { notesUi } from "@/features/notes/api";
+import { showNote } from "@/features/notes/api";
 import { KIND_LABEL, VIS_LABEL } from "@/features/notes/labels";
 import { KindPill } from "@/features/notes/NoteCard";
 import { useDoc } from "@/features/reader/api";
-import { openDoc, setView } from "@/features/reader/useReaderStore";
+import { openDoc } from "@/features/reader/useReaderStore";
+import { isDocId } from "@/lib/ids";
 import { useApprove, useReject, type ApproveBody, type Proposal } from "./api";
 
 const tooLong = (v: string) => (v.length > PRINCIPAL_MAX ? `Keep each entry under ${PRINCIPAL_MAX} characters.` : null);
 const groupError = (v: string) => tooLong(v) ?? (v.startsWith("/") ? null : "Group paths start with “/”.");
 const errText = (e: unknown, what: string) =>
   e instanceof ApiError && (e.status === 422 || e.status === 409) ? invalidText(e) : `The proposal couldn't be ${what}. Try again.`;
-
-/** Open the approved note in the reader's Notes tab and flash it. */
-export function showNote(docId: string, noteId: string) {
-  openDoc(docId);
-  setView("notes");
-  notesUi.set((s) => ({ ...s, flash: noteId }));
-}
 
 export const proposalLabel = (p: Proposal) => (p.payload.parent_id ? "Reply" : KIND_LABEL[p.payload.kind ?? "comment"]);
 
@@ -121,7 +115,7 @@ export function ProposalCard({ p, selected, onSelect }: Props) {
           {!pl.parent_id && <span className="badge-o">{VIS_LABEL[pl.visibility ?? "private"]}</span>}
         </div>
         {pl.anchor?.quote && <blockquote className="nquote">{pl.anchor.quote}</blockquote>}
-        {pl.relation && <div className="nhead nrel"><span>{pl.relation.type} →</span><Target id={pl.relation.target_document_id} /></div>}
+        {pl.relation && isDocId(pl.relation.target_document_id) && <div className="nhead nrel"><span>{pl.relation.type} →</span><Target id={pl.relation.target_document_id} /></div>}
         {editing ? <EditForm p={p} onDone={() => setEditing(false)} /> : <div className="ntext ptext">{pl.body}</div>}
       </div>
       <div className="side2">
