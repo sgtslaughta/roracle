@@ -18,7 +18,7 @@ from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, 
 from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, _recover
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.audit import audit
-from roracle.models import Document, User
+from roracle.models import Document, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.notify import emit
 from roracle.queue import enqueue
@@ -32,14 +32,21 @@ class TransferBody(BaseModel):
 
 
 def _owned(session: Session, p, doc_id: UUID) -> Document:
+    """Visible doc, row-locked FIRST, then authorized against the locked (fresh) owner."""
     doc = _doc(session, p, doc_id)
-    if not _privileged(doc, p):
-        raise HTTPException(403, "only the document owner or an admin can do this")
-    if session.get(Draft, doc_id):
-        raise HTTPException(409, "use the /drafts endpoints")
     session.refresh(doc, with_for_update=True)
     if doc.deleted_at is not None:
         raise HTTPException(404, "not found")
+    if not _privileged(doc, p):
+        if not session.scalar(
+            select(DocumentVersion.id).where(
+                DocumentVersion.document_id == doc_id, DocumentVersion.stage == "searchable"
+            )
+        ):
+            raise HTTPException(404, "not found")  # R16: same rule as PATCH, no existence oracle
+        raise HTTPException(403, "only the document owner or an admin can do this")
+    if session.get(Draft, doc_id):
+        raise HTTPException(409, "use the /drafts endpoints")
     return doc
 
 

@@ -78,3 +78,32 @@ def test_transfer(client, as_ana, as_bob, adm, ana, bob, db_session, fes):
     kinds = {(x.user_id, x.kind) for x in db_session.scalars(select(Notification))}
     assert {(ana, "document.transferred"), (bob, "document.transferred")} <= kinds
     assert db_session.scalar(select(AuditLog).where(AuditLog.action == "document.transfer")) is not None
+
+
+def test_non_readable_is_404_not_403(client, as_bob, ana, db_session, fes):
+    d, _ = seed(db_session, ana, visibility="everyone", stage="needs_title")
+    assert client.delete(f"/documents/{d.id}", headers=as_bob).status_code == 404
+    assert (
+        client.post(f"/documents/{d.id}/transfer", headers=as_bob, json={"user_id": str(ana)}).status_code
+        == 404
+    )
+
+
+def test_owner_rechecked_after_lock(client, as_ana, ana, bob, db_session, session_factory, fes, monkeypatch):
+    from roracle.api.routes import documents_manage as m
+
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    real = m._doc
+
+    def racing(session, p, doc_id):
+        doc = real(session, p, doc_id)
+        with session_factory() as s:  # concurrent transfer commits between load and lock
+            s.get(Document, doc_id).owner_id = bob
+            s.commit()
+        return doc
+
+    monkeypatch.setattr(m, "_doc", racing)
+    assert client.delete(f"/documents/{d.id}", headers=as_ana).status_code == 403
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).deleted_at is None
