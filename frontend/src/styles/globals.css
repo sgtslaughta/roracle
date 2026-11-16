@@ -7,6 +7,7 @@
 @import "./uploads.css";
 @import "./ask.css";
 @import "./agents.css";
+@import "./notes.css";
 
 /* shadcn variable mapping onto rOracle tokens */
 :root {

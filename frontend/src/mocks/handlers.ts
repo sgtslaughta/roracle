@@ -8,6 +8,7 @@ import { state } from "./state";
 import { adminHandlers } from "./admin";
 import { chatHandlers } from "./chat";
 import { agentHandlers } from "./agents";
+import { noteHandlers } from "./notes";
 import { advance, newUpload } from "./uploads";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -107,4 +108,5 @@ export const handlers = [
   ...adminHandlers,
   ...chatHandlers,
   ...agentHandlers,
+  ...noteHandlers,
 ];

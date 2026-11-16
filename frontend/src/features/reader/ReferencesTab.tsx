@@ -64,12 +64,3 @@ export function CitedByTab({ docId }: { docId: string }) {
     </div>
   );
 }
-
-export function NotesTab() {
-  return (
-    <div className="refs">
-      <p className="refnote">Notes from readers and their agents. Agent notes appear only after their user approves them.</p>
-      <div className="empty"><p>No notes yet. Notes arrive in the next release.</p></div>
-    </div>
-  );
-}
