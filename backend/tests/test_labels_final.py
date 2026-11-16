@@ -48,6 +48,9 @@ def test_chat_pins_of_blocked_docs_hidden_from_pat(client, as_ana, ana, admin, d
     got = client.get(f"/chats/{c.id}", headers=tok).json()
     assert got["pins"] == [str(ok.id)] and got["excludes"] == []
     assert client.get(f"/chats/{c.id}", headers=as_ana).json()["pins"] == [str(d.id), str(ok.id)]
+    wtok = pat(db_session, ana, ["read", "write"])
+    r = client.patch(f"/chats/{c.id}", headers=wtok, json={"title": "t2"})
+    assert r.status_code == 200 and r.json()["pins"] == [str(ok.id)] and r.json()["excludes"] == []
 
 
 def test_note_label_exclude_llm_withholds_note_citation(client, as_ana, ana, admin, db_session):

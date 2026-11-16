@@ -357,8 +357,8 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
 - Stored per-user state is filtered for PATs too: the chat `viewer` (selection text, tabs) is never returned to a
   PAT, pinned/excluded ids and proposals/notifications (including unread counts) naming documents or notes hidden
   from agents are dropped, and note citations are gated by the note's own label. A PAT may still cause a label
-  *raise* (never a lowering) by merging a near-duplicate upload into a higher-labelled document it can see;
-  it is audited as `document.label` with `via: near_dup`.
+  *raise* (never a lowering) by merging a higher-labelled near-duplicate upload into a document it can see
+  (the target takes the upload's label); it is audited as `document.label` with `via: near_dup`.
 
 ### Who may change a label
 

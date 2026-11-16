@@ -177,7 +177,7 @@ def patch_chat(chat_id: UUID, body: ChatPatch, p: Who, session: Db, settings: Cf
         chat.model = body.model
     session.commit()
     session.refresh(chat)
-    return chat_json(chat)
+    return _agent_chat(session, p, chat_json(chat))
 
 
 class SharesIn(BaseModel):
