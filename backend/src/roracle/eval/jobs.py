@@ -28,7 +28,10 @@ def handle_eval_run(
         gold.resolve_principals(session, gs)  # R5 / unknown principals: retrying cannot help
     except (ValueError, KeyError) as e:
         raise NonRetryable(str(e)) from e
-    runner.run_set(
-        session, es, llm, runtime.effective(session, settings), gs,
-        path="chat", trigger=trigger, label=trigger, judge=bool(payload.get("judge")), sf=session_factory,
-    )  # fmt: skip
+    try:
+        runner.run_set(
+            session, es, llm, runtime.effective(session, settings), gs,
+            path="chat", trigger=trigger, label=trigger, judge=bool(payload.get("judge")), sf=session_factory,
+        )  # fmt: skip
+    except Exception as e:  # the failed run row is stored; a retry would repeat a whole judged run
+        raise NonRetryable(f"eval run failed: {type(e).__name__}: {e}") from e

@@ -308,3 +308,10 @@ def test_ci_dispatch_and_offline_models():
     [v2] = llm.embeddings.create(model="m", input=["spectral gaps"]).data
     assert v1.embedding == v2.embedding and len(v1.embedding) == 768
     assert abs(sum(x * x for x in v1.embedding) - 1) < 1e-9
+
+
+def test_ci_error_still_writes_the_artifact(ci_world, tmp_path, monkeypatch):
+    monkeypatch.setattr(ci.runner, "run_set", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert ci.run(ci_args(tmp_path, {})) == 1
+    out = json.loads((tmp_path / "o.json").read_text())
+    assert out["status"] == "error" and "boom" in out["error"]

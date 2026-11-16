@@ -90,9 +90,16 @@ def verdict(
         if cm.get(key):
             fails.append(f"{key} = {cm[key]} (must be 0)")
 
-    queries = {p.query_key for p in cand.pairs} & {p.query_key for p in base.pairs}
+    if not (base.config.get("is_reference") and cand.config.get("is_reference")):
+        short.append("not the reference set (the gate only judges the reference set)")
+    if base.set_name != cand.set_name or base.path != cand.path:
+        short.append(
+            f"runs differ in set or path ({base.set_name}/{base.path} vs {cand.set_name}/{cand.path})"
+        )
+    in_scope = lambda r: {p.query_key for p in r.pairs if scope == "all" or p.kind == scope}
+    queries = in_scope(cand) & in_scope(base)
     if len(queries) < MIN_QUERIES:
-        short.append(f"{len(queries)} queries in both runs (need {MIN_QUERIES})")
+        short.append(f"{len(queries)} {scope} queries in both runs (need {MIN_QUERIES})")
     pr = _principals(cand)
     if len(pr) < MIN_PRINCIPALS or all(pr.values()):
         short.append(
@@ -113,7 +120,9 @@ def verdict(
         short.append("p_recall@100 missing")
     elif m["delta"] < -RECALL100_MAX_LOSS:
         fails.append(f"p_recall@100 {m['delta']:+.4f} (loss > {RECALL100_MAX_LOSS})")
-    for key in JUDGE_KEYS:
+    for key in (
+        JUDGE_KEYS if base.path == cand.path == "chat" else ()
+    ):  # the judge only exists on the chat path
         if (m := d(key)) is None:
             short.append(f"{key} missing: run both sides with --judge")
         elif m["delta"] < -JUDGE_MAX_LOSS:

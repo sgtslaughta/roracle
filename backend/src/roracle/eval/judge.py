@@ -77,7 +77,10 @@ def claims(answer_text: str) -> list[Claim]:
 
 
 def _supported(llm, model: str, claim: str, passage: Passage) -> bool:
-    text = re.sub(r"(?i)</(passage|claim)", lambda m: "<\\/" + m.group(1).lower(), passage.text)
+    def esc(t: str) -> str:
+        return re.sub(r"(?i)</(passage|claim)", lambda m: "<\\/" + m.group(1).lower(), t)
+
+    text, claim = esc(passage.text), esc(claim)
     r = llm.chat.completions.create(
         model=model,
         messages=[
@@ -96,7 +99,9 @@ def _supported(llm, model: str, claim: str, passage: Passage) -> bool:
 
 def judge(llm, model: str, cl: list[Claim], passages: list[Passage]) -> dict[str, Any]:
     """One JSON call per (claim, cite). A claim is supported when a cited passage supports it; an uncited
-    claim or a cite outside the passage list is unsupported. Ratios are None when their denominator is 0."""
+    claim or a cite outside the passage list is unsupported. An answer with no claims (a refusal) or no
+    citations scores 0.0, so a candidate that answers less is penalised. No label gate here: callers go
+    through `judge_pair`/`answer`, which run `assert_llm_safe` first."""
     verdicts, pairs, ok_pairs = [], 0, 0
     for c in cl:
         res = []
@@ -110,8 +115,8 @@ def judge(llm, model: str, cl: list[Claim], passages: list[Passage]) -> dict[str
         )
     n_ok = sum(v["supported"] for v in verdicts)
     return {
-        "faithfulness": n_ok / len(verdicts) if verdicts else None,
-        "citation_support": ok_pairs / pairs if pairs else None,
+        "faithfulness": n_ok / len(verdicts) if verdicts else 0.0,
+        "citation_support": ok_pairs / pairs if pairs else 0.0,
         "claims": len(verdicts),
         "supported_claims": n_ok,
         "pairs": pairs,

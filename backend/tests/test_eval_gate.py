@@ -1,6 +1,7 @@
 import json
 import random
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -18,6 +19,8 @@ PRINCIPALS = {"alice": False, "bob": False, "root": True}
 def mkrun(
     n=200,
     *,
+    path="chat",
+    ref=True,
     ndcg=0.5,
     r10=0.6,
     r100=0.9,
@@ -47,7 +50,15 @@ def mkrun(
         "latency_p50_ms": 50,
         "latency_p95_ms": p95,
     }
-    return RunView(str(uuid.uuid4()), "ref", "chat", "run", {"principals": pri, "overrides": {}}, m, pairs)
+    return RunView(
+        str(uuid.uuid4()),
+        "ref",
+        path,
+        "run",
+        {"principals": pri, "overrides": {}, "is_reference": ref},
+        m,
+        pairs,
+    )
 
 
 def test_bootstrap_deterministic_and_paired():
@@ -115,7 +126,7 @@ def test_fail_on_acl_violation_even_on_tiny_set(kw):
 
 def test_insufficient_when_too_few_queries_or_principals():
     v = gate.verdict(mkrun(199), mkrun(199, ndcg=0.6))
-    assert v.status == "INSUFFICIENT" and "199 queries" in v.reasons[0]
+    assert v.status == "INSUFFICIENT" and "199 all queries" in v.reasons[0]
     two = {"alice": False, "root": True}
     assert gate.verdict(mkrun(pri=two), mkrun(ndcg=0.6, pri=two)).status == "INSUFFICIENT"
     admins = {"a": True, "b": True, "c": True}
@@ -128,17 +139,31 @@ def test_missing_judge_is_insufficient_not_pass():
     assert v.status == "INSUFFICIENT" and any("--judge" in r for r in v.reasons)
 
 
+def test_search_path_needs_no_judge_and_can_pass():
+    base, cand = mkrun(path="search", judge=False), mkrun(path="search", ndcg=0.6, judge=False)
+    assert gate.verdict(base, cand).status == "PASS"
+    v = gate.verdict(mkrun(judge=False), mkrun(path="search", ndcg=0.6, judge=False))  # mixed paths
+    assert v.status == "INSUFFICIENT" and any("differ in set or path" in r for r in v.reasons)
+
+
+def test_only_the_reference_set_can_pass():
+    v = gate.verdict(mkrun(ref=False), mkrun(ndcg=0.6, ref=False))
+    assert v.status == "INSUFFICIENT" and any("reference set" in r for r in v.reasons)
+
+
 def test_latency_budget():
     assert gate.verdict(mkrun(), mkrun(ndcg=0.6, p95=300), latency_budget_ms=200).status == "FAIL"
     assert gate.verdict(mkrun(), mkrun(ndcg=0.6, p95=150), latency_budget_ms=200).status == "PASS"
 
 
 def test_scope_uses_only_that_kind():
-    base = mkrun(300)
-    cand = mkrun(300, ndcg=0.5, noise=lambda i: 0.1 if i % 3 == 2 else 0.0)  # only "global" queries improve
+    base = mkrun(700)
+    cand = mkrun(700, ndcg=0.5, noise=lambda i: 0.1 if i % 3 == 2 else 0.0)  # only "global" queries improve
     assert gate.verdict(base, cand, scope="global").status == "PASS"
     assert gate.verdict(base, cand, scope="fact").status == "FAIL"  # no gain on fact queries
     assert gate.verdict(base, cand).status == "PASS"  # +0.033 over all kinds
+    small = mkrun(300), mkrun(300, noise=lambda i: 0.1 if i % 3 == 2 else 0.0, ndcg=0.5)
+    assert gate.verdict(*small, scope="global").status == "INSUFFICIENT"  # only 100 in-scope queries
     assert gate.metric_deltas(base, cand, "global")["p_ndcg@10"]["delta"] == pytest.approx(0.1)
     assert gate.metric_deltas(base, cand, "fact")["p_ndcg@10"]["delta"] == pytest.approx(0.0)
 
@@ -170,6 +195,18 @@ def _cutover(db, settings, **kw):
     )
     reembed._cutover(db, payload, es, settings.model_copy(update=kw), None)
     return list(db.scalars(select(Job).where(Job.kind == "eval_run")))
+
+
+def test_eval_runs_after_catchup_round_two(db_session, settings, monkeypatch):
+    monkeypatch.setattr(reembed, "clear_summary_embeddings", lambda sf: None)
+    db_session.add(EvalSet(name="ref", is_reference=True))
+    db_session.flush()
+    (ev,) = _cutover(db_session, settings)
+    catch = db_session.scalars(select(Job).where(Job.kind == "reembed")).all()
+    assert len(catch) == 1  # catch-up round 1 at +1x; round 2 is enqueued by it, at >= +2x
+    db_session.refresh(ev)
+    db_session.refresh(catch[0])
+    assert ev.run_after - catch[0].run_after >= timedelta(seconds=2 * reembed.CATCHUP_DELAY_S)
 
 
 def test_cutover_enqueues_eval_run_only_with_reference_set(db_session, settings, monkeypatch):

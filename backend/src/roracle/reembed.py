@@ -294,15 +294,10 @@ def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> Non
         )
     enqueue(session, "reconcile_tags", {})  # converge ACL/tags of every document from Postgres
     ref = session.scalar(select(EvalSet.id).where(EvalSet.is_reference.is_(True)))
-    if (
-        settings.eval_on_reindex and ref is not None
-    ):  # does the new model still retrieve well? (after catch-up)
-        enqueue(
-            session,
-            "eval_run",
-            {"set_id": str(ref), "trigger": "reindex", "judge": True},
-            run_after_s=CATCHUP_DELAY_S,
-        )
+    if settings.eval_on_reindex and ref is not None:
+        # catch-up round 1 runs at +1x the delay and round 2 at >= +2x: evaluate the settled index
+        payload_eval = {"set_id": str(ref), "trigger": "reindex", "judge": True}
+        enqueue(session, "eval_run", payload_eval, run_after_s=3 * CATCHUP_DELAY_S)
     enqueue(
         session,
         "reembed",

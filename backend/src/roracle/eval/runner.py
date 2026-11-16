@@ -96,6 +96,7 @@ def run_set(
         "embed_index": settings.embed_index,
         "principals": {k: p.is_admin for k, p in principals.items()},
         "queries": len(gs.queries),
+        "is_reference": bool(getattr(db_set, "is_reference", False)),
         **(
             {"judge": {"model": settings.eval_judge_model, "sample": settings.eval_judge_sample}}
             if judge

@@ -28,14 +28,17 @@ ES_WAIT_S = 120
 def sandbox(settings: Settings):
     """A session whose commits are savepoints of one outer transaction, rolled back at the end."""
     bind = make_session_factory(settings.database_url).kw["bind"]
-    with bind.connect() as conn:
-        outer = conn.begin()
-        session = Session(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False)
-        try:
-            yield session
-        finally:
-            session.close()
-            outer.rollback()
+    try:
+        with bind.connect() as conn:
+            outer = conn.begin()
+            session = Session(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False)
+            try:
+                yield session
+            finally:
+                session.close()
+                outer.rollback()
+    finally:
+        bind.dispose()
 
 
 def ci_settings(settings: Settings) -> Settings:
@@ -101,6 +104,9 @@ def run(args) -> int:
             report = execute(session, es, llm, ci, gs, floors)
     except Exception as e:  # noqa: BLE001
         print(f"ci failed: {type(e).__name__}: {e}", file=sys.stderr)
+        Path(args.out).write_text(
+            json.dumps({"status": "error", "error": f"{type(e).__name__}: {e}"}, indent=2)
+        )
         return 1
     finally:
         try:

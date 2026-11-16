@@ -32,9 +32,9 @@ def seed(session: Session, es, llm, settings: Settings, fx: FixtureSet) -> GoldS
     session.add_all(users.values())
     rank = (session.scalar(select(func.max(Label.rank))) or 0) + 1
     labels = {}
-    for i, lab in enumerate(fx.labels):
+    for i, lab in enumerate(fx.labels):  # namespaced: never collides with a deployment's own labels
         labels[lab.name] = Label(
-            name=lab.name,
+            name=f"evalci-{lab.name}",
             colour="#884400",
             rank=rank + i,
             exclude_llm=lab.exclude_llm,

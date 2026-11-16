@@ -53,3 +53,14 @@ def test_unusable_jobs_do_not_retry(db_session, settings):
         call(db_session, {"set_id": str(uuid.uuid4()), "trigger": "cli"}, settings)
     with pytest.raises(NonRetryable):
         call(db_session, {"trigger": "reindex"}, settings)  # no set_id
+
+
+def test_run_failure_is_not_retried(db_session, settings, monkeypatch):
+    s = mkset(db_session)
+
+    def boom(*a, **k):
+        raise RuntimeError("judge down")
+
+    monkeypatch.setattr(jobs.runner, "run_set", boom)
+    with pytest.raises(NonRetryable, match="judge down"):
+        call(db_session, {"set_id": str(s.id), "trigger": "reindex", "judge": True}, settings)

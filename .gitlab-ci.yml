@@ -77,9 +77,8 @@ eval:
       alias: postgres
     - name: $ELASTICSEARCH_IMAGE
       alias: elasticsearch
+      command: ["bin/elasticsearch", "-Ediscovery.type=single-node", "-Expack.security.enabled=false"]
       variables:
-        discovery.type: single-node
-        xpack.security.enabled: "false"
         ES_JAVA_OPTS: "-Xms512m -Xmx512m"
   variables:
     POSTGRES_USER: roracle
