@@ -1,4 +1,5 @@
 import { UserManager, WebStorageStateStore, type User } from "oidc-client-ts";
+import { toast } from "sonner";
 import { SignInInProgress, type AuthHooks } from "@/api/client";
 
 type Tok = Pick<User, "access_token" | "expired">;
@@ -30,7 +31,10 @@ export function createUserManager() {
 /** Sign-out only exists with a real identity provider (mock mode has no session). */
 export const signOutAvailable = () => import.meta.env.VITE_MOCK !== "1";
 let signingOut = false;
-export const signOut = () => { signingOut = true; return createUserManager().signoutRedirect(); };
+export const signOut = () => {
+  signingOut = true;
+  return createUserManager().signoutRedirect().catch((e) => { signingOut = false; toast("Couldn't sign out. Try again."); throw e; });
+};
 
 /** Only same-origin relative paths survive a sign-in round trip ("/x", never "//host" or absolute URLs). */
 export function safeReturnTo(v: unknown): string {

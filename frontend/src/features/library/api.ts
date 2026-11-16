@@ -87,7 +87,11 @@ export function useRemoveFromCollection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ cid, docId }: { cid: string; docId: string }) => apiFetch(`/collections/${seg(cid)}/items/${seg(docId)}`, { method: "DELETE" }),
-    onSuccess: () => { toast("Removed from collection."); },
+    onSuccess: (_d, { cid, docId }) => {
+      const refresh = () => { void qc.invalidateQueries({ queryKey: ["collections"] }); void qc.invalidateQueries({ queryKey: ["search"] }); };
+      const undo = () => apiFetch(`/collections/${seg(cid)}/items/${seg(docId)}`, { method: "PUT" }).then(refresh, () => toast("Couldn't undo. Add it again from the card menu."));
+      toast("Removed from collection.", { action: { label: "Undo", onClick: () => void undo() } });
+    },
     onSettled: () => { void qc.invalidateQueries({ queryKey: ["collections"] }); void qc.invalidateQueries({ queryKey: ["search"] }); },
   });
 }

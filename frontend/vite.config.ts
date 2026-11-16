@@ -32,6 +32,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    testTimeout: 20_000, // lazy chunks + parallel workers make cold first renders slow
     env: { VITE_API_BASE: "http://localhost/api" },
   },
 });

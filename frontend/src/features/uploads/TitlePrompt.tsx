@@ -31,15 +31,15 @@ export function TitlePrompt({ u }: { u: UploadItem }) {
 }
 
 /** A finished upload that still has no title: offer a one-line "Add title" (PATCH, not the processing-stage PUT). */
-export function AddTitle({ u }: { u: UploadItem }) {
+export function AddTitle({ documentId, name }: { documentId: string; name: string }) {
   const m = useRename();
   const [open, setOpen] = useState(false);
   const [v, setV] = useState("");
   if (!open) return <Button variant="ghost" onClick={() => setOpen(true)}>Add title</Button>;
   const title = v.trim();
   return (
-    <form className="titleform" onSubmit={(e) => { e.preventDefault(); if (title) m.mutate({ documentId: u.document_id, title }); }}>
-      <input className="inp" aria-label={`Title for ${u.filename}`} maxLength={500} required autoFocus value={v} onChange={(e) => setV(e.target.value)} />
+    <form className="titleform" onSubmit={(e) => { e.preventDefault(); if (title) m.mutate({ documentId, title }); }}>
+      <input className="inp" aria-label={`Title for ${name}`} maxLength={500} required autoFocus value={v} onChange={(e) => setV(e.target.value)} />
       <Button type="submit" variant="primary" disabled={m.isPending || !title}>Save title</Button>
     </form>
   );

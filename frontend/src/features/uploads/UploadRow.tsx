@@ -1,3 +1,4 @@
+import { docTitle } from "@/lib/docTitle";
 import { fmtDateTime } from "@/lib/dates";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { openDoc } from "@/features/reader/useReaderStore";
@@ -15,6 +16,7 @@ const CELL = { running: "run", failed: "err", review: "wait", title: "wait", don
 
 export function UploadRow({ u }: { u: UploadItem }) {
   const st = viewStatus(u);
+  const name = docTitle(u);
   const done = pipelineDone(u.stage);
   const Pill = PILL_ICON[st];
   const Vis = VIS_ICON[u.visibility];
@@ -24,8 +26,8 @@ export function UploadRow({ u }: { u: UploadItem }) {
       <div className="fname">
         <span className="ft"><Type aria-hidden /></span>
         <div style={{ minWidth: 0 }}>
-          <b title={u.title ?? u.filename}>{u.title ?? u.filename}</b>
-          {u.title && <small className="fn" title={u.filename}>{u.filename}</small>}
+          <b title={name}>{name}</b>
+          {u.title?.trim() && <small className="fn" title={u.filename}>{u.filename}</small>}
           <small>{humanBytes(u.size)}. {fmtDateTime(u.uploaded_at)}</small>
         </div>
       </div>
@@ -35,7 +37,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
       <span><span className={cn("pill", st)}><Pill aria-hidden />{PILL[st]}</span></span>
       <span className="vis">
         <Vis aria-hidden />{VIS_LABEL[u.visibility]}
-        <RowMenu label={`Actions for ${u.title ?? u.filename}`} actions={[
+        <RowMenu label={`Actions for ${name}`} actions={[
           ...(st === "done" ? [{ label: "Open document", onSelect: () => openDoc(u.document_id) }] : []),
           copyAction("Copy filename", u.filename),
         ]} />
@@ -45,7 +47,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
       )}
       {st === "review" && <NearDupPrompt u={u} />}
       {st === "title" && <TitlePrompt u={u} />}
-      {st === "done" && !u.title?.trim() && <div className="tdet title"><span className="msg"><Pencil aria-hidden />This file has no title.</span><AddTitle u={u} /></div>}
+      {st === "done" && !u.title?.trim() && <div className="tdet title"><span className="msg"><Pencil aria-hidden />This file has no title.</span><AddTitle documentId={u.document_id} name={u.filename} /></div>}
     </div>
   );
 }

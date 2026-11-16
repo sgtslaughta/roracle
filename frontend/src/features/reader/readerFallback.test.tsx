@@ -134,6 +134,27 @@ describe("sharing dialog", () => {
     await waitFor(() => expect(bodies).toEqual([{ visibility: "shared", share_groups: [] }]));
   });
 
+  it("switching visibility away and back drops a pending empty-list confirmation", async () => {
+    const bodies: unknown[] = [];
+    server.use(http.patch(`${API_BASE}/documents/:id`, async ({ request }) => { bodies.push(await request.json()); return HttpResponse.json({}); }),
+      http.get(`${API_BASE}/documents/:id`, ({ params }) => HttpResponse.json({
+        id: params.id, title: "Lower bounds on the spectral gap", authors: [], year: 2021, venue: null, org_unit: "/A", visibility: "shared", owner: { id: "u-me", username: "researcher" },
+        summary: null, stage: "searchable", tags: [], votes: { up: 0, down: 0, mine: 0 }, file_type: "PDF", page_count: 1, flag: null, share_groups: ["/Math"],
+        versions: [{ id: "v1", version: 1, filename: "a.pdf", uploaded_at: "2026-10-01T10:00:00Z", is_latest: true }],
+      })));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "Sharing" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove /Math" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Press Save again/)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Visible to"), "org_unit");
+    await userEvent.selectOptions(screen.getByLabelText("Visible to"), "shared");
+    expect(screen.queryByText(/Press Save again/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Press Save again/)).toBeInTheDocument();
+    expect(bodies).toEqual([]);
+  });
+
   it("non-owner sees no Sharing button", async () => {
     server.use(http.get(`${API_BASE}/documents/:id`, ({ params }) => HttpResponse.json({
       id: params.id, title: "Lower bounds on the spectral gap", authors: [], year: 2021, venue: null, org_unit: "/A", visibility: "everyone", owner: { id: "other", username: "k" },

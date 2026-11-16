@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { fmtDateTime } from "@/lib/dates";
 import { apiFetch, seg } from "@/api/client";
 import type { DraftDetail, VersionBody } from "@/api/drafts";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -33,7 +34,7 @@ export function VersionsPanel({ draft, base, locked, dirty, onRestored }: { draf
         renderItem={(v) => (
           <div className="vrow" data-row key={v.version}>
             <button className="linkish" aria-pressed={viewing === v.version} onClick={() => setViewing(v.version)}>Version {v.version}</button>
-            <small>{v.author.username} · {new Date(v.created_at).toLocaleString()}{v.version === draft.latest_version ? " · latest" : ""}</small>
+            <small>{v.author.username} · {fmtDateTime(v.created_at)}{v.version === draft.latest_version ? " · latest" : ""}</small>
             <RowMenu label={`Actions for version ${v.version}`} actions={[
               { label: "View", onSelect: () => setViewing(v.version) },
               ...(!locked && v.version !== draft.latest_version ? [{ label: "Restore", onSelect: () => setRestoring(v.version) }] : []),
@@ -42,7 +43,7 @@ export function VersionsPanel({ draft, base, locked, dirty, onRestored }: { draf
         )} />
       {error && <p role="alert" className="derr">{error}</p>}
       {viewing !== null && (
-        <div className="vview" aria-label={`Version ${viewing}`}>
+        <div className="vview" role="region" aria-label={`Version ${viewing}`}>
           {shown.isPending ? <p className="sub" role="status">Loading…</p> : shown.isError ? <p role="alert" className="derr">{draftError(shown.error)}</p>
             : <SafeMarkdown text={stripFrontMatter(shown.data.content)} />}
           {!locked && viewing !== draft.latest_version && <Button onClick={() => setRestoring(viewing)}>Restore this version</Button>}

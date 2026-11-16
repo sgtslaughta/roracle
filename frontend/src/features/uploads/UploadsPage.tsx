@@ -2,7 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { isDuplicate, useUploads, useUpload } from "./api";
+import { isDuplicate, UPLOADS_PAGE, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { DEFAULT_OPTS, UploadOptions } from "./UploadOptions";
@@ -12,7 +12,8 @@ import { UploadRow } from "./UploadRow";
 const PAGE = 25;
 
 export function UploadsPage() {
-  const { data } = useUploads();
+  const [limit, setLimit] = useState(UPLOADS_PAGE);
+  const { data, isFetching } = useUploads(true, limit);
   const upload = useUpload();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [shown, setShown] = useState(PAGE);
@@ -58,6 +59,9 @@ export function UploadsPage() {
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>
         {rows.slice(0, shown).map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}
+        {data && data.total > items.length && (
+          <Button disabled={isFetching} onClick={() => setLimit((n) => n + UPLOADS_PAGE)}>Load more ({data.total - items.length} not loaded)</Button>
+        )}
         {rows.length > shown && <Button onClick={() => setShown((n) => n + PAGE)}>Show more ({rows.length - shown} hidden)</Button>}
       </div>
       <DuplicateDialog

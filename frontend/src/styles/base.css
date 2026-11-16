@@ -65,3 +65,4 @@ button.badge-o:hover { border-color: var(--apricot); color: var(--primary); }
 @media (hover: none) { .rowline .rowmenu-btn { opacity: 1; } }
 .nav .rowmenu-btn { width: 28px; padding: 0; flex: none; }
 .vis .rowmenu { margin-left: auto; }
+.empty.bare { border: 0; }

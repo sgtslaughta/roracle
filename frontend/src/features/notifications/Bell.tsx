@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { showNote } from "@/features/notes/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RowMenu } from "@/components/RowMenu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLatestNotifications, useMarkRead } from "./api";
@@ -35,6 +36,16 @@ export function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n:
   );
 }
 
+export function NotificationMenu({ n, onOpen, kebab = true }: { n: AppNotification; onOpen: (n: AppNotification) => void; kebab?: boolean }) {
+  const mark = useMarkRead();
+  return (
+    <RowMenu kebab={kebab} label={`Actions for ${describe(n.kind, n.payload).text}`} actions={[
+      { label: "Open", onSelect: () => onOpen(n) },
+      ...(n.read_at ? [] : [{ label: "Mark as read", onSelect: () => mark.mutate({ ids: [n.id] }) }]),
+    ]} />
+  );
+}
+
 export function Bell() {
   const [open, setOpen] = useState(false);
   const { data } = useLatestNotifications();
@@ -61,7 +72,7 @@ export function Bell() {
           <Button variant="ghost" disabled={!unread || mark.isPending} onClick={() => mark.mutate({ all: true })}>Mark all read</Button>
         </div>
         {items.length
-          ? <ul className="menu-list">{items.map((n) => <li key={n.id}><NotificationRow n={n} onOpen={(x) => { setOpen(false); openOne(x); }} /></li>)}</ul>
+          ? <ul className="menu-list">{items.map((n) => <li key={n.id} data-row><NotificationRow n={n} onOpen={(x) => { setOpen(false); openOne(x); }} /><NotificationMenu n={n} onOpen={(x) => { setOpen(false); openOne(x); }} kebab={false} /></li>)}</ul>
           : <p className="sub bellempty">You're all caught up.</p>}
         <Link to="/notifications" className="menu-link bellall" onClick={() => setOpen(false)}>See all</Link>
       </PopoverContent>

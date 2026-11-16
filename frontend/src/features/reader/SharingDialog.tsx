@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
 import type { DocumentDetail, DocumentPatch, Visibility } from "@/api/types";
 import { ChipInput } from "@/features/ask/ChipInput";
-import { VIS_LABEL } from "@/features/uploads/status";
-import { VIS_ORDER } from "@/features/uploads/UploadOptions";
+import { VIS_LABEL, VIS_ORDER } from "@/features/uploads/status";
+import { docTitle } from "@/lib/docTitle";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
@@ -37,7 +37,7 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Sharing</DialogTitle>
-        <DialogDescription>Choose who can see “{doc.title}”.</DialogDescription>
+        <DialogDescription>Choose who can see “{docTitle(doc)}”.</DialogDescription>
         <form style={{ display: "grid", gap: 10 }} onSubmit={(e) => {
           e.preventDefault();
           const body: DocumentPatch = { visibility: vis };
@@ -51,7 +51,7 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
           save.mutate(body);
         }}>
           <label>Visible to
-            <select className="inp" value={vis} onChange={(e) => setVis(e.target.value as Visibility)}>
+            <select className="inp" value={vis} onChange={(e) => { setVis(e.target.value as Visibility); setConfirm(false); }}>
               {VIS_ORDER.map((v) => <option key={v} value={v}>{VIS_LABEL[v]}</option>)}
             </select>
           </label>

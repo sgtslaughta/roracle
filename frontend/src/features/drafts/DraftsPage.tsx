@@ -4,15 +4,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { BUILTIN_PROFILES, TITLE_MAX, type DraftSummary } from "@/api/drafts";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { OverflowList } from "@/components/OverflowList";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { fmtDate } from "@/lib/dates";
 import { useMe } from "@/features/library/useMe";
 import { draftError, useCreateDraft, useDeleteDraft, useDrafts } from "./api";
 import { StatusBadge } from "./StatusBadge";
 
-const MAX_INLINE = 12;
+const PAGE = 12;
 
 function NewDraft({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const nav = useNavigate();
@@ -54,6 +54,7 @@ export function DraftsPage() {
   const me = useMe().data;
   const del = useDeleteDraft();
   const [creating, setCreating] = useState(false);
+  const [shown, setShown] = useState(PAGE);
   const [doomed, setDoomed] = useState<DraftSummary | null>(null);
   const items = data ?? [];
 
@@ -61,7 +62,7 @@ export function DraftsPage() {
     <div className="drow" data-row key={d.id}>
       <div className="dmain">
         <Link to="/drafts/$id" params={{ id: d.id }}><b>{d.title}</b></Link>
-        <small>{d.profile ?? "default profile"} · v{d.latest_version} · {d.owner.id === me?.id ? "you" : d.owner.username} · {new Date(d.updated_at).toLocaleDateString()}</small>
+        <small>{d.profile ?? "default profile"} · v{d.latest_version} · {d.owner.id === me?.id ? "you" : d.owner.username} · {fmtDate(d.updated_at)}</small>
       </div>
       <StatusBadge status={d.status} />
       <RowMenu label={`Actions for ${d.title}`} actions={[
@@ -86,8 +87,10 @@ export function DraftsPage() {
         <div className="empty"><PenLine /><p>No drafts yet. Start one here, or ask an agent to begin a draft for you.</p></div>
       )}
       {items.length > 0 && (
-        <OverflowList className="dlist" items={items} max={MAX_INLINE} menuLabel="More drafts" getLabel={(d) => d.title} renderItem={row}
-          moreLabel={(n) => `+${n} more drafts`} />
+        <div className="dlist">
+          {items.slice(0, shown).map(row)}
+          {items.length > shown && <Button onClick={() => setShown((n) => n + PAGE)}>Show more ({items.length - shown} hidden)</Button>}
+        </div>
       )}
       <NewDraft open={creating} onOpenChange={setCreating} />
       <ConfirmDialog open={!!doomed} onOpenChange={(o) => !o && setDoomed(null)} title="Delete this draft?" confirm="Delete" busy={del.isPending}

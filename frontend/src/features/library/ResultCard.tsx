@@ -11,7 +11,8 @@ import { KindPill } from "@/features/notes/NoteCard";
 import { openDoc, setView } from "@/features/reader/useReaderStore";
 import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
-import { useCanRemoveTags } from "./useMe";
+import { docTitle } from "@/lib/docTitle";
+import { useOwnerOrAdmin } from "./useMe";
 import { useRemoveFromCollection } from "./api";
 import { AddToCollectionDialog } from "./AddToCollection";
 import { VoteControl } from "./VoteControl";
@@ -28,8 +29,9 @@ export interface ResultCardProps {
 
 export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: ResultCardProps) {
   const removeFrom = useRemoveFromCollection();
-  const canRemove = useCanRemoveTags(hit.owner_id);
+  const canRemove = useOwnerOrAdmin(hit.owner_id);
   const [adding, setAdding] = useState(false);
+  const title = docTitle(hit);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
@@ -37,15 +39,15 @@ export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: 
       <div style={{ minWidth: 0 }}>
         <div className="rtop">
           <div style={{ minWidth: 0 }}>
-            <h3><button title={hit.title} onClick={() => onOpen(hit.doc_id)}>{highlight(hit.title, terms)}</button></h3>
+            <h3><button title={title} onClick={() => onOpen(hit.doc_id)}>{hit.title.trim() ? highlight(hit.title, terms) : title}</button></h3>
             <CiteLine authors={hit.authors} venue={hit.venue} year={hit.year} />
           </div>
           {hit.flag && <span className="flag"><Clock aria-hidden />{hit.flag}</span>}
-          <RowMenu label={`Actions for ${hit.title}`} actions={[
+          <RowMenu label={`Actions for ${title}`} actions={[
             { label: "Open", onSelect: () => onOpen(hit.doc_id) },
             { label: "Add to collection", onSelect: () => setAdding(true) },
             ...(collectionId ? [{ label: "Remove from collection", danger: true, onSelect: () => removeFrom.mutate({ cid: collectionId, docId: hit.doc_id }) }] : []),
-            copyAction("Copy title", hit.title),
+            copyAction("Copy title", title),
           ]} />
         </div>
         <div className="hits">

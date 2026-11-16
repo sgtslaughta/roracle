@@ -61,7 +61,7 @@ describe("drafts list", () => {
     expect(screen.getByText(/dissertation/)).toBeInTheDocument();
   });
 
-  it("empty state, and delete through the row menu with confirmation", async () => {
+  it("deletes through the row menu with confirmation", async () => {
     const user = userEvent.setup();
     await open("/drafts");
     await screen.findByText("Trace methods survey");
@@ -79,9 +79,14 @@ describe("drafts list", () => {
 });
 
 describe("draft editor", () => {
-  it("unknown or malformed ids are not found", async () => {
+  it("malformed ids are not found", async () => {
     await open("/drafts/not-an-id");
     expect(await screen.findByText(/not found|doesn't exist|can't find/i)).toBeInTheDocument();
+  });
+
+  it("an unknown but well-formed id is not found either", async () => {
+    await open("/drafts/00000000-0000-4000-8000-0000000000ff");
+    expect(await screen.findByText(/not found|doesn't exist|can't find|couldn't load/i)).toBeInTheDocument();
   });
 
   it("saves edits (dirty state) and the preview never renders html, scripts or images", async () => {

@@ -1,9 +1,8 @@
 import type { Visibility } from "@/api/types";
-import { VIS_LABEL } from "./status";
+import { VIS_LABEL, VIS_ORDER } from "./status";
 
 export interface UploadOpts { visibility: Visibility; title: string }
 export const DEFAULT_OPTS: UploadOpts = { visibility: "everyone", title: "" };
-export const VIS_ORDER: Visibility[] = ["everyone", "org_unit", "private", "shared"];
 
 /** Who can see new uploads, plus an optional title (used when one file is chosen). */
 export function UploadOptions({ value, onChange }: { value: UploadOpts; onChange: (v: UploadOpts) => void }) {

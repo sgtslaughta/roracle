@@ -42,7 +42,7 @@ export function ChecksPanel({ draft, author }: { draft: DraftDetail; author: boo
       <Button onClick={() => validate.mutate()} disabled={validate.isPending}>{validate.isPending && <Loader2 className="spin" aria-hidden />}Run validation</Button>
       {validate.isError && <p role="alert" className="derr">{draftError(validate.error)}</p>}
       {v && (
-        <div aria-label="Validation results">
+        <div role="region" aria-label="Validation results">
           {stale(v, draft) && <Stale v={v.version} latest={draft.latest_version} />}
           <p><span className={`pill ${v.ok ? "done" : "failed"}`}>{v.ok ? "No blocking findings" : `${v.blocking.length} blocking`}</span> <small>profile {v.profile.name}</small></p>
           {v.style_unavailable && <p className="sub">Style checks were unavailable for this run.</p>}
@@ -54,7 +54,7 @@ export function ChecksPanel({ draft, author }: { draft: DraftDetail; author: boo
       <Button onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending && <Loader2 className="spin" aria-hidden />}Check citations</Button>
       {check.isError && <p role="alert" className="derr">{draftError(check.error)}</p>}
       {c && (
-        <div aria-label="Citation results">
+        <div role="region" aria-label="Citation results">
           {stale(c, draft) && <Stale v={c.version} latest={draft.latest_version} />}
           <p><span className={`pill ${c.ok ? "done" : "failed"}`}>{c.ok ? "All citations pass" : "Needs attention"}</span></p>
           <OverflowList className="vlist" items={c.items} max={8} menuLabel="More citations" getLabel={(i) => i.key} moreLabel={(n) => `+${n} more citations`}

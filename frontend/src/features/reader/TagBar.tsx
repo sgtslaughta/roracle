@@ -4,11 +4,11 @@ import { toast } from "sonner";
 import { OverflowList } from "@/components/OverflowList";
 import { useAddTag } from "@/features/library/api";
 import { TagChip } from "@/features/library/TagChip";
-import { useCanRemoveTags } from "@/features/library/useMe";
+import { useOwnerOrAdmin } from "@/features/library/useMe";
 import { useLibraryNav } from "@/features/library/useLibraryNav";
 
 export function TagBar({ docId, tags, ownerId }: { docId: string; tags: string[]; ownerId?: string }) {
-  const canRemove = useCanRemoveTags(ownerId);
+  const canRemove = useOwnerOrAdmin(ownerId);
   const add = useAddTag(docId);
   const nav = useLibraryNav();
   const [v, setV] = useState("");

@@ -28,4 +28,9 @@ describe("router states", () => {
     expect(screen.getByRole("heading", { name: "Could not load this page" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
+
+  it.each(["Unable to preload CSS for /assets/x.css", "Failed to load module script: Expected a JavaScript module"])("treats %s as a chunk failure", (m) => {
+    render(<RouteError error={new Error(m)} reset={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+  });
 });

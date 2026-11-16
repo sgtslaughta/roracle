@@ -22,6 +22,32 @@ export function Sidebar() {
   const close = () => setRailOpen(false);
   const attention = useUploadAttention();
   const waiting = useProposals("pending").data?.total ?? 0;
+  /** Chat / collection entries; the rail popover variant is context-menu only and closes the popover on navigation. */
+  const chatRow = (c: Parameters<typeof chatTitle>[0] & { id: string }, rail = false) => (
+    <div key={c.id} className="rowline" data-row>
+      <Link to="/ask/$chatId" params={{ chatId: c.id }} title={chatTitle(c)} onClick={rail ? close : undefined}
+        {...(rail ? { className: "menu-link" } : { activeProps: { "aria-current": "page" as const }, inactiveProps: { "aria-current": undefined } })}>
+        <MessageCircle aria-hidden />
+        <span>{chatTitle(c)}</span>
+      </Link>
+      <RowMenu kebab={!rail} label={`Actions for chat ${chatTitle(c)}`} actions={[
+        { label: "Open", onSelect: () => { close(); void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }); } },
+        copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
+      ]} />
+    </div>
+  );
+  const collectionRow = (c: { id: string; name: string }, rail = false) => (
+    <div key={c.id} className="rowline" data-row>
+      <Link to="/library" search={{ collection: [c.id] }} title={c.name} onClick={rail ? close : undefined} className={rail ? "menu-link" : undefined}>
+        <Folder aria-hidden />
+        <span>{c.name}</span>
+      </Link>
+      <RowMenu kebab={!rail} label={`Actions for collection ${c.name}`} actions={[
+        { label: "Show in Library", onSelect: () => { close(); void navigate({ to: "/library", search: { collection: [c.id] } }); } },
+        copyAction("Copy name", c.name),
+      ]} />
+    </div>
+  );
   return (
     <aside className="side">
       <nav className="nav" aria-label="Main">
@@ -52,7 +78,7 @@ export function Sidebar() {
             <OverflowList
               items={chats ?? []} max={5} layout="stack" menuLabel="More chats" getLabel={chatTitle} moreLabel={(k) => `+${k} more`}
               footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
-              renderItem={(c) => <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} className="menu-link" title={chatTitle(c)} onClick={close}><MessageCircle aria-hidden /><span>{chatTitle(c)}</span></Link>}
+              renderItem={(c) => chatRow(c, true)}
             />
             <Link to="/ask" className="menu-link" onClick={close}><Plus aria-hidden /><span>New chat</span></Link>
             {!!collections?.length && (
@@ -60,7 +86,7 @@ export function Sidebar() {
                 <h5>Collections</h5>
                 <OverflowList
                   items={collections} max={6} layout="stack" menuLabel="More collections" getLabel={(c) => c.name} moreLabel={(k) => `+${k} more`}
-                  renderItem={(c) => <Link key={c.id} to="/library" search={{ collection: [c.id] }} className="menu-link" title={c.name} onClick={close}><Folder aria-hidden /><span>{c.name}</span></Link>}
+                  renderItem={(c) => collectionRow(c, true)}
                 />
               </>
             )}
@@ -74,18 +100,7 @@ export function Sidebar() {
             items={chats ?? []} max={5} layout="stack" menuLabel="More chats"
             footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
             getLabel={chatTitle} moreLabel={(k) => `+${k} more`}
-            renderItem={(c) => (
-              <div key={c.id} className="rowline" data-row>
-                <Link to="/ask/$chatId" params={{ chatId: c.id }} title={chatTitle(c)} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
-                  <MessageCircle aria-hidden />
-                  <span>{chatTitle(c)}</span>
-                </Link>
-                <RowMenu label={`Actions for chat ${chatTitle(c)}`} actions={[
-                  { label: "Open", onSelect: () => void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }) },
-                  copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
-                ]} />
-              </div>
-            )}
+            renderItem={(c) => chatRow(c)}
           />
           <Link to="/ask" activeOptions={{ exact: true }} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
             <Plus aria-hidden />
@@ -99,18 +114,7 @@ export function Sidebar() {
           <nav className="nav" aria-label="Collections">
             <OverflowList
               items={collections} max={6} layout="stack" menuLabel="More collections" getLabel={(c) => c.name} moreLabel={(k) => `+${k} more`}
-              renderItem={(c) => (
-                <div key={c.id} className="rowline" data-row>
-                  <Link to="/library" search={{ collection: [c.id] }} title={c.name}>
-                    <Folder aria-hidden />
-                    <span>{c.name}</span>
-                  </Link>
-                  <RowMenu label={`Actions for collection ${c.name}`} actions={[
-                    { label: "Show in Library", onSelect: () => void navigate({ to: "/library", search: { collection: [c.id] } }) },
-                    copyAction("Copy name", c.name),
-                  ]} />
-                </div>
-              )}
+              renderItem={(c) => collectionRow(c)}
             />
           </nav>
         </div>

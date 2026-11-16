@@ -12,7 +12,7 @@ export function DraftEditor({ text, onChange, readOnly }: { text: string; onChan
         <button aria-pressed={preview} onClick={() => setPreview(true)}>Preview</button>
       </div>
       {preview
-        ? <div className="dpreview" aria-label="Preview"><SafeMarkdown text={stripFrontMatter(text)} /></div>
+        ? <div className="dpreview" role="region" aria-label="Preview"><SafeMarkdown text={stripFrontMatter(text)} /></div>
         : <textarea className="inp dtext" aria-label="Draft content" spellCheck value={text} readOnly={readOnly} onChange={(e) => onChange(e.target.value)} />}
     </div>
   );

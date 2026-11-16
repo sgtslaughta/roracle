@@ -3,8 +3,7 @@ import type { DraftDetail } from "@/api/drafts";
 import type { Visibility } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { VIS_LABEL } from "@/features/uploads/status";
-import { VIS_ORDER } from "@/features/uploads/UploadOptions";
+import { VIS_LABEL, VIS_ORDER } from "@/features/uploads/status";
 import { draftError, useSaveDraft, useSubmitDraft } from "./api";
 import { readAi, withAi } from "./frontMatter";
 

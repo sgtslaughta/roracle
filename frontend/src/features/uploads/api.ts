@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, errorText, seg, QUIET } from "@/api/client";
 import type { DuplicateDetail, Visibility, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
@@ -7,10 +7,13 @@ const TERMINAL_STAGES = ["searchable", "review", "needs_title", "rejected", "can
 /** An upload is terminal when it has finished, failed, or waits on the user. */
 export const isTerminal = (u: { status: string; stage: string }) => u.status === "done" || u.status === "failed" || TERMINAL_STAGES.includes(u.stage);
 
-export const useUploads = (poll = true) =>
+export const UPLOADS_PAGE = 200;
+/** The newest `limit` uploads (`total` says how many exist); grow `limit` to page. */
+export const useUploads = (poll = true, limit = UPLOADS_PAGE) =>
   useQuery({
-    queryKey: ["uploads"],
-    queryFn: () => apiFetch<UploadsResponse>("/me/uploads?limit=200"),
+    queryKey: ["uploads", limit],
+    queryFn: () => apiFetch<UploadsResponse>(`/me/uploads?limit=${limit}`),
+    placeholderData: keepPreviousData,
     refetchInterval: (q) => (poll && q.state.data?.items.some((u) => !isTerminal(u)) ? 3000 : false),
   });
 
@@ -58,7 +61,7 @@ export function useSetTitle() {
       toast("Title saved. Processing continues.");
       return Promise.all([qc.invalidateQueries({ queryKey: ["uploads"] }), qc.invalidateQueries({ queryKey: ["needs-title"] })]);
     },
-    onError: (e) => toast(e instanceof ApiError ? e.message : "The title couldn't be saved. Try again."),
+    onError: (e) => toast(errorText(e)),
   });
 }
 
@@ -72,7 +75,10 @@ export function useRename() {
   return useMutation({
     meta: QUIET,
     mutationFn: ({ documentId, title }: { documentId: string; title: string }) => apiFetch(`/documents/${seg(documentId)}`, { method: "PATCH", json: { title } }),
-    onSuccess: () => { toast("Title saved."); return qc.invalidateQueries({ queryKey: ["uploads"] }); },
+    onSuccess: (_d, { documentId }) => {
+      toast("Title saved.");
+      return Promise.all([["uploads"], ["doc", documentId], ["search"]].map((queryKey) => qc.invalidateQueries({ queryKey })));
+    },
     onError: (e) => toast(errorText(e)),
   });
 }

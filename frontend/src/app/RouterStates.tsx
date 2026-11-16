@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 
-const CHUNK_ERR = /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically/i;
+const CHUNK_ERR = /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|Unable to preload CSS|module script/i;
 
 export function NotFound() {
   return (
@@ -29,5 +29,5 @@ export function RouteError({ error, reset }: { error: Error; reset?: () => void 
 }
 
 export function Pending() {
-  return <div className="empty" role="status" aria-busy="true" style={{ border: 0 }}>Loading…</div>;
+  return <div className="empty bare" role="status" aria-busy="true">Loading…</div>;
 }

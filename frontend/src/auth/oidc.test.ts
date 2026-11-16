@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { SignInInProgress } from "@/api/client";
-import { createAuthHooks, type AuthClient } from "./oidc";
+import { UserManager } from "oidc-client-ts";
+import { toast } from "sonner";
+import { createAuthHooks, signOut, type AuthClient } from "./oidc";
+
+vi.mock("sonner", () => ({ toast: vi.fn() }));
 
 const user = (expired: boolean) => ({ access_token: "t", expired });
 const client = (o: Partial<AuthClient>): AuthClient => ({ getUser: async () => null, signinSilent: async () => null, signinRedirect: vi.fn(async () => {}), ...o });
@@ -34,5 +38,16 @@ describe("auth hooks", () => {
     let u = user(true);
     const h = createAuthHooks(client({ getUser: async () => u, signinSilent: async () => (u = user(false)) }));
     expect(await h.getToken()).toBe("t");
+  });
+});
+
+describe("signOut", () => {
+  it("a failed sign-out toasts and leaves sign-in working (no hang on the next 401)", async () => {
+    vi.spyOn(UserManager.prototype, "signoutRedirect").mockRejectedValue(new Error("idp down"));
+    await expect(signOut()).rejects.toThrow("idp down");
+    expect(toast).toHaveBeenCalledWith("Couldn't sign out. Try again.");
+    const redirect = vi.fn(async () => {});
+    await createAuthHooks(client({ signinRedirect: redirect })).signIn();
+    expect(redirect).toHaveBeenCalledTimes(1);
   });
 });
