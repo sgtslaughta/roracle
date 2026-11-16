@@ -99,7 +99,7 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 
 | Artifact | Mirror | Notes |
 |---|---|---|
-| SciFact (BEIR format: `corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`) | download once outside the enclave, unpack to a directory on the host that runs the CLI | imported offline by `roracle eval import-beir <dir> --set scifact --owner <non-admin user>`; the importer contains no network code. License **CC BY-NC 2.0**: non-commercial research and evaluation only; keep it out of production corpora and do not redistribute it with the product |
+| SciFact (BEIR format: `corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`) | download once outside the enclave, unpack to a directory on the host that runs the CLI | imported offline by `roracle eval import-beir <dir> --set scifact --owner <non-admin user> --principals a,b,c` (private by default; the worker then ingests each abstract like an upload, so the embedding and summary endpoints must be up; re-running resumes); the importer contains no network code. License **CC BY-NC 2.0**: non-commercial research and evaluation only; keep it out of production corpora and do not redistribute it with the product |
 
 ## Other data
 

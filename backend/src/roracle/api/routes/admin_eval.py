@@ -6,8 +6,9 @@ from typing import Annotated, Literal
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from roracle import queue
@@ -29,13 +30,34 @@ class _In(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class _NoNulls(_In):
+    """PATCH bodies: omit a field to keep it; an explicit null is a 422 (NOT NULL columns), except where allowed."""
+
+    @model_validator(mode="after")
+    def _no_nulls(self):
+        bad = [k for k in self.model_fields_set if getattr(self, k) is None and k not in NULLABLE]
+        if bad:
+            raise ValueError(f"{bad[0]} cannot be null")
+        return self
+
+
+NULLABLE = {"reference_answer"}
+
+
+def _flush(session: Session) -> None:
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(409, "conflicting change, retry") from None
+
+
 class SetIn(_In):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field("", max_length=2000)
     is_reference: bool = False
 
 
-class SetPatch(_In):
+class SetPatch(_NoNulls):
     name: str | None = Field(None, min_length=1, max_length=80)
     description: str | None = Field(None, max_length=2000)
     is_reference: bool | None = None
@@ -52,7 +74,7 @@ class QueryIn(_In):
     status: Literal["draft", "active"] = "active"
 
 
-class QueryPatch(_In):
+class QueryPatch(_NoNulls):
     text: str | None = Field(None, min_length=1, max_length=2000)
     kind: Kind | None = None
     principals: list[uuid.UUID] | None = Field(None, min_length=1)
@@ -130,7 +152,7 @@ def create_set(body: SetIn, p: Admin, session: Db) -> dict:
         raise HTTPException(409, "a set with that name exists")
     s = EvalSet(name=body.name, description=body.description, created_by=p.user_id)
     session.add(s)
-    session.flush()
+    _flush(session)
     if body.is_reference:
         _make_reference(session, s)
     audit(session, p, "eval.set.create", str(s.id), {"name": s.name})
@@ -141,9 +163,9 @@ def _make_reference(session: Session, s: EvalSet) -> None:
     session.execute(
         update(EvalSet).where(EvalSet.is_reference, EvalSet.id != s.id).values(is_reference=False)
     )
-    session.flush()
+    _flush(session)
     s.is_reference = True
-    session.flush()
+    _flush(session)
 
 
 @router.patch("/admin/eval/sets/{set_id}")
@@ -163,7 +185,7 @@ def patch_set(set_id: uuid.UUID, body: SetPatch, p: Admin, session: Db) -> dict:
         _make_reference(session, s)
     elif d.get("is_reference") is False:
         s.is_reference = False
-    session.flush()
+    _flush(session)
     audit(session, p, "eval.set.update", str(s.id), {"changes": sorted(d)})
     rows = session.execute(select(EvalQuery.status).where(EvalQuery.set_id == s.id)).scalars().all()
     return _set_json(s, rows.count("active"), rows.count("draft"))
@@ -200,7 +222,7 @@ def _new_query(session: Session, set_id: uuid.UUID, b: QueryIn) -> EvalQuery:
         relevant=rel, reference_answer=b.reference_answer, status=b.status,
     )  # fmt: skip
     session.add(q)
-    session.flush()
+    _flush(session)
     return q
 
 
@@ -218,7 +240,7 @@ def patch_query(query_id: uuid.UUID, body: QueryPatch, p: Admin, session: Db) ->
     if q is None:
         raise HTTPException(404, "not found")
     d = body.model_dump(exclude_unset=True)
-    if "principals" in d or "relevant" in d:
+    if {"principals", "relevant"} & d.keys() or d.get("status") == "active":  # approval re-checks gold docs
         rel = _check_refs(
             session, body.principals or q.principals, body.relevant or [GoldItem(**i) for i in q.relevant]
         )
@@ -226,7 +248,7 @@ def patch_query(query_id: uuid.UUID, body: QueryPatch, p: Admin, session: Db) ->
             d["relevant"] = rel
     for k, v in d.items():
         setattr(q, k, v)
-    session.flush()
+    _flush(session)
     audit(session, p, "eval.query.update", str(q.id), {"changes": sorted(d)})
     return _query_json(q)
 
@@ -277,8 +299,11 @@ async def import_queries(set_id: uuid.UUID, request: Request, p: Admin, session:
 @router.post("/admin/eval/sets/{set_id}/generate", status_code=202)
 def generate(set_id: uuid.UUID, body: GenerateIn, p: Admin, session: Db) -> dict:
     _get_set(session, set_id)
-    if session.get(User, body.principal) is None:
+    u = session.get(User, body.principal)
+    if u is None:
         raise HTTPException(422, f"unknown principal: {body.principal}")
+    if u.is_admin:
+        raise HTTPException(422, gold.R5_ERROR)  # admins see everything: drafts could not be evaluated
     job = queue.enqueue(
         session, "eval_generate", {"set_id": str(set_id), "principal": str(body.principal), "n": body.n}
     )

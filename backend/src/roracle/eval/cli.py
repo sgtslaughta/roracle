@@ -40,9 +40,14 @@ def add_parser(sub) -> None:
     b.add_argument("dir")
     b.add_argument("--set", dest="set_name", required=True)
     b.add_argument(
-        "--owner", required=True, help="username of the owning (non-admin) user and gold principal"
+        "--owner", required=True, help="non-admin user who owns the documents and is a gold principal"
     )
-    b.add_argument("--visibility", choices=["private", "shared", "org_unit", "everyone"], default="everyone")
+    b.add_argument("--dataset", default="scifact", help="dataset tag keying idempotent re-imports")
+    b.add_argument(
+        "--principals", default="", metavar="A,B,C", help="more non-admin gold principals (shares)"
+    )
+    b.add_argument("--share-group", action="append", default=[], metavar="GROUP")
+    b.add_argument("--visibility", choices=["private", "shared", "org_unit", "everyone"], default="private")
     ci = ev.add_parser("ci", help="seed the synthetic fixture and fail on ACL violations or low metrics")
     ci.add_argument("--fixture", required=True)
     ci.add_argument("--floors", required=True)
@@ -101,20 +106,30 @@ def import_beir_cmd(args) -> int:
     from pathlib import Path
 
     from roracle.eval import beir
+    from roracle.storage import blob_store_from
 
     settings = get_settings()
     with make_session_factory(settings.database_url)() as session:
-        settings = runtime.effective(session, settings)
         try:
             out = beir.import_beir(
-                session, clients.es(settings), clients.llm(settings), settings, Path(args.dir),
-                set_name=args.set_name, owner=args.owner, visibility=args.visibility,
+                session, blob_store_from(settings), runtime.effective(session, settings), Path(args.dir),
+                set_name=args.set_name, owner=args.owner, dataset=args.dataset, visibility=args.visibility,
+                principals=[x.strip() for x in args.principals.split(",") if x.strip()], groups=args.share_group,
             )  # fmt: skip
         except (ValueError, OSError) as e:
             session.rollback()
             print(f"error: {e}", file=sys.stderr)
             return 2
-    print(f"imported {out['documents']} documents and {out['queries']} queries into set {args.set_name!r}")
+        except Exception as e:  # noqa: BLE001
+            session.rollback()
+            print(
+                f"import failed: {type(e).__name__}: {e}; re-run the same command to resume", file=sys.stderr
+            )
+            return 1
+    print(
+        f"set {args.set_name!r}: {out['documents']} new documents, {out['reused']} reused, "
+        f"{out['requeued']} re-queued, {out['queries']} queries; the worker ingests them"
+    )
     return 0
 
 

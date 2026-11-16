@@ -296,3 +296,52 @@ def test_audit_rows(client, adm, world, db_session):
         "eval.set.delete",
     } <= acts
     assert db_session.scalar(select(EvalSet).limit(1)) is None
+
+
+def test_patch_nulls_422_and_approval_rechecks_gold(client, adm, world):
+    w, s = world, mkset(client, adm)
+    q = client.post(f"/admin/eval/sets/{s['id']}/queries", json=body(w, status="draft"), headers=adm).json()
+    for f in ("text", "kind", "status", "as_pat", "principals", "relevant"):
+        assert (
+            client.patch(f"/admin/eval/queries/{q['id']}", json={f: None}, headers=adm).status_code == 422
+        ), f
+    assert (
+        client.patch(
+            f"/admin/eval/queries/{q['id']}", json={"reference_answer": None}, headers=adm
+        ).status_code
+        == 200
+    )
+    assert client.patch(f"/admin/eval/sets/{s['id']}", json={"name": None}, headers=adm).status_code == 422
+    w.pub.deleted_at = w.pub.created_at  # deleted since generation
+    r = client.patch(f"/admin/eval/queries/{q['id']}", json={"status": "active"}, headers=adm)
+    assert r.status_code == 422
+
+
+def test_generate_refuses_admin_principal(client, adm, world, db_session, settings):
+    w, s = world, mkset(client, adm)
+    assert (
+        client.post(
+            f"/admin/eval/sets/{s['id']}/generate", json={"n": 1, "principal": str(w.root.id)}, headers=adm
+        ).status_code
+        == 422
+    )
+    with pytest.raises(generate.NonRetryable):
+        generate.handle_eval_generate(
+            db_session,
+            {"set_id": s["id"], "principal": str(w.root.id), "n": 1},
+            settings=settings,
+            es=None,
+            llm=None,
+        )
+
+
+def test_generate_sampler_excludes_units_and_uses_effective_index(world, db_session, settings):
+    seen = {}
+
+    class ES:
+        def search(self, **kw):
+            seen.update(kw)
+            return {"hits": {"hits": []}}
+
+    generate.sample_chunks(ES(), settings, ["d"])
+    assert {"exists": {"field": "unit"}} in seen["query"]["function_score"]["query"]["bool"]["must_not"]

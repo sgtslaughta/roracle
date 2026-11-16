@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from roracle import search_index
+from roracle import runtime, search_index
 from roracle.access import llm_allowed, visible_documents
 from roracle.auth import principal_for_user
 from roracle.config import Settings
@@ -42,7 +42,12 @@ def sample_chunks(es, settings: Settings, doc_ids: list[str]) -> list[dict]:
             source=["text", "pages", "chunk_id"],
             query={
                 "function_score": {
-                    "query": {"bool": {"filter": [{"term": {"doc_id": d}}, {"term": {"is_latest": True}}]}},
+                    "query": {
+                        "bool": {
+                            "filter": [{"term": {"doc_id": d}}, {"term": {"is_latest": True}}],
+                            "must_not": [{"exists": {"field": "unit"}}],  # chunks only, never summary units
+                        }
+                    },
                     "random_score": {},
                 }
             },
@@ -67,6 +72,7 @@ def parse(reply: str, text: str) -> tuple[str, str] | None:
 
 def handle_eval_generate(session: Session, payload: dict, *, settings: Settings, es, llm) -> None:
     set_id, pid = payload_uuid(payload, "set_id"), payload_uuid(payload, "principal")
+    settings = runtime.effective(session, settings)  # active index/model after a re-embed cutover
     n = payload.get("n")
     if not isinstance(n, int) or not 1 <= n <= 200:
         raise NonRetryable("n must be 1-200")
@@ -76,6 +82,8 @@ def handle_eval_generate(session: Session, payload: dict, *, settings: Settings,
         p = principal_for_user(session, pid)
     except LookupError as e:
         raise NonRetryable(str(e)) from e
+    if p.is_admin:
+        raise NonRetryable("generation principal must be a non-admin user")
     latest = select(DocumentVersion.document_id).where(
         DocumentVersion.is_latest.is_(True), DocumentVersion.stage == "searchable"
     )
