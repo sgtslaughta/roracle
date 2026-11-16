@@ -6,6 +6,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.routing import Route
 
 from roracle import __version__
+from roracle.api import input_guard
 from roracle.api.routes import (
     admin,
     admin_connectors,
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.jwks = JwksCache(app.state.settings.oidc_jwks_url)
     app.middleware("http")(http_middleware)
+    input_guard.install(app)
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(admin_settings.router)
