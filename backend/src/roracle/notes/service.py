@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
@@ -13,6 +13,7 @@ from roracle.models import (
     Annotation,
     AnnotationShare,
     AnnotationVote,
+    Blob,
     Document,
     DocumentVersion,
     Evidence,
@@ -162,7 +163,18 @@ def patch(session: Session, p: Principal, note_id: UUID, body: NotePatch) -> Ann
 
 
 def delete(session: Session, p: Principal, note_id: UUID) -> None:
-    session.delete(_own(session, p, note_id))
+    n = _own(session, p, note_id)
+    ids, frontier = {n.id}, [n.id]
+    while frontier:  # the note and every reply below it: evidence cascades with them
+        frontier = list(session.scalars(select(Annotation.id).where(Annotation.parent_id.in_(frontier))))
+        ids.update(frontier)
+    for sha in session.scalars(
+        select(Evidence.blob_sha256).where(Evidence.annotation_id.in_(ids), Evidence.blob_sha256.is_not(None))
+    ):
+        session.execute(
+            update(Blob).where(Blob.sha256 == sha).values(refcount=func.greatest(Blob.refcount - 1, 0))
+        )
+    session.delete(n)
     session.flush()
 
 
