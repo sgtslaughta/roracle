@@ -8,11 +8,12 @@ from mcp.server import MCPServer
 from pydantic import Field
 from sqlalchemy.orm import Session
 
+from roracle.api.routes import library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.mcp.auth import dep
 from roracle.mcp.tools_write import Run, _need_write
-from roracle.writing import drafts, validate
+from roracle.writing import cite_check, drafts, validate
 
 
 def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
@@ -61,3 +62,22 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
             return validate.validate(session, dep(app, search_routes.get_llm), cfg, p, doc_id)
 
         return run(app, "validate_draft", go, draft_id)
+
+    @mcp.tool()
+    def check_citations(draft_id: Annotated[str, Field(max_length=100)]) -> dict:
+        """Verify each citation (@doc:/@psg: key + its sentence) of a draft you author against the library
+        passages you may read. Returns {version, ok, items}; item = {key, sentence, sentence_hash, status
+        resolved|unresolved, verdict supported|unsupported|unclear, reason, chunk_id, doc_id, title,
+        acknowledged}. Unresolved keys do not exist or are not readable by you (indistinguishable)."""
+
+        def go(session: Session, p: Principal) -> dict:
+            try:
+                doc_id = UUID(draft_id)
+            except ValueError:
+                raise HTTPException(404, "not found") from None
+            cfg = dep(app, get_app_settings, session)
+            return cite_check.check(
+                session, dep(app, library.get_es), dep(app, search_routes.get_llm), cfg, p, doc_id
+            )
+
+        return run(app, "check_citations", go, draft_id)

@@ -3,6 +3,7 @@
 Access rule (NOT visible_documents): admin, owner, or co-author (user id / group). Everything else, and any
 soft-deleted document, is 404. One helper (`readable_draft`) guards every route and MCP tool."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -44,6 +45,16 @@ def owned_draft(session: Session, p: Principal, doc_id: UUID, lock: bool = False
     doc, d = readable_draft(session, p, doc_id, lock)
     if doc.owner_id != p.user_id:
         raise HTTPException(403, "only the draft owner can do this")
+    return doc, d
+
+
+def owned_or_coauthored(
+    session: Session, p: Principal, doc_id: UUID, lock: bool = False
+) -> tuple[Document, Draft]:
+    """404 if unreadable; 403 unless owner or co-author (admins read, but never author checks/acks)."""
+    doc, d = readable_draft(session, p, doc_id, lock)
+    if not _can_read(replace(p, is_admin=False), doc, d):
+        raise HTTPException(403, "only the authors can do this")
     return doc, d
 
 
