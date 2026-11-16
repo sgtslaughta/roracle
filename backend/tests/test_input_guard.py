@@ -33,3 +33,24 @@ def test_out_of_range_path_id_is_404(client, as_ana):
 
 def test_out_of_range_query_int_is_422(client, as_ana):
     assert client.get("/me/notifications", headers=as_ana, params={"before_id": BIG}).status_code == 422
+
+
+def test_json_over_cap_is_413(client, as_ana):
+    big = '{"name": "' + "a" * (3 * 1024 * 1024) + '"}'
+    r = client.post("/collections", headers={**as_ana, "content-type": "application/json"}, content=big)
+    assert r.status_code == 413
+
+
+def test_nul_split_across_chunks_is_422(client, as_ana):
+    def gen():
+        yield b'{"name": "a\\u00'
+        yield b'00b"}'
+
+    r = client.post("/collections", headers={**as_ana, "content-type": "application/json"}, content=gen())
+    assert r.status_code == 422
+
+
+def test_multipart_is_not_scanned(client, as_ana):
+    big = b"x" * (4 * 1024 * 1024)
+    r = client.post("/documents", headers=as_ana, files={"file": ("a.pdf", big)})
+    assert r.status_code != 413

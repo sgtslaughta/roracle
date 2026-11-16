@@ -11,6 +11,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 BIGINT_MAX = 2**63 - 1
 _JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000|\x00", re.IGNORECASE)
+JSON_MAX = (
+    3 * 1024 * 1024
+)  # largest legit JSON body is a 2 MiB draft; /mcp and non-JSON bodies are never buffered
 _RAW_NUL = (b"%00", b"\x00")
 
 
@@ -35,14 +38,22 @@ class InputGuard:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         bad = _problem(scope)
-        if bad is None and _is_json(scope):
-            chunks, more = [], True
+        scan = bad is None and _is_json(scope) and not scope["path"].startswith("/mcp")
+        if scan and _length(scope) > JSON_MAX:
+            bad = _reply(413, "request body too large")
+        if scan and bad is None:
+            chunks, more, total = [], True, 0
             while more:
                 m = await receive()
                 if m["type"] != "http.request":  # disconnect
                     return await self.app(scope, receive, send)
                 chunks.append(m.get("body", b""))
+                total += len(chunks[-1])
+                if total > JSON_MAX:
+                    bad = _reply(413, "request body too large")
+                    break
                 more = m.get("more_body", False)
+        if scan and bad is None:
             body = b"".join(chunks)
             if _JSON_NUL.search(body):
                 bad = _reply(422, "NUL characters are not allowed")
@@ -62,6 +73,13 @@ class InputGuard:
         headers = [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode())]
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": payload})
+
+
+def _length(scope: Scope) -> int:
+    for k, v in scope["headers"]:
+        if k == b"content-length" and v.isdigit():
+            return int(v)
+    return 0
 
 
 def _is_json(scope: Scope) -> bool:
