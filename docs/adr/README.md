@@ -19,3 +19,4 @@ Spec: [`../spec.md`](../spec.md).
 | [0012](0012-frontend.md) | React + Vite + shadcn/ui; design tokens |
 | [0013](0013-repo-ci-release.md) | Monorepo, GitLab CI, Conventional Commits, single SemVer |
 | [0014](0014-sensitivity-labels.md) | Admin-ordered sensitivity labels with LLM, agent and export gates; labels only restrict |
+| [0015](0015-retrieval-quality.md) | Eval-gated retrieval quality: per-principal eval harness, TEI cross-encoder rerank, contextual chunks, per-document summary units, query-time global answers; no corpus-wide GraphRAG |
