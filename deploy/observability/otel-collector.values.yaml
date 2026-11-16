@@ -2,6 +2,7 @@
 # NOTE: the roracle backend is not instrumented yet (P11b), so nothing sends OTLP until it is.
 # Point roracle at it with observability.otel.endpoint=http://otel-opentelemetry-collector.observability:4317
 image: {repository: MIRROR.example.com/otel/opentelemetry-collector-contrib}
+command: {name: otelcol-contrib}   # contrib image binary name
 mode: deployment
 config:
   receivers:

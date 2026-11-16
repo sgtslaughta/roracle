@@ -6,7 +6,8 @@ variables:
   REGISTRY_MIRROR: ""
   UV_INDEX_URL: "https://pypi.org/simple"
   NPM_CONFIG_REGISTRY: ""
-  # Empty: default upstream schema location + -ignore-missing-schemas (CRDs skipped).
+  # Empty: ONLINE upstream schemas (GitHub) + -ignore-missing-schemas (CRDs skipped). Air-gapped runners MUST set this
+  # to a mirror that also carries the CRD catalog.
   # Set (e.g. https://mirror/schemas/{{.NormalizedKubernetesVersion}}/{{.ResourceKind}}.json) to use it for k8s AND CRDs.
   KUBECONFORM_SCHEMA_LOCATION: ""
   HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
@@ -121,8 +122,6 @@ helm:
     name: $HELM_IMAGE
     entrypoint: [""]
   script:
-    # alpine packages (python3 + PyYAML for assert-render); point /etc/apk/repositories at your mirror when air-gapped.
-    - apk add --no-cache python3 py3-yaml
     - sh scripts/check-version.sh
     - cd deploy/helm/roracle
     - helm lint --strict . -f ci/min-values.yaml
@@ -130,11 +129,18 @@ helm:
     - mkdir -p ../../../rendered
     - helm template r . -f ci/min-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/min.yaml
     - helm template r . -f ci/full-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/full.yaml
-    - cd ../../..
-    - sh deploy/helm/roracle/ci/assert-render.sh
   artifacts:
     paths: [rendered/]
     expire_in: 1 day
+
+assert-render:
+  extends: .helm-rules
+  stage: test
+  image: ${REGISTRY_MIRROR}python:3.12-slim
+  needs: [helm]
+  script:
+    - pip install --no-cache-dir --index-url "$UV_INDEX_URL" pyyaml==6.0.3
+    - sh deploy/helm/roracle/ci/assert-render.sh rendered/full.yaml
 
 kubeconform:
   extends: .helm-rules

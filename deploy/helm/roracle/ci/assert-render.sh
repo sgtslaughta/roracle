@@ -1,8 +1,10 @@
 #!/bin/sh
-# Render ci/full-values.yaml (extra args are passed to helm template) and assert parser hardening + NetworkPolicy invariants. Needs helm and python3 (PyYAML).
+# Assert parser hardening + NetworkPolicy invariants. Usage: assert-render.sh [rendered.yaml] -- reads a pre-rendered
+# full-values manifest (needs only python3+PyYAML); otherwise renders ci/full-values.yaml itself (args go to helm template).
 set -eu
+if [ -f "${1:-}" ]; then f=$(realpath "$1"); shift; fi
 cd "$(dirname "$0")/.."
-helm template r . -f ci/full-values.yaml "$@" | python3 -I -c '
+{ if [ -n "${f:-}" ]; then cat "$f"; else helm template r . -f ci/full-values.yaml "$@"; fi; } | python3 -I -c '
 import sys, yaml
 docs = [d for d in yaml.safe_load_all(sys.stdin) if d]
 def need(c, m):

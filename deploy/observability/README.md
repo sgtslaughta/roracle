@@ -9,6 +9,10 @@ helm upgrade -i otel open-telemetry/opentelemetry-collector -n observability -f 
 helm upgrade -i roracle ../helm/roracle ... --set observability.grafanaDashboard.enabled=true --set postgres.monitoring.enabled=true
 ```
 
+Create the Loki buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) in MinIO first (see `minio.buckets` in the roracle chart or `mc mb`).
+
+CI: empty `KUBECONFORM_SCHEMA_LOCATION` validates against online GitHub schemas; air-gapped runners must set it to a mirror including CRDs.
+
 Allow Prometheus into the app namespace: `networkPolicy.monitoringNamespace` (default `monitoring`).
 
 ## Dashboard panels and sources
@@ -20,7 +24,7 @@ Allow Prometheus into the app namespace: `networkPolicy.monitoringNamespace` (de
 | Replication lag, WAL pending | CNPG built-ins `cnpg_pg_replication_lag`, `cnpg_collector_pg_wal_archive_status` |
 | WAL archive age | custom query `roracle_archiver` (`cnpg_roracle_archiver_seconds_since_last_archive`) |
 
-Both CNPG panels carry a 300 s line (RPO target). Elasticsearch health has no panel: no exporter is bundled.
+Both CNPG panels carry a 300 s line (RPO target). Elasticsearch health has no panel (no exporter bundled; deliberate deviation from the plan). WAL archive age shows no data until the first archive; on an idle database `archive_timeout` (5 min) only forces a segment switch when there is WAL activity, so the age can grow while idle.
 
 ## P11b gap
 
