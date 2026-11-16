@@ -165,8 +165,12 @@ def who(session: Session, uid: UUID) -> dict:
     return {"id": str(uid), "username": u.username if u else None}
 
 
-def summary(session: Session, d: Draft, doc: Document) -> dict:
-    latest = latest_version(session, doc.id)
+def summary(session: Session, d: Draft, doc: Document, latest: int | None = None) -> dict:
+    """`latest`: the draft's newest version number when the caller already knows it (saves a query)."""
+    if latest is None:
+        latest = session.scalar(
+            select(func.max(DraftVersion.version)).where(DraftVersion.document_id == doc.id)
+        )
     return {
         "id": str(doc.id),
         "title": doc.title,
@@ -174,7 +178,7 @@ def summary(session: Session, d: Draft, doc: Document) -> dict:
         "status": d.status,
         "owner": who(session, doc.owner_id),
         "coauthors": d.coauthors,
-        "latest_version": latest.version if latest else 0,
+        "latest_version": latest or 0,
         "updated_at": d.updated_at,
         "review_note": d.review_note,
     }

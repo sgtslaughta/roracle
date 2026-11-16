@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, aliased
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.models import DocCitation, Document, DocumentVersion
+from roracle.queue import payload_uuid
 
 FUZZY_MIN = 92
 
@@ -144,7 +145,7 @@ def backfill_for(session: Session, document: Document) -> int:
 
 def handle_citations(session: Session, payload: dict) -> None:
     """Job `citations` {version_id}: runs inside run_once's SAVEPOINT; never commits (R6/R9)."""
-    v = session.get(DocumentVersion, UUID(payload["version_id"]))
+    v = session.get(DocumentVersion, payload_uuid(payload, "version_id"))
     if v is None or v.stage != "searchable":
         return
     d = session.get(Document, v.document_id)

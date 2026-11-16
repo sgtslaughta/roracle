@@ -5,6 +5,7 @@ import signal
 import time
 from collections.abc import Callable, Collection
 from datetime import timedelta
+from uuid import UUID
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -26,6 +27,14 @@ USER_PREFIX = "user:"  # marks a last_error that is safe to show to the uploader
 
 class NonRetryable(Exception):
     """Raised by a handler to fail its job permanently; its message is user-safe (shown in My uploads)."""
+
+
+def payload_uuid(payload: dict, key: str) -> UUID:
+    """UUID field of a job payload; a malformed payload can never succeed, so fail it without retries."""
+    try:
+        return UUID(str(payload[key]))
+    except (KeyError, ValueError, TypeError) as e:
+        raise NonRetryable(f"malformed job payload: {key}") from e
 
 
 def enqueue(session: Session, kind: str, payload: dict, run_after_s: float = 0) -> int:

@@ -20,7 +20,7 @@ from sqlalchemy import delete, exists, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
-from roracle.queue import enqueue
+from roracle.queue import enqueue, payload_uuid
 from roracle.search_index import ALIAS, MUTATE_ALIAS
 from roracle.storage import BlobStore
 
@@ -162,7 +162,7 @@ def handle_reconcile_tags(session: Session, payload: dict) -> None:
     """Enqueue `acl_sync` for the next batch of live documents after the id cursor; chain while full."""
     q = select(Document.id).where(Document.deleted_at.is_(None))
     if payload.get("after"):
-        q = q.where(Document.id > UUID(payload["after"]))
+        q = q.where(Document.id > payload_uuid(payload, "after"))
     ids = session.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)).all()
     for doc_id in ids:
         enqueue(session, "acl_sync", {"doc_id": str(doc_id)})

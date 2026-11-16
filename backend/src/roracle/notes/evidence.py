@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from roracle.config import Settings
 from roracle.ingest.scan import scan
 from roracle.models import Evidence, EvidenceReproduction, User
-from roracle.queue import NonRetryable
+from roracle.queue import NonRetryable, payload_uuid
 from roracle.storage import BlobStore
 
 CONTEXT = "https://w3id.org/ro/crate/1.1/context"  # identifier only, never fetched (air-gapped)
@@ -183,7 +183,7 @@ def crate(p: Provenance) -> dict:
 
 def handle_evidence_scan(session: Session, payload: dict, *, settings: Settings, store: BlobStore) -> None:
     """Scan an evidence blob. Never commits; ConnectionError propagates for retry."""
-    e = session.get(Evidence, UUID(payload["evidence_id"]))
+    e = session.get(Evidence, payload_uuid(payload, "evidence_id"))
     if e is None or e.blob_sha256 is None:
         return
     if not settings.clamav_host:

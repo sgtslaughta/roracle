@@ -16,7 +16,7 @@ from roracle.config import Settings
 from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
-from roracle.queue import enqueue
+from roracle.queue import enqueue, payload_uuid
 from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
 
 log = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ def _finish(sf: SF, c: Connector, run_id: int, status: str, stats: dict, lines: 
 
 
 def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, sf: SF) -> None:
-    c = session.get(Connector, UUID(payload["connector_id"]))
+    c = session.get(Connector, payload_uuid(payload, "connector_id"))
     if c is None:
         return
     eff = runtime.effective(session, settings)

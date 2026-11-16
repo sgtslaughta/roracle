@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import search_index
 from roracle.models import Document, Tag
-from roracle.queue import enqueue
+from roracle.queue import enqueue, payload_uuid
 
 
 def read_acl(session_factory: sessionmaker[Session], doc_id: UUID) -> tuple[dict, str] | None:
@@ -24,7 +24,7 @@ def read_acl(session_factory: sessionmaker[Session], doc_id: UUID) -> tuple[dict
 def handle_acl_sync(
     session: Session, payload: dict, *, es: Elasticsearch, session_factory: sessionmaker[Session]
 ) -> None:
-    doc_id = UUID(payload["doc_id"])
+    doc_id = payload_uuid(payload, "doc_id")
     search_index.sync_acl(es, doc_id, lambda: read_acl(session_factory, doc_id))
 
 

@@ -33,7 +33,7 @@ from roracle.ingest.state import (
 from roracle.ingest.summary import summarize
 from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
-from roracle.queue import NonRetryable
+from roracle.queue import NonRetryable, payload_uuid
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -197,7 +197,7 @@ def handle_ingest(
     llm,
     session_factory: sessionmaker[Session],
 ) -> None:
-    vid = UUID(payload["version_id"])
+    vid = payload_uuid(payload, "version_id")
     sf = session_factory
     settings = runtime.effective(session, settings)  # active model/index persisted by re-embed cutover (R4)
     if bump_attempts(sf, vid) > MAX_STARTS:
