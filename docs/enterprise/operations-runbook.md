@@ -70,6 +70,9 @@ changes made during a re-embed reach both generations. Search and ingest use the
    for those versions meanwhile) and queues `reconcile_tags` (ACL/tags of every live document re-pushed from Postgres).
 5. Two catch-up passes (300 s apart) copy chunks that reached the old index meanwhile. Ingests that straddle the
    cutover fail once and are retried with the new model (ingest always runs on the persisted active model/index).
+   Known, accepted: summary vectors are cleared just before the cutover commit, so an old-settings ingest landing in
+   that window can persist one stale same-dims summary vector; it only affects near-duplicate matching until that
+   document is re-ingested.
    Copies are made safe against concurrent change: ACL, tags and title of every copied chunk are re-read from
    Postgres after the ES read (never copied from the old index); chunks of deleted documents, purged versions or
    shrunk re-ingests are skipped or removed from the new index after the write; `is_latest` is recomputed from

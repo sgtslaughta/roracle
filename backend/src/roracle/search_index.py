@@ -119,8 +119,10 @@ def _point_read_alias(
             ]
         )
 
-    if sf is None:
-        return move()
+    if sf is None:  # unguarded (tests/tools): add-only, never steal the alias from an existing holder
+        if not _holders(es, alias):
+            move()
+        return
     with sf() as s:
         s.execute(text(ALIAS_LOCK))  # held until this session closes (rollback)
         if active_index(runtime.effective(s, settings)) == name:

@@ -487,11 +487,11 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     )  # the index behind `chunks` is never dropped
 
 
-def test_ensure_index_makes_read_alias_exclusive(es):
+def test_unguarded_ensure_index_leaves_existing_read_alias(es):
     es.indices.create("chunks-b-1")
     es.indices.es.data["chunks-b-1"] = {}
     es.indices.get_mapping = lambda index: {
         index: {"mappings": {"properties": search_index._mapping(2)["properties"]}}
     }
     search_index.ensure_index(es, "b", 2, name="chunks-b-1")
-    assert es.aliases["chunks"] == {"chunks-b-1"} and es.aliases["chunks-all"] == {SRC, "chunks-b-1"}
+    assert es.aliases["chunks"] == {SRC} and es.aliases["chunks-all"] == {SRC, "chunks-b-1"}

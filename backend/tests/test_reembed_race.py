@@ -89,3 +89,13 @@ def test_catchup_fails_when_read_alias_drifted(
     es2.indices.update_aliases = lambda actions: None  # a swap that never took effect
     with pytest.raises(reembed.AliasMismatch):
         drain(db_session, session_factory, es2, FakeLlm(2), base)
+
+
+def test_unguarded_ensure_index_never_steals_read_alias(es2):
+    es2.put("a:0", "d", index=SRC)
+    es2.data["chunks-b-1"] = {}
+    search_index.ensure_index(es2, "b", 2, name="chunks-b-1")
+    assert es2.aliases["chunks"] == {SRC} and "chunks-b-1" in es2.aliases["chunks-all"]
+    es2.aliases["chunks"] = set()
+    search_index.ensure_index(es2, "b", 2, name="chunks-b-1")
+    assert es2.aliases["chunks"] == {"chunks-b-1"}
