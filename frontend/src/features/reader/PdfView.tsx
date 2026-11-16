@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { apiFetch, seg } from "@/api/client";
+import { ApiError, apiFetch, seg } from "@/api/client";
 import type { Bbox } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { chunkAt, noteBbox, quoteIn } from "@/features/notes/anchor";
@@ -10,12 +10,13 @@ import { notesUi, useNotes } from "@/features/notes/api";
 import { KIND_ICON, KIND_LABEL } from "@/features/notes/labels";
 import { useDocling } from "./api";
 import { loadPdf } from "./pdfjs";
+import { TextFallback } from "./TextFallback";
 import { PdfPage, type PageMark } from "./PdfPage";
 import { setView, type ReaderTab } from "./useReaderStore";
 
 const ZOOMS = [0.6, 0.8, 1, 1.25, 1.6, 2];
 
-export default function PdfView({ tab, version }: { tab: ReaderTab; version: number }) {
+export default function PdfView({ tab, version, filename, onDownload }: { tab: ReaderTab; version: number; filename: string; onDownload: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(2); // index into ZOOMS: 1.0 = fit width
@@ -25,7 +26,7 @@ export default function PdfView({ tab, version }: { tab: ReaderTab; version: num
     queryKey: ["pdf", tab.docId, version],
     staleTime: Infinity,
     gcTime: 60_000, // documents are destroyed when the query is garbage collected (see pdfCleanup)
-    queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${seg(tab.docId)}/versions/${seg(version)}/file`)).arrayBuffer()),
+    queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${seg(tab.docId)}/versions/${seg(version)}/pdf`)).arrayBuffer()),
   });
   const docling = useDocling(tab.docId, version).data;
   const notes = useNotes(tab.docId).data;
@@ -112,6 +113,7 @@ export default function PdfView({ tab, version }: { tab: ReaderTab; version: num
     setView("notes");
   };
 
+  if (pdf.error instanceof ApiError && pdf.error.status === 404) return <TextFallback docId={tab.docId} version={version} filename={filename} onDownload={onDownload} />;
   if (pdf.isError) return <div className="pages"><div className="empty" role="alert"><p>This version can't be previewed. Use the download button to open the original.</p></div></div>;
   if (!pdf.data) return <div className="pages"><p className="sub" role="status">Loading document…</p></div>;
 

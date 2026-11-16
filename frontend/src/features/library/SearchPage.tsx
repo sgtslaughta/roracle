@@ -73,7 +73,7 @@ export function SearchPage() {
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">
             {data?.results.map((hit) => (
-              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.add("tags", t)} />
+              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.add("tags", t)} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
             ))}
             {data && !data.results.length && (
               <li className="empty">

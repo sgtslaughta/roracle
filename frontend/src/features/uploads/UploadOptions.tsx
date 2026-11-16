@@ -3,7 +3,7 @@ import { VIS_LABEL } from "./status";
 
 export interface UploadOpts { visibility: Visibility; title: string }
 export const DEFAULT_OPTS: UploadOpts = { visibility: "everyone", title: "" };
-const ORDER: Visibility[] = ["everyone", "org_unit", "private", "shared"];
+export const VIS_ORDER: Visibility[] = ["everyone", "org_unit", "private", "shared"];
 
 /** Who can see new uploads, plus an optional title (used when one file is chosen). */
 export function UploadOptions({ value, onChange }: { value: UploadOpts; onChange: (v: UploadOpts) => void }) {
@@ -11,7 +11,7 @@ export function UploadOptions({ value, onChange }: { value: UploadOpts; onChange
     <div className="uopts">
       <label>Visible to
         <select className="inp" value={value.visibility} onChange={(e) => onChange({ ...value, visibility: e.target.value as Visibility })}>
-          {ORDER.map((v) => <option key={v} value={v}>{VIS_LABEL[v]}</option>)}
+          {VIS_ORDER.map((v) => <option key={v} value={v}>{VIS_LABEL[v]}</option>)}
         </select>
       </label>
       <label>Title (optional, single file)

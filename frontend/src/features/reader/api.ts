@@ -12,3 +12,13 @@ export const useDocling = (id: string, version: number | undefined) =>
     staleTime: Infinity,
     queryFn: () => apiFetch<DoclingDoc>(`/documents/${seg(id)}/versions/${seg(version!)}/docling`),
   });
+
+/** Authed download of a version's original file via a temporary blob link. */
+export async function downloadOriginal(docId: string, version: number, filename: string) {
+  const blob = await apiFetch<Blob>(`/documents/${seg(docId)}/versions/${seg(version)}/file`);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}

@@ -15,6 +15,10 @@ export interface MockState {
   /** collections created in the mock, and docs added to any collection (id -> doc ids) */
   newCollections: { id: string; name: string }[];
   collItems: Record<string, string[]>;
+  /** seeded collection members removed via DELETE /collections/{id}/items/{doc} (id -> doc ids) */
+  collRemoved: Record<string, string[]>;
+  /** PATCH /documents/{id} bodies applied to non-upload documents */
+  docPatch: Record<string, { visibility?: string; share_users?: string[]; share_groups?: string[] }>;
   removedTags: Record<string, string[]>;
   versions: Record<string, number>;
   uploads: MockUpload[];
@@ -48,6 +52,8 @@ const fresh = (): MockState => ({
   extraTags: {},
   newCollections: [],
   collItems: {},
+  collRemoved: {},
+  docPatch: {},
   removedTags: {},
   versions: Object.fromEntries(DOCS.map((d) => [d.id, d.ver])),
   uploads: seedUploads(),

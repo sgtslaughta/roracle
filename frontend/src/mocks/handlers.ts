@@ -24,7 +24,7 @@ function detail(id: string): DocumentDetail | null {
   if (!d) return null;
   const ver = state.versions[id];
   return {
-    id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: "everyone",
+    id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: (state.docPatch[id]?.visibility as DocumentDetail["visibility"]) ?? "everyone",
     owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : "k.ito" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
     votes: votesOf(d), file_type: d.type, page_count: d.pages.length, flag: d.flag ?? null,
     versions: Array.from({ length: ver }, (_, i) => ({ id: `${id}-v${ver - i}`, version: ver - i, filename: `${id}-v${ver - i}.pdf`, uploaded_at: "2026-10-01T10:00:00Z", is_latest: i === 0 })),
@@ -39,7 +39,7 @@ export const handlers = [
   }),
   http.get(url("/collections"), () => {
     const all = [...COLLECTION_NAMES.map((name, i) => ({ id: `c${i + 1}`, name })), ...state.newCollections];
-    return HttpResponse.json(all.map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name)).length + (state.collItems[id]?.length ?? 0) })));
+    return HttpResponse.json(all.map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name) && !(state.collRemoved[id] ?? []).includes(d.id)).length + (state.collItems[id]?.length ?? 0) })));
   }),
   http.post(url("/collections"), async ({ request }) => {
     const name = String(((await request.json()) as { name?: string }).name ?? "").trim();
@@ -53,6 +53,12 @@ export const handlers = [
     const ids = (state.collItems[cid] ??= []);
     if (!ids.includes(String(params.doc))) ids.push(String(params.doc));
     return HttpResponse.json({ id: cid, count: ids.length });
+  }),
+  http.delete(url("/collections/:cid/items/:doc"), ({ params }) => {
+    const cid = String(params.cid), doc = String(params.doc);
+    if (state.collItems[cid]?.includes(doc)) state.collItems[cid] = state.collItems[cid].filter((x) => x !== doc);
+    else (state.collRemoved[cid] ??= []).push(doc);
+    return HttpResponse.json({ id: cid, count: 0 });
   }),
   http.get(url("/documents/:id"), ({ params }) => {
     const d = detail(String(params.id));
@@ -93,6 +99,11 @@ export const handlers = [
     if (!d) return notFound();
     return new HttpResponse(buildPdf(d) as BodyInit, { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${d.id}.pdf"` } });
   }),
+  http.get(url("/documents/:id/versions/:n/pdf"), ({ params }) => {
+    const d = docById(String(params.id));
+    if (!d) return notFound();
+    return new HttpResponse(buildPdf(d) as BodyInit, { headers: { "Content-Type": "application/pdf" } });
+  }),
   http.get(url("/documents/:id/versions/:n/docling"), ({ params }) => {
     const d = docById(String(params.id));
     return d ? HttpResponse.json(docling(d)) : notFound();
@@ -107,7 +118,12 @@ export const handlers = [
   }),
   http.patch(url("/documents/:id"), async ({ params, request }) => {
     const u = state.uploads.find((x) => x.document_id === params.id);
-    if (!u) return notFound();
+    if (!u) {
+      if (!docById(String(params.id))) return notFound();
+      const body = (await request.json()) as { visibility?: string; share_users?: string[]; share_groups?: string[] };
+      state.docPatch[String(params.id)] = { ...state.docPatch[String(params.id)], ...body };
+      return HttpResponse.json({ id: params.id });
+    }
     const { title } = (await request.json()) as { title?: string };
     if (!title?.trim()) return HttpResponse.json({ detail: [{ msg: "String should have at least 1 character", loc: ["body", "title"] }] }, { status: 422 });
     u.title = title.trim();

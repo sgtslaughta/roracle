@@ -21,7 +21,7 @@ const values: Record<FacetName, (d: MockDoc) => string[]> = {
   year: (d) => [String(d.year)],
   file_type: (d) => [d.type],
   org_unit: (d) => [d.org],
-  collection: (d) => d.collections.map(collectionId),
+  collection: (d) => [...d.collections.map(collectionId).filter((c) => !(state.collRemoved[c] ?? []).includes(d.id)), ...Object.keys(state.collItems).filter((c) => state.collItems[c].includes(d.id))],
   author: (d) => d.authors,
 };
 

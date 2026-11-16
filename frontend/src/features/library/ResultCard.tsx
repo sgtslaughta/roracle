@@ -12,6 +12,7 @@ import { openDoc, setView } from "@/features/reader/useReaderStore";
 import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
 import { useCanRemoveTags } from "./useMe";
+import { useRemoveFromCollection } from "./api";
 import { AddToCollectionDialog } from "./AddToCollection";
 import { VoteControl } from "./VoteControl";
 
@@ -21,9 +22,12 @@ export interface ResultCardProps {
   others: { id: string; title: string }[];
   onOpen: (docId: string, opts?: { page?: number; chunkId?: string; bbox?: Bbox | null }) => void;
   onTag: (tag: string) => void;
+  /** set when the library is filtered to exactly one collection */
+  collectionId?: string;
 }
 
-export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProps) {
+export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: ResultCardProps) {
+  const removeFrom = useRemoveFromCollection();
   const canRemove = useCanRemoveTags(hit.owner_id);
   const [adding, setAdding] = useState(false);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
@@ -40,6 +44,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           <RowMenu label={`Actions for ${hit.title}`} actions={[
             { label: "Open", onSelect: () => onOpen(hit.doc_id) },
             { label: "Add to collection", onSelect: () => setAdding(true) },
+            ...(collectionId ? [{ label: "Remove from collection", danger: true, onSelect: () => removeFrom.mutate({ cid: collectionId, docId: hit.doc_id }) }] : []),
             copyAction("Copy title", hit.title),
           ]} />
         </div>

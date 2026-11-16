@@ -1,17 +1,18 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, FolderPlus, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { BookOpen, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { apiFetch, seg } from "@/api/client";
 import { CiteLine } from "@/components/CiteLine";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddToCollectionDialog } from "@/features/library/AddToCollection";
 import { VoteControl } from "@/features/library/VoteControl";
+import { useCanRemoveTags } from "@/features/library/useMe";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
-import { useCitedBy, useDoc, useReferences } from "./api";
+import { downloadOriginal, useCitedBy, useDoc, useReferences } from "./api";
+import { SharingDialog } from "./SharingDialog";
 const PdfView = lazy(() => import("./PdfView"));
 import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
@@ -26,6 +27,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const notes = useNotes(tab.docId).data;
   const adding = notesUi.use((s) => s.adding === tab.docId);
   const [collecting, setCollecting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const canManage = useCanRemoveTags(d?.owner.id);
   const navigate = useNavigate();
   const onAskRoute = useLocation({ select: (l) => l.pathname === "/ask" || l.pathname.startsWith("/ask/") });
 
@@ -38,16 +41,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const version = tab.version ?? latest;
   const link = `${window.location.origin}/d/${d.id}/v/${version}#p=${tab.page}${tab.chunkId ? `&c=${tab.chunkId}` : ""}`;
 
-  const download = async () => {
-    try {
-      const blob = await apiFetch<Blob>(`/documents/${seg(d.id)}/versions/${seg(version)}/file`);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    } catch { toast("The original couldn't be downloaded. Try again."); }
-  };
+  const filename = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
+  const download = () => { downloadOriginal(d.id, version, filename).catch(() => toast("The original couldn't be downloaded. Try again.")); };
 
   return (
     <>
@@ -71,6 +66,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
             summary: "Hands this document to an agent, with its notes, references and cited-by links.",
           })} />
           <Button onClick={() => setCollecting(true)}><FolderPlus aria-hidden />Add to collection</Button>
+          {canManage && <Button onClick={() => setSharing(true)}><Share2 aria-hidden />Sharing</Button>}
           <Button
             aria-pressed={adding} disabled={!adding && version !== latest}
             title={version !== latest ? "Switch to the latest version to anchor a note" : "Then click a passage on the page"} onClick={() => {
@@ -88,10 +84,11 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           </TabsList>
         </Tabs>
       </div>
+      {sharing && <SharingDialog doc={d} open onOpenChange={setSharing} />}
       {collecting && <AddToCollectionDialog docId={d.id} open onOpenChange={setCollecting} />}
       {view === "doc" && (
         <Suspense fallback={<div className="pages"><p className="sub" role="status">Loading document…</p></div>}>
-          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} />
+          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} />
         </Suspense>
       )}
       {view === "refs" && <ReferencesTab docId={d.id} />}

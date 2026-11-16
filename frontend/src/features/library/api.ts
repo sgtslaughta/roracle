@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { toast } from "sonner";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { apiFetch, seg } from "@/api/client";
 import type { Collection, DocumentDetail, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
@@ -78,6 +79,16 @@ export function useRemoveTag(docId: string) {
     onMutate: (tag) => patchDoc(qc, docId, (d) => ({ tags: d.tags?.filter((x) => x !== tag) })),
     onError: (_e, _t, snap) => rollback(qc, docId, snap),
     onSettled: () => refresh(qc, docId),
+  });
+}
+
+/** Remove a document from a collection (DELETE /collections/{id}/items/{doc}). */
+export function useRemoveFromCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cid, docId }: { cid: string; docId: string }) => apiFetch(`/collections/${seg(cid)}/items/${seg(docId)}`, { method: "DELETE" }),
+    onSuccess: () => { toast("Removed from collection."); },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ["collections"] }); void qc.invalidateQueries({ queryKey: ["search"] }); },
   });
 }
 
