@@ -1,0 +1,19 @@
+# Everything implemented so far switched on, dummy names only.
+global: {imageRegistry: registry.example.internal}
+imagePullSecrets: [{name: regcred}]
+image:
+  backend: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+secrets: {existingSecret: roracle-secrets}
+config:
+  ROR_S3_ENDPOINT: https://minio.example.internal:9000
+  ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
+  ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
+  ROR_ELASTIC_URL: https://es.example.internal:9200
+  ROR_LLM_BASE_URL: https://llm.example.internal/v1
+observability: {otel: {endpoint: "http://otel-collector.observability:4317"}}
+web: {autoscaling: {enabled: true}}
+ingress:
+  enabled: true
+  className: nginx
+  host: roracle.example.internal
+  tlsSecretName: roracle-tls

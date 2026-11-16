@@ -1,0 +1,9 @@
+rOracle {{ .Chart.AppVersion }} installed as {{ .Release.Name }}.
+Migrations run as a pre-install/pre-upgrade hook Job; a failure blocks the release.
+{{- if .Values.ingress.enabled }}
+URL: https://{{ .Values.ingress.host }}  (MCP: POST /mcp)
+{{- end }}
+Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.databaseUrl }}, {{ .Values.secrets.keys.s3AccessKey }}, {{ .Values.secrets.keys.s3SecretKey }}{{ if .Values.secrets.llmApiKeyEnabled }}, {{ .Values.secrets.keys.llmApiKey }}{{ end }}.
+{{- if .Values.observability.otel.endpoint }}
+OTEL_* env is set, but the backend has no OTel instrumentation until P11b.
+{{- end }}

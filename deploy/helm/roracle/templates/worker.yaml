@@ -1,0 +1,2 @@
+{{- $env := printf "%s%s%s" (include "roracle.secretEnv" .) (include "roracle.otelEnv" (dict "root" . "comp" "worker")) (toYaml .Values.worker.extraEnv | replace "[]" "" | nindent 0) -}}
+{{ include "roracle.workload" (dict "root" . "comp" "worker" "v" .Values.worker "img" .Values.image.backend "command" (list "python" "-m" "roracle" "worker") "configMap" true "env" $env "tmp" .Values.worker.tmpSize "probe" false "runAsUser" .Values.worker.runAsUser) }}
