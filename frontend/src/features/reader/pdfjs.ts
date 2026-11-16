@@ -8,6 +8,8 @@ export interface PdfViewport { width: number; height: number; scale: number }
 export interface PdfPageLike {
   getViewport(o: { scale: number }): PdfViewport;
   render(o: { canvas: HTMLCanvasElement; canvasContext: CanvasRenderingContext2D; viewport: PdfViewport }): { promise: Promise<void> };
+  /** text runs with their PDF-space origin (`transform[4..5]`); used to quote a picked passage */
+  getTextContent?(): Promise<{ items: { str?: string; transform?: number[] }[] }>;
 }
 export interface PdfDocLike { numPages: number; getPage(n: number): Promise<PdfPageLike>; destroy?(): Promise<void> | void }
 

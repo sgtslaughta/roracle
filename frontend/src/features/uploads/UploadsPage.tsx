@@ -5,7 +5,6 @@ import { isDuplicate, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { FILTERS, inFilter, MAX_UPLOAD_BYTES, type FilterKey } from "./status";
-import { NeedsTitleQueue } from "./NeedsTitleQueue";
 import { UploadRow } from "./UploadRow";
 
 export function UploadsPage() {
@@ -53,7 +52,6 @@ export function UploadsPage() {
         {rows.map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}
       </div>
-      <NeedsTitleQueue />
       <DuplicateDialog
         file={dups[0] ?? null}
         onCancel={() => setDups((d) => d.slice(1))}

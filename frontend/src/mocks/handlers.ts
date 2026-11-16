@@ -6,8 +6,14 @@ import { buildPdf, docById, docling } from "./pdf";
 import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { adminHandlers } from "./admin";
+import { adminOpsHandlers } from "./adminOps";
+import { adminDataHandlers } from "./adminData";
 import { chatHandlers } from "./chat";
+import { agentHandlers } from "./agents";
+import { noteHandlers, withCommunityNotes } from "./notes";
 import { advance, newUpload } from "./uploads";
+import { proposalHandlers } from "./proposals";
+import { notificationHandlers } from "./notifications";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const notFound = () => HttpResponse.json({ detail: "not found" }, { status: 404 });
@@ -27,7 +33,10 @@ function detail(id: string): DocumentDetail | null {
 
 export const handlers = [
   http.get(url("/me"), () => HttpResponse.json({ id: "u-me", username: "researcher", groups: ["/Mathematics/Spectral Theory"], is_admin: state.admin })),
-  http.get(url("/search"), ({ request }) => HttpResponse.json(runSearch(new URL(request.url).searchParams))),
+  http.get(url("/search"), ({ request }) => {
+    const sp = new URL(request.url).searchParams;
+    return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
+  }),
   http.get(url("/collections"), () => {
     return HttpResponse.json(COLLECTION_NAMES.map((name, i): Collection => ({ id: `c${i + 1}`, name, count: DOCS.filter((d) => d.collections.includes(name)).length })));
   }),
@@ -104,5 +113,11 @@ export const handlers = [
     return HttpResponse.json({ version_id: u.version_id, document_id: u.document_id, stage: u.stage });
   }),
   ...adminHandlers,
+  ...adminOpsHandlers,
+  ...adminDataHandlers,
   ...chatHandlers,
+  ...agentHandlers,
+  ...noteHandlers,
+  ...proposalHandlers,
+  ...notificationHandlers,
 ];

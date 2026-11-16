@@ -11,12 +11,13 @@ export function NeedsTitleQueue() {
   const { data: me } = useMe();
   const { data } = useNeedsTitle(!!me?.is_admin);
   const [all, setAll] = useState(false);
-  if (!me?.is_admin || !data?.length) return null;
+  if (!me?.is_admin || !data) return null;
   const rows = all ? data : data.slice(0, SHOWN);
   return (
     <section className="ntq" aria-labelledby="ntq-h">
       <h2 id="ntq-h">Waiting for a title</h2>
       <p className="sub">Uploads from anyone that need a title before they can be searched. Oldest first.</p>
+      {!data.length && <p className="sub">Nothing is waiting for a title.</p>}
       <ul>
         {rows.map((r) => (
           <li key={r.version_id}>

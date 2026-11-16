@@ -1,16 +1,20 @@
 import { Link } from "@tanstack/react-router";
-import { Folder, MessageCircle, Plus } from "lucide-react";
+import { Folder, MessageCircle, Plus, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { useChats } from "@/features/ask/api";
 import { useCollections } from "@/features/library/api";
 import { useUploadAttention } from "@/features/uploads/api";
+import { useProposals } from "@/features/proposals/api";
+import { useMe } from "@/features/library/useMe";
 import { NAV } from "./nav";
 
 export function Sidebar() {
   const { data: collections } = useCollections();
   const { data: chats, hasNextPage, isFetchingNextPage, fetchNextPage } = useChats();
+  const { data: me } = useMe();
   const attention = useUploadAttention();
+  const waiting = useProposals("pending").data?.total ?? 0;
   return (
     <aside className="side">
       <nav className="nav" aria-label="Main">
@@ -19,8 +23,15 @@ export function Sidebar() {
             <Icon aria-hidden />
             <span>{label}</span>
             {to === "/uploads" && attention > 0 && <b className="badge" aria-label={`${attention} need attention`}>{attention}</b>}
+            {to === "/proposals" && waiting > 0 && <b className="badge" aria-label={`${waiting} waiting`}>{waiting > 99 ? "99+" : waiting}</b>}
           </Link>
         ))}
+        {me?.is_admin && (
+          <Link to="/admin" activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
+            <Shield aria-hidden />
+            <span>Admin</span>
+          </Link>
+        )}
       </nav>
       <div className="sgroup">
         <h5>Recent chats</h5>

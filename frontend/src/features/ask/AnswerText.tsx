@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { isAvailable, type Citation, type CitationOk } from "@/api/chat";
 import { openDoc } from "@/features/reader/useReaderStore";
+import { safeComponents } from "@/components/SafeMarkdown";
 import { remarkCiteMarkers } from "./citeMarkers";
 
 export const openCitation = (c: CitationOk) =>
@@ -20,21 +21,6 @@ export interface AnswerTextProps {
 
 const remarkPlugins = [remarkGfm, remarkMath, remarkCiteMarkers];
 const rehypePlugins: ComponentProps<typeof Markdown>["rehypePlugins"] = [[rehypeKatex, { throwOnError: false, strict: "ignore" }]];
-
-/** Allow only same-site relative paths, fragments and absolute http(s) URLs. */
-export function safeHref(href: string | undefined): { href: string; external: boolean } | null {
-  if (!href) return null;
-  const ok = (href.startsWith("/") && !href.startsWith("//")) || href.startsWith("#") || /^https?:\/\//i.test(href);
-  if (!ok) return null;
-  if (href.startsWith("#")) return { href, external: false }; // in-page fragment: cannot change host
-  try {
-    const u = new URL(href, location.origin);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    if (!/^https?:\/\//i.test(href) && u.origin !== location.origin) return null; // relative must stay relative (e.g. "/\\evil.com")
-    // always emit the absolute validated URL: a same-origin pathname like "//evil.com" would be protocol-relative
-    return { href: u.href, external: u.origin !== location.origin };
-  } catch { return null; }
-}
 
 function AnswerTextImpl({ text, citations, streaming, hot, onHot }: AnswerTextProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -64,15 +50,7 @@ function AnswerTextImpl({ text, citations, streaming, hot, onHot }: AnswerTextPr
       );
     },
     // model output is untrusted: never fetch images (exfiltration via URL), only render safe links
-    img: ({ alt }) => <>{alt ?? ""}</>,
-    a: ({ node: _node, href, children }) => {
-      const s = safeHref(href);
-      if (!s) return <span>{children}</span>;
-      return s.external
-        ? <a href={s.href} target="_blank" rel="noopener noreferrer">{children}</a>
-        : <a href={s.href}>{children}</a>;
-    },
-    table: ({ node: _node, ...p }) => <div className="tbl"><table {...p} /></div>,
+    ...safeComponents("noopener noreferrer"),
   } as Components), [citations, streaming, onHot]);
 
   return (

@@ -206,19 +206,8 @@ describe("needs a title", () => {
     expect(await screen.findByText("not awaiting a title")).toBeInTheDocument();
   });
 
-  it("admins see the queue (capped at 10, Show all expands); non-admins do not", async () => {
+  it("the needs-title queue lives under /admin/needs-title, not on the uploads page", async () => {
     state.admin = true;
-    const many = Array.from({ length: 12 }, (_, i) => ({ document_id: `d${i}`, version_id: `v${i}`, filename: `f${i}.pdf`, owner: "k.ito", uploaded_at: "2026-11-1" + (i % 9) + "T10:00:00Z" }));
-    server.use(http.get(`${API_BASE}/admin/needs-title`, () => HttpResponse.json(many)));
-    await renderUploads();
-    const q = await screen.findByRole("region", { name: "Waiting for a title" });
-    expect(within(q).getByText("Uploads from anyone that need a title before they can be searched. Oldest first.")).toBeInTheDocument();
-    expect(within(q).getAllByRole("listitem")).toHaveLength(10);
-    await userEvent.click(within(q).getByRole("button", { name: "Show all 12" }));
-    expect(within(q).getAllByRole("listitem")).toHaveLength(12);
-  });
-
-  it("non-admin gets no queue and never asks for it", async () => {
     let asked = 0;
     server.use(http.get(`${API_BASE}/admin/needs-title`, () => { asked++; return HttpResponse.json([]); }));
     await renderUploads();

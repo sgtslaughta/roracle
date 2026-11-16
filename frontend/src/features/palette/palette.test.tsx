@@ -6,6 +6,7 @@ import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { API_BASE } from "@/api/client";
 import { server } from "@/mocks/server";
+import { state } from "@/mocks/state";
 import { createAppRouter } from "@/app/router";
 import { getReaderState, resetReaderStore } from "@/features/reader/useReaderStore";
 import { isTyping } from "@/lib/keys";
@@ -63,6 +64,24 @@ describe("command palette", () => {
     expect(within(dlg).getByRole("option", { name: /My uploads/ })).toBeInTheDocument();
     expect(within(dlg).queryByRole("option", { name: /Library/ })).toBeNull();
     expect(within(dlg).queryByRole("option", { name: /Cheeger-type/ })).toBeNull();
+  });
+
+  it("lists Settings and Notifications, and Admin only for admins", async () => {
+    await renderApp();
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const dlg = await screen.findByRole("dialog");
+    expect(within(dlg).getByRole("option", { name: /Settings/ })).toBeInTheDocument();
+    expect(within(dlg).getByRole("option", { name: /Notifications/ })).toBeInTheDocument();
+    expect(within(dlg).queryByRole("option", { name: /Admin/ })).toBeNull();
+  });
+
+  it("shows the Admin page to admins", async () => {
+    state.admin = true;
+    try {
+      await renderApp();
+      await userEvent.keyboard("{Control>}k{/Control}");
+      expect(await within(await screen.findByRole("dialog")).findByRole("option", { name: /Admin/ })).toBeInTheDocument();
+    } finally { state.admin = false; }
   });
 
   it("Enter on a page navigates; Enter on a document opens it in the reader", async () => {

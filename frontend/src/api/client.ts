@@ -26,6 +26,13 @@ export interface AuthHooks {
 let hooks: AuthHooks | null = null;
 export const setAuthHooks = (h: AuthHooks | null) => { hooks = h; };
 
+/** For transports apiFetch can't serve (XHR upload with progress): the same token, silent renew and sign-in. */
+export const auth = {
+  token: async () => (await hooks?.getToken()) ?? null,
+  renew: async () => (hooks ? hooks.renew() : false),
+  signIn: async () => { await hooks?.signIn(); },
+};
+
 export type ApiInit = Omit<RequestInit, "body"> & { json?: unknown; body?: BodyInit | null };
 
 async function send(path: string, init: ApiInit): Promise<Response> {
