@@ -36,7 +36,7 @@ def test_out_of_range_query_int_is_422(client, as_ana):
 
 
 def test_json_over_cap_is_413(client, as_ana):
-    big = '{"name": "' + "a" * (3 * 1024 * 1024) + '"}'
+    big = '{"name": "' + "a" * (5 * 1024 * 1024) + '"}'
     r = client.post("/collections", headers={**as_ana, "content-type": "application/json"}, content=big)
     assert r.status_code == 413
 
@@ -57,7 +57,7 @@ def test_multipart_is_not_scanned(client, as_ana):
 
 
 def test_missing_content_type_still_capped(client, as_ana):
-    r = client.post("/collections", headers=as_ana, content=b'{"name": "' + b"a" * (3 * 1024 * 1024) + b'"}')
+    r = client.post("/collections", headers=as_ana, content=b'{"name": "' + b"a" * (5 * 1024 * 1024) + b'"}')
     assert r.status_code == 413
 
 
@@ -71,3 +71,11 @@ def test_streaming_response_receive_does_not_recurse(client, as_ana):
     assert (
         client.get("/documents/00000000-0000-4000-8000-000000000000/file", headers=as_ana).status_code == 404
     )
+
+
+def test_json_cap_follows_draft_max_bytes():
+    from roracle.api.input_guard import JSON_MAX, json_cap
+
+    assert json_cap(1024 * 1024) == JSON_MAX  # floor
+    big = 8 * 1024 * 1024
+    assert json_cap(big) >= 2 * big  # JSON-escaped non-ASCII is up to 2x the UTF-8 size

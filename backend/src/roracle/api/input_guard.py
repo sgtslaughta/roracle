@@ -11,9 +11,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 BIGINT_MAX = 2**63 - 1
 _JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000|\x00", re.IGNORECASE)
-JSON_MAX = (
-    3 * 1024 * 1024
-)  # largest legit JSON body is a 2 MiB draft; /mcp (own cap) and multipart/octet-stream uploads are never buffered
+JSON_MAX = 3 * 1024 * 1024  # floor; /mcp (own cap) and multipart/octet-stream uploads are never buffered
+_MARGIN = 64 * 1024
+
+
+def json_cap(draft_max_bytes: int) -> int:
+    """Largest legit JSON body is a draft; ensure_ascii escapes non-ASCII to up to 2x its UTF-8 size."""
+    return max(JSON_MAX, 2 * draft_max_bytes + _MARGIN)
+
+
 _RAW_NUL = (b"%00", b"\x00")
 
 
@@ -31,15 +37,16 @@ def _problem(scope: Scope) -> tuple[int, bytes] | None:
 
 
 class InputGuard:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, json_max: int = JSON_MAX) -> None:
         self.app = app
+        self.json_max = json_max
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         bad = _problem(scope)
         scan = bad is None and not _streams(scope) and not scope["path"].startswith("/mcp")
-        if scan and _length(scope) > JSON_MAX:
+        if scan and _length(scope) > self.json_max:
             bad = _reply(413, "request body too large")
         if scan and bad is None:
             chunks, more, total = [], True, 0
@@ -49,7 +56,7 @@ class InputGuard:
                     return await self.app(scope, receive, send)
                 chunks.append(m.get("body", b""))
                 total += len(chunks[-1])
-                if total > JSON_MAX:
+                if total > self.json_max:
                     bad = _reply(413, "request body too large")
                     break
                 more = m.get("more_body", False)
@@ -92,7 +99,7 @@ def _streams(scope: Scope) -> bool:
 
 
 def install(app: FastAPI) -> None:
-    app.add_middleware(InputGuard)
+    app.add_middleware(InputGuard, json_max=json_cap(app.state.settings.draft_max_bytes))
 
     @app.exception_handler(DataError)
     async def _data_error(_: Request, exc: DataError) -> JSONResponse:
