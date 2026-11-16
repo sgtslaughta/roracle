@@ -1,3 +1,4 @@
+import { fmtDateTime } from "@/lib/dates";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Bell as BellIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -28,7 +29,7 @@ export function NotificationRow({ n, onOpen }: { n: AppNotification; onOpen: (n:
   return (
     <button className={cn("nrow", !n.read_at && "unread")} onClick={() => onOpen(n)}>
       <span className="nrow-t">{text}</span>
-      <time className="sub" dateTime={n.created_at}>{new Date(n.created_at).toLocaleString()}</time>
+      <time className="sub" dateTime={n.created_at}>{fmtDateTime(n.created_at)}</time>
       {!n.read_at && <span className="sr-only">Unread</span>}
     </button>
   );

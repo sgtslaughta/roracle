@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ConnectorRun } from "@/api/admin";
 import { useRun, useRuns } from "./api";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { StatusPill } from "./StatusPill";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 

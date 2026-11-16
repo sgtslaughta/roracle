@@ -9,7 +9,7 @@ import { openDoc } from "@/features/reader/useReaderStore";
 import { useHandoff } from "./api";
 import { copyText } from "./HandoffDialog";
 import { AUDIENCE_LABEL } from "./HandoffForm";
-import { fmtDate } from "./TokensPanel";
+import { fmtDate, fmtDateTime } from "@/lib/dates";
 
 const PAGE = 10;
 
@@ -71,7 +71,7 @@ export function HandoffLanding({ code }: { code: string }) {
           <h2>Notes{m.parts.notes > 1 && <span className="n">latest 20</span>}</h2>
           <ol className="hnotes">
             {m.notes.map((x, i) => (
-              <li key={i}><small>{x.by}{x.via === "mcp" ? " (agent)" : ""}, {new Date(x.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small><p className="pre">{x.text}</p></li>
+              <li key={i}><small>{x.by}{x.via === "mcp" ? " (agent)" : ""}, {fmtDateTime(x.at)}</small><p className="pre">{x.text}</p></li>
             ))}
           </ol>
         </section>

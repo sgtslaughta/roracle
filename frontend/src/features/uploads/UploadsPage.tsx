@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { isDuplicate, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
+import { DEFAULT_OPTS, UploadOptions } from "./UploadOptions";
 import { FILTERS, inFilter, MAX_UPLOAD_BYTES, type FilterKey } from "./status";
 import { UploadRow } from "./UploadRow";
 
@@ -15,14 +16,15 @@ export function UploadsPage() {
   const upload = useUpload();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [shown, setShown] = useState(PAGE);
+  const [opts, setOpts] = useState(DEFAULT_OPTS);
   const [dups, setDups] = useState<File[]>([]);
   const items = data?.items ?? [];
   const count = (k: FilterKey) => items.filter((u) => inFilter(u, k)).length;
   const rows = items.filter((u) => inFilter(u, filter));
 
-  const send = async (file: File, force = false) => {
+  const send = async (file: File, force = false, single = false) => {
     try {
-      await upload.mutateAsync({ file, force });
+      await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined });
       toast(`${file.name} uploaded. Processing has started.`);
     } catch (e) {
       if (isDuplicate(e)) setDups((d) => [...d, file]);
@@ -33,7 +35,7 @@ export function UploadsPage() {
     setFilter("all");
     for (const f of files) {
       if (f.size > MAX_UPLOAD_BYTES) toast(`${f.name} is over the 500 MB limit. Split it, or ask an admin to raise the limit.`);
-      else void send(f);
+      else void send(f, false, files.length === 1);
     }
   };
 
@@ -50,6 +52,7 @@ export function UploadsPage() {
           ))}
         </div>
       </div>
+      <UploadOptions value={opts} onChange={setOpts} />
       <DropZone onFiles={onFiles} />
       <div className="tbl">
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>

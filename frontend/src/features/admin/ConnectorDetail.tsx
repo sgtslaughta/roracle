@@ -4,7 +4,8 @@ import type { Connector } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { isUuid } from "@/lib/ids";
 import { useConnector } from "./api";
-import { fmtTime, scheduleText, useRunNow } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
+import { scheduleText, useRunNow } from "./ConnectorsPage";
 import { ConnectorRuns } from "./ConnectorRuns";
 import { StatusPill } from "./StatusPill";
 

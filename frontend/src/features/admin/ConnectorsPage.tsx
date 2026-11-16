@@ -1,3 +1,4 @@
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { Link } from "@tanstack/react-router";
 import { Pencil, Play, Plug, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -13,7 +14,6 @@ import { StatusPill } from "./StatusPill";
 import { RowMenu } from "@/components/RowMenu";
 
 const SHOWN = 50;
-export const fmtTime = (s: string | null | undefined) => (s ? new Date(s).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Never");
 export const scheduleText = (m: number | null) => (m ? `Every ${m} min` : "Manual");
 
 /** Run now: 202 queued; 409 (already queued or running) shows the server's reason. */

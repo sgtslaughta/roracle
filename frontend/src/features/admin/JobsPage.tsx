@@ -6,7 +6,7 @@ import type { AdminJob, JobStatus } from "@/api/admin";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { useJobs, useJobsSummary, useRetryFailed, useRetryJob } from "./api";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { StatusPill } from "./StatusPill";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 

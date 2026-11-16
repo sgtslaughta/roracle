@@ -73,7 +73,7 @@ export function Sidenotes({ citations, order, answerRef, excludes, hot, onHot }:
               onFocus={() => onHot?.(c.n)} onBlur={() => onHot?.(null)}
             >
               <span className="nh">
-                <span className="nn">{c.n}</span>
+                <span className="nn">{c.n ?? "Community note"}</span>
                 <span className="nt" title={c.title}>{c.title}</span>
                 <span className="nm">p. {c.page}</span>
               </span>

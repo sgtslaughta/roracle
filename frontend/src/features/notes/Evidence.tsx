@@ -1,3 +1,4 @@
+import { fmtDateTime } from "@/lib/dates";
 import { humanBytes } from "@/lib/bytes";
 import { CircleCheck, CircleDashed, CircleX, Download, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -19,7 +20,7 @@ const SCAN_LABEL: Record<ScanStatus, string> = {
 const ITEMS_SHOWN = 3;
 const EVIDENCE_SHOWN = 5;
 
-const fmtTime = (s: string) => { const d = new Date(s); return Number.isNaN(d.getTime()) ? s : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }); };
+const fmtTime = (s: string) => (Number.isNaN(new Date(s).getTime()) ? s : fmtDateTime(s));
 
 function Items({ label, list }: { label: string; list: { name: string; uri: string; sha256: string }[] }) {
   if (!list.length) return null;

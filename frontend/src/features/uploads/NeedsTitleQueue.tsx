@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
@@ -24,7 +25,7 @@ export function NeedsTitleQueue() {
           <li key={r.version_id}>
             <div className="who">
               <b title={r.filename}>{r.filename}</b>
-              <small>{r.owner}. {new Date(r.uploaded_at).toLocaleDateString([], { dateStyle: "medium" })}</small>
+              <small>{r.owner}. {fmtDate(r.uploaded_at)}</small>
             </div>
             <RowMenu label={`Actions for ${r.filename}`} actions={[copyAction("Copy filename", r.filename), copyAction("Copy owner", r.owner)]} />
             <TitleForm documentId={r.document_id} versionId={r.version_id} label={`Title for ${r.filename}`} />

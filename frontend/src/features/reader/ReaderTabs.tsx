@@ -1,5 +1,5 @@
 import { FileText, FileType2, PanelRightClose, X } from "lucide-react";
-import { shortCite } from "@/lib/cite";
+import { tabLabel } from "@/lib/cite";
 import { useDoc } from "./api";
 import { FocusToggle } from "./FocusToggle";
 import { closeReader, closeTab, setActive, type ReaderState } from "./useReaderStore";
@@ -7,7 +7,7 @@ import { closeReader, closeTab, setActive, type ReaderState } from "./useReaderS
 function DocTab({ docId, active }: { docId: string; active: boolean }) {
   const { data } = useDoc(docId);
   const Icon = data?.file_type === "Word" ? FileType2 : FileText;
-  const label = data ? shortCite(data.authors, data.year) : docId;
+  const label = data ? tabLabel({ ...data, filename: data.versions.at(-1)?.filename }) : docId;
   return (
     <div className="rtab" data-active={active}>
       <button role="tab" aria-selected={active} onClick={() => setActive(docId)}>

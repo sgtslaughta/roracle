@@ -1,3 +1,4 @@
+import { chatTitle } from "@/lib/cite";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
@@ -49,9 +50,9 @@ export function Sidebar() {
           <PopoverContent side="top" align="start" collisionPadding={8} className="rail-pop">
             <h5>Recent chats</h5>
             <OverflowList
-              items={chats ?? []} max={5} layout="stack" menuLabel="More chats" getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
+              items={chats ?? []} max={5} layout="stack" menuLabel="More chats" getLabel={chatTitle} moreLabel={(k) => `+${k} more`}
               footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
-              renderItem={(c) => <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} className="menu-link" title={c.title} onClick={close}><MessageCircle aria-hidden /><span>{c.title}</span></Link>}
+              renderItem={(c) => <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} className="menu-link" title={chatTitle(c)} onClick={close}><MessageCircle aria-hidden /><span>{chatTitle(c)}</span></Link>}
             />
             <Link to="/ask" className="menu-link" onClick={close}><Plus aria-hidden /><span>New chat</span></Link>
             {!!collections?.length && (
@@ -72,14 +73,14 @@ export function Sidebar() {
           <OverflowList
             items={chats ?? []} max={5} layout="stack" menuLabel="More chats"
             footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
-            getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
+            getLabel={chatTitle} moreLabel={(k) => `+${k} more`}
             renderItem={(c) => (
               <div key={c.id} className="rowline" data-row>
-                <Link to="/ask/$chatId" params={{ chatId: c.id }} title={c.title} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
+                <Link to="/ask/$chatId" params={{ chatId: c.id }} title={chatTitle(c)} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
                   <MessageCircle aria-hidden />
-                  <span>{c.title}</span>
+                  <span>{chatTitle(c)}</span>
                 </Link>
-                <RowMenu label={`Actions for chat ${c.title}`} actions={[
+                <RowMenu label={`Actions for chat ${chatTitle(c)}`} actions={[
                   { label: "Open", onSelect: () => void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }) },
                   copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
                 ]} />

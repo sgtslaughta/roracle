@@ -46,3 +46,6 @@
 .ntq .who { flex: 1 1 220px; min-width: 0; }
 .ntq .who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .ntq .who small { color: var(--muted); font-size: 12px; }
+.uopts { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 10px; }
+.uopts label { display: grid; gap: 4px; font-size: 13px; }
+.uopts .sub { flex-basis: 100%; margin: 0; }

@@ -1,3 +1,4 @@
+import { chatTitle } from "@/lib/cite";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageCircleOff } from "lucide-react";
@@ -106,7 +107,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
     );
   }
 
-  const title = chat?.title ?? "New chat";
+  const title = chatTitle(chat);
   return (
     <section className="view ask">
       <header className="ask-head">

@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { OverflowList } from "@/components/OverflowList";
 import { Button } from "@/components/ui/button";
 import { useDebounced } from "@/lib/useDebounced";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { USERS_PAGE, useGroups, useRevokePats, useUsers } from "./dataApi";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 

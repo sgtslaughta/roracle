@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useDebounced } from "@/lib/useDebounced";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "./dataApi";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const DETAIL_MAX = 160;

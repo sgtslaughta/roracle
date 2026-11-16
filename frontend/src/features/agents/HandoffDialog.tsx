@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { Copy, Link as LinkIcon, Terminal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -59,7 +60,7 @@ export function ManifestView({ m, onClose }: { m: HandoffManifest; onClose?: () 
   return (
     <div className="hlink" aria-live="polite">
       <div className="row2"><LinkIcon aria-hidden /><code>{m.display}</code>
-        <span>Expires {new Date(m.expires_at).toLocaleDateString([], { dateStyle: "medium" })}. {AUDIENCE_LABEL[m.audience]}.</span>
+        <span>Expires {fmtDate(m.expires_at)}. {AUDIENCE_LABEL[m.audience]}.</span>
       </div>
       <div className="row2">
         <Button onClick={() => void copyText(handoffLink(m.url), "Handoff link copied")}><Copy aria-hidden />Copy link</Button>

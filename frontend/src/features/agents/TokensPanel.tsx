@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -9,7 +10,6 @@ import { CreateTokenDialog } from "./CreateTokenDialog";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const PAGE = 20;
-export const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString([], { dateStyle: "medium" }) : "Never");
 const stateOf = (t: AccessToken) => (t.revoked_at ? "Revoked" : new Date(t.expires_at) <= new Date() ? "Expired" : "Active");
 
 export function TokensPanel() {

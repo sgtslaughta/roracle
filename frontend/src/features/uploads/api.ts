@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, apiFetch, seg, QUIET } from "@/api/client";
-import type { DuplicateDetail, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
+import { ApiError, apiFetch, errorText, seg, QUIET } from "@/api/client";
+import type { DuplicateDetail, Visibility, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
 
 const TERMINAL_STAGES = ["searchable", "review", "needs_title", "rejected", "cancelled"];
 /** An upload is terminal when it has finished, failed, or waits on the user. */
@@ -27,9 +27,11 @@ export function useUpload() {
   const qc = useQueryClient();
   return useMutation({
     meta: QUIET,
-    mutationFn: ({ file, force }: { file: File; force?: boolean }) => {
+    mutationFn: ({ file, force, visibility, title }: { file: File; force?: boolean; visibility?: Visibility; title?: string }) => {
       const form = new FormData();
       form.append("file", file);
+      if (visibility) form.append("visibility", visibility);
+      if (title?.trim()) form.append("title", title.trim());
       if (force) form.append("force", "true");
       return apiFetch<UploadCreated>("/documents", { method: "POST", body: form });
     },
@@ -63,3 +65,14 @@ export function useSetTitle() {
 /** Admin-only queue of every upload waiting for a title (oldest first, unpaginated). */
 export const useNeedsTitle = (enabled: boolean) =>
   useQuery({ queryKey: ["needs-title"], enabled, queryFn: () => apiFetch<NeedsTitleItem[]>("/admin/needs-title") });
+
+/** Name an already-processed document that has no title (PATCH /documents/{id}). */
+export function useRename() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: QUIET,
+    mutationFn: ({ documentId, title }: { documentId: string; title: string }) => apiFetch(`/documents/${seg(documentId)}`, { method: "PATCH", json: { title } }),
+    onSuccess: () => { toast("Title saved."); return qc.invalidateQueries({ queryKey: ["uploads"] }); },
+    onError: (e) => toast(errorText(e)),
+  });
+}

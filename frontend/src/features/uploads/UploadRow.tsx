@@ -1,3 +1,4 @@
+import { fmtDateTime } from "@/lib/dates";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { humanBytes } from "@/lib/bytes";
@@ -5,7 +6,7 @@ import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Loc
 import type { UploadItem } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { NearDupPrompt } from "./NearDupPrompt";
-import { TitlePrompt } from "./TitlePrompt";
+import { AddTitle, TitlePrompt } from "./TitlePrompt";
 import { pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
 
 const PILL_ICON = { done: Check, running: Loader, failed: CircleAlert, review: GitCompare, title: Pencil } as const;
@@ -25,7 +26,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
         <div style={{ minWidth: 0 }}>
           <b title={u.title ?? u.filename}>{u.title ?? u.filename}</b>
           {u.title && <small className="fn" title={u.filename}>{u.filename}</small>}
-          <small>{humanBytes(u.size)}. {new Date(u.uploaded_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small>
+          <small>{humanBytes(u.size)}. {fmtDateTime(u.uploaded_at)}</small>
         </div>
       </div>
       <div className="pipe" aria-label="Progress">
@@ -44,6 +45,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
       )}
       {st === "review" && <NearDupPrompt u={u} />}
       {st === "title" && <TitlePrompt u={u} />}
+      {st === "done" && !u.title?.trim() && <div className="tdet title"><span className="msg"><Pencil aria-hidden />This file has no title.</span><AddTitle u={u} /></div>}
     </div>
   );
 }

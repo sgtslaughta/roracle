@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { invalidText, useHandoff, useHandoffs, usePatchHandoff, useRevokeHandoff } from "./api";
 import { copyText } from "./HandoffDialog";
 import { AUDIENCE_LABEL, HandoffForm, type HandoffValues } from "./HandoffForm";
-import { fmtDate } from "./TokensPanel";
+import { fmtDate } from "@/lib/dates";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const PAGE = 20;

@@ -98,9 +98,20 @@ export const handlers = [
     return d ? HttpResponse.json(docling(d)) : notFound();
   }),
   // ---- uploads ----
-  http.get(url("/me/uploads"), () => {
+  http.get(url("/me/uploads"), ({ request }) => {
     if (Date.now() - state.lastAdvance >= 3000) { advance(state.uploads); state.lastAdvance = Date.now(); }
-    return HttpResponse.json({ items: state.uploads, total: state.uploads.length });
+    const q = new URL(request.url).searchParams;
+    const live = state.uploads.filter((u) => u.stage !== "cancelled"); // the real API drops cancelled uploads
+    const offset = Math.max(0, Number(q.get("offset")) || 0), limit = Number(q.get("limit")) || live.length;
+    return HttpResponse.json({ items: live.slice(offset, offset + limit), total: live.length });
+  }),
+  http.patch(url("/documents/:id"), async ({ params, request }) => {
+    const u = state.uploads.find((x) => x.document_id === params.id);
+    if (!u) return notFound();
+    const { title } = (await request.json()) as { title?: string };
+    if (!title?.trim()) return HttpResponse.json({ detail: [{ msg: "String should have at least 1 character", loc: ["body", "title"] }] }, { status: 422 });
+    u.title = title.trim();
+    return HttpResponse.json({ id: u.document_id, title: u.title });
   }),
   http.post(url("/documents"), async ({ request }) => {
     const form = await request.formData();
@@ -110,6 +121,8 @@ export const handlers = [
     if (file.name === "spectral-gap-v3.pdf" && form.get("force") !== "true")
       return HttpResponse.json({ detail: { code: "duplicate", document_id: "00000000-0000-4000-8000-000000000001" } }, { status: 409 });
     const u = newUpload(file, (form.get("visibility") as "everyone") ?? "everyone");
+    const t = String(form.get("title") ?? "").trim();
+    if (t) u.title = t;
     state.uploads.unshift(u);
     return HttpResponse.json({ document_id: u.document_id, version_id: u.version_id, sha256: "0".repeat(64) }, { status: 201 });
   }),

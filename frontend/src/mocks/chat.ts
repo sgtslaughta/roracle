@@ -76,7 +76,7 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
     if (saved) return;
     saved = true;
     const done = status === "complete";
-    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, version: c.version, chunk_id: c.chunk_id, title: c.title, page: c.page, bbox: c.bbox, score: 0.9 - c.n * 0.1, text: c.quote, available: true as const }]));
+    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, version: c.version, chunk_id: c.chunk_id, title: c.title, page: c.page, bbox: c.bbox, score: 0.9 - (c.n ?? 0) * 0.1, text: c.quote, available: true as const }]));
     chat.messages.push({ id: aid, role: "assistant", content: done ? text : sent, citations: done ? citations : [], retrieved: done ? retrieved : [], status, model, created_at: now(), rating: null });
     chat.updated_at = now();
   };
@@ -117,7 +117,7 @@ export const chatHandlers = [
     const b = ((await request.json().catch(() => ({}))) ?? {}) as Partial<Chat>;
     if (b.model && !MODELS.includes(b.model)) return unprocessable("unknown model");
     const t = now();
-    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "New chat", scope: b.scope ?? "all", model: b.model ?? null, pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
+    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "", scope: b.scope ?? "all", model: b.model ?? null, pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
     chats().push(c);
     return HttpResponse.json(plain(c), { status: 201 });
   }),

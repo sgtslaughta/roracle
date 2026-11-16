@@ -38,7 +38,7 @@ export interface JobsSummary { jobs: Record<string, Partial<Record<JobStatus, nu
 export type ReviewSource = "all" | "upload" | "connector";
 export interface ReviewItem {
   document_id: string; version_id: string; filename: string; owner: string; connector_id: string | null;
-  uploaded_at: string; match: { document_id: string; title: string } | null;
+  uploaded_at: string; match: { document_id: string; title: string | null } | null;
 }
 
 export type SettingValue = boolean | number | string | string[];

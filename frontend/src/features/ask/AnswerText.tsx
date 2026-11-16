@@ -10,7 +10,7 @@ import { safeComponents } from "@/components/SafeMarkdown";
 import { remarkCiteMarkers } from "./citeMarkers";
 
 export const openCitation = (c: CitationOk) =>
-  openDoc(c.doc_id, { page: c.page, chunkId: c.chunk_id ?? undefined, version: c.version, bbox: c.bbox });
+  openDoc(c.doc_id, { page: c.page, chunkId: c.chunk_id ?? undefined, version: c.version ?? undefined, bbox: c.bbox });
 
 export interface AnswerTextProps {
   text: string;

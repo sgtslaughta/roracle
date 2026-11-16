@@ -4,14 +4,16 @@ import type { Bbox } from "./types";
 export type ChatScope = "all" | "open" | "collection" | `collection:${string}`;
 export interface Chat { id: string; title: string; scope: ChatScope; model: string | null; pins: string[]; excludes: string[]; created_at: string; updated_at: string }
 export interface ChatPage { items: Chat[]; next: string | null }
-export interface Rating { value: 1 | -1; comment: string | null }
+export interface Rating { value: 1 | -1 | 0; comment: string | null }
 export interface Shares { users: string[]; groups: string[] }
 export interface CitationOk {
-  n: number;
+  /** null for a community-note passage (no numbered marker) */
+  n: number | null;
+  note_id?: string;
   available: true;
   doc_id: string;
   version_id: string;
-  version: number;
+  version: number | null;
   chunk_id: string | null;
   title: string;
   page: number;
@@ -23,7 +25,7 @@ export interface CitationOk {
 export interface CitationGone { n: number; available: false }
 export type Citation = CitationOk | CitationGone;
 export const isAvailable = (c: Citation): c is CitationOk => c.available === true;
-export interface RetrievedPassage { n: number; doc_id: string; version_id: string; version: number; chunk_id: string | null; title: string; page: number; bbox: Bbox | null; score: number; text: string; available?: true }
+export interface RetrievedPassage { n: number | null; note_id?: string; doc_id: string; version_id: string; version: number | null; chunk_id: string | null; title: string; page: number; bbox: Bbox | null; score: number; text: string; available?: true }
 export interface ViewerTab { doc_id: string; version_id: string | null; page: number }
 export interface Viewer { tabs: ViewerTab[]; ignored: string[]; selection: { doc_id: string; page: number; text: string } | null }
 export type MessageStatus = "complete" | "interrupted" | "failed";
