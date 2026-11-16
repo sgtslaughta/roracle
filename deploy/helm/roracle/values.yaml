@@ -255,9 +255,9 @@ parsers:
     writableDirs: [{path: /opt/grobid/grobid-home/tmp, size: 2Gi}, {path: /tmp, size: 1Gi}, {path: /opt/grobid/logs, size: 100Mi}]
     probe: {path: /api/isalive}
     args: []
-    # Old JDKs on cgroup v2 nodes can crash/mis-size the heap: workaround env JAVA_TOOL_OPTIONS=-XX:-UseContainerSupport
-    # (then set -Xmx explicitly to fit resources.limits).
-    env: {}
+    # Container support is off because this GROBID's JDK crashes on cgroup v2 nodes (NPE in cgroup detection), so the heap
+    # must be explicit: keep -Xmx ~75% of resources.limits.memory. Remove both flags on a newer GROBID/JDK.
+    env: {JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport -Xmx4608m"}
     resources:
       requests: {cpu: "2", memory: 4Gi}
       limits: {memory: 6Gi}
