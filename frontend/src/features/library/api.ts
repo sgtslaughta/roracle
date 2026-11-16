@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { apiFetch, seg } from "@/api/client";
 import type { Collection, DocumentDetail, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
@@ -83,9 +84,11 @@ export function useRemoveTag(docId: string) {
 /** Add a document to a collection, or create the collection first (`create`). */
 export function useAddToCollection(docId: string) {
   const qc = useQueryClient();
+  const made = useRef<Record<string, string>>({});
   return useMutation({
     mutationFn: async ({ id, create }: { id?: string; create?: string }) => {
-      const cid = id ?? (await apiFetch<Collection>("/collections", { method: "POST", json: { name: create } })).id;
+      // a created collection is remembered, so a retry after a failed PUT reuses it instead of duplicating
+      const cid = id ?? (made.current[create!] ??= (await apiFetch<Collection>("/collections", { method: "POST", json: { name: create } })).id);
       return apiFetch<{ id: string; count: number }>(`/collections/${seg(cid)}/items/${seg(docId)}`, { method: "PUT" });
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["collections"] }),

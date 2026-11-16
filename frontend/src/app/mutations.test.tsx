@@ -1,4 +1,4 @@
-import { render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, useMutation } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -127,5 +127,67 @@ describe("row menus and collections", () => {
     await userEvent.click(await within(await screen.findByRole("dialog")).findByRole("button", { name: /Thesis reading list/ }));
     await waitFor(() => expect(toasts()).toContain("not found"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("RowMenu details", () => {
+  it("leaves the native menu when text is selected or Shift is held", async () => {
+    await renderApp("/library");
+    const h = within(await card()).getByRole("heading", { level: 3 });
+    fireEvent.contextMenu(h, { shiftKey: true });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("arrow keys wrap, Home/End jump, and focus returns to the row on close", async () => {
+    await renderApp("/library");
+    const c = await card();
+    await userEvent.pointer({ keys: "[MouseRight]", target: within(c).getByRole("heading", { level: 3 }) });
+    const items = await screen.findAllByRole("menuitem");
+    items[0].focus();
+    await userEvent.keyboard("{ArrowUp}");
+    expect(items[items.length - 1]).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await waitFor(() => expect(within(c).getByRole("button", { name: /^Actions for / })).toHaveFocus());
+  });
+
+  it("an existing collection name (any case) is reused, not duplicated", async () => {
+    await renderApp("/library");
+    await userEvent.click(within(await card()).getByRole("button", { name: /^Actions for / }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Add to collection" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("button", { name: /Thesis reading list/ });
+    await userEvent.type(within(dialog).getByLabelText("New collection name"), "thesis READING list");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create and add" }));
+    await waitFor(() => expect(Object.keys(state.collItems)).toEqual(["c1"]));
+    expect(state.newCollections).toHaveLength(0);
+  });
+
+  it("a failed add after creating reuses the new collection on retry", async () => {
+    let n = 0;
+    server.use(http.put(`${API_BASE}/collections/:cid/items/:doc`, ({ params }) => (n++ ? HttpResponse.json({ id: String(params.cid), count: 1 }) : HttpResponse.json({ detail: "boom" }, { status: 500 }))));
+    await renderApp("/library");
+    await userEvent.click(within(await card()).getByRole("button", { name: /^Actions for / }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Add to collection" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("New collection name"), "Fresh");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create and add" }));
+    await waitFor(() => expect(toasts()).toContain("boom"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create and add" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(state.newCollections).toHaveLength(1);
+  });
+});
+
+describe("RowMenu without a kebab", () => {
+  it("opens at a right-click on a token row and returns focus to the row on close", async () => {
+    await renderApp("/settings");
+    const tr = (await screen.findAllByRole("row")).find((r) => within(r).queryByRole("button", { name: /^Revoke / }))!;
+    await userEvent.pointer({ keys: "[MouseRight]", target: within(tr).getByText(/…$/) });
+    await screen.findByRole("menuitem", { name: "Copy prefix" });
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(tr).toHaveFocus());
   });
 });
