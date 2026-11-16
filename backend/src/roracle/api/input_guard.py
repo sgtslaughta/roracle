@@ -10,7 +10,7 @@ from sqlalchemy.exc import DataError
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 BIGINT_MAX = 2**63 - 1
-_JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000|\x00", re.I)
+_JSON_NUL = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000|\x00", re.IGNORECASE)
 _RAW_NUL = (b"%00", b"\x00")
 
 
