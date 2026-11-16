@@ -229,11 +229,24 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
             select(Document.id, Document.label_id).where(Document.id.in_({n.document_id for n in notes}))
         ).all()
     )
+    parents = {n.parent_id for n in notes if n.parent_id}
+    root_label = (
+        dict(
+            session.execute(
+                select(Annotation.id, Annotation.label_id).where(Annotation.id.in_(parents))
+            ).all()
+        )
+        if parents
+        else {}
+    )
     out = []
     for n in notes:
         v = votes.get(n.id, {"up": 0, "down": 0, "mine": 0})
         u = users.get(n.author_id)
-        eff = policy.effective(doc_label[n.document_id], n.label_id)
+        # replies inherit the thread ROOT's label (their own stays null)
+        eff = policy.effective(
+            doc_label[n.document_id], root_label.get(n.parent_id) if n.parent_id else n.label_id
+        )
         hide = p.via == "pat" and eff.exclude_llm  # agents: the note exists, its text does not
         out.append(
             {

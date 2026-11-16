@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.responses import JSONResponse
@@ -11,7 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.audit import audit
 from roracle.auth import Principal
-from roracle.models import Document
+from roracle.models import AuditLog, Document
 from roracle.models_labels import GATES, Label
 
 
@@ -132,3 +133,23 @@ def exportable_clause(p: Principal) -> ColumnElement[bool]:
         return true()
     blocked = select(Label.id).where(Label.block_export.is_(True))
     return or_(Document.owner_id == p.user_id, Document.label_id.not_in(blocked))
+
+
+def audit_inline_view(session: Session, p: Principal, doc: Document, route: str) -> None:
+    """`label.view` audit row when a non-owner/non-admin reads a block_export doc inline (a deterrent,
+    not DRM). One row per (user, document, UTC day) so reader paging cannot flood the log."""
+    if export_block(session, p, doc) is None:
+        return
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    seen = session.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.user_id == p.user_id,
+            AuditLog.action == "label.view",
+            AuditLog.target == str(doc.id),
+            AuditLog.at >= day,
+        )
+        .limit(1)
+    )
+    if seen is None:
+        audit(session, p, "label.view", str(doc.id), {"route": route})

@@ -136,6 +136,7 @@ def set_note_label(
         raise HTTPException(403, "only the note author can change the label")
     if note.parent_id is not None:
         raise HTTPException(422, "labels apply to thread roots, not replies")
+    session.refresh(note, with_for_update=True)
     doc = session.get(Document, note.document_id)
     policy = Policy.load(session)
     if label_id is not None and resolve(policy, label_id).rank < policy.get(doc.label_id).rank:
@@ -145,27 +146,40 @@ def set_note_label(
     reason = (reason or "").strip() or None
     if reason and len(reason) > 500:
         raise HTTPException(422, "reason too long")
-    if new.rank < old.rank:
+    old_own = policy.get(note.label_id) if note.label_id else None
+    new_own = policy.get(label_id) if label_id is not None else None
+    # own-label decrease (incl. clearing) is a lowering even when the doc label masks it
+    own_lower = old_own is not None and (new_own is None or new_own.rank < old_own.rank)
+    if new.rank < old.rank or own_lower:
         if not p.is_admin:
             raise HTTPException(403, "only admins can lower a label")
-        if old.reason_on_lower and not (reason and 3 <= len(reason) <= 500):
+        needs = old.reason_on_lower or (own_lower and old_own.reason_on_lower)
+        if needs and not (reason and 3 <= len(reason) <= 500):
             raise HTTPException(422, "a reason (3-500 characters) is required to lower this label")
+    own_changed = (old_own.id if old_own else None) != (new_own.id if new_own else None)
     note.label_id = uuid.UUID(str(label_id)) if label_id is not None else None
     session.flush()
-    if new.id != old.id:
-        detail = {"from": old.id, "to": new.id, "via": via, **({"reason": reason} if reason else {})}
+    if own_changed or new.id != old.id:
+        detail = {
+            "from": old.id,
+            "to": new.id,
+            "own_from": old_own.id if old_own else None,
+            "own_to": new_own.id if new_own else None,
+            "via": via,
+            **({"reason": reason} if reason else {}),
+        }
         audit(session, p, "annotation.label", str(note.id), detail)
-        if p.user_id != note.author_id:
-            notify.emit(
-                session,
-                note.author_id,
-                "label.changed",
-                {
-                    "document_id": str(doc.id),
-                    "annotation_id": str(note.id),
-                    "from": old.id,
-                    "to": new.id,
-                    "by": str(p.user_id),
-                },
-            )
+    if new.id != old.id and p.user_id != note.author_id:
+        notify.emit(
+            session,
+            note.author_id,
+            "label.changed",
+            {
+                "document_id": str(doc.id),
+                "annotation_id": str(note.id),
+                "from": old.id,
+                "to": new.id,
+                "by": str(p.user_id),
+            },
+        )
     return new

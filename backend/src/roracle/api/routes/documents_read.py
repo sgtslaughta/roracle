@@ -19,7 +19,7 @@ from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
-from roracle.labels.policy import Policy, label_json, require_exportable
+from roracle.labels.policy import Policy, audit_inline_view, label_json, require_exportable
 from roracle.labels.textgate import require_text
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
@@ -201,6 +201,8 @@ def download(
     is_pdf = head == b"%PDF-" and (stored_pdf or ext == "pdf")
     ctype = "application/pdf" if is_pdf else _TYPES.get(ext, "application/octet-stream")
     kind = "inline" if inline and is_pdf and stored_pdf else "attachment"
+    if kind == "inline":
+        audit_inline_view(session, p, _doc(session, p, doc_id), "document.file")
     if kind == "attachment":  # gate (c): only downloads are blocked, not in-app viewing
         try:
             _gate(session, p, doc_id, "document.file")
@@ -257,6 +259,7 @@ def pdf(
 ) -> StreamingResponse:
     v = _version(session, p, doc_id, n)
     _gate(session, p, doc_id, "document.pdf", download=False)
+    audit_inline_view(session, p, _doc(session, p, doc_id), "document.pdf")
     body, head, size = _open_pdf(store, v)
     stem = v.filename.rsplit(".", 1)[0] if "." in v.filename else v.filename
     return StreamingResponse(
@@ -287,6 +290,7 @@ def docling(
 ) -> dict:
     v = _version(session, p, doc_id, n)
     _gate(session, p, doc_id, "document.docling", download=False)
+    audit_inline_view(session, p, _doc(session, p, doc_id), "document.docling")
     try:
         raw = json.loads(store.get_bytes(f"derived/{v.id}/docling.json"))
     except ClientError as e:

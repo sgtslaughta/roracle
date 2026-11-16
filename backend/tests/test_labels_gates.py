@@ -158,6 +158,19 @@ def test_inline_viewing_stays_allowed_for_non_owner(client, as_bob, gated, db_se
     assert not db_session.scalars(select(AuditLog).where(AuditLog.action == "label.export_blocked")).all()
 
 
+def test_inline_views_audited_once_per_day_non_owner_only(client, as_ana, as_bob, admin, gated, db_session):
+    d, _ = gated
+    f, pdf = f"/documents/{d.id}/versions/1/file", f"/documents/{d.id}/versions/1/pdf"
+    for _ in range(2):
+        assert client.get(f, params={"inline": "true"}, headers=as_bob).status_code == 200
+        assert client.get(pdf, headers=as_bob).status_code == 200
+    client.get(f"/documents/{d.id}/versions/1/docling", headers=as_bob)
+    assert client.get(pdf, headers=as_ana).status_code == 200  # owner
+    assert client.get(pdf, headers=admin).status_code == 200
+    rows = db_session.scalars(select(AuditLog).where(AuditLog.action == "label.view")).all()
+    assert len(rows) == 1 and rows[0].target == str(d.id) and rows[0].detail == {"route": "document.file"}
+
+
 def test_invisible_is_404_not_403(client, as_bob, ana, admin, db_session):
     sec = mk(client, admin, "NoExport", 3, block_export=True)
     d, _ = seed(db_session, ana, visibility="private")

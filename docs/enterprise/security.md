@@ -111,6 +111,10 @@ approve/reject, share/visibility change, admin actions, PAT create/revoke, `mcp.
 MCP tool call (MCP PAT use is audited this way, REST PAT use as `pat.use` with method and path; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
 
+### Sensitivity labels
+
+Block download/export is a deterrent: in-app viewing transfers content to the browser; it is not DRM. Inline reads of block-export documents by non-owners and non-admins are audited as `label.view` (one row per user, document and UTC day).
+
 ## 7. Platform hardening
 
 - Images: minimal bases, non-root UID 10001, no shells in production images where possible, SBOM

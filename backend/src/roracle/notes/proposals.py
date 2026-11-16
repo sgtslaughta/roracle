@@ -81,10 +81,10 @@ def _label_payload(session: Session, p: Principal, payload: dict) -> dict:
         n = get_readable(session, p, UUID(str(payload["annotation_id"])))
         if n.document_id != doc_id:
             raise service.NOT_FOUND
+        if n.parent_id is not None:
+            raise HTTPException(422, "labels apply to thread roots, not replies")
         out["annotation_id"] = str(n.id)
-    if payload.get("reason"):
-        out["reason"] = str(payload["reason"])[:500]
-    return out
+    return out  # agent-supplied reason is dropped: the approver supplies it
 
 
 def _store(session: Session, p: Principal, kind: str, stored: dict) -> Proposal:
@@ -122,7 +122,6 @@ def _approve_label(session: Session, p: Principal, row: Proposal, reason: str | 
     """Re-runs the set_*_label rules as the APPROVER (owner lowering -> 403; admin needs a reason when
     the label demands one). Returns the note for note-label proposals."""
     pl = row.payload
-    reason = reason or pl.get("reason")
     if pl.get("annotation_id"):
         note = get_readable(session, p, UUID(pl["annotation_id"]))
         label_service.set_note_label(session, p, note, pl["label_id"], reason, via="proposal")

@@ -95,7 +95,7 @@ def test_author_raises_lowers_403_notified_audited(
     assert put(client, as_ana, n["id"], None).status_code == 403  # inherit = lowering
     assert put(client, as_bob, n["id"], hi).status_code == 403  # not the author (note is readable)
     a = [x.detail for x in db_session.scalars(select(AuditLog).where(AuditLog.action == "annotation.label"))]
-    assert a == [{"from": general(db_session), "to": hi, "via": "user"}]
+    assert a == [{"from": general(db_session), "to": hi, "own_from": None, "own_to": hi, "via": "user"}]
     assert not db_session.scalars(select(Notification).where(Notification.kind == "label.changed")).all()
 
 
@@ -283,3 +283,58 @@ def test_agent_note_proposal_ignores_label(client, as_ana, ana, admin, world, db
     )
     assert "label_id" not in row.payload
     assert db_session.scalars(select(Proposal)).one()
+
+
+def test_reply_effective_label_is_root_label(client, as_ana, admin, world, db_session):
+    d, _ = world
+    hi = mk(client, admin, "High", 6)
+    n = mknote(client, as_ana, d, label_id=hi)
+    rep = client.post(f"/annotations/{n['id']}/replies", json={"body": "r"}, headers=as_ana).json()
+    assert rep["label"] is None and rep["effective_label"]["name"] == "High"
+    got = client.get(f"/annotations/{rep['id']}", headers=as_ana).json()
+    assert got["effective_label"]["name"] == "High"
+
+
+def test_author_clearing_masked_own_label_needs_admin_and_audit(client, as_ana, admin, world, db_session):
+    d, _ = world
+    mid, hi = mk(client, admin, "Mid", 3), mk(client, admin, "High", 6)
+    n = mknote(client, as_ana, d, label_id=mid)
+    doc_label(db_session, d, hi)  # doc raised above the note
+    assert put(client, as_ana, n["id"], None).status_code == 403
+    assert db_session.get(Annotation, uuid.UUID(n["id"])).label_id == uuid.UUID(mid)
+    assert put(client, admin, n["id"], None).status_code == 200  # effective unchanged, still audited
+    a = db_session.scalars(select(AuditLog).where(AuditLog.action == "annotation.label")).all()
+    assert a[-1].detail["own_from"] == mid and a[-1].detail["own_to"] is None
+
+
+def test_label_proposal_rejects_reply_and_hides_unreadable(client, as_ana, ana, admin, world, db_session):
+    from fastapi import HTTPException
+
+    d, _ = world
+    hi = mk(client, admin, "High", 6)
+    n = mknote(client, as_ana, d)
+    rep = client.post(f"/annotations/{n['id']}/replies", json={"body": "r"}, headers=as_ana).json()
+    with pytest.raises(HTTPException) as e:
+        lprop(db_session, ana, d, hi, annotation_id=rep["id"])
+    assert e.value.status_code == 422
+    blk = mk(client, admin, "NoAgents", 7, block_agents=True)
+    doc_label(db_session, d, blk)
+    with pytest.raises(HTTPException) as e:
+        lprop(db_session, ana, d, hi)
+    assert e.value.status_code == 404
+    with pytest.raises(HTTPException) as e:
+        lprop(db_session, ana, d, hi, annotation_id=n["id"])
+    assert e.value.status_code == 404
+
+
+def test_agent_reason_does_not_satisfy_reason_on_lower(client, as_ana, ana, admin, world, db_session):
+    d, _ = world
+    hi = mk(client, admin, "High", 6, reason_on_lower=True)
+    doc_label(db_session, d, hi)
+    from roracle.models import User
+
+    client.get("/me", headers=admin)
+    root = db_session.scalar(select(User.id).where(User.username == "root"))
+    row = lprop(db_session, root, d, general(db_session), reason="agent says so")
+    assert "reason" not in row.payload
+    assert client.post(f"/proposals/{row.id}/approve", headers=admin).status_code == 422
