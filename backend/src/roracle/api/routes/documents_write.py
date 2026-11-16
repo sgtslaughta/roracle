@@ -99,6 +99,8 @@ def patch_document(
     if body.title is not None:
         doc.title = body.title
     if body.visibility is not None:
+        if body.visibility == "shared" and doc.visibility != "shared":  # legacy/inert rows must not revive
+            session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
         doc.visibility = body.visibility
     if body.org_unit is not None:
         doc.org_unit = body.org_unit

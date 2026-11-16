@@ -123,7 +123,7 @@ def test_happy_path(client, as_ana, ana, as_bob, bob, db_session, built, s3):
     doc = db_session.get(Document, uuid.UUID(i))
     assert doc.visibility == "org_unit"
     shares = {(s.principal_kind, s.principal) for s in db_session.scalars(select(DocumentShare))}
-    assert shares == {("user", str(bob)), ("group", "/Chem")}
+    assert shares == set()  # inert unless shared: never stored for org_unit
     d = db_session.get(Draft, doc.id)
     assert d.status == "submitted" and d.submitted_version == 1
     assert client.get(f"/documents/{i}", headers=as_ana).json()["ai_disclosure"] == {
@@ -257,6 +257,18 @@ def test_approve_build_error_keeps_in_review(client, as_ana, ana, admin, db_sess
     )
     assert db_session.get(Draft, uuid.UUID(i)).status == "in_review"
     assert db_session.scalars(select(DocumentVersion)).all() == []
+
+
+def test_coauthor_shares_do_not_revive_on_patch_to_shared(
+    client, as_ana, ana, as_bob, bob, db_session, built, s3
+):
+    i = mk(client, as_ana)
+    client.put(f"/drafts/{i}/coauthors", headers=as_ana, json={"users": [str(bob)]})
+    reports(db_session, i, ana)
+    assert sub(client, as_ana, i, "everyone").status_code == 200
+    assert client.patch(f"/documents/{i}", headers=as_ana, json={"visibility": "shared"}).status_code == 200
+    assert db_session.scalars(select(DocumentShare)).all() == []
+    assert client.get(f"/documents/{i}", headers=as_bob).status_code == 404
 
 
 def test_coauthor_group_forms_grant_access(client, as_ana, cara, db_session):

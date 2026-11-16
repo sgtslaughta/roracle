@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
 from roracle.access import org_unit_error, org_units, readable_documents
@@ -160,7 +160,11 @@ def accept(
                 DocumentVersion.stage.notin_(HIDDEN),
                 readable_documents(p),
                 # per matched version: non-owners may only learn of searchable ones (R16)
-                or_(p.is_admin, Document.owner_id == p.user_id, DocumentVersion.stage == "searchable"),
+                or_(
+                    true() if p.is_admin else false(),
+                    Document.owner_id == p.user_id,
+                    DocumentVersion.stage == "searchable",
+                ),
             )
             .limit(1)
         )

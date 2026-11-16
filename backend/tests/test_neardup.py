@@ -303,3 +303,91 @@ def test_new_version_repoints_superseded_votes(db_session, client, as_ana):
     assert (moved.superseded_by, moved.reason) == (md.id, "superseded")
     selfref = db_session.scalar(select(Vote).where(Vote.document_id == md.id))
     assert (selfref.superseded_by, selfref.reason) == (None, None)
+
+
+def _with_v2(db_session, client, as_ana):
+    """Ana's doc X (searchable v1 + v2 in review, near-dup of Y)."""
+    md, match, xd, v2 = _setup(db_session, client, as_ana)
+    v2.version, v2.is_latest = 2, False
+    db_session.add(Blob(sha256="c" * 64, size=1))
+    db_session.flush()
+    v1 = DocumentVersion(
+        document_id=xd.id, version=1, blob_sha256="c" * 64, filename="f", content_type="x", size=1,
+        stage="searchable", is_latest=True,
+    )  # fmt: skip
+    db_session.add(v1)
+    db_session.flush()
+    return md, match, xd, v1, v2
+
+
+def test_cancel_later_version_keeps_doc_and_v1(db_session, client, as_ana):
+    _, _, xd, v1, v2 = _with_v2(db_session, client, as_ana)
+    assert _post(client, as_ana, xd, v2, "cancel").status_code == 200
+    db_session.expire_all()
+    assert v2.stage == "cancelled" and v1.stage == "searchable"
+    assert xd.deleted_at is None
+    assert client.get(f"/documents/{xd.id}", headers=as_ana).status_code == 200
+
+
+def test_new_version_of_later_version_moves_only_that_version(db_session, client, as_ana):
+    md, _, xd, v1, v2 = _with_v2(db_session, client, as_ana)
+    r = _post(client, as_ana, xd, v2, "new_version")
+    assert r.status_code == 200, r.text
+    db_session.expire_all()
+    assert (v2.document_id, v2.version) == (md.id, 2)
+    assert v1.document_id == xd.id and db_session.get(Document, xd.id) is not None
+
+
+def _draft(db_session, xd, owner_id):
+    from roracle.models_writing import Draft, DraftVersion
+
+    db_session.add(Draft(document_id=xd.id, status="submitted"))
+    db_session.flush()
+    db_session.add(DraftVersion(document_id=xd.id, version=1, content="# hi", author_id=owner_id))
+    db_session.flush()
+
+
+def test_new_version_on_published_draft_is_409_and_keeps_draft(db_session, client, as_ana):
+    from roracle.models_writing import Draft
+
+    _, _, ud, mine = _setup(db_session, client, as_ana)
+    _draft(db_session, ud, ud.owner_id)
+    r = _post(client, as_ana, ud, mine, "new_version")
+    assert r.status_code == 409, r.text
+    db_session.expire_all()
+    assert db_session.get(Draft, ud.id) is not None and mine.document_id == ud.id
+    assert mine.stage == "review"
+
+
+def test_cancel_on_published_draft_keeps_doc(db_session, client, as_ana):
+    _, _, ud, mine = _setup(db_session, client, as_ana)
+    _draft(db_session, ud, ud.owner_id)
+    assert _post(client, as_ana, ud, mine, "cancel").status_code == 200
+    db_session.expire_all()
+    assert mine.stage == "cancelled" and ud.deleted_at is None
+
+
+def test_new_version_keeps_owner_notes(db_session, client, as_ana):
+    from roracle.models import Annotation
+
+    md, _, ud, mine = _setup(db_session, client, as_ana)
+    r = client.post(f"/documents/{ud.id}/annotations", headers=as_ana, json={"body": "my note"})
+    assert r.status_code == 201, r.text
+    other = db_session.get(Document, md.id)
+    db_session.add(
+        Annotation(
+            document_id=md.id, version_id=match_id(db_session, md), author_id=ud.owner_id, kind="relation",
+            body="r", relation_type="extends", target_document_id=ud.id, visibility="private",
+        )
+    )  # fmt: skip
+    db_session.flush()
+    assert other is not None
+    assert _post(client, as_ana, ud, mine, "new_version").status_code == 200
+    db_session.expire_all()
+    notes = db_session.scalars(select(Annotation)).all()
+    assert len(notes) == 2 and {n.document_id for n in notes} == {md.id}
+    assert all(n.target_document_id in (None, md.id) for n in notes)
+
+
+def match_id(db, doc):
+    return db.scalar(select(DocumentVersion.id).where(DocumentVersion.document_id == doc.id))

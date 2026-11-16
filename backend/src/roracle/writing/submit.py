@@ -143,8 +143,13 @@ def publish(
         vis = "shared" if users or groups else "private"
     doc.visibility = vis
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
-    session.add_all(DocumentShare(document_id=doc.id, principal_kind="user", principal=u) for u in users)
-    session.add_all(DocumentShare(document_id=doc.id, principal_kind="group", principal=g) for g in groups)
+    if (
+        vis == "shared"
+    ):  # shares are inert otherwise; never store them (a later PATCH->shared must not revive)
+        session.add_all(DocumentShare(document_id=doc.id, principal_kind="user", principal=u) for u in users)
+        session.add_all(
+            DocumentShare(document_id=doc.id, principal_kind="group", principal=g) for g in groups
+        )
     d.status, d.submitted_version = "submitted", target["version"]
     d.target, d.ai_disclosure = target, target["ai_disclosure"]
     d.updated_at = datetime.now(UTC)
