@@ -6,6 +6,7 @@ import { buildPdf, docById, docling } from "./pdf";
 import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { adminHandlers } from "./admin";
+import { adminOpsHandlers } from "./adminOps";
 import { chatHandlers } from "./chat";
 import { agentHandlers } from "./agents";
 import { noteHandlers, withCommunityNotes } from "./notes";
@@ -111,6 +112,7 @@ export const handlers = [
     return HttpResponse.json({ version_id: u.version_id, document_id: u.document_id, stage: u.stage });
   }),
   ...adminHandlers,
+  ...adminOpsHandlers,
   ...chatHandlers,
   ...agentHandlers,
   ...noteHandlers,

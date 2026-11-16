@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Command, Moon, Search, Settings, Sun, SunMoon } from "lucide-react";
+import { Command, Moon, Search, Settings, Shield, Sun, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { cycleTheme, useTheme } from "@/lib/theme";
@@ -43,7 +43,7 @@ export function TopBar() {
   );
 }
 
-/** Avatar popover: a small nav list (links, not an ARIA menu). Admin entry arrives with the admin section (its route doesn't exist yet). */
+/** Avatar popover: a small nav list (links, not an ARIA menu). Admin entry only for admins. */
 function AccountMenu() {
   const { data: me } = useMe();
   const [open, setOpen] = useState(false);
@@ -58,6 +58,7 @@ function AccountMenu() {
         <nav aria-label="Account">
           <ul className="menu-list">
             <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>
+            {me?.is_admin && <li><Link to="/admin" className="menu-link" onClick={() => setOpen(false)}><Shield aria-hidden />Admin</Link></li>}
           </ul>
         </nav>
       </PopoverContent>

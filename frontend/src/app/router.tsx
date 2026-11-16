@@ -11,11 +11,28 @@ import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
 import { SettingsRoute } from "@/routes/SettingsRoute";
 import { HandoffRoute } from "@/routes/HandoffRoute";
+import { ConnectorDetailRoute } from "@/routes/AdminRoute";
+import { AdminLayout } from "@/features/admin/AdminLayout";
+import { ConnectorsPage } from "@/features/admin/ConnectorsPage";
+import { JobsPage } from "@/features/admin/JobsPage";
+import { ReviewPage } from "@/features/admin/ReviewPage";
+import { NeedsTitlePage } from "@/features/admin/NeedsTitlePage";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
 const rootRoute = createRootRoute({ component: Shell });
 const r = <P extends string>(path: P, component: () => React.ReactNode) =>
   createRoute({ getParentRoute: () => rootRoute, path, component });
+
+const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: "/admin", component: AdminLayout });
+const a = (path: string, component: () => React.ReactNode) => createRoute({ getParentRoute: () => adminRoute, path, component });
+const adminTree = adminRoute.addChildren([
+  createRoute({ getParentRoute: () => adminRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/admin/connectors" }); } }),
+  a("connectors", ConnectorsPage),
+  a("connectors/$id", ConnectorDetailRoute),
+  a("jobs", JobsPage),
+  a("review", ReviewPage),
+  a("needs-title", NeedsTitlePage),
+]);
 
 const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/library" }); } }),
@@ -30,6 +47,7 @@ const routeTree = rootRoute.addChildren([
   r("/d/$docId/v/$version", DocRoute),
   r("/settings", SettingsRoute),
   r("/h/$code", HandoffRoute),
+  adminTree,
 ]);
 
 export function createAppRouter(initialEntries?: string[]) {

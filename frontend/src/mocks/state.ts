@@ -6,6 +6,7 @@ import type { MockHandoff } from "./agents";
 import type { Evidence, Note } from "@/api/notes";
 import type { Proposal } from "@/features/proposals/api";
 import type { AppNotification } from "@/features/notifications/describe";
+import type { OpsState } from "./adminOps";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
@@ -30,6 +31,8 @@ export interface MockState {
   /** mocks/proposals.ts and mocks/notifications.ts; seeded lazily there */
   proposals: Proposal[] | null;
   notifications: AppNotification[] | null;
+  /** mocks/adminOps.ts; seeded lazily there */
+  ops: OpsState | null;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -51,6 +54,7 @@ const fresh = (): MockState => ({
   evidence: null,
   proposals: null,
   notifications: null,
+  ops: null,
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

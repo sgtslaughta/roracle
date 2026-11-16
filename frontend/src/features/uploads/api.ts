@@ -41,7 +41,7 @@ export function useNearDup() {
   return useMutation({
     mutationFn: ({ documentId, versionId, action }: { documentId: string; versionId: string; action: NearDupAction }) =>
       apiFetch<NearDupResult>(`/documents/${seg(documentId)}/versions/${seg(versionId)}/near-dup`, { method: "POST", json: { action } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["uploads"] }),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["uploads"] }), qc.invalidateQueries({ queryKey: ["admin", "review"] })]),
   });
 }
 

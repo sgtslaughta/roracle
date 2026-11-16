@@ -44,6 +44,8 @@ group("describe", () => {
     expect(describe("upload.searchable", { document_id: DOCS[0].id, title: "T" })).toEqual({ text: "“T” is ready to search.", to: `/d/${DOCS[0].id}` });
     expect(describe("upload.searchable", { document_id: "../admin", filename: "x.pdf" }).to).toBe("/uploads");
     expect(describe("ops.connector_run", { name: "Share", status: "partial" })).toEqual({ text: "Connector “Share” finished: partial.", to: "/admin/connectors" });
+    expect(describe("ops.connector_run", { name: "Share", connector_id: DOCS[0].id }).to).toBe(`/admin/connectors/${DOCS[0].id}`);
+    expect(describe("ops.connector_run", { name: "Share", connector_id: "../x" }).to).toBe("/admin/connectors");
     expect(describe("upload.failed", null).text).toBe("Your upload couldn't be processed.");
   });
 });
