@@ -1,7 +1,7 @@
 # Sourced by the nginx entrypoint before envsubst. Validates input: values land in nginx config.
 ror_fail() { echo "ror-web: $1" >&2; exit 1; }
 
-: "${ROR_OIDC_AUTHORITY:?ror-web: ROR_OIDC_AUTHORITY is required}"
+[ -n "${ROR_OIDC_AUTHORITY:-}" ] || ror_fail "ROR_OIDC_AUTHORITY is required"
 export ROR_OIDC_CLIENT_ID="${ROR_OIDC_CLIENT_ID:-roracle-web}"
 export ROR_OIDC_ORIGIN="${ROR_OIDC_ORIGIN:-$(printf '%s' "$ROR_OIDC_AUTHORITY" | sed -nE 's#^(https?://[^/]+).*#\1#p')}"
 
