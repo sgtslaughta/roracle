@@ -9,7 +9,7 @@ helm upgrade -i otel open-telemetry/opentelemetry-collector -n observability -f 
 helm upgrade -i roracle ../helm/roracle ... --set observability.grafanaDashboard.enabled=true --set postgres.monitoring.enabled=true
 ```
 
-Create the Loki buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) in MinIO first (see `minio.buckets` in the roracle chart or `mc mb`).
+Create the Loki buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) in MinIO first with `mc mb` (the roracle chart only creates its own buckets).
 
 CI: empty `KUBECONFORM_SCHEMA_LOCATION` validates against online GitHub schemas; air-gapped runners must set it to a mirror including CRDs.
 
