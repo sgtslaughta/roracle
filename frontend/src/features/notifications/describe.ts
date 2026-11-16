@@ -1,0 +1,33 @@
+import { isDocId } from "@/lib/ids";
+
+/** P10 notification kinds and their payloads (untrusted: read defensively, render as plain text). */
+export interface AppNotification { id: number; kind: string; payload: Record<string, unknown>; created_at: string; read_at: string | null }
+export interface Described { text: string; to?: string }
+
+const MAX = 120;
+/** A payload string, trimmed to one line; anything else is "". */
+const str = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v).replace(/\s+/g, " ").trim().slice(0, MAX) : "");
+const q = (v: unknown, fallback: string) => (str(v) ? `“${str(v)}”` : fallback);
+/** Internal links only, built from a validated id, never from a payload URL. */
+const docLink = (id: unknown) => (isDocId(id) ? `/d/${id}` : undefined);
+
+/** One plain sentence and an optional in-app link for a notification. Unknown kinds get a generic sentence. */
+export function describe(kind: string, payload: Record<string, unknown> | null | undefined): Described {
+  const p = payload && typeof payload === "object" ? payload : {};
+  switch (kind) {
+    case "upload.searchable":
+      return { text: `${q(p.title || p.filename, "Your upload")} is ready to search.`, to: docLink(p.document_id) ?? "/uploads" };
+    case "upload.near_dup":
+      return { text: `${q(p.filename, "Your upload")} looks like ${q(p.match_title, "a document already in the library")}. Choose whether it's a new version.`, to: "/uploads" };
+    case "upload.failed":
+      return { text: `${q(p.filename, "Your upload")} couldn't be processed${str(p.error) ? `: ${str(p.error)}` : ""}.`, to: "/uploads" };
+    case "ops.job_failed":
+      return { text: `A ${str(p.kind) || "background"} job failed${str(p.error) ? `: ${str(p.error)}` : ""}.`, to: "/admin/jobs" };
+    case "ops.connector_run": {
+      const s = str(p.status);
+      return { text: `${str(p.name) ? `Connector ${q(p.name, "")}` : "A connector run"} finished${s ? `: ${s}` : ""}.`, to: "/admin/connectors" };
+    }
+    default:
+      return { text: "Something changed." };
+  }
+}

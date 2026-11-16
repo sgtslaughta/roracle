@@ -1,4 +1,4 @@
-import { Inbox, PenLine } from "lucide-react";
+import { PenLine } from "lucide-react";
 import type { ReactNode } from "react";
 
 function Placeholder({ title, sub, icon, children }: { title: string; sub: string; icon: ReactNode; children: string }) {
@@ -17,12 +17,6 @@ function Placeholder({ title, sub, icon, children }: { title: string; sub: strin
     </section>
   );
 }
-
-export const ProposalsRoute = () => (
-  <Placeholder title="Agent proposals" sub="Notes and evidence your agents want to add. Nothing is published until you approve it." icon={<Inbox />}>
-    No proposals waiting. When an agent suggests a note or attaches evidence, it shows up here for you to approve.
-  </Placeholder>
-);
 
 export const DraftsRoute = () => (
   <Placeholder title="Drafts" sub="Papers you're writing with an agent. Each draft is checked against its writing profile before you can submit it." icon={<PenLine />}>

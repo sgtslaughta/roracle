@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Bell, Command, Moon, Search, Settings, Sun, SunMoon } from "lucide-react";
+import { Command, Moon, Search, Settings, Sun, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { cycleTheme, useTheme } from "@/lib/theme";
@@ -7,6 +7,7 @@ import { openPalette } from "@/features/palette/usePalette";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMe } from "@/features/library/useMe";
 import { GlobalSearch } from "./GlobalSearch";
+import { Bell } from "@/features/notifications/Bell";
 
 const THEME_ICON = { system: SunMoon, light: Sun, dark: Moon } as const;
 
@@ -35,9 +36,7 @@ export function TopBar() {
         >
           <ThemeIcon aria-hidden />
         </button>
-        <button className="icon-btn" aria-label="Notifications">
-          <Bell aria-hidden />
-        </button>
+        <Bell />
         <AccountMenu />
       </div>
     </header>

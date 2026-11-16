@@ -25,7 +25,7 @@ function base(id: string, docIdx: number, author: Note["author"], kind: Note["ki
 }
 
 /** Anchor on the mock PDF's real chunk box, so the highlight lines up with the drawn paragraph. */
-function anchorOn(docIdx: number, page: number, para: number) {
+export function anchorOn(docIdx: number, page: number, para: number) {
   const d = DOCS[docIdx];
   const c = docling(d).chunks.find((x) => x.chunk_id.endsWith(`:${page - 1}:${para}`) && x.page_no === page)!;
   return { quote: d.pages[page - 1][para].slice(0, 1000), prefix: "", suffix: "", page, bbox: anchorBbox(c.bbox) };
@@ -57,6 +57,17 @@ function seed(): Note[] {
 }
 
 const notes = () => (state.notes ??= seed());
+
+/** Create a top-level note by the mock user (also used when an agent proposal is approved). */
+export function addNote(docId: string, b: NoteIn, extra: Partial<Note> = {}): Note {
+  const vis = b.visibility ?? "everyone";
+  const n = base(`n-${++seq}`, DOCS.findIndex((d) => d.id === docId), ME, b.kind, b.body, {
+    anchor: b.anchor ? { prefix: "", suffix: "", page: null, bbox: null, ...b.anchor } : null, relation: b.relation ?? null,
+    visibility: vis, shares: vis === "shared" ? b.shares ?? [] : [], created_at: now(), updated_at: now(), ...extra,
+  });
+  notes().push(n);
+  return out(n);
+}
 const find = (id: string) => notes().find((n) => n.id === id);
 /** Readable to the mock user: not removed; hidden only for its author, the document owner or an admin. */
 const readable = (n: Note) => n.status !== "removed" && (n.status === "visible" || n.author.id === ME.id || state.admin || ownerOf(docById(n.document_id)!) === ME.id);
@@ -82,13 +93,7 @@ export const noteHandlers = [
     if (!bodyOk(b.body)) return err(422, "body must be 1-10000 characters");
     if ((b.kind === "relation") !== !!b.relation) return err(422, "relation is required for, and only for, kind 'relation'");
     if (b.relation?.target_document_id === d.id) return err(422, "relation target must differ from the document");
-    const vis = b.visibility ?? "everyone";
-    const n = base(`n-${++seq}`, DOCS.indexOf(d), ME, b.kind, b.body, {
-      anchor: b.anchor ? { prefix: "", suffix: "", page: null, bbox: null, ...b.anchor } : null, relation: b.relation ?? null,
-      visibility: vis, shares: vis === "shared" ? b.shares ?? [] : [], created_at: now(), updated_at: now(),
-    });
-    notes().push(n);
-    return HttpResponse.json(out(n), { status: 201 });
+    return HttpResponse.json(addNote(d.id, b), { status: 201 });
   }),
   http.get(url("/annotations/:id"), ({ params }) => {
     const n = getNote(String(params.id));

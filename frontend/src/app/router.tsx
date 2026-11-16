@@ -3,7 +3,9 @@ import {
 } from "@tanstack/react-router";
 import { Shell } from "./Shell";
 import { LibraryRoute } from "@/routes/LibraryRoute";
-import { DraftsRoute, ProposalsRoute } from "@/routes/placeholders";
+import { DraftsRoute } from "@/routes/placeholders";
+import { ProposalsPage } from "@/features/proposals/ProposalsPage";
+import { NotificationsPage } from "@/features/notifications/NotificationsPage";
 import { AskRoute } from "@/routes/AskRoute";
 import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
@@ -21,7 +23,8 @@ const routeTree = rootRoute.addChildren([
   r("/ask", AskRoute),
   r("/ask/$chatId", AskRoute),
   r("/uploads", UploadsRoute),
-  r("/proposals", ProposalsRoute),
+  r("/proposals", ProposalsPage),
+  r("/notifications", NotificationsPage),
   r("/drafts", DraftsRoute),
   r("/d/$docId", DocRoute),
   r("/d/$docId/v/$version", DocRoute),

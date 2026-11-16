@@ -4,6 +4,8 @@ import { seedUploads, type MockUpload } from "./uploads";
 import type { AccessToken } from "@/api/agents";
 import type { MockHandoff } from "./agents";
 import type { Evidence, Note } from "@/api/notes";
+import type { Proposal } from "@/features/proposals/api";
+import type { AppNotification } from "@/features/notifications/describe";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
@@ -25,6 +27,9 @@ export interface MockState {
   notes: Note[] | null;
   /** mocks/notes.ts; `content` is the file body served by /evidence/{id}/file, `ready` when a pending scan finishes */
   evidence: (Evidence & { content?: string; ready?: number })[] | null;
+  /** mocks/proposals.ts and mocks/notifications.ts; seeded lazily there */
+  proposals: Proposal[] | null;
+  notifications: AppNotification[] | null;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -44,6 +49,8 @@ const fresh = (): MockState => ({
   handoffs: {},
   notes: null,
   evidence: null,
+  proposals: null,
+  notifications: null,
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

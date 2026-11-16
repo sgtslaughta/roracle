@@ -10,6 +10,8 @@ import { chatHandlers } from "./chat";
 import { agentHandlers } from "./agents";
 import { noteHandlers, withCommunityNotes } from "./notes";
 import { advance, newUpload } from "./uploads";
+import { proposalHandlers } from "./proposals";
+import { notificationHandlers } from "./notifications";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const notFound = () => HttpResponse.json({ detail: "not found" }, { status: 404 });
@@ -112,4 +114,6 @@ export const handlers = [
   ...chatHandlers,
   ...agentHandlers,
   ...noteHandlers,
+  ...proposalHandlers,
+  ...notificationHandlers,
 ];
