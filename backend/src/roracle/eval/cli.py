@@ -1,4 +1,4 @@
-"""`roracle eval run`: exit 0 ok, 1 ACL violation, 2 unusable set (R5 / bad input)."""
+"""`roracle eval run|compare|ci`: exit 0 ok, 1 ACL violation or run error, 2 unusable input (R5 / bad input)."""
 
 import json
 import sys
@@ -25,6 +25,21 @@ def add_parser(sub) -> None:
     r.add_argument("--set-override", action="append", default=[], metavar="KEY=VAL")
     r.add_argument("--index", default="", help="read this ES index instead of the active one")
     r.add_argument("--json", dest="json_out", metavar="OUT")
+    r.add_argument("--judge", action="store_true", help="answer and judge a sample of pairs (chat path)")
+    c = ev.add_parser("compare", help="A/B two configurations on one set and write a gate report")
+    c.add_argument("--set", dest="set_name", required=True)
+    c.add_argument("--path", choices=["chat", "search"], default="chat")
+    c.add_argument("--baseline", default="", metavar="K=V,...")
+    c.add_argument("--candidate", default="", metavar="K=V,...")
+    c.add_argument("--candidate-index", default="", help="read this ES index for the candidate run")
+    c.add_argument("--scope", choices=["all", "fact", "multihop", "global"], default="all")
+    c.add_argument("--latency-budget-ms", type=int, default=None)
+    c.add_argument("--judge", action="store_true")
+    c.add_argument("--out", required=True, metavar="docs/eval/FILE.md")
+    ci = ev.add_parser("ci", help="seed the synthetic fixture and fail on ACL violations or low metrics")
+    ci.add_argument("--fixture", required=True)
+    ci.add_argument("--floors", required=True)
+    ci.add_argument("--out", required=True)
 
 
 def parse_overrides(items: list[str], index: str = "") -> dict:
@@ -45,6 +60,25 @@ def parse_overrides(items: list[str], index: str = "") -> dict:
     return out
 
 
+def validate_index(es, settings, name: str) -> None:
+    """`--index`/`--candidate-index` must be one existing index built with the effective embedding model."""
+    if not es.indices.exists(index=name):
+        raise ValueError(f"index {name!r} does not exist")
+    got = es.indices.get_mapping(index=name)
+    if len(got) != 1:
+        raise ValueError(f"{name!r} must be a single index, not an alias over {len(got)}")
+    dims = next(iter(got.values()))["mappings"].get("properties", {}).get("embedding", {}).get("dims")
+    if dims != settings.embed_dims:
+        raise ValueError(
+            f"index {name!r} has {dims} dims, the embedding model {settings.embed_model} has {settings.embed_dims}"
+        )
+    hits = es.search(index=name, size=1, source=["embedding_model"], query={"match_all": {}})["hits"]["hits"]
+    if hits and hits[0]["_source"].get("embedding_model") != settings.embed_model:
+        raise ValueError(
+            f"index {name!r} was built with {hits[0]['_source'].get('embedding_model')}, not {settings.embed_model}"
+        )
+
+
 def table(agg: dict) -> str:
     o = agg["overall"]
     head = (
@@ -58,6 +92,14 @@ def table(agg: dict) -> str:
 
 def run(args) -> int:
     """0 ok; 1 ACL violation or run error; 2 bad input / unusable set (R5)."""
+    if args.eval_cmd == "ci":
+        from roracle.eval import ci
+
+        return ci.run(args)
+    if args.eval_cmd == "compare":
+        from roracle.eval import compare
+
+        return compare.run(args)
     if args.fixture:
         print(
             "error: --fixture runs are not implemented yet (`eval ci` seeds and runs fixtures)",
@@ -69,6 +111,8 @@ def run(args) -> int:
     with sf() as session:
         try:
             overrides = parse_overrides(args.set_override, args.index)
+            if args.judge and args.path != "chat":
+                raise ValueError("--judge needs --path chat")
             db_set = store.set_by_name(session, args.set_name)
             if db_set is None:
                 raise ValueError(f"no eval set named {args.set_name!r}")
@@ -78,10 +122,17 @@ def run(args) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 2
         settings = runtime.effective(session, settings)  # incl. the active (cutover) embedding model/index
+        es = clients.es(settings)
+        try:
+            if args.index:
+                validate_index(es, settings, args.index)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
         try:
             run_id = runner.run_set(
-                session, clients.es(settings), clients.llm(settings), settings, gs,
-                path=args.path, trigger="cli", label=args.label, overrides=overrides,
+                session, es, clients.llm(settings), settings, gs, path=args.path, trigger="cli",
+                label=args.label, overrides=overrides, judge=args.judge,
             )  # fmt: skip
         except Exception as e:  # noqa: BLE001  (the failed run row is already stored)
             print(f"run failed: {type(e).__name__}: {e}", file=sys.stderr)

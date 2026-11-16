@@ -76,8 +76,8 @@ def test_empty_gold_rejected_and_empty_pairs_counted():
 def test_one_passage_credits_every_matching_gold():
     s = score_pair([h("a", "alpha and beta"), h("b", "beta")], [A, GoldItem(doc="a", quote="beta", grade=3)])
     assert s["p_recall@5"] == 1.0 and s["p_mrr"] == 1.0
-    assert s["p_ndcg@10"] <= 1.0
+    assert s["p_ndcg@10"] == 1.0
     s = score_pair(
         [h("a", "alpha and beta")], [GoldItem(doc="a", grade=3), GoldItem(doc="a", page=1, grade=3)]
     )
-    assert s["p_recall@5"] == 1.0 and 0.0 < s["p_ndcg@10"] <= 1.0
+    assert s["p_recall@5"] == 1.0 and s["p_ndcg@10"] == 1.0

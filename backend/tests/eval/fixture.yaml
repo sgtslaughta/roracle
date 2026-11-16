@@ -1,29 +1,668 @@
-# Tiny synthetic fixture (format reference + loader tests). The CI-sized fixture arrives with `eval ci`.
+# Synthetic eval fixture for `roracle eval ci` (generated once; hand-edit freely).
+# 32 docs, 4 principals, every visibility, one exclude_llm (d05) and one block_agents (d04) label, 40 queries.
+name: evalci
 principals:
-  alice: {groups: [/eng]}
+  alice:
+    groups: [/eng]
+  bob:
+    groups: [/sales]
+  carol:
+    groups: []
   root: {admin: true}
 labels:
-  - {name: Secret, exclude_llm: true}
-  - {name: Internal, block_agents: true}
+- {name: Secret, exclude_llm: true}
+- {name: Internal, block_agents: true}
 documents:
-  - key: open
-    title: Open paper
-    owner: root
-    visibility: everyone
-    chunks:
-      - {text: "Spectral gaps bound mixing times.", headings: [Intro], pages: [1]}
-  - key: private
-    title: Private memo
-    owner: root
-    visibility: private
-    chunks:
-      - {text: "Budget figures for the spectral project.", pages: [2]}
+- key: d00
+  title: Perovskite report 0
+  owner: root
+  visibility: everyone
+  chunks:
+  - text: Perovskite characterisation. The perovskite sample was measured at 200 kelvin and reported a tensile anomaly of 3 percent. The measurements were repeated three times and averaged.
+    headings: [Perovskite study]
+    pages: [1]
+  - text: Follow-up work on perovskite used calibration protocols. The perovskite calibration review confirmed the tensile result and recommended further tests.
+    headings: [Perovskite follow-up]
+    pages: [2]
+- key: d01
+  title: Tardigrade report 1
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Tardigrade characterisation. The tardigrade sample was measured at 201 kelvin and reported a birefringence anomaly of 4 percent. The measurements were repeated three times and averaged.
+    headings: [Tardigrade study]
+    pages: [1]
+  - text: Follow-up work on tardigrade used shielding protocols. The tardigrade shielding review confirmed the birefringence result and recommended further tests.
+    headings: [Tardigrade follow-up]
+    pages: [2]
+- key: d02
+  title: Magnetar report 2
+  owner: bob
+  visibility: everyone
+  chunks:
+  - text: Magnetar characterisation. The magnetar sample was measured at 202 kelvin and reported a coercivity anomaly of 5 percent. The measurements were repeated three times and averaged.
+    headings: [Magnetar study]
+    pages: [1]
+  - text: Follow-up work on magnetar used annealing protocols. The magnetar annealing review confirmed the coercivity result and recommended further tests.
+    headings: [Magnetar follow-up]
+    pages: [2]
+- key: d03
+  title: Stromatolite report 3
+  owner: carol
+  visibility: everyone
+  chunks:
+  - text: Stromatolite characterisation. The stromatolite sample was measured at 203 kelvin and reported a luminosity anomaly of 6 percent. The measurements were repeated three times and averaged.
+    headings: [Stromatolite study]
+    pages: [1]
+  - text: Follow-up work on stromatolite used sampling protocols. The stromatolite sampling review confirmed the luminosity result and recommended further tests.
+    headings: [Stromatolite follow-up]
+    pages: [2]
+- key: d04
+  title: Halophile report 4
+  owner: root
+  visibility: everyone
+  label: Internal
+  chunks:
+  - text: Halophile characterisation. The halophile sample was measured at 204 kelvin and reported a viscosity anomaly of 7 percent. The measurements were repeated three times and averaged.
+    headings: [Halophile study]
+    pages: [1]
+  - text: Follow-up work on halophile used titration protocols. The halophile titration review confirmed the viscosity result and recommended further tests.
+    headings: [Halophile follow-up]
+    pages: [2]
+- key: d05
+  title: Quasicrystal report 5
+  owner: root
+  visibility: everyone
+  label: Secret
+  chunks:
+  - text: Quasicrystal characterisation. The quasicrystal sample was measured at 205 kelvin and reported a porosity anomaly of 8 percent. The measurements were repeated three times and averaged.
+    headings: [Quasicrystal study]
+    pages: [1]
+  - text: Follow-up work on quasicrystal used drift protocols. The quasicrystal drift review confirmed the porosity result and recommended further tests.
+    headings: [Quasicrystal follow-up]
+    pages: [2]
+- key: d06
+  title: Ferrofluid report 6
+  org_unit: /eng
+  owner: alice
+  visibility: org_unit
+  chunks:
+  - text: Ferrofluid characterisation. The ferrofluid sample was measured at 206 kelvin and reported a mobility anomaly of 9 percent. The measurements were repeated three times and averaged.
+    headings: [Ferrofluid study]
+    pages: [1]
+  - text: Follow-up work on ferrofluid used triangulation protocols. The ferrofluid triangulation review confirmed the mobility result and recommended further tests.
+    headings: [Ferrofluid follow-up]
+    pages: [2]
+- key: d07
+  title: Kelvinon report 7
+  org_unit: /eng
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Kelvinon characterisation. The kelvinon sample was measured at 207 kelvin and reported a salinity anomaly of 10 percent. The measurements were repeated three times and averaged.
+    headings: [Kelvinon study]
+    pages: [1]
+  - text: Follow-up work on kelvinon used normalisation protocols. The kelvinon normalisation review confirmed the salinity result and recommended further tests.
+    headings: [Kelvinon follow-up]
+    pages: [2]
+- key: d08
+  title: Osmolyte report 8
+  org_unit: /eng
+  owner: alice
+  visibility: org_unit
+  chunks:
+  - text: Osmolyte characterisation. The osmolyte sample was measured at 208 kelvin and reported a turbidity anomaly of 11 percent. The measurements were repeated three times and averaged.
+    headings: [Osmolyte study]
+    pages: [1]
+  - text: Follow-up work on osmolyte used calibration protocols. The osmolyte calibration review confirmed the turbidity result and recommended further tests.
+    headings: [Osmolyte follow-up]
+    pages: [2]
+- key: d09
+  title: Pulsar report 9
+  org_unit: /eng
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Pulsar characterisation. The pulsar sample was measured at 209 kelvin and reported a opacity anomaly of 12 percent. The measurements were repeated three times and averaged.
+    headings: [Pulsar study]
+    pages: [1]
+  - text: Follow-up work on pulsar used shielding protocols. The pulsar shielding review confirmed the opacity result and recommended further tests.
+    headings: [Pulsar follow-up]
+    pages: [2]
+- key: d10
+  title: Cryoprobe report 10
+  org_unit: /eng
+  owner: alice
+  visibility: org_unit
+  chunks:
+  - text: Cryoprobe characterisation. The cryoprobe sample was measured at 210 kelvin and reported a ductility anomaly of 13 percent. The measurements were repeated three times and averaged.
+    headings: [Cryoprobe study]
+    pages: [1]
+  - text: Follow-up work on cryoprobe used annealing protocols. The cryoprobe annealing review confirmed the ductility result and recommended further tests.
+    headings: [Cryoprobe follow-up]
+    pages: [2]
+- key: d11
+  title: Diatomite report 11
+  org_unit: /eng
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Diatomite characterisation. The diatomite sample was measured at 211 kelvin and reported a fluorescence anomaly of 14 percent. The measurements were repeated three times and averaged.
+    headings: [Diatomite study]
+    pages: [1]
+  - text: Follow-up work on diatomite used sampling protocols. The diatomite sampling review confirmed the fluorescence result and recommended further tests.
+    headings: [Diatomite follow-up]
+    pages: [2]
+- key: d12
+  title: Brachiopod report 12
+  org_unit: /sales
+  owner: bob
+  visibility: org_unit
+  chunks:
+  - text: Brachiopod characterisation. The brachiopod sample was measured at 212 kelvin and reported a conductance anomaly of 15 percent. The measurements were repeated three times and averaged.
+    headings: [Brachiopod study]
+    pages: [1]
+  - text: Follow-up work on brachiopod used titration protocols. The brachiopod titration review confirmed the conductance result and recommended further tests.
+    headings: [Brachiopod follow-up]
+    pages: [2]
+- key: d13
+  title: Lithophyte report 13
+  org_unit: /sales
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Lithophyte characterisation. The lithophyte sample was measured at 213 kelvin and reported a remanence anomaly of 16 percent. The measurements were repeated three times and averaged.
+    headings: [Lithophyte study]
+    pages: [1]
+  - text: Follow-up work on lithophyte used drift protocols. The lithophyte drift review confirmed the remanence result and recommended further tests.
+    headings: [Lithophyte follow-up]
+    pages: [2]
+- key: d14
+  title: Spintronic report 14
+  org_unit: /sales
+  owner: bob
+  visibility: org_unit
+  chunks:
+  - text: Spintronic characterisation. The spintronic sample was measured at 214 kelvin and reported a permittivity anomaly of 17 percent. The measurements were repeated three times and averaged.
+    headings: [Spintronic study]
+    pages: [1]
+  - text: Follow-up work on spintronic used triangulation protocols. The spintronic triangulation review confirmed the permittivity result and recommended further tests.
+    headings: [Spintronic follow-up]
+    pages: [2]
+- key: d15
+  title: Zeolite report 15
+  org_unit: /sales
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Zeolite characterisation. The zeolite sample was measured at 215 kelvin and reported a hysteresis anomaly of 18 percent. The measurements were repeated three times and averaged.
+    headings: [Zeolite study]
+    pages: [1]
+  - text: Follow-up work on zeolite used normalisation protocols. The zeolite normalisation review confirmed the hysteresis result and recommended further tests.
+    headings: [Zeolite follow-up]
+    pages: [2]
+- key: d16
+  title: Aerogel report 16
+  org_unit: /sales
+  owner: bob
+  visibility: org_unit
+  chunks:
+  - text: Aerogel characterisation. The aerogel sample was measured at 216 kelvin and reported a elasticity anomaly of 19 percent. The measurements were repeated three times and averaged.
+    headings: [Aerogel study]
+    pages: [1]
+  - text: Follow-up work on aerogel used calibration protocols. The aerogel calibration review confirmed the elasticity result and recommended further tests.
+    headings: [Aerogel follow-up]
+    pages: [2]
+- key: d17
+  title: Xenolith report 17
+  org_unit: /sales
+  owner: root
+  visibility: org_unit
+  chunks:
+  - text: Xenolith characterisation. The xenolith sample was measured at 217 kelvin and reported a reflectance anomaly of 20 percent. The measurements were repeated three times and averaged.
+    headings: [Xenolith study]
+    pages: [1]
+  - text: Follow-up work on xenolith used shielding protocols. The xenolith shielding review confirmed the reflectance result and recommended further tests.
+    headings: [Xenolith follow-up]
+    pages: [2]
+- key: d18
+  title: Plasmonic report 18
+  shares: [bob]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Plasmonic characterisation. The plasmonic sample was measured at 218 kelvin and reported a albedo anomaly of 21 percent. The measurements were repeated three times and averaged.
+    headings: [Plasmonic study]
+    pages: [1]
+  - text: Follow-up work on plasmonic used annealing protocols. The plasmonic annealing review confirmed the albedo result and recommended further tests.
+    headings: [Plasmonic follow-up]
+    pages: [2]
+- key: d19
+  title: Archaeon report 19
+  shares: [carol]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Archaeon characterisation. The archaeon sample was measured at 219 kelvin and reported a capacitance anomaly of 22 percent. The measurements were repeated three times and averaged.
+    headings: [Archaeon study]
+    pages: [1]
+  - text: Follow-up work on archaeon used sampling protocols. The archaeon sampling review confirmed the capacitance result and recommended further tests.
+    headings: [Archaeon follow-up]
+    pages: [2]
+- key: d20
+  title: Bolometer report 20
+  shares: [alice, bob]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Bolometer characterisation. The bolometer sample was measured at 220 kelvin and reported a susceptibility anomaly of 23 percent. The measurements were repeated three times and averaged.
+    headings: [Bolometer study]
+    pages: [1]
+  - text: Follow-up work on bolometer used titration protocols. The bolometer titration review confirmed the susceptibility result and recommended further tests.
+    headings: [Bolometer follow-up]
+    pages: [2]
+- key: d21
+  title: Cenote report 21
+  shares: [carol]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Cenote characterisation. The cenote sample was measured at 221 kelvin and reported a brittleness anomaly of 24 percent. The measurements were repeated three times and averaged.
+    headings: [Cenote study]
+    pages: [1]
+  - text: Follow-up work on cenote used drift protocols. The cenote drift review confirmed the brittleness result and recommended further tests.
+    headings: [Cenote follow-up]
+    pages: [2]
+- key: d22
+  title: Dendrimer report 22
+  shares: [bob, carol]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Dendrimer characterisation. The dendrimer sample was measured at 222 kelvin and reported a absorbance anomaly of 25 percent. The measurements were repeated three times and averaged.
+    headings: [Dendrimer study]
+    pages: [1]
+  - text: Follow-up work on dendrimer used triangulation protocols. The dendrimer triangulation review confirmed the absorbance result and recommended further tests.
+    headings: [Dendrimer follow-up]
+    pages: [2]
+- key: d23
+  title: Exciton report 23
+  shares: [alice]
+  owner: root
+  visibility: shared
+  chunks:
+  - text: Exciton characterisation. The exciton sample was measured at 223 kelvin and reported a resistivity anomaly of 26 percent. The measurements were repeated three times and averaged.
+    headings: [Exciton study]
+    pages: [1]
+  - text: Follow-up work on exciton used normalisation protocols. The exciton normalisation review confirmed the resistivity result and recommended further tests.
+    headings: [Exciton follow-up]
+    pages: [2]
+- key: d24
+  title: Fumarole report 24
+  owner: root
+  visibility: private
+  chunks:
+  - text: Fumarole characterisation. The fumarole sample was measured at 224 kelvin and reported a solubility anomaly of 27 percent. The measurements were repeated three times and averaged.
+    headings: [Fumarole study]
+    pages: [1]
+  - text: Follow-up work on fumarole used calibration protocols. The fumarole calibration review confirmed the solubility result and recommended further tests.
+    headings: [Fumarole follow-up]
+    pages: [2]
+- key: d25
+  title: Geode report 25
+  owner: alice
+  visibility: private
+  chunks:
+  - text: Geode characterisation. The geode sample was measured at 225 kelvin and reported a hardness anomaly of 28 percent. The measurements were repeated three times and averaged.
+    headings: [Geode study]
+    pages: [1]
+  - text: Follow-up work on geode used shielding protocols. The geode shielding review confirmed the hardness result and recommended further tests.
+    headings: [Geode follow-up]
+    pages: [2]
+- key: d26
+  title: Hydrogel report 26
+  owner: bob
+  visibility: private
+  chunks:
+  - text: Hydrogel characterisation. The hydrogel sample was measured at 226 kelvin and reported a tortuosity anomaly of 29 percent. The measurements were repeated three times and averaged.
+    headings: [Hydrogel study]
+    pages: [1]
+  - text: Follow-up work on hydrogel used annealing protocols. The hydrogel annealing review confirmed the tortuosity result and recommended further tests.
+    headings: [Hydrogel follow-up]
+    pages: [2]
+- key: d27
+  title: Ionogel report 27
+  owner: carol
+  visibility: private
+  chunks:
+  - text: Ionogel characterisation. The ionogel sample was measured at 227 kelvin and reported a buoyancy anomaly of 30 percent. The measurements were repeated three times and averaged.
+    headings: [Ionogel study]
+    pages: [1]
+  - text: Follow-up work on ionogel used sampling protocols. The ionogel sampling review confirmed the buoyancy result and recommended further tests.
+    headings: [Ionogel follow-up]
+    pages: [2]
+- key: d28
+  title: Jarosite report 28
+  owner: root
+  visibility: private
+  chunks:
+  - text: Jarosite characterisation. The jarosite sample was measured at 228 kelvin and reported a refractivity anomaly of 31 percent. The measurements were repeated three times and averaged.
+    headings: [Jarosite study]
+    pages: [1]
+  - text: Follow-up work on jarosite used titration protocols. The jarosite titration review confirmed the refractivity result and recommended further tests.
+    headings: [Jarosite follow-up]
+    pages: [2]
+- key: d29
+  title: Kimberlite report 29
+  owner: alice
+  visibility: private
+  chunks:
+  - text: Kimberlite characterisation. The kimberlite sample was measured at 229 kelvin and reported a density anomaly of 32 percent. The measurements were repeated three times and averaged.
+    headings: [Kimberlite study]
+    pages: [1]
+  - text: Follow-up work on kimberlite used drift protocols. The kimberlite drift review confirmed the density result and recommended further tests.
+    headings: [Kimberlite follow-up]
+    pages: [2]
+- key: d30
+  title: Lysimeter report 30
+  owner: bob
+  visibility: private
+  chunks:
+  - text: Lysimeter characterisation. The lysimeter sample was measured at 230 kelvin and reported a attenuation anomaly of 33 percent. The measurements were repeated three times and averaged.
+    headings: [Lysimeter study]
+    pages: [1]
+  - text: Follow-up work on lysimeter used triangulation protocols. The lysimeter triangulation review confirmed the attenuation result and recommended further tests.
+    headings: [Lysimeter follow-up]
+    pages: [2]
+- key: d31
+  title: Mudstone report 31
+  owner: carol
+  visibility: private
+  chunks:
+  - text: Mudstone characterisation. The mudstone sample was measured at 231 kelvin and reported a dispersion anomaly of 34 percent. The measurements were repeated three times and averaged.
+    headings: [Mudstone study]
+    pages: [1]
+  - text: Follow-up work on mudstone used normalisation protocols. The mudstone normalisation review confirmed the dispersion result and recommended further tests.
+    headings: [Mudstone follow-up]
+    pages: [2]
 queries:
-  - key: q1
-    text: What bounds mixing times?
-    kind: fact
-    principals: [alice, root]
-    as_pat: true
-    relevant:
-      - {doc: open, quote: spectral gaps, grade: 3}
-      - {doc: private, page: 2, grade: 1}
+- key: f00
+  text: What anomaly did the ferrofluid study report for mobility?
+  kind: fact
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d06, quote: mobility anomaly, grade: 3}
+- key: f01
+  text: What anomaly did the kelvinon study report for salinity?
+  kind: fact
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d07, quote: salinity anomaly, grade: 3}
+- key: f02
+  text: What anomaly did the osmolyte study report for turbidity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d08, quote: turbidity anomaly, grade: 3}
+- key: f03
+  text: What anomaly did the pulsar study report for opacity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d09, quote: opacity anomaly, grade: 3}
+- key: f04
+  text: What anomaly did the cryoprobe study report for ductility?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d10, quote: ductility anomaly, grade: 3}
+- key: f05
+  text: What anomaly did the diatomite study report for fluorescence?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d11, quote: fluorescence anomaly, grade: 3}
+- key: f06
+  text: What anomaly did the brachiopod study report for conductance?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d12, quote: conductance anomaly, grade: 3}
+- key: f07
+  text: What anomaly did the spintronic study report for permittivity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d14, quote: permittivity anomaly, grade: 3}
+- key: f08
+  text: What anomaly did the zeolite study report for hysteresis?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d15, quote: hysteresis anomaly, grade: 3}
+- key: f09
+  text: What anomaly did the aerogel study report for elasticity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d16, quote: elasticity anomaly, grade: 3}
+- key: f10
+  text: What anomaly did the xenolith study report for reflectance?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d17, quote: reflectance anomaly, grade: 3}
+- key: f11
+  text: What anomaly did the plasmonic study report for albedo?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d18, quote: albedo anomaly, grade: 3}
+- key: f12
+  text: What anomaly did the archaeon study report for capacitance?
+  kind: fact
+  principals: [bob, carol]
+  as_pat: true
+  relevant:
+  - {doc: d19, quote: capacitance anomaly, grade: 3}
+- key: f13
+  text: What anomaly did the bolometer study report for susceptibility?
+  kind: fact
+  principals: [bob, carol]
+  relevant:
+  - {doc: d20, quote: susceptibility anomaly, grade: 3}
+- key: f14
+  text: What anomaly did the cenote study report for brittleness?
+  kind: fact
+  principals: [bob, carol]
+  relevant:
+  - {doc: d21, quote: brittleness anomaly, grade: 3}
+- key: f15
+  text: What anomaly did the dendrimer study report for absorbance?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d22, quote: absorbance anomaly, grade: 3}
+- key: f16
+  text: What anomaly did the exciton study report for resistivity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d23, quote: resistivity anomaly, grade: 3}
+- key: f17
+  text: What anomaly did the fumarole study report for solubility?
+  kind: fact
+  principals: [root, carol]
+  as_pat: true
+  relevant:
+  - {doc: d24, quote: solubility anomaly, grade: 3}
+- key: f18
+  text: What anomaly did the geode study report for hardness?
+  kind: fact
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d25, quote: hardness anomaly, grade: 3}
+- key: f19
+  text: What anomaly did the hydrogel study report for tortuosity?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d26, quote: tortuosity anomaly, grade: 3}
+- key: f20
+  text: What anomaly did the ionogel study report for buoyancy?
+  kind: fact
+  principals: [bob, carol]
+  relevant:
+  - {doc: d27, quote: buoyancy anomaly, grade: 3}
+- key: f21
+  text: What anomaly did the jarosite study report for refractivity?
+  kind: fact
+  principals: [root, carol]
+  relevant:
+  - {doc: d28, quote: refractivity anomaly, grade: 3}
+- key: f22
+  text: What anomaly did the lysimeter study report for attenuation?
+  kind: fact
+  principals: [alice, bob]
+  relevant:
+  - {doc: d30, quote: attenuation anomaly, grade: 3}
+- key: f23
+  text: What anomaly did the mudstone study report for dispersion?
+  kind: fact
+  principals: [bob, carol]
+  relevant:
+  - {doc: d31, quote: dispersion anomaly, grade: 3}
+- key: m0
+  text: How does the halophile viscosity result relate to the osmolyte turbidity result?
+  kind: multihop
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d04, quote: viscosity anomaly, grade: 3}
+  - {doc: d08, quote: turbidity anomaly, grade: 3}
+- key: m1
+  text: How does the quasicrystal porosity result relate to the pulsar opacity result?
+  kind: multihop
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d05, quote: porosity anomaly, grade: 3}
+  - {doc: d09, quote: opacity anomaly, grade: 3}
+- key: m2
+  text: How does the cryoprobe ductility result relate to the bolometer susceptibility result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d10, quote: ductility anomaly, grade: 3}
+  - {doc: d20, quote: susceptibility anomaly, grade: 3}
+- key: m3
+  text: How does the diatomite fluorescence result relate to the dendrimer absorbance result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d11, quote: fluorescence anomaly, grade: 3}
+  - {doc: d22, quote: absorbance anomaly, grade: 3}
+- key: m4
+  text: How does the spintronic permittivity result relate to the cenote brittleness result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d14, quote: permittivity anomaly, grade: 3}
+  - {doc: d21, quote: brittleness anomaly, grade: 3}
+- key: m5
+  text: How does the zeolite hysteresis result relate to the hydrogel tortuosity result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d15, quote: hysteresis anomaly, grade: 3}
+  - {doc: d26, quote: tortuosity anomaly, grade: 3}
+- key: m6
+  text: How does the aerogel elasticity result relate to the ionogel buoyancy result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d16, quote: elasticity anomaly, grade: 3}
+  - {doc: d27, quote: buoyancy anomaly, grade: 3}
+- key: m7
+  text: How does the brachiopod conductance result relate to the plasmonic albedo result?
+  kind: multihop
+  principals: [alice, bob]
+  relevant:
+  - {doc: d12, quote: conductance anomaly, grade: 3}
+  - {doc: d18, quote: albedo anomaly, grade: 3}
+- key: g0
+  text: Give an overview of calibration across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d00, quote: calibration protocols, grade: 2}
+  - {doc: d08, quote: calibration protocols, grade: 2}
+  - {doc: d16, quote: calibration protocols, grade: 2}
+  - {doc: d24, quote: calibration protocols, grade: 2}
+- key: g1
+  text: Give an overview of shielding across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d01, quote: shielding protocols, grade: 2}
+  - {doc: d09, quote: shielding protocols, grade: 2}
+  - {doc: d17, quote: shielding protocols, grade: 2}
+  - {doc: d25, quote: shielding protocols, grade: 2}
+- key: g2
+  text: Give an overview of annealing across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d02, quote: annealing protocols, grade: 2}
+  - {doc: d10, quote: annealing protocols, grade: 2}
+  - {doc: d18, quote: annealing protocols, grade: 2}
+  - {doc: d26, quote: annealing protocols, grade: 2}
+- key: g3
+  text: Give an overview of sampling across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d03, quote: sampling protocols, grade: 2}
+  - {doc: d11, quote: sampling protocols, grade: 2}
+  - {doc: d19, quote: sampling protocols, grade: 2}
+  - {doc: d27, quote: sampling protocols, grade: 2}
+- key: g4
+  text: Give an overview of titration across all the studies.
+  kind: global
+  principals: [alice, bob]
+  as_pat: true
+  relevant:
+  - {doc: d04, quote: titration protocols, grade: 2}
+  - {doc: d12, quote: titration protocols, grade: 2}
+  - {doc: d20, quote: titration protocols, grade: 2}
+  - {doc: d28, quote: titration protocols, grade: 2}
+- key: g5
+  text: Give an overview of drift across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d05, quote: drift protocols, grade: 2}
+  - {doc: d13, quote: drift protocols, grade: 2}
+  - {doc: d21, quote: drift protocols, grade: 2}
+  - {doc: d29, quote: drift protocols, grade: 2}
+- key: g6
+  text: Give an overview of triangulation across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d06, quote: triangulation protocols, grade: 2}
+  - {doc: d14, quote: triangulation protocols, grade: 2}
+  - {doc: d22, quote: triangulation protocols, grade: 2}
+  - {doc: d30, quote: triangulation protocols, grade: 2}
+- key: g7
+  text: Give an overview of normalisation across all the studies.
+  kind: global
+  principals: [alice, bob]
+  relevant:
+  - {doc: d07, quote: normalisation protocols, grade: 2}
+  - {doc: d15, quote: normalisation protocols, grade: 2}
+  - {doc: d23, quote: normalisation protocols, grade: 2}
+  - {doc: d31, quote: normalisation protocols, grade: 2}

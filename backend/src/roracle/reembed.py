@@ -29,6 +29,7 @@ from roracle.config import Settings
 from roracle.ingest.embed import doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
 from roracle.models import DocumentVersion, Job
+from roracle.models_eval import EvalSet
 from roracle.queue import enqueue
 from roracle.search_index import MUTATE_ALIAS
 
@@ -292,6 +293,16 @@ def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> Non
             ]
         )
     enqueue(session, "reconcile_tags", {})  # converge ACL/tags of every document from Postgres
+    ref = session.scalar(select(EvalSet.id).where(EvalSet.is_reference.is_(True)))
+    if (
+        settings.eval_on_reindex and ref is not None
+    ):  # does the new model still retrieve well? (after catch-up)
+        enqueue(
+            session,
+            "eval_run",
+            {"set_id": str(ref), "trigger": "reindex", "judge": True},
+            run_after_s=CATCHUP_DELAY_S,
+        )
     enqueue(
         session,
         "reembed",

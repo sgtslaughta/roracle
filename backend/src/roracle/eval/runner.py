@@ -4,6 +4,7 @@ Every hit is re-checked against Postgres independently of the retrieval code; a 
 invisible document is an ACL leak and fails the run.
 """
 
+import hashlib
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -17,16 +18,19 @@ from roracle import runtime
 from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import rank_for_search
 from roracle.auth import Principal
-from roracle.chat.retrieve import rank_for_chat
+from roracle.chat.retrieve import MAX_K, MIN_K, rank_for_chat
 from roracle.config import Settings
+from roracle.eval import judge as judge_mod
 from roracle.eval import metrics as m
 from roracle.eval import store
 from roracle.eval.gold import GoldSet, resolve_principals
+from roracle.labels.textgate import gated_docs
 from roracle.models import Document
 from roracle.models_eval import EvalSet
 from roracle.retrieval import Passage
 
 Rank = Callable[[Principal, str, list[Passage]], list[Passage]]  # (principal, query, raw out-param) -> hits
+JudgeFn = Callable[[Principal, str, list[Passage]], dict]  # (principal, query, chat passages) -> judge dict
 
 
 def visible_ids(session: Session, p: Principal, doc_ids: set[str], path: str) -> set[str]:
@@ -50,7 +54,11 @@ def default_rank(session: Session, es, llm, settings: Settings, path: str) -> Ra
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
-        return rank_for_search(session, es, llm, settings, p, q, raw=raw)
+        hits = rank_for_search(session, es, llm, settings, p, q, raw=raw)
+        if p.via != "pat":
+            return hits
+        gated = gated_docs(session, p, {x.doc_id for x in hits})  # /search withholds their text from PATs
+        return [x for x in hits if x.doc_id not in gated]
 
     return chat if path == "chat" else search
 
@@ -69,34 +77,57 @@ def run_set(
     overrides: dict | None = None,
     sf=None,
     rank: Rank | None = None,
+    judge_fn: JudgeFn | None = None,
 ) -> UUID:
     """One `eval_results` row per (query, principal); returns the run id. `sf` (session factory) persists the
-    run in its own session so a failed run survives the caller's rollback; `rank` is a test seam."""
-    if judge:
-        raise NotImplementedError("LLM judge arrives with eval judge (task 2)")
+    run in its own session so a failed run survives the caller's rollback; `rank` and `judge_fn` are test
+    seams. `judge` answers and judges a deterministic sample of `eval_judge_sample` non-PAT chat pairs
+    (the same pairs on every run of a set, so A/B runs compare like with like)."""
+    if judge and path != "chat":
+        raise ValueError("the judge needs the chat path")
     principals = resolve_principals(session, gs)  # R5 before anything is written
     settings = runtime.apply(settings, overrides or {})
     rank = rank or default_rank(session, es, llm, settings, path)
+    judge_fn = judge_fn or (lambda p, q, ps: judge_mod.judge_pair(session, llm, settings, p, q, ps))
     db_set = store.set_by_name(session, gs.name) if gs.name else None
     config = {
         "overrides": overrides or {},
         "embed_model": settings.embed_model,
         "embed_index": settings.embed_index,
+        "principals": {k: p.is_admin for k, p in principals.items()},
+        "queries": len(gs.queries),
+        **(
+            {"judge": {"model": settings.eval_judge_model, "sample": settings.eval_judge_sample}}
+            if judge
+            else {}
+        ),
     }
+    k = max(MIN_K, min(MAX_K, settings.chat_passages))  # what chat would hand the model
     with sf() if sf else nullcontext(session) as ws:
         run_id = store.start_run(
             ws, set_id=db_set.id if isinstance(db_set, EvalSet) else None, set_name=gs.name,
             trigger=trigger, label=label, path=path, config=config,
         )  # fmt: skip
         try:
-            rows = []
+            pairs = []
             for q in gs.queries:
                 for ref in q.principals:
                     for key in (ref, ref + ":pat") if q.as_pat else (ref,):
-                        r, ranked = _pair(session, principals[key], key, q, path, rank)
-                        store.add_result(ws, run_id, r, ranked)
-                        rows.append(r)
-            agg = m.aggregate(rows)
+                        r, ranked, found = _pair(session, principals[key], key, q, path, rank)
+                        pairs.append((r, ranked, found[:k], principals[key], q.text))
+            judged: dict[tuple[str, str], dict] = {}
+            if judge:
+                eligible = [x for x in pairs if x[0].scores is not None and x[3].via != "pat"]
+                eligible.sort(
+                    key=lambda x: hashlib.sha1(f"{x[0].query_key}|{x[0].principal}".encode()).digest()
+                )
+                for r, _, top, p, text in eligible[: settings.eval_judge_sample]:
+                    judged[(r.query_key, r.principal)] = judge_fn(p, text, top)
+            for r, ranked, *_ in pairs:
+                store.add_result(ws, run_id, r, ranked, judged.get((r.query_key, r.principal)))
+            agg = m.aggregate([x[0] for x in pairs])
+            if judge:
+                agg["judge"] = judge_mod.summary(list(judged.values()))
         except Exception as e:
             ws.rollback()
             store.finish_run(ws, run_id, None, f"{type(e).__name__}: {e}")
@@ -106,7 +137,9 @@ def run_set(
     return run_id
 
 
-def _pair(session, p: Principal, key: str, q, path: str, rank: Rank) -> tuple[m.PairResult, list[list[str]]]:
+def _pair(
+    session, p: Principal, key: str, q, path: str, rank: Rank
+) -> tuple[m.PairResult, list[list[str]], list[Passage]]:
     visible = visible_ids(session, p, {g.doc for g in q.relevant}, path)
     expected = [g for g in q.relevant if g.doc in visible]
     raw: list[Passage] = []
@@ -119,4 +152,4 @@ def _pair(session, p: Principal, key: str, q, path: str, rank: Rank) -> tuple[m.
         q.key, key, q.kind, m.score_pair(hits, expected) if expected else None,
         sum(x.doc_id not in ok for x in found), sum(x.doc_id not in ok for x in raw), ms,
     )  # fmt: skip
-    return res, [[x.chunk_id, x.doc_id] for x in found[: m.DEPTH]]
+    return res, [[x.chunk_id, x.doc_id] for x in found[: m.DEPTH]], found

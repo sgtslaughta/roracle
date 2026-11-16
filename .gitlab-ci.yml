@@ -13,6 +13,7 @@ variables:
   HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
   KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
+  ELASTICSEARCH_IMAGE: "${REGISTRY_MIRROR}docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
 
 workflow:
   rules:
@@ -65,6 +66,37 @@ test:
     when: always
     reports:
       junit: backend/report.xml
+
+# Retrieval-quality gate: synthetic fixture (32 docs, 4 principals) through the real ES/Postgres paths with offline
+# models; fails on any ACL violation (incl. ES-only) or a metric under tests/eval/floors.json. No GPU, no network.
+eval:
+  extends: .backend
+  stage: test
+  services:
+    - name: ${REGISTRY_MIRROR}postgres:16
+      alias: postgres
+    - name: $ELASTICSEARCH_IMAGE
+      alias: elasticsearch
+      variables:
+        discovery.type: single-node
+        xpack.security.enabled: "false"
+        ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+  variables:
+    POSTGRES_USER: roracle
+    POSTGRES_PASSWORD: roracle
+    POSTGRES_DB: roracle_eval
+    ROR_DATABASE_URL: postgresql+psycopg://roracle:roracle@postgres:5432/roracle_eval
+    ROR_ELASTIC_URL: http://elasticsearch:9200
+    ROR_S3_ENDPOINT: http://minio.invalid:9000  # required settings; `eval ci` never touches object storage
+    ROR_S3_ACCESS_KEY: unused
+    ROR_S3_SECRET_KEY: unused
+    ROR_OIDC_ISSUER: http://keycloak.invalid/realms/roracle
+    ROR_OIDC_JWKS_URL: http://keycloak.invalid/realms/roracle/protocol/openid-connect/certs
+  script:
+    - python -m roracle migrate --wait 60 && python -m roracle eval ci --fixture tests/eval/fixture.yaml --floors tests/eval/floors.json --out eval-report.json
+  artifacts:
+    when: always
+    paths: [backend/eval-report.json]
 
 build:
   stage: build

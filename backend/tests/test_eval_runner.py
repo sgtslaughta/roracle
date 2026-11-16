@@ -174,3 +174,16 @@ def test_cli_override_parsing():
     for bad in ("rerank_depth=5", "nope=1", "novalue"):
         with pytest.raises(ValueError):
             parse_overrides([bad])
+
+
+def test_pat_search_path_withholds_text_of_gated_docs(db_session, world, monkeypatch):
+    """N1: /search returns no passages for exclude_llm / block_agents docs to a PAT; the eval must not score them."""
+    from dataclasses import replace
+
+    w = world
+    every = [passage(w["pub"]), passage(w["sec"]), passage(w["agt"])]
+    monkeypatch.setattr(runner, "rank_for_search", lambda *a, raw=None, **k: list(every))
+    rank = runner.default_rank(db_session, None, None, SETTINGS, "search")
+    human = Principal(w["ana"].id, "ana", "ana", (), False)
+    assert [x.doc_id for x in rank(human, "q", [])] == [x.doc_id for x in every]
+    assert [x.doc_id for x in rank(replace(human, via="pat"), "q", [])] == [str(w["pub"].id)]

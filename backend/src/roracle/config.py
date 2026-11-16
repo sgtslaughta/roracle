@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6
     rerank_depth: int = 50
+    eval_judge_model: str = ""  # P13 LLM judge; empty = first chat model
+    eval_judge_sample: int = 100  # (query x principal) pairs judged per run
+    eval_on_reindex: bool = True  # enqueue `eval_run` on the reference set after a re-embed cutover
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     db_connect_timeout_s: int = (
         5  # PG connect timeout (api/worker/readyz); a ?connect_timeout= in the URL wins
