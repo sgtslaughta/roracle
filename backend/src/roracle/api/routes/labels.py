@@ -20,6 +20,8 @@ from roracle.db import get_session
 from roracle.labels import service
 from roracle.labels.policy import Policy, admin_json, label_json
 from roracle.models import DocumentVersion
+from roracle.notes import service as notes_service
+from roracle.notes.access import get_readable
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -70,3 +72,20 @@ def set_label(
         _recover(es, sf, doc_id)
         raise HTTPException(503, "update failed, please retry") from None
     return {"label": label_json(new)}
+
+
+class NoteLabelBody(BaseModel):
+    label_id: UUID | None = None  # null = inherit the document label
+    reason: str | None = None
+
+
+@router.put("/annotations/{note_id}/label")
+def set_note_label(
+    note_id: UUID, body: NoteLabelBody, p: Annotated[Principal, Depends(require_human)], session: Session_
+) -> dict:
+    note = get_readable(session, p, note_id)  # unreadable -> 404
+    service.set_note_label(session, p, note, body.label_id, body.reason)
+    session.refresh(note)
+    out = notes_service.to_json(session, p, [note])[0]
+    session.commit()
+    return out

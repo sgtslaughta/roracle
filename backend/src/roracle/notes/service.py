@@ -9,6 +9,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
+from roracle.labels.policy import Policy, label_json
+from roracle.labels.service import note_label_for_create
 from roracle.models import (
     Annotation,
     AnnotationShare,
@@ -79,6 +81,7 @@ def create(
     default_visibility: str = "everyone",
 ) -> Annotation:
     v = check(session, p, doc_id, body)
+    label_id = note_label_for_create(session, session.get(Document, doc_id), body.label_id)
     vis = body.visibility or default_visibility
     n = Annotation(
         document_id=doc_id,
@@ -91,6 +94,7 @@ def create(
         target_document_id=body.relation.target_document_id if body.relation else None,
         visibility=vis,
         agent_assisted=agent_assisted,
+        label_id=label_id,
     )
     session.add(n)
     session.flush()
@@ -211,6 +215,12 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
     if mine:
         for s in session.scalars(select(AnnotationShare).where(AnnotationShare.annotation_id.in_(mine))):
             shares[s.annotation_id].append({"kind": s.principal_kind, "principal": s.principal})
+    policy = Policy.load(session)
+    doc_label = dict(
+        session.execute(
+            select(Document.id, Document.label_id).where(Document.id.in_({n.document_id for n in notes}))
+        ).all()
+    )
     out = []
     for n in notes:
         v = votes.get(n.id, {"up": 0, "down": 0, "mine": 0})
@@ -232,6 +242,8 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
                 "visibility": n.visibility,
                 "shares": sorted(shares[n.id], key=lambda s: (s["kind"], s["principal"])),
                 "status": n.status,
+                "label": label_json(policy.get(n.label_id)) if n.label_id else None,
+                "effective_label": label_json(policy.effective(doc_label[n.document_id], n.label_id)),
                 "agent_assisted": n.agent_assisted,
                 "may_not_apply_to_version": n.stale_version,
                 "votes": {**v, "score": vote_ratio(v["up"], v["down"])},

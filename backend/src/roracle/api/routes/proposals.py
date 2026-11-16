@@ -87,7 +87,10 @@ def bulk_approve(body: BulkIn, session: Session_, p: Human) -> dict:
 @router.post("/proposals/{proposal_id}/approve")
 def approve(proposal_id: UUID, session: Session_, p: Human, body: proposals.ApproveIn | None = None) -> dict:
     n = proposals.approve(session, p, proposal_id, body)
-    out = service.to_json(session, p, [n])[0]
+    if n is None:  # label proposal on a document
+        out = {"status": "approved", "kind": "label"}
+    else:
+        out = service.to_json(session, p, [n])[0]
     session.commit()
     return out
 

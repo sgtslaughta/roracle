@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from roracle.access import llm_allowed
 from roracle.auth import Principal
 from roracle.models import Annotation, AnnotationReport, AnnotationVote, Document, DocumentVersion, User
-from roracle.notes.access import readable_notes
+from roracle.notes.access import gate_ok, readable_notes
 from roracle.retrieval import Passage
 
 MIN_SCORE, MAX_REPORTS = 0.4, 3
@@ -95,7 +95,10 @@ def community_notes(
         ]
         if not docs:
             return {}
-        gate = or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1]))
+        gate = and_(
+            gate_ok(A.label_id, "exclude_llm"),  # effective label: doc checked above, note's own here
+            or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1])),
+        )
     else:
         gate = and_(A.visibility == "everyone", score >= MIN_SCORE)
     ranked = (

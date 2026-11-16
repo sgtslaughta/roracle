@@ -9,7 +9,7 @@ from roracle import notify
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.labels.policy import LabelInfo, Policy
-from roracle.models import Document
+from roracle.models import Annotation, Document
 
 
 def resolve(policy: Policy, label_id: str | uuid.UUID) -> LabelInfo:
@@ -103,3 +103,69 @@ def raise_document_label(
     session.flush()
     _record(session, p, doc, old, new, None, via)
     return True
+
+
+def note_label_for_create(
+    session: Session, doc: Document, label_id: str | uuid.UUID | None
+) -> uuid.UUID | None:
+    """Label stored on a new note: null inherits; an explicit one may not rank below the document's."""
+    if label_id is None:
+        return None
+    policy = Policy.load(session)
+    new = resolve(policy, label_id)
+    if new.rank < policy.get(doc.label_id).rank:
+        raise HTTPException(422, "a note label cannot be below the document label")
+    return uuid.UUID(new.id)
+
+
+def set_note_label(
+    session: Session,
+    p: Principal,
+    note: Annotation,
+    label_id: str | uuid.UUID | None,
+    reason: str | None,
+    *,
+    via: str = "user",
+) -> LabelInfo:
+    """Set a thread root's own label (null = inherit). Compared on EFFECTIVE labels (max(doc, note)):
+    raise/equal -> author or admin; lower -> admin only (+ reason rule on the current effective label).
+    A label below the document's -> 422. Returns the new effective label. Caller proved the note readable."""
+    if p.via != "jwt":
+        raise HTTPException(403, "agents must propose")
+    if not (p.is_admin or note.author_id == p.user_id):
+        raise HTTPException(403, "only the note author can change the label")
+    if note.parent_id is not None:
+        raise HTTPException(422, "labels apply to thread roots, not replies")
+    doc = session.get(Document, note.document_id)
+    policy = Policy.load(session)
+    if label_id is not None and resolve(policy, label_id).rank < policy.get(doc.label_id).rank:
+        raise HTTPException(422, "a note label cannot be below the document label")
+    old = policy.effective(doc.label_id, note.label_id)
+    new = policy.effective(doc.label_id, label_id)
+    reason = (reason or "").strip() or None
+    if reason and len(reason) > 500:
+        raise HTTPException(422, "reason too long")
+    if new.rank < old.rank:
+        if not p.is_admin:
+            raise HTTPException(403, "only admins can lower a label")
+        if old.reason_on_lower and not (reason and 3 <= len(reason) <= 500):
+            raise HTTPException(422, "a reason (3-500 characters) is required to lower this label")
+    note.label_id = uuid.UUID(str(label_id)) if label_id is not None else None
+    session.flush()
+    if new.id != old.id:
+        detail = {"from": old.id, "to": new.id, "via": via, **({"reason": reason} if reason else {})}
+        audit(session, p, "annotation.label", str(note.id), detail)
+        if p.user_id != note.author_id:
+            notify.emit(
+                session,
+                note.author_id,
+                "label.changed",
+                {
+                    "document_id": str(doc.id),
+                    "annotation_id": str(note.id),
+                    "from": old.id,
+                    "to": new.id,
+                    "by": str(p.user_id),
+                },
+            )
+    return new
