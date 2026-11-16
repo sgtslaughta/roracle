@@ -266,3 +266,90 @@ def test_coauthor_group_forms_grant_access(client, as_ana, cara, db_session):
     assert client.get(f"/drafts/{i}", headers=cara).status_code == 200
     s = db_session.scalars(select(DocumentShare)).all()
     assert [(x.principal_kind, x.principal) for x in s] == [("group", "/Chem")]
+
+
+@pytest.fixture
+def nogroup(make_token):
+    return bearer(make_token(sub="eve", username="eve", groups=()))
+
+
+def test_org_unit_fail_closed_at_submit(client, nogroup, db_session, built):
+    eve = client.get("/me", headers=nogroup).json()["id"]
+    i = mk(client, nogroup)
+    reports(db_session, i, eve)
+    r = sub(client, nogroup, i, "org_unit")
+    assert r.status_code == 422 and "org unit" in r.json()["detail"] and built == []
+    assert db_session.get(Draft, uuid.UUID(i)).status == "draft"
+    assert sub(client, nogroup, i, "private").status_code == 200
+
+
+def test_org_unit_gate_on_approval_and_patch(client, nogroup, admin, db_session, built, as_ana, ana):
+    eve = client.get("/me", headers=nogroup).json()["id"]
+    i = mk(client, nogroup)
+    reports(db_session, i, eve)
+    d = db_session.get(Draft, uuid.UUID(i))
+    d.status, d.target = "in_review", {"visibility": "org_unit", "version": 1, "refs": [], "share_users": [],
+                                       "share_groups": [], "ai_disclosure": {}}  # fmt: skip
+    db_session.commit()
+    r = client.post(f"/admin/drafts/{i}/review", headers=admin, json={"decision": "approve"})
+    assert r.status_code == 422 and built == []
+    # PATCH on a published draft document
+    d.status, d.target = "draft", None
+    db_session.commit()
+    assert sub(client, nogroup, i, "private").status_code == 200
+    r = client.patch(f"/documents/{i}", headers=nogroup, json={"visibility": "org_unit"})
+    assert r.status_code == 422
+
+
+def test_review_cannot_be_skipped_by_profile_choice(client, as_ana, ana, db_session, built):
+    spec = profiles.Profile(
+        name="orgrev", title="R", review_required=True, doc_types=["journal-article"],
+        org_units=["/Mathematics"],
+    ).model_dump()  # fmt: skip
+    db_session.add(WritingProfile(name="orgrev", version=1, yaml="", spec=spec))
+    db_session.commit()
+    i = mk(
+        client,
+        as_ana,
+        content=MD.replace("title: T", "title: T\ndoc_type: journal-article"),
+        profile="journal-article",
+    )
+    reports(db_session, i, ana)
+    assert sub(client, as_ana, i).json()["status"] == "in_review" and built == []
+
+
+def test_unsupported_citation_blocks(client, as_ana, ana, db_session, built):
+    i = mk(client, as_ana)
+    reports(db_session, i, ana)
+    v = db_session.scalars(select(DraftVersion)).one()
+    v.citations = {**v.citations, "ok": False, "items": [{"key": "doc:x", "verdict": "unsupported"}]}
+    db_session.commit()
+    assert code(sub(client, as_ana, i)) == "citations_unresolved"
+
+
+def test_visibility_union_and_current_coauthors_at_approval(
+    client, as_ana, ana, as_bob, bob, cara, admin, db_session, built
+):
+    db_session.add(
+        WritingProfile(
+            name="rev",
+            version=1,
+            yaml="",
+            spec=profiles.Profile(name="rev", title="R", review_required=True).model_dump(),
+        )
+    )
+    db_session.commit()
+    client.get("/me", headers=admin)
+    i = mk(client, as_ana, profile="rev")
+    client.put(f"/drafts/{i}/coauthors", headers=as_ana, json={"users": [str(bob)]})
+    reports(db_session, i, ana)
+    carau = client.get("/me", headers=cara).json()["id"]
+    assert sub(client, as_ana, i, "private", share_users=[carau]).status_code == 200
+    client.put(f"/drafts/{i}/coauthors", headers=as_ana, json={"users": []})  # change before approval
+    client.post(f"/admin/drafts/{i}/review", headers=admin, json={"decision": "approve", "note": "ok"})
+    doc = db_session.get(Document, uuid.UUID(i))
+    db_session.refresh(doc)
+    assert doc.visibility == "shared"
+    assert {s.principal for s in db_session.scalars(select(DocumentShare))} == {carau}
+    row = db_session.scalars(select(AuditLog).where(AuditLog.action == "draft.review")).one()
+    assert row.detail == {"decision": "approve", "note_len": 2, "visibility": "private"}

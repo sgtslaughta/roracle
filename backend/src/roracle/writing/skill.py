@@ -31,7 +31,7 @@ def profile_yaml(session: Session, name: str) -> str:
 
 def prompt_text(session: Session, topic: str, profile: str = profiles.DEFAULT_PROFILE) -> str:
     """User message of the `write_paper` prompt (KeyError for an unknown profile)."""
-    prof, _, _ = profiles._named(session, profile)
+    prof, _, _ = profiles.named(session, profile)
     return (
         f"{guide('write-paper')}\n## Topic\n\n{topic}\n\n## Profile: {prof.name} ({prof.title})\n\n"
         f"Required sections: {', '.join(prof.required_sections) or 'none'}\n"

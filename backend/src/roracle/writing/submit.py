@@ -14,6 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from roracle import notify
+from roracle.access import org_unit_error
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.config import Settings
@@ -37,6 +38,18 @@ def _profile(session: Session, doc: Document, d: Draft, meta: dict) -> profiles.
         return profiles.resolve(session, d.profile, doc.org_unit, t)[0]
     except KeyError:  # stored profile removed: R4 selection
         return profiles.resolve(session, None, doc.org_unit, t)[0]
+
+
+def _org_gate(doc: Document, visibility: str) -> None:
+    if err := org_unit_error(visibility, doc.org_unit):
+        raise HTTPException(422, err)
+
+
+def _needs_review(session: Session, doc: Document, d: Draft, meta: dict, prof: profiles.Profile) -> bool:
+    """The chosen profile or the org-unit default may demand review: picking another profile can't skip it."""
+    t = meta.get("doc_type") if isinstance(meta.get("doc_type"), str) else None
+    default = profiles.resolve(session, None, doc.org_unit, t)[0]
+    return prof.review_required or default.review_required
 
 
 def disclosure(parsed: Parsed, prof: profiles.Profile) -> dict:
@@ -82,6 +95,7 @@ def submit(
     parsed = parse(v.content)
     prof = _profile(session, doc, d, parsed.meta)
     disc = disclosure(parsed, prof)
+    _org_gate(doc, target["visibility"])
     ids = {u for u in target["share_users"] if u != doc.owner_id}
     if ids and set(session.scalars(select(User.id).where(User.id.in_(ids)))) != ids:
         raise HTTPException(422, "unknown user")
@@ -94,7 +108,7 @@ def submit(
         # the owner's view of the library now: an approving admin must not widen it
         "refs": [asdict(r) for r in build.load_refs(session, p, v.content, settings.writing_max_citations)],
     }
-    if prof.review_required:
+    if _needs_review(session, doc, d, parsed.meta, prof):
         d.target, d.status = frozen, "in_review"
         d.updated_at = datetime.now(UTC)
         audit(session, p, "draft.submit", str(doc_id), {"version": v.version, "review": True})
@@ -112,6 +126,7 @@ def publish(
     """Build, add the PDF as the next document version, apply `target` ∪ co-authors. Returns the version."""
     meta = parse(content).meta
     prof = _profile(session, doc, d, meta)
+    _org_gate(doc, target["visibility"])
     try:
         builder = build.get_builder(settings, "latex" if meta.get("format") == "latex" else "markdown")
         pdf = builder.build(content, [Ref(**r) for r in target["refs"]], prof)
@@ -171,6 +186,16 @@ def review(
         d.review_note = note
         d.updated_at = datetime.now(UTC)
         notify.emit(session, doc.owner_id, "draft.rejected", {**title, "note": note})
-    audit(session, p, "draft.review", str(doc_id), {"decision": decision})
+    audit(
+        session,
+        p,
+        "draft.review",
+        str(doc_id),
+        {
+            "decision": decision,
+            "note_len": len(note or ""),
+            "visibility": d.target and d.target.get("visibility"),
+        },
+    )
     session.flush()
     return {"status": d.status}

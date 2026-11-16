@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from roracle import search_index
-from roracle.access import normalize_path
+from roracle.access import normalize_path, org_unit_error
 from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, _doc, _privileged, detail
@@ -102,6 +102,8 @@ def patch_document(
         doc.visibility = body.visibility
     if body.org_unit is not None:
         doc.org_unit = body.org_unit
+    if session.get(Draft, doc_id) and (err := org_unit_error(doc.visibility, doc.org_unit)):
+        raise HTTPException(422, err)  # published drafts: same fail-closed rule as submit
     if users is not None:
         _set_shares(session, doc, "user", users)
     if body.share_groups is not None:

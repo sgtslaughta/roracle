@@ -113,7 +113,7 @@ def _db_result(r: WritingProfile) -> tuple[Profile, int, str]:
     return Profile.model_validate(r.spec), r.version, "db"
 
 
-def _named(
+def named(
     session: Session, name: str, db: dict[str, WritingProfile] | None = None
 ) -> tuple[Profile, int, str]:
     db = _latest_db(session) if db is None else db
@@ -130,7 +130,7 @@ def resolve(
     """R4: explicit name; else newest matching DB profile; else journal-article."""
     db = _latest_db(session)
     if name:
-        return _named(session, name, db)
+        return named(session, name, db)
     ancestors = set(org_ancestors([org_unit] if org_unit else []))
     hits = [
         r
@@ -139,14 +139,14 @@ def resolve(
     ]
     if hits:
         return _db_result(max(hits, key=lambda r: r.id))
-    return _named(session, DEFAULT_PROFILE, db)
+    return named(session, DEFAULT_PROFILE, db)
 
 
 def list_effective(session: Session) -> list[dict]:
     db = _latest_db(session)
     out = []
     for n in sorted(set(builtin()) | set(db)):
-        p, v, src = _named(session, n, db)
+        p, v, src = named(session, n, db)
         out.append({"name": n, "title": p.title, "version": v, "source": src, "active": True})
     return out
 

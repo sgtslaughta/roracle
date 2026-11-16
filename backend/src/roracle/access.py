@@ -40,6 +40,14 @@ def org_units(groups: list[str]) -> list[str]:
     return out
 
 
+ORG_UNIT_ERROR = "cannot determine org unit; choose another visibility"
+
+
+def org_unit_error(visibility: str, org_unit: str) -> str | None:
+    """Fail closed: `org_unit` visibility needs a usable (non-root, non-empty) org unit."""
+    return ORG_UNIT_ERROR if visibility == "org_unit" and not org_units([org_unit]) else None
+
+
 def org_ancestors(groups: list[str]) -> list[str]:
     """Each org unit plus all its ancestor paths, plus "/" (whole org); sorted, deduped."""
     out = {"/"}
