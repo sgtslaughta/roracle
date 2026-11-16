@@ -14,7 +14,7 @@ CNPG cluster `roracle-pg`, ECK cluster `roracle` (service `roracle-es-http`). Ad
 | Oldest queued job | `roracle_jobs_oldest_queued_seconds{kind}` | < 5 min |
 | Job outcomes | `rate(roracle_job_runs_total{outcome=~"retry|failed"}[5m])` (worker) | near 0 |
 | Ingest failures | `roracle_ingest_stage_failures_total{stage}` | near 0 |
-| API traffic | `roracle_http_requests_total{method,route,status}`, `roracle_http_request_duration_seconds` (route = matched template) | 5xx < 1% |
+| API traffic | `roracle_http_requests_total{method,route,status}`, `roracle_http_request_duration_seconds` (route = matched template; for SSE/streaming responses the duration is time-to-headers only) | 5xx < 1% |
 | Search latency | Grafana: `roracle_search_seconds` p95 | < 500 ms |
 | Chat TTFT | `roracle_chat_ttft_seconds` p95 | < 2 s |
 | Ingest latency | `roracle_ingest_seconds` p95 (upload → searchable) | < 120 s |
@@ -112,7 +112,10 @@ runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|
 `202 {job_id}`; follow it in `GET /admin/jobs?kind=maintenance`).
 - **purge**: hard-deletes documents soft-deleted more than `ROR_RETENTION_DELETED_DAYS` days ago (ES chunks by
   `doc_id`, versions, notes/evidence rows, shares) in batches of 100 (a full batch queues a follow-up job).
-  `0` (default) = off: the endpoint then does nothing. Irreversible; restore from backup only. A document
+  `0` (default) = off: the endpoint then does nothing. Also deletes the version's `derived/<version_id>/` objects
+  (docling JSON, rendition). Irreversible; restore from backup only. On a versioned bucket, noncurrent versions
+  of purged `blobs/` and `derived/` objects remain until a noncurrent-expiry rule removes them (the chart
+  sets one only for `tmp/`; add `mc ilm rule add --prefix blobs/ --noncurrent-expire-days N` for real erasure). A document
   whose purge fails (e.g. ES error) is logged and skipped; the rest of the batch proceeds.
   If the periodic job ever ends `failed`, restart a worker to recreate it.
 - **gc**: deletes `blobs/` objects and `blobs` rows that no document version or evidence row references and
@@ -124,8 +127,9 @@ runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|
   converge to Postgres; use after an ES restore or suspected tag drift.
 
 ### Rebuild the search index from scratch
-Planned (P11b): the admin *Maintenance* action does not exist yet; use the stage-reset statement above. Elastic holds no unique data. Create a fresh index and enqueue `index` jobs for every latest
-version (admin → Maintenance → *Rebuild index*). Search stays on the old alias until done.
+Elastic holds no unique data. `POST /admin/reindex {"model": "<current model>", "dims": N}` (admin JWT, audited, `202 {job_id}`;
+`GET /admin/reindex` shows progress) rebuilds into the next index generation; with the same model it is a plain rebuild.
+Search stays on the old generation until the cutover swaps the read alias.
 
 ### Clean up `tmp/` upload leftovers
 
@@ -147,7 +151,7 @@ on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplet
 4. `helm upgrade roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m`. The `migrate` pre-upgrade hook runs first: `roracle migrate --wait SECONDS` retries the DB connection every 5 s and then exits non-zero with a password-free message (without `--wait` it fails at once). With `backoffLimit: 0` a failed migration blocks the rollout and leaves the old pods running; then api/worker/web roll.
 5. Verify `/healthz` version, upload + search + chat smoke test.
 Rollback: `helm rollback` restores manifests but does NOT revert database migrations. Migrations are additive within a minor line, so the previous release normally still runs;
-otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is P11b, see the note below).
+otherwise restore Postgres with PITR (3.1) to just before the upgrade. Embedding-model changes need a re-embed (ADR-0006; the automated flow is `POST /admin/reindex`).
 Also: after ECK CA rotation restart api/worker; update ClamAV signatures by refreshing the mirror (freshclam in the pod pulls from `parsers.clamav.mirrorUrl`; with no mirror configured signatures are only those baked into the image, so rebuild the image regularly).
 
 ## 3. Backup and restore
@@ -190,7 +194,7 @@ curl -s -u elastic:$PW -XPOST "$ES/_snapshot/roracle-s3/<snapshot>/_restore" \
 curl -s -u elastic:$PW "$ES/_cluster/health?wait_for_status=yellow&timeout=30m"
 ```
 On a rebuilt cluster re-run the hook (`helm upgrade`) first so repository `roracle-s3` exists. Documents ingested after the snapshot are missing:
-re-queue them with the stage-reset statement of "Re-embed after embedding prompt/model change" (stops workers; no dedicated reindex CLI or job exists in the backend today).
+re-queue them with the stage-reset statement of "Re-embed after embedding prompt/model change" (stops workers), or run `POST /admin/reindex` with the current model to rebuild into a fresh generation. After restoring a pre-cutover snapshot, verify that `chunks` points at the index PG records as `embed_index` (`GET /admin/reindex`); if not, run a reindex.
 Elastic holds no unique data, so when no usable snapshot exists use that same procedure to rebuild everything from Postgres + MinIO (search is down until versions are searchable again).
 
 ### 3.3 MinIO

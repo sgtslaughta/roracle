@@ -116,4 +116,4 @@ passage, otherwise submission is blocked.
 
 ## Limits
 
-Per-user rate limits: planned (P11). Max 50 pending proposals per user and client (PAT/client identity); further proposals are refused until some are approved or rejected. Approval is UI-only.
+Per-token rate limit (`ROR_RATE_LIMIT_PER_MINUTE`, per replica, applies to REST and MCP; `429` + `Retry-After`). Max 50 pending proposals per user and client (PAT/client identity); further proposals are refused until some are approved or rejected. Approval is UI-only.
