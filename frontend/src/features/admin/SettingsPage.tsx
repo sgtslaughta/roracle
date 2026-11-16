@@ -23,6 +23,7 @@ function Row({ name, value, source, models }: { name: string; value: SettingValu
   const save = useSaveSetting();
   const num = typeof value === "number";
   const parsed: SettingValue = num ? Number(draft) : (draft as SettingValue);
+  const empty = num && (draft === "" || !Number.isFinite(Number(draft)));
   const dirty = JSON.stringify(parsed) !== JSON.stringify(value);
   const run = (v: SettingValue | null, done: string) => {
     setErr(null);
@@ -35,7 +36,7 @@ function Row({ name, value, source, models }: { name: string; value: SettingValu
   const id = `set-${name}`;
   let input;
   if (typeof value === "boolean") input = <label className="ck"><input id={id} type="checkbox" checked={draft as boolean} onChange={(e) => setDraft(e.target.checked)} />Enabled</label>;
-  else if (Array.isArray(value)) input = <ChipInput label="Models" values={draft as string[]} onChange={setDraft} placeholder="Add a model name" />;
+  else if (Array.isArray(value)) input = <ChipInput label={`${name} models`} values={draft as string[]} onChange={setDraft} placeholder="Add a model name" />;
   else if (num) input = <input id={id} type="number" value={draft as string} min={b?.min} max={b?.max} step={b?.step ?? 1} onChange={(e) => setDraft(e.target.value)} />;
   else if (name === "chat_default_model") input = (
     <select id={id} value={draft as string} onChange={(e) => setDraft(e.target.value)}>
@@ -45,15 +46,16 @@ function Row({ name, value, source, models }: { name: string; value: SettingValu
   else input = <input id={id} value={draft as string} onChange={(e) => setDraft(e.target.value)} />;
   return (
     <tr>
-      <th scope="row"><label htmlFor={id}>{name}</label></th>
+      <th scope="row">{Array.isArray(value) ? name : <label htmlFor={id}>{name}</label>}</th>
       <td>
         {input}
         {BYTES.has(name) && num && <small className="sub"> {draft !== "" && Number.isFinite(Number(draft)) ? humanBytes(Number(draft)) : ""}</small>}
+        {empty && <p className="sub">Enter a number</p>}
         {err && <p role="alert" className="sub">{err}</p>}
       </td>
       <td><span className={`pill ${source === "override" ? "review" : ""}`}>{source}</span></td>
       <td className="acts">
-        <Button disabled={!dirty || save.isPending} aria-label={`Save ${name}`} onClick={() => run(parsed, `${name} saved.`)}>Save</Button>
+        <Button disabled={!dirty || empty || save.isPending} aria-label={`Save ${name}`} onClick={() => run(parsed, `${name} saved.`)}>Save</Button>
         {source === "override" && <Button variant="ghost" disabled={save.isPending} aria-label={`Reset ${name} to env`} onClick={() => run(null, `${name} reset to env.`)}>Reset to env</Button>}
       </td>
     </tr>

@@ -65,24 +65,41 @@ describe("settings", () => {
   });
 });
 
+describe("settings drafts", () => {
+  it("keeps an unsaved draft when another row saves; empty number blocks Save", async () => {
+    const user = userEvent.setup();
+    await renderAdmin("/admin/settings", "rerank_depth");
+    const input = screen.getByLabelText("rerank_depth");
+    await user.clear(input);
+    expect(screen.getByRole("button", { name: "Save rerank_depth" })).toBeDisabled();
+    expect(within(rowOf("rerank_depth")).getByText("Enter a number")).toBeInTheDocument();
+    await user.type(input, "77");
+    await user.click(within(rowOf("pats_enabled")).getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Save pats_enabled" }));
+    await waitFor(() => expect(rowOf("pats_enabled")).toHaveTextContent("override"));
+    expect(screen.getByLabelText("rerank_depth")).toHaveValue(77);
+    expect(screen.getByLabelText("chat_models models")).toBeInTheDocument();
+  });
+});
+
 describe("tags", () => {
   it("merges selected sources into a typed target after confirming", async () => {
     const user = userEvent.setup();
     await renderAdmin("/admin/tags", "spectral theory");
-    await user.click(screen.getByRole("checkbox", { name: "Select spectral theory" }));
-    await user.type(screen.getByLabelText(/Merge into/), "spectral-theory");
+    await user.click(screen.getByRole("checkbox", { name: "Select survey" }));
+    await user.type(screen.getByLabelText(/Merge into/), "Overview");
     await user.click(screen.getByRole("button", { name: /Merge 1 selected/ }));
     expect(sent("POST", "/admin/tags/merge")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Merge" }));
-    expect(await lastBody("POST", "/admin/tags/merge")).toEqual({ sources: ["spectral theory"], target: "spectral-theory" });
-    expect(await screen.findByText("3 documents updated")).toBeInTheDocument();
+    expect(await lastBody("POST", "/admin/tags/merge")).toEqual({ sources: ["survey"], target: "Overview" });
+    expect(await screen.findByText("2 documents updated")).toBeInTheDocument();
   });
 
   it("blocks a target that is also a source and filters the list", async () => {
     const user = userEvent.setup();
     await renderAdmin("/admin/tags", "spectral theory");
     await user.click(screen.getByRole("checkbox", { name: "Select pde" }));
-    await user.type(screen.getByLabelText(/Merge into/), "pde");
+    await user.type(screen.getByLabelText(/Merge into/), "PDE");
     expect(screen.getByRole("button", { name: /Merge 1 selected/ })).toBeDisabled();
     await user.type(screen.getByLabelText(/Filter tags/), "oper");
     expect(screen.queryByText("survey")).toBeNull();

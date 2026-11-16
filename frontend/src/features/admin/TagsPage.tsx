@@ -8,6 +8,8 @@ import { useMergeTags, useTags } from "./dataApi";
 
 const SHOWN = 100;
 const MAX_SOURCES = 50;
+/** Mirrors backend normalize_tag so "PDE" and "pde" count as the same tag. */
+const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]+/gu, "-").replace(/^-+|-+$/g, "");
 
 export function TagsPage() {
   const { data, isError } = useTags();
@@ -22,7 +24,7 @@ export function TagsPage() {
   const needle = filter.trim().toLowerCase();
   const matches = (data ?? []).filter((t) => !needle || t.tag.toLowerCase().includes(needle));
   const t = target.trim();
-  const problem = !t ? "Choose a target tag." : picked.includes(t) ? "The target can't be one of the sources." : picked.length > MAX_SOURCES ? `Merge at most ${MAX_SOURCES} tags at once.` : null;
+  const problem = !norm(t) ? "Choose a target tag." : picked.some((p) => norm(p) === norm(t)) ? "The target can't be one of the sources." : picked.length > MAX_SOURCES ? `Merge at most ${MAX_SOURCES} tags at once.` : null;
   const toggle = (tag: string) => setPicked((p) => (p.includes(tag) ? p.filter((x) => x !== tag) : [...p, tag]));
   const go = () =>
     merge.mutate({ sources: picked, target: t }, {

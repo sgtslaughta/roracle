@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useDebounced } from "@/lib/useDebounced";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "./dataApi";
 import { fmtTime } from "./ConnectorsPage";
@@ -6,12 +7,6 @@ import { fmtTime } from "./ConnectorsPage";
 const DETAIL_MAX = 160;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const asText = (d: unknown) => (d == null ? "" : typeof d === "string" ? d : JSON.stringify(d));
-
-export function useDebounced(v: string, ms = 300) {
-  const [d, setD] = useState(v);
-  useEffect(() => { const t = setTimeout(() => setD(v), ms); return () => clearTimeout(t); }, [v, ms]);
-  return d;
-}
 
 export function AuditPage() {
   const [action, setAction] = useState("");

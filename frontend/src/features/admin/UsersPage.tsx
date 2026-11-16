@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { OverflowList } from "@/components/OverflowList";
 import { Button } from "@/components/ui/button";
-import { useDebounced } from "./AuditPage";
+import { useDebounced } from "@/lib/useDebounced";
 import { fmtTime } from "./ConnectorsPage";
 import { USERS_PAGE, useGroups, useRevokePats, useUsers } from "./dataApi";
 
@@ -31,6 +31,8 @@ export function UsersPage() {
   const [text, setText] = useState("");
   const [page, setPage] = useState(1);
   const [target, setTarget] = useState<AdminUser | null>(null);
+  const [last, setLast] = useState<AdminUser | null>(null);
+  const ask = (u: AdminUser | null) => { setTarget(u); if (u) setLast(u); };
   const q = useDebounced(text.trim());
   const users = useUsers(q, page);
   const revoke = useRevokePats();
@@ -40,7 +42,7 @@ export function UsersPage() {
     target && revoke.mutate(target.id, {
       onSuccess: () => toast(`Tokens revoked for ${target.username}.`),
       onError: (e) => toast(e instanceof ApiError ? e.message : "The tokens couldn't be revoked. Try again."),
-      onSettled: () => setTarget(null),
+      onSettled: () => ask(null),
     });
 
   return (
@@ -65,7 +67,7 @@ export function UsersPage() {
                   </td>
                   <td>{u.is_admin ? "Yes" : "No"}</td>
                   <td>{u.last_login_at ? fmtTime(u.last_login_at) : "–"}</td>
-                  <td><Button variant="ghost" aria-label={`Revoke tokens for ${u.username}`} onClick={() => setTarget(u)}>Revoke tokens</Button></td>
+                  <td><Button variant="ghost" aria-label={`Revoke tokens for ${u.username}`} onClick={() => ask(u)}>Revoke tokens</Button></td>
                 </tr>
               ))}
             </tbody>
@@ -78,8 +80,8 @@ export function UsersPage() {
         </div>
       )}
       <Groups />
-      <ConfirmDialog open={!!target} onOpenChange={(o) => !o && setTarget(null)} title="Revoke all tokens?" confirm="Revoke tokens" onConfirm={go} busy={revoke.isPending}>
-        Every personal access token of {target?.username} stops working immediately. They can create new ones.
+      <ConfirmDialog open={!!target} onOpenChange={(o) => !o && ask(null)} title="Revoke all tokens?" confirm="Revoke tokens" onConfirm={go} busy={revoke.isPending}>
+        Every personal access token of {(target ?? last)?.username} stops working immediately. They can create new ones.
       </ConfirmDialog>
     </div>
   );
