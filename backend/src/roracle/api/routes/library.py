@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -239,6 +239,23 @@ def create_collection(body: CollectionBody, p: Who, session: Session_) -> dict:
     session.add(c)
     session.commit()
     return {"id": str(c.id), "name": c.name, "count": 0}
+
+
+@router.patch("/collections/{cid}")
+def rename_collection(cid: UUID, body: CollectionBody, p: Who, session: Session_) -> dict:
+    c = _own(session, p, cid)
+    c.name = body.name
+    session.commit()
+    return {"id": str(c.id), "name": c.name, "count": _count(session, p, cid)}
+
+
+@router.delete("/collections/{cid}", status_code=204)
+def delete_collection(cid: UUID, p: Who, session: Session_) -> Response:
+    c = _own(session, p, cid)
+    session.execute(delete(CollectionItem).where(CollectionItem.collection_id == cid))
+    session.delete(c)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.put("/collections/{cid}/items/{doc_id}")
