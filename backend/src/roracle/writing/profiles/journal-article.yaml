@@ -1,0 +1,45 @@
+name: journal-article
+title: Journal article
+doc_types: [journal-article, article]
+citation_style: numeric
+required_metadata: [title, authors, keywords]
+required_sections: [Abstract, Introduction, Methods, Results, Discussion, Limitations, Data availability, References]
+limits:
+  words_max: 8000
+  abstract_words_max: 250
+  title_chars_max: 150
+  figures_max: 10
+  references_max: 80
+review_required: false
+style_guidance: |
+  Write in the active voice and past tense for methods and results.
+  State each claim once, with the strongest supporting citation next to it.
+  Define every symbol and acronym at first use.
+  Report effect sizes with uncertainty (confidence interval or standard error), not only p-values.
+  Keep the abstract self-contained: problem, method, main result, implication.
+template: |
+  ---
+  title: ""
+  doc_type: journal-article
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Abstract
+
+  ## Introduction
+
+  ## Methods
+
+  ## Results
+
+  ## Discussion
+
+  ## Limitations
+
+  ## Data availability
+
+  ## References

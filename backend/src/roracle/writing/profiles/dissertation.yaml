@@ -1,0 +1,43 @@
+name: dissertation
+title: Dissertation
+doc_types: [dissertation, thesis]
+citation_style: author-year
+required_metadata: [title, authors, keywords]
+required_sections: [Abstract, Introduction, Literature review, Methods, Results, Discussion, Conclusion, References]
+limits:
+  words_max: 80000
+  abstract_words_max: 350
+  title_chars_max: 200
+  references_max: 500
+review_required: true
+style_guidance: |
+  Frame the research question and contribution in the introduction and return to them in the conclusion.
+  Each chapter opens with its purpose and closes with a bridge to the next.
+  Justify methodological choices against alternatives.
+  Use consistent terminology and notation across chapters.
+template: |
+  ---
+  title: ""
+  doc_type: dissertation
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Abstract
+
+  ## Introduction
+
+  ## Literature review
+
+  ## Methods
+
+  ## Results
+
+  ## Discussion
+
+  ## Conclusion
+
+  ## References

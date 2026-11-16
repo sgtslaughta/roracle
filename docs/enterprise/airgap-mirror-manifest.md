@@ -18,10 +18,9 @@ of truth for language packages: `backend/uv.lock`, `frontend/pnpm-lock.yaml`.
 | `quay.io/keycloak/keycloak:26.x` | dev only | prod uses your Keycloak |
 | `quay.io/docling-project/docling-serve` | parsing | CPU or CUDA variant |
 | `lfoppiano/grobid:0.8.x` | metadata/references | |
-| `gotenberg/gotenberg:8.20.1` | office → PDF (ingest); HTML → PDF needs a separate instance for drafts | |
+| `gotenberg/gotenberg:8.20.1` | office → PDF (ingest instance, chromium disabled); a second Chromium-enabled instance builds draft PDFs (`ROR_DRAFT_GOTENBERG_URL`) | two deployments of the same image |
 | `clamav/clamav:1.4` | malware scan | needs signature mirror (freshclam private mirror) |
 | `texlive/texlive` (full) | latex-builder | ~5 GB |
-| `pandoc/core` | Markdown drafts | |
 | `gcr.io/kaniko-project/executor` | CI image builds | |
 | `ghcr.io/astral-sh/uv` (or pip-installed uv) | CI | |
 
@@ -31,7 +30,8 @@ Runtime: fastapi, uvicorn[standard], sqlalchemy ≥ 2, psycopg[binary] ≥ 3, al
 pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch ≥ 8, openai (client for
 the OpenAI-spec endpoint), mcp (official SDK), datasketch (MinHash), docling-core (chunker),
 tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), bleach/nh3
-(sanitizing). Dev: pytest, ruff.
+(sanitizing), pyyaml, pypandoc-binary (wheel bundling the pinned pandoc binary for draft builds; hash-locked in
+`uv.lock`, so the PyPI mirror is the only source: no apt/pandoc image needed). Dev: pytest, ruff.
 
 ## npm (registry mirror via `NPM_CONFIG_REGISTRY`)
 

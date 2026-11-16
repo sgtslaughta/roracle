@@ -20,6 +20,7 @@ from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.ingest.office import rendition_key
 from roracle.models import Document, DocumentVersion, User
+from roracle.models_writing import Draft
 from roracle.search_index import ALIAS, file_type
 from roracle.storage import BlobStore
 
@@ -74,6 +75,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
     latest = next((v for v in versions if v.is_latest), versions[0] if versions else None)
     meta = (latest.meta if latest else None) or {}
     owner = session.get(User, doc.owner_id)
+    draft = session.get(Draft, doc_id)
     return {
         "id": str(doc.id),
         "title": doc.title or meta.get("title") or (latest.filename if latest else ""),
@@ -101,6 +103,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         ],
         "page_count": (latest.page_count if latest else None) or 0,
         "flag": None,
+        "ai_disclosure": draft.ai_disclosure if draft else None,
     }
 
 

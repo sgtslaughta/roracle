@@ -47,10 +47,28 @@ Example client configuration (generic MCP JSON):
 | `propose_annotation(doc_id, kind, body, quote?, prefix?, suffix?, ...)` | write | Create a pending proposal (never published directly); returns its id |
 | `reply_to_annotation(annotation_id, body)` | write | Propose a reply to a readable note |
 | `export_bibtex(doc_ids?, collection?)` | read | BibTeX for visible documents |
-| `save_draft`, `validate_draft`, `check_citations` | - | planned (P8/P9) |
+| `save_draft(content, draft_id?, title?, profile?, base_version?)` | write | Create a draft or save a new version; returns `{draft_id, version, url}` |
+| `validate_draft(draft_id)` | write | Check the latest version against its writing profile; stores the report |
+| `check_citations(draft_id)` | write | Verify each `@doc:`/`@psg:` citation against passages you may read; stores the report |
 
 Resource template: `roracle://handoff/{code}` (same manifest and auth as `load_handoff`).
-Prompts and `roracle://profiles|templates` resources: planned (P8/P9).
+Prompt `write_paper(topic, profile="journal-article")` and resources `roracle://writing/profiles`,
+`roracle://writing/profiles/{name}` (YAML), `roracle://writing/style-guide`,
+`roracle://writing/citation-rules` carry the paper-writing instructions. The same content ships as the skill
+bundle `GET /skills/roracle-writer.zip` (authenticated; `roracle-writer/SKILL.md`, `references/`,
+`profiles/*.yaml`) for agents that load skills instead of MCP prompts.
+
+## Writing papers
+
+Agents write and verify; the human owner submits. Flow: `save_draft` -> `validate_draft` ->
+`check_citations` -> the owner calls `POST /drafts/{id}/submit` `{visibility, share_users?, share_groups?}`.
+Submit needs validation and citation reports of the latest version run by the owner (409 `checks_required`;
+`blocking_findings`; `citations_unresolved`; `ai_disclosure_required`), builds the PDF and adds it as the next
+document version (`nothing_to_submit` if the latest version was already submitted). Profiles with
+`review_required: true` park the draft `in_review`: admins decide at `GET /admin/drafts/reviews` and
+`POST /admin/drafts/{id}/review` `{decision: approve|reject, note?}`; approval rebuilds from the frozen
+submitted version, the owner is notified (`draft.approved`/`draft.rejected`). Visibility is the target plus
+the co-authors. The AI disclosure is returned as `ai_disclosure` by `GET /documents/{id}`.
 
 `upload` sends the file base64-encoded in the JSON body, so it is capped at the decoded size
 `ROR_MCP_MAX_UPLOAD_BYTES` (default 25 MiB); larger files use `POST /documents` (REST limit

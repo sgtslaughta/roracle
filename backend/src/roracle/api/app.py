@@ -11,6 +11,7 @@ from roracle.api.routes import (
     admin_connectors,
     admin_ops,
     admin_settings,
+    admin_writing,
     annotations,
     chats,
     chats_read,
@@ -18,6 +19,10 @@ from roracle.api.routes import (
     documents,
     documents_read,
     documents_write,
+    drafts,
+    drafts_build,
+    drafts_checks,
+    drafts_submit,
     evidence,
     export,
     handoffs,
@@ -28,6 +33,7 @@ from roracle.api.routes import (
     notifications,
     proposals,
     search,
+    skills,
     tokens,
 )
 from roracle.auth import JwksCache
@@ -54,6 +60,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_settings.router)
     app.include_router(admin_connectors.router)
     app.include_router(admin_ops.router)
+    app.include_router(admin_writing.router)
+    app.include_router(drafts.router)
+    app.include_router(drafts_build.router)
+    app.include_router(drafts_checks.router)
+    app.include_router(drafts_submit.router)
+    app.include_router(skills.router)
     app.include_router(me.router)
     app.include_router(notifications.router)
     app.include_router(tokens.router)

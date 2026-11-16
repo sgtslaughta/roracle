@@ -1,0 +1,35 @@
+name: preregistration
+title: Preregistration
+doc_types: [preregistration]
+citation_style: numeric
+required_metadata: [title, authors]
+required_sections: [Hypotheses, Design, Sampling plan, Variables, Analysis plan]
+limits:
+  words_max: 4000
+  title_chars_max: 150
+review_required: false
+style_guidance: |
+  State each hypothesis as a directional, falsifiable prediction.
+  Fix sample size, stopping rule and exclusion criteria before data collection.
+  Define every measured and manipulated variable and how it is operationalised.
+  Name the exact statistical test, alpha level and correction for multiple comparisons.
+template: |
+  ---
+  title: ""
+  doc_type: preregistration
+  authors: []
+  keywords: []
+  ai_assistance:
+    used: false
+    description: ""
+  ---
+
+  ## Hypotheses
+
+  ## Design
+
+  ## Sampling plan
+
+  ## Variables
+
+  ## Analysis plan

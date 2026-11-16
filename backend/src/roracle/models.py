@@ -529,3 +529,6 @@ class AppSetting(Base):
     value: Mapped[Any] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+from roracle import models_writing  # noqa: F401
