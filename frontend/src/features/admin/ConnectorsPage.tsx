@@ -10,6 +10,7 @@ import { isUuid } from "@/lib/ids";
 import { useConnectors, useDeleteConnector, useRunConnector, useSaveConnector } from "./api";
 import { ConnectorDialog } from "./ConnectorForm";
 import { StatusPill } from "./StatusPill";
+import { RowMenu } from "@/components/RowMenu";
 
 const SHOWN = 50;
 export const fmtTime = (s: string | null | undefined) => (s ? new Date(s).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Never");
@@ -69,6 +70,12 @@ export function ConnectorsPage() {
                   <td>{scheduleText(c.schedule_minutes)}</td>
                   <td>{c.last_run ? <><StatusPill status={c.last_run.status} /> <small>{fmtTime(c.last_run.started_at)}</small></> : "Never run"}</td>
                   <td>
+                    <RowMenu kebab={false} label={`Actions for ${c.name}`} actions={[
+                      { label: "Run now", onSelect: () => runNow(c) },
+                      { label: "Edit", onSelect: () => setEditing(c) },
+                      { label: c.enabled ? "Disable" : "Enable", onSelect: () => setEnabled(c, !c.enabled) },
+                      { label: "Delete", danger: true, onSelect: () => setTarget(c) },
+                    ]} />
                     <span className="acts">
                       <Button variant="ghost" aria-label={`Run ${c.name} now`} title="Run now" disabled={pending} onClick={() => runNow(c)}><Play aria-hidden /></Button>
                       <Button variant="ghost" aria-label={`Edit ${c.name}`} title="Edit" onClick={() => setEditing(c)}><Pencil aria-hidden /></Button>

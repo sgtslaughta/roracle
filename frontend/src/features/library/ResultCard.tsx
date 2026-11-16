@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 import { Clock, FileText, FileType2, History, MessageSquareQuote, Quote, TextQuote } from "lucide-react";
 import type { CommunityNote } from "@/api/notes";
 import type { Bbox, SearchHit } from "@/api/types";
@@ -10,6 +12,7 @@ import { openDoc, setView } from "@/features/reader/useReaderStore";
 import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
 import { useCanRemoveTags } from "./useMe";
+import { AddToCollectionDialog } from "./AddToCollection";
 import { VoteControl } from "./VoteControl";
 
 export interface ResultCardProps {
@@ -22,6 +25,7 @@ export interface ResultCardProps {
 
 export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProps) {
   const canRemove = useCanRemoveTags(hit.owner_id);
+  const [adding, setAdding] = useState(false);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
@@ -33,6 +37,11 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
             <CiteLine authors={hit.authors} venue={hit.venue} year={hit.year} />
           </div>
           {hit.flag && <span className="flag"><Clock aria-hidden />{hit.flag}</span>}
+          <RowMenu label={`Actions for ${hit.title}`} actions={[
+            { label: "Open", onSelect: () => onOpen(hit.doc_id) },
+            { label: "Add to collection", onSelect: () => setAdding(true) },
+            copyAction("Copy title", hit.title),
+          ]} />
         </div>
         <div className="hits">
           {hit.passages.map((p) => (
@@ -53,6 +62,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           />
         </div>
       </div>
+      {adding && <AddToCollectionDialog docId={hit.doc_id} open onOpenChange={setAdding} />}
     </li>
   );
 }

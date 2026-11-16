@@ -1,5 +1,6 @@
 import { BellOff } from "lucide-react";
 import { useState } from "react";
+import { RowMenu } from "@/components/RowMenu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMarkRead, useNotificationList } from "./api";
@@ -31,7 +32,15 @@ export function NotificationsPage() {
         : !items.length ? <div className="empty"><BellOff aria-hidden /><p>{unreadOnly ? "No unread notifications." : "No notifications yet."}</p></div>
         : (
           <ul className="ntfy">
-            {items.map((n) => <li key={n.id}><NotificationRow n={n} onOpen={openOne} /></li>)}
+            {items.map((n) => (
+              <li key={n.id} className="nli">
+                <NotificationRow n={n} onOpen={openOne} />
+                <RowMenu label="Notification actions" actions={[
+                  { label: "Open", onSelect: () => openOne(n) },
+                  ...(n.read_at ? [] : [{ label: "Mark as read", onSelect: () => mark.mutate({ ids: [n.id] }) }]),
+                ]} />
+              </li>
+            ))}
           </ul>
         )}
       {hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}

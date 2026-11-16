@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
-import { lazy, Suspense, useEffect } from "react";
+import { BookOpen, FolderPlus, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiFetch, seg } from "@/api/client";
 import { CiteLine } from "@/components/CiteLine";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AddToCollectionDialog } from "@/features/library/AddToCollection";
 import { VoteControl } from "@/features/library/VoteControl";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
@@ -24,6 +25,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const cited = useCitedBy(tab.docId).data;
   const notes = useNotes(tab.docId).data;
   const adding = notesUi.use((s) => s.adding === tab.docId);
+  const [collecting, setCollecting] = useState(false);
   const navigate = useNavigate();
   const onAskRoute = useLocation({ select: (l) => l.pathname === "/ask" || l.pathname.startsWith("/ask/") });
 
@@ -68,6 +70,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
             brief: `Goal: work with “${d.title}”. I'm reading page ${tab.page} of version ${version}.`,
             summary: "Hands this document to an agent, with its notes, references and cited-by links.",
           })} />
+          <Button onClick={() => setCollecting(true)}><FolderPlus aria-hidden />Add to collection</Button>
           <Button
             aria-pressed={adding} disabled={!adding && version !== latest}
             title={version !== latest ? "Switch to the latest version to anchor a note" : "Then click a passage on the page"} onClick={() => {
@@ -85,6 +88,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           </TabsList>
         </Tabs>
       </div>
+      {collecting && <AddToCollectionDialog docId={d.id} open onOpenChange={setCollecting} />}
       {view === "doc" && (
         <Suspense fallback={<div className="pages"><p className="sub" role="status">Loading document…</p></div>}>
           <PdfView key={`${d.id}:${version}`} tab={tab} version={version} />

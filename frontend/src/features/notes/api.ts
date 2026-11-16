@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type { Note, NoteIn, NotePatch, NoteVotes, ReportReason } from "@/api/notes";
 import type { Bbox } from "@/api/types";
 import { createStore } from "@/lib/store";
@@ -13,7 +13,7 @@ export const useNotes = (docId: string) =>
 /** Every note write refreshes the document's list and search results (note hits) (re-anchoring, reply visibility and votes all come from the server). */
 function useNoteMutation<V, R>(docId: string, fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: fn, onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(docId) }), qc.invalidateQueries({ queryKey: ["search"] })]) });
+  return useMutation({ meta: QUIET, mutationFn: fn, onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(docId) }), qc.invalidateQueries({ queryKey: ["search"] })]) });
 }
 
 export const useCreateNote = (docId: string) =>
@@ -35,6 +35,7 @@ export const reportNote = (id: string, reason: ReportReason) =>
 export function useVoteNote(docId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ id, value }: { id: string; value: 1 | -1 | 0 }) => apiFetch<NoteVotes>(`/annotations/${seg(id)}/vote`, { method: "PUT", json: { value } }),
     onSuccess: (votes, { id }) => qc.setQueryData<Note[]>(key(docId), (old) => old?.map((n) => (n.id === id ? { ...n, votes } : n))),
   });

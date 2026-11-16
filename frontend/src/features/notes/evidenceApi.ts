@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { API_BASE, ApiError, apiFetch, auth, authedFetch, errorOf, seg } from "@/api/client";
+import { API_BASE, ApiError, apiFetch, auth, authedFetch, errorOf, seg, QUIET } from "@/api/client";
 import type { Evidence, EvidenceMeta, ReproOutcome } from "@/api/notes";
 
 const key = (noteId: string) => ["evidence", noteId];
@@ -20,6 +20,7 @@ export const useEvidence = (noteId: string, enabled = true) =>
 function useEvidenceMutation<V, R>(noteId: string, docId: string, fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: fn,
     onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: key(noteId) }), qc.invalidateQueries({ queryKey: ["notes", docId] }), qc.invalidateQueries({ queryKey: ["search"] })]),
   });

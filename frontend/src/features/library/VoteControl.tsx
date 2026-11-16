@@ -21,8 +21,9 @@ export function VoteControl({ docId, votes, row, candidates = [] }: { docId: str
   const score = votes.up - votes.down;
   const reasons = candidates.length ? REASONS : REASONS.filter((r) => r.id !== "superseded");
 
-  const send = (value: 1 | -1 | 0, reason?: DownvoteReason, superseded_by?: string) => {
-    vote.mutate({ value, reason, superseded_by });
+  /** `thanks` is toasted only once the server accepted the vote. */
+  const send = (value: 1 | -1 | 0, reason?: DownvoteReason, superseded_by?: string, thanks?: string) => {
+    vote.mutate({ value, reason, superseded_by }, { onSuccess: () => thanks && toast(thanks) });
     setMenu(null);
   };
 
@@ -48,7 +49,7 @@ export function VoteControl({ docId, votes, row, candidates = [] }: { docId: str
               <select className="sel" aria-label="Replacing document" value={target} onChange={(e) => setTarget(e.target.value)}>
                 {candidates.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
               </select>
-              <button role="menuitem" onClick={() => { send(-1, "superseded", target); toast("Marked “Superseded”. Thanks."); }}>Confirm</button>
+              <button role="menuitem" onClick={() => send(-1, "superseded", target, "Marked “Superseded”. Thanks.")}>Confirm</button>
             </>
           ) : (
             <>
@@ -58,8 +59,7 @@ export function VoteControl({ docId, votes, row, candidates = [] }: { docId: str
                   key={id} role="menuitem"
                   onClick={() => {
                     if (id === "superseded") { setTarget(candidates[0]?.id ?? ""); setMenu("pick"); return; }
-                    send(-1, id);
-                    toast(`Marked “${label}”. Thanks.`);
+                    send(-1, id, undefined, `Marked “${label}”. Thanks.`);
                   }}
                 >
                   <Icon aria-hidden />{label}

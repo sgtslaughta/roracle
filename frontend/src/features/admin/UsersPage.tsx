@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useDebounced } from "@/lib/useDebounced";
 import { fmtTime } from "./ConnectorsPage";
 import { USERS_PAGE, useGroups, useRevokePats, useUsers } from "./dataApi";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const GROUPS_SHOWN = 50;
 
@@ -20,7 +21,10 @@ function Groups() {
       <h2>Groups</h2>
       {!data.length && <p className="sub">No groups.</p>}
       <ul className="plain">
-        {data.slice(0, GROUPS_SHOWN).map((g) => <li key={g.group}>{g.group} <small className="sub">{g.members} {g.members === 1 ? "member" : "members"}</small></li>)}
+        {data.slice(0, GROUPS_SHOWN).map((g) => <li key={g.group} className="rowline">
+          <span>{g.group} <small className="sub">{g.members} {g.members === 1 ? "member" : "members"}</small></span>
+          <RowMenu label={`Actions for group ${g.group}`} actions={[copyAction("Copy group name", g.group)]} />
+        </li>)}
       </ul>
       {data.length > GROUPS_SHOWN && <p className="sub">Showing {GROUPS_SHOWN} of {data.length} groups.</p>}
     </section>
@@ -67,7 +71,10 @@ export function UsersPage() {
                   </td>
                   <td>{u.is_admin ? "Yes" : "No"}</td>
                   <td>{u.last_login_at ? fmtTime(u.last_login_at) : "–"}</td>
-                  <td><Button variant="ghost" aria-label={`Revoke tokens for ${u.username}`} onClick={() => ask(u)}>Revoke tokens</Button></td>
+                  <td>
+                    <Button variant="ghost" aria-label={`Revoke tokens for ${u.username}`} onClick={() => ask(u)}>Revoke tokens</Button>
+                    <RowMenu kebab={false} label={`Actions for ${u.username}`} actions={[copyAction("Copy username", u.username), { label: "Revoke tokens", danger: true, onSelect: () => ask(u) }]} />
+                  </td>
                 </tr>
               ))}
             </tbody>

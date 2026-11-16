@@ -12,6 +12,9 @@ import type { DataState } from "./adminData";
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
   extraTags: Record<string, string[]>;
+  /** collections created in the mock, and docs added to any collection (id -> doc ids) */
+  newCollections: { id: string; name: string }[];
+  collItems: Record<string, string[]>;
   removedTags: Record<string, string[]>;
   versions: Record<string, number>;
   uploads: MockUpload[];
@@ -43,6 +46,8 @@ const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admi
 const fresh = (): MockState => ({
   votes: {},
   extraTags: {},
+  newCollections: [],
+  collItems: {},
   removedTags: {},
   versions: Object.fromEntries(DOCS.map((d) => [d.id, d.ver])),
   uploads: seedUploads(),

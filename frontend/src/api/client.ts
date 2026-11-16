@@ -11,6 +11,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Mutation `meta` that opts out of the global error toast (the caller reports the failure itself). */
+export const QUIET = { quiet: true } as const;
+
+/** Readable text for any thrown value. */
+export const errorText = (e: unknown) => (e instanceof ApiError ? e.message : "That didn't work. Try again.");
+
 /** Thrown instead of sending a request once a sign-in redirect has started. */
 export class SignInInProgress extends Error {
   constructor() { super("Redirecting to sign in"); this.name = "SignInInProgress"; }

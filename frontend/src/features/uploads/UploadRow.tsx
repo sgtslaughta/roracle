@@ -1,3 +1,5 @@
+import { copyAction, RowMenu } from "@/components/RowMenu";
+import { openDoc } from "@/features/reader/useReaderStore";
 import { humanBytes } from "@/lib/bytes";
 import { Check, CircleAlert, FileText, FileType2, Globe, GitCompare, Loader, Lock, Pencil, Users } from "lucide-react";
 import type { UploadItem } from "@/api/types";
@@ -30,7 +32,13 @@ export function UploadRow({ u }: { u: UploadItem }) {
         {STAGE_LABELS.map((l, i) => <div key={l} className={cn(i < done ? "ok" : i === done ? CELL[st] : "")}>{l}</div>)}
       </div>
       <span><span className={cn("pill", st)}><Pill aria-hidden />{PILL[st]}</span></span>
-      <span className="vis"><Vis aria-hidden />{VIS_LABEL[u.visibility]}</span>
+      <span className="vis">
+        <Vis aria-hidden />{VIS_LABEL[u.visibility]}
+        <RowMenu label={`Actions for ${u.title ?? u.filename}`} actions={[
+          ...(st === "done" ? [{ label: "Open document", onSelect: () => openDoc(u.document_id) }] : []),
+          copyAction("Copy filename", u.filename),
+        ]} />
+      </span>
       {st === "failed" && (
         <div className="tdet failed"><span className="msg"><CircleAlert aria-hidden />{u.error ?? "Processing failed."}</span></div>
       )}

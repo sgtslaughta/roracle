@@ -38,7 +38,21 @@ export const handlers = [
     return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
   }),
   http.get(url("/collections"), () => {
-    return HttpResponse.json(COLLECTION_NAMES.map((name, i): Collection => ({ id: `c${i + 1}`, name, count: DOCS.filter((d) => d.collections.includes(name)).length })));
+    const all = [...COLLECTION_NAMES.map((name, i) => ({ id: `c${i + 1}`, name })), ...state.newCollections];
+    return HttpResponse.json(all.map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name)).length + (state.collItems[id]?.length ?? 0) })));
+  }),
+  http.post(url("/collections"), async ({ request }) => {
+    const name = String(((await request.json()) as { name?: string }).name ?? "").trim();
+    if (!name) return HttpResponse.json({ detail: "name required" }, { status: 422 });
+    const c = { id: `n${state.newCollections.length + 1}`, name };
+    state.newCollections.push(c);
+    return HttpResponse.json({ ...c, count: 0 }, { status: 201 });
+  }),
+  http.put(url("/collections/:cid/items/:doc"), ({ params }) => {
+    const cid = String(params.cid);
+    const ids = (state.collItems[cid] ??= []);
+    if (!ids.includes(String(params.doc))) ids.push(String(params.doc));
+    return HttpResponse.json({ id: cid, count: ids.length });
   }),
   http.get(url("/documents/:id"), ({ params }) => {
     const d = detail(String(params.id));

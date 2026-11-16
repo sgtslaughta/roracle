@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, apiFetch, seg } from "@/api/client";
+import { ApiError, apiFetch, seg, QUIET } from "@/api/client";
 import type { DuplicateDetail, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
 
 const TERMINAL_STAGES = ["searchable", "review", "needs_title", "rejected", "cancelled"];
@@ -26,6 +26,7 @@ export const isDuplicate = (e: unknown): e is ApiError & { detail: DuplicateDeta
 export function useUpload() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ file, force }: { file: File; force?: boolean }) => {
       const form = new FormData();
       form.append("file", file);
@@ -48,6 +49,7 @@ export function useNearDup() {
 export function useSetTitle() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ documentId, versionId, title }: { documentId: string; versionId: string; title: string }) =>
       apiFetch<TitleResult>(`/documents/${seg(documentId)}/versions/${seg(versionId)}/title`, { method: "PUT", json: { title } }),
     onSuccess: () => {

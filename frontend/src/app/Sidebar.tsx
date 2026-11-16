@@ -1,7 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 import { useChats } from "@/features/ask/api";
 import { useCollections } from "@/features/library/api";
 import { useUploadAttention } from "@/features/uploads/api";
@@ -11,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { NAV } from "./nav";
 
 export function Sidebar() {
+  const navigate = useNavigate();
   const { data: collections } = useCollections();
   const { data: chats, hasNextPage, isFetchingNextPage, fetchNextPage } = useChats();
   const { data: me } = useMe();
@@ -71,10 +73,16 @@ export function Sidebar() {
             footer={hasNextPage && <Button variant="ghost" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>Load more</Button>}
             getLabel={(c) => c.title} moreLabel={(k) => `+${k} more`}
             renderItem={(c) => (
-              <Link key={c.id} to="/ask/$chatId" params={{ chatId: c.id }} title={c.title} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
-                <MessageCircle aria-hidden />
-                <span>{c.title}</span>
-              </Link>
+              <div key={c.id} className="rowline" data-row>
+                <Link to="/ask/$chatId" params={{ chatId: c.id }} title={c.title} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
+                  <MessageCircle aria-hidden />
+                  <span>{c.title}</span>
+                </Link>
+                <RowMenu label={`Actions for chat ${c.title}`} actions={[
+                  { label: "Open", onSelect: () => void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }) },
+                  copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
+                ]} />
+              </div>
             )}
           />
           <Link to="/ask" activeOptions={{ exact: true }} activeProps={{ "aria-current": "page" }} inactiveProps={{ "aria-current": undefined }}>
@@ -90,10 +98,16 @@ export function Sidebar() {
             <OverflowList
               items={collections} max={6} layout="stack" menuLabel="More collections" getLabel={(c) => c.name} moreLabel={(k) => `+${k} more`}
               renderItem={(c) => (
-                <Link key={c.id} to="/library" search={{ collection: [c.id] }} title={c.name}>
-                  <Folder aria-hidden />
-                  <span>{c.name}</span>
-                </Link>
+                <div key={c.id} className="rowline" data-row>
+                  <Link to="/library" search={{ collection: [c.id] }} title={c.name}>
+                    <Folder aria-hidden />
+                    <span>{c.name}</span>
+                  </Link>
+                  <RowMenu label={`Actions for collection ${c.name}`} actions={[
+                    { label: "Show in Library", onSelect: () => void navigate({ to: "/library", search: { collection: [c.id] } }) },
+                    copyAction("Copy name", c.name),
+                  ]} />
+                </div>
               )}
             />
           </nav>

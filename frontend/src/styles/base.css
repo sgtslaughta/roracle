@@ -16,7 +16,7 @@ h1 { font: 600 22px/1.25 var(--f-read); margin: 0; text-wrap: balance; }
 .sub { color: var(--muted); margin: 2px 0 0; }
 .vis { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12.5px; }
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 12px; }
-.empty svg.lucide { width: 28px; height: 28px; margin-bottom: 6px; }
+.empty svg.lucide { display: block; width: 28px; height: 28px; margin: 0 auto 6px; }
 .empty p { margin: 0 auto; max-width: 52ch; }
 .sel { height: 32px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 0 8px; font-size: 13px; }
 .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; border: 0; background: none; color: var(--muted); position: relative; }
@@ -53,3 +53,15 @@ button.badge-o:hover { border-color: var(--apricot); color: var(--primary); }
 .chipmenu button:hover { background: var(--muted-bg); }
 .more-row { list-style: none; text-align: center; }
 .nav .ovl-stack { gap: 0; }
+/* RowMenu: kebab + right-click menu on list rows */
+.rowmenu { display: inline-flex; flex: none; }
+.rowmenu.ctx { width: 0; overflow: hidden; }
+.rowmenu-btn { width: 28px; height: 28px; }
+.chipmenu button.danger { color: var(--terra); }
+.rowline { display: flex; align-items: center; min-width: 0; }
+.rowline > :first-child { flex: 1; min-width: 0; }
+.rowline .rowmenu-btn { opacity: 0; }
+.rowline:hover .rowmenu-btn, .rowline:focus-within .rowmenu-btn, .rowline .rowmenu-btn[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .rowline .rowmenu-btn { opacity: 1; } }
+.nav .rowmenu-btn { width: 28px; padding: 0; flex: none; }
+.vis .rowmenu { margin-left: auto; }

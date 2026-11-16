@@ -1,16 +1,20 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
+import { Button } from "@/components/ui/button";
 import { isDuplicate, useUploads, useUpload } from "./api";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { FILTERS, inFilter, MAX_UPLOAD_BYTES, type FilterKey } from "./status";
 import { UploadRow } from "./UploadRow";
 
+const PAGE = 25;
+
 export function UploadsPage() {
   const { data } = useUploads();
   const upload = useUpload();
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [shown, setShown] = useState(PAGE);
   const [dups, setDups] = useState<File[]>([]);
   const items = data?.items ?? [];
   const count = (k: FilterKey) => items.filter((u) => inFilter(u, k)).length;
@@ -42,15 +46,16 @@ export function UploadsPage() {
         </div>
         <div className="seg" role="group" aria-label="Filter uploads">
           {FILTERS.map(([k, l]) => (
-            <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}<span className="n">{count(k)}</span></button>
+            <button key={k} aria-pressed={filter === k} onClick={() => { setFilter(k); setShown(PAGE); }}>{l}<span className="n">{count(k)}</span></button>
           ))}
         </div>
       </div>
       <DropZone onFiles={onFiles} />
       <div className="tbl">
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>
-        {rows.map((u) => <UploadRow key={u.version_id} u={u} />)}
+        {rows.slice(0, shown).map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}
+        {rows.length > shown && <Button onClick={() => setShown((n) => n + PAGE)}>Show more ({rows.length - shown} hidden)</Button>}
       </div>
       <DuplicateDialog
         file={dups[0] ?? null}
