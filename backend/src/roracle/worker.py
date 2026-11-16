@@ -58,8 +58,9 @@ def ensure_active_index(settings, sf) -> None:
         with sf() as s:
             eff = runtime.effective(s, settings)
         search_index.ensure_index(
-            clients.es(settings), eff.embed_model, eff.embed_dims, name=search_index.active_index(eff)
-        )
+            clients.es(settings), eff.embed_model, eff.embed_dims, settings.read_alias,
+            search_index.active_index(eff), session_factory=sf, settings=settings,
+        )  # fmt: skip
     except Exception:
         log.exception("could not ensure the active search index at startup")
 

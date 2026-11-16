@@ -154,16 +154,22 @@ def _index(
     tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
     sv = from_bytes(v.summary_embedding).tolist() if v.summary_embedding else None
+    backfill = False
     runtime.assert_embedding_unchanged(
         session, settings
     )  # before any write: a cutover cleared summary vectors
     if (sv is None or len(sv) != settings.embed_dims) and (v.summary or "").strip():
         sv = embed(llm, settings.embed_model, [doc_prompt(title, v.summary)], settings.embed_dims)[0]
-        update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
+        backfill = True
     elif sv is not None and len(sv) != settings.embed_dims:
         sv = None
     runtime.assert_embedding_unchanged(session, settings)  # cutover during the backfill embed: stale
-    search_index.ensure_index(es, settings.embed_model, settings.embed_dims, name=index)
+    if backfill:  # persisted only after the guard: a retry never reuses an old-model vector (R2-m1)
+        update_version(sf, v.id, summary_embedding=to_bytes(sv))  # lazy backfill (R9)
+    search_index.ensure_index(
+        es, settings.embed_model, settings.embed_dims, settings.read_alias, index,
+        session_factory=sf, settings=settings,
+    )  # fmt: skip
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
         summary_vector=sv, prompt_shas=shas, index=index,

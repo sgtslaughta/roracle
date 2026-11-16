@@ -85,3 +85,24 @@ def test_summary_backfill_does_not_write_old_model_vector(
     db_session.expire_all()
     got = db_session.get(DocumentVersion, v.id)
     assert got.summary_embedding is None and got.stage != "searchable"  # guard fired before the backfill
+
+
+def test_summary_backfill_persisted_only_after_second_guard(
+    db_session, session_factory, cfg, store, es, user, new_index
+):
+    v = make_version(db_session, store, user, title="T")
+    _stage(db_session, store, v, summary="Sum A.", summary_embedding=None)
+
+    class CutoverAfterSummary(ModelLLM):
+        def _embed(self, model, input):
+            out = super()._embed(model, input)
+            if len(self.models) == 2:  # chunk embed done, this is the summary backfill: cutover lands now
+                with session_factory() as s:
+                    runtime.set_active_embedding(s, "cut-model", 4, new_index)
+                    s.commit()
+            return out
+
+    _run(session_factory, cfg, store, es, CutoverAfterSummary(cfg.embed_dims), v)
+    db_session.expire_all()
+    got = db_session.get(DocumentVersion, v.id)
+    assert got.summary_embedding is None and got.stage != "searchable"  # old-model vector never persisted

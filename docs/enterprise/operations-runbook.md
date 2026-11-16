@@ -65,7 +65,7 @@ changes made during a re-embed reach both generations. Search and ingest use the
    (builds the next generation).
 3. Follow `GET /admin/reindex` (`running.phase`: `copy` -> `cutover` -> `catchup`, `copied`/`total`). Search keeps
    using the old index until cutover; ingest during the copy keeps writing to the old index.
-4. Cutover is one atomic alias swap plus persisting the active model. It also nulls `document_versions.summary_embedding`
+4. Cutover: slow cleanup first, then (under an advisory lock) persist the active model and do one atomic alias swap as the last ES step. `ensure_index` (ingest, worker start) moves `chunks` only to the Postgres-active index, so a stale worker never pulls it back; catch-up fails loudly if `chunks` drifts. It also nulls `document_versions.summary_embedding`
    when the model or dims changed (derived cache; re-created on re-ingest; near-duplicate summary matching is skipped
    for those versions meanwhile) and queues `reconcile_tags` (ACL/tags of every live document re-pushed from Postgres).
 5. Two catch-up passes (300 s apart) copy chunks that reached the old index meanwhile. Ingests that straddle the

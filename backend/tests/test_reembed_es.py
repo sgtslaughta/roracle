@@ -26,21 +26,28 @@ def cfg(settings):
             "embed_dims": DIMS,
             "llm_base_url": "http://localhost:21434/v1",
             "rerank_url": "",
+            "read_alias": f"chunks-test-{uuid.uuid4().hex[:8]}",  # never touch the shared `chunks` alias
         }
     )
+
+
+def _holders(c):
+    return set(c.indices.get_alias(name="chunks")) if c.indices.exists_alias(name="chunks") else set()
 
 
 @pytest.fixture
 def es(cfg):
     c = Elasticsearch(cfg.elastic_url)
+    shared = _holders(c)
     yield c
+    assert _holders(c) == shared  # the shared dev-ES read alias was never touched (R2-m2)
     c.indices.delete(index=[index_name(MODEL, 1), index_name(MODEL, 2)], ignore_unavailable=True)
     c.close()
 
 
 def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user, blob):
     llm = clients.llm(cfg)
-    ensure_index(es, MODEL, DIMS)
+    ensure_index(es, MODEL, DIMS, cfg.read_alias)
     d = Document(owner_id=user.id, title="Quokka", visibility="everyone", org_unit="/")
     db_session.add(d)
     db_session.flush()
@@ -77,9 +84,7 @@ def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user,
         es.indices.refresh(index=index_name(MODEL, 2))
     gen2 = index_name(MODEL, 2)
     assert es.count(index=gen2)["count"] == 2
-    assert set(es.indices.get_alias(name="chunks")) >= {gen2} and index_name(
-        MODEL, 1
-    ) not in es.indices.get_alias(name="chunks")
+    assert set(es.indices.get_alias(name=cfg.read_alias)) == {gen2}
     eff = runtime.effective(db_session, cfg)
     assert search_index.active_index(eff) == gen2
     hits = search(eff)

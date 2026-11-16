@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 from elasticsearch import Elasticsearch, NotFoundError, helpers
 from elasticsearch.exceptions import BadRequestError
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session, sessionmaker
 
+from roracle import runtime
 from roracle.models import Document, DocumentShare, DocumentVersion
 from roracle.queue import NonRetryable
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeli
     from roracle.ingest.chunking import Chunk
 
 ALIAS = "chunks"  # read alias: exactly one (the active) index
+ALIAS_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('reembed-alias', 0))"  # cutover vs ensure_index
 MUTATE_ALIAS = "chunks-all"  # every live generation: ALL update_by_query / delete_by_query go here
 
 
@@ -72,23 +74,23 @@ def _mapping(dims: int) -> dict[str, Any]:
     }
 
 
-def _adopt_plain_index(es: Elasticsearch, name: str, dims: int) -> None:
+def _adopt_plain_index(es: Elasticsearch, name: str, dims: int, alias: str = ALIAS) -> None:
     """A concrete index called `chunks` (pre-alias deployment) blocks the read alias: copy it into `name`,
     then drop it and add both aliases in ONE atomic update_aliases. Idempotent (same `_id`s)."""
-    if not es.indices.exists(index=ALIAS) or es.indices.exists_alias(name=ALIAS):
+    if not es.indices.exists(index=alias) or es.indices.exists_alias(name=alias):
         return
     if not es.indices.exists(index=name):
         es.indices.create(index=name, mappings=_mapping(dims))
     r = (
-        es.reindex(source={"index": ALIAS}, dest={"index": name}, refresh=True, wait_for_completion=True)
+        es.reindex(source={"index": alias}, dest={"index": name}, refresh=True, wait_for_completion=True)
         or {}
     )
     if r.get("failures"):
         raise RuntimeError(f"legacy reindex failed: {r['failures'][:1]}")
     es.indices.update_aliases(
         actions=[
-            {"remove_index": {"index": ALIAS}},
-            {"add": {"index": name, "alias": ALIAS}},
+            {"remove_index": {"index": alias}},
+            {"add": {"index": name, "alias": alias}},
             {"add": {"index": name, "alias": MUTATE_ALIAS}},
         ]
     )
@@ -101,14 +103,44 @@ def _holders(es: Elasticsearch, alias: str) -> list[str]:
         return []
 
 
+def _point_read_alias(
+    es: Elasticsearch, name: str, alias: str, sf: sessionmaker[Session] | None, settings: Any
+) -> None:
+    """Make `alias` (exclusive) point at `name`. With `sf`, only when `name` is the active index persisted in
+    Postgres, read fresh under the cutover's advisory lock: a stale worker never moves it back (S5)."""
+    if es.indices.exists_alias(name=alias, index=name):
+        return
+
+    def move() -> None:
+        es.indices.update_aliases(
+            actions=[
+                *({"remove": {"index": i, "alias": alias}} for i in _holders(es, alias)),
+                {"add": {"index": name, "alias": alias}},
+            ]
+        )
+
+    if sf is None:
+        return move()
+    with sf() as s:
+        s.execute(text(ALIAS_LOCK))  # held until this session closes (rollback)
+        if active_index(runtime.effective(s, settings)) == name:
+            move()
+
+
 def ensure_index(
-    es: Elasticsearch, model: str, dims: int, alias: str = ALIAS, name: str | None = None
+    es: Elasticsearch,
+    model: str,
+    dims: int,
+    alias: str = ALIAS,
+    name: str | None = None,
+    *,
+    session_factory: sessionmaker[Session] | None = None,
+    settings: Any = None,
 ) -> str:
-    """Create the (active) index and its aliases if absent. Idempotent and race-safe.
-    Only ever call with the ACTIVE index: it (re)adds the read alias."""
+    """Create the index and add it to `chunks-all`. The read alias is (re)pointed here only when no
+    `session_factory` is given (tests) or `name` is the Postgres-persisted active index."""
     name = name or index_name(model)
-    if alias == ALIAS:
-        _adopt_plain_index(es, name, dims)
+    _adopt_plain_index(es, name, dims, alias)
     if not es.indices.exists(index=name):
         try:
             es.indices.create(index=name, mappings=_mapping(dims))
@@ -128,15 +160,9 @@ def ensure_index(
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
-    actions: list[dict[str, Any]] = []
-    for a in dict.fromkeys((alias, MUTATE_ALIAS)):
-        if es.indices.exists_alias(name=a, index=name):
-            continue
-        if a == ALIAS:  # the read alias is exclusive: never behind two indices
-            actions += [{"remove": {"index": i, "alias": a}} for i in _holders(es, a)]
-        actions.append({"add": {"index": name, "alias": a}})
-    if actions:
-        es.indices.update_aliases(actions=actions)  # one atomic call
+    if not es.indices.exists_alias(name=MUTATE_ALIAS, index=name):
+        es.indices.update_aliases(actions=[{"add": {"index": name, "alias": MUTATE_ALIAS}}])
+    _point_read_alias(es, name, alias, session_factory, settings)
     return name
 
 

@@ -9,7 +9,8 @@ copy     scan the active index by `chunk_id` (search_after), re-embed, bulk (ref
          deleted docs / purged versions are skipped. After the write the batch is re-verified against
          Postgres and the source: deletes, ACL/tag changes, stale chunks and is_latest that raced the copy are
          converged (later mutations reach the target themselves through `chunks-all`)
-cutover  ONE `update_aliases` call swaps `chunks`, then the active model is persisted (old stays in chunks-all)
+cutover  slow cleanup first, then under an advisory lock: persist the active model + ONE `update_aliases` swap of
+         `chunks` (the last ES step; old stays in chunks-all). ensure_index never moves `chunks` off the PG-active index
 catchup  twice, 300 s apart: copy chunks present in the old index but missing in the target (ingest races)
 """
 
@@ -29,7 +30,7 @@ from roracle.ingest.embed import doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
 from roracle.models import DocumentVersion, Job
 from roracle.queue import enqueue
-from roracle.search_index import ALIAS, MUTATE_ALIAS
+from roracle.search_index import MUTATE_ALIAS
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def drop_old(session: Session, es: Elasticsearch, settings: Settings) -> list[st
     """Delete every generation in `chunks-all` except the active one (Postgres = authority). Refuses unless the
     read alias points at exactly the active index: otherwise 'old' could be the live index."""
     active = search_index.active_index(runtime.effective(session, settings))
-    if _alias_indices(es, ALIAS) != {active}:
+    if _alias_indices(es, settings.read_alias) != {active}:
         raise AliasMismatch
     old = _old(session, es, settings)
     if old:
@@ -234,8 +235,10 @@ def _verify(es, sf, index: str, source: str, hits: list[dict], acls: dict) -> No
             search_index.mark_previous_versions(es, doc_id, n)
 
 
-def _scan(session: Session, payload: dict, es, llm, sf) -> None:
+def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> None:
     phase, target, src = payload["phase"], payload["target"], payload["source"]
+    if phase == "catchup" and _alias_indices(es, settings.read_alias) != {target["index"]}:
+        raise AliasMismatch  # read alias drifted after cutover: fail loudly, never copy blindly
     _ensure_target(es, target)
     if payload["total"] is None:
         payload["total"] = es.count(index=src)["count"]
@@ -272,18 +275,19 @@ def _scan(session: Session, payload: dict, es, llm, sf) -> None:
 
 
 def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> None:
-    target, src = payload["target"], payload["source"]
-    if _alias_indices(es, ALIAS) != {target["index"]}:  # idempotent on a re-run after a crash
+    target, src, alias = payload["target"], payload["source"], settings.read_alias
+    before = runtime.effective(session, settings)
+    if (before.embed_model, before.embed_dims) != (target["model"], target["dims"]):
+        clear_summary_embeddings(sf)  # slow, derived cache of the old model: BEFORE the swap (R2-I)
+    session.execute(text(search_index.ALIAS_LOCK))  # until job commit: ensure_index waits, then reads PG
+    runtime.set_active_embedding(session, target["model"], target["dims"], target["index"])
+    if _alias_indices(es, alias) != {target["index"]}:  # last ES step; idempotent on a re-run after a crash
         es.indices.update_aliases(
             actions=[
-                {"remove": {"index": src, "alias": ALIAS}},
-                {"add": {"index": target["index"], "alias": ALIAS}},
+                {"remove": {"index": src, "alias": alias}},
+                {"add": {"index": target["index"], "alias": alias}},
             ]
         )
-    before = runtime.effective(session, settings)
-    runtime.set_active_embedding(session, target["model"], target["dims"], target["index"])
-    if (before.embed_model, before.embed_dims) != (target["model"], target["dims"]):
-        clear_summary_embeddings(sf)  # derived cache of the old model; lazy backfill on re-ingest
     enqueue(session, "reconcile_tags", {})  # converge ACL/tags of every document from Postgres
     enqueue(
         session,
@@ -306,4 +310,4 @@ def handle_reembed(
     if payload["phase"] == "cutover":
         _cutover(session, payload, es, settings, session_factory)
     else:
-        _scan(session, payload, es, llm, session_factory)
+        _scan(session, payload, es, llm, session_factory, settings)
