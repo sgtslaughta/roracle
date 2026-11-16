@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from roracle import runtime, search_index
 from roracle.acl_sync import read_acl
 from roracle.config import Settings
-from roracle.ingest.embed import doc_prompt, embed, prompt_sha
+from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
 from roracle.models import DocumentVersion, Job
 from roracle.models_eval import EvalSet
@@ -176,10 +176,11 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str) -> None:
             ).all()
         )
     prompts = [
-        doc_prompt(
+        chunk_prompt(
             x["title"],
             "\n".join([*(x.get("headings") or []), x["text"]]),  # = Chunk.contextual
             summaries.get(_uuid(x["version_id"])),
+            x.get("context"),  # copied from the source chunk: the note is never regenerated here
         )
         for x in srcs
     ]

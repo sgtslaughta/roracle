@@ -67,6 +67,7 @@ def _mapping(dims: int) -> dict[str, Any]:
             "year": {"type": "integer"},
             "text": {"type": "text", "analyzer": "english"},
             "headings": {"type": "text", "analyzer": "english"},
+            "context": {"type": "text", "analyzer": "english"},
             "pages": {"type": "integer"},
             "bboxes": {"type": "object", "enabled": False},
             "embedding_model": kw,
@@ -161,7 +162,7 @@ def ensure_index(
     missing = {
         f: t
         for f, t in _mapping(dims)["properties"].items()
-        if f not in props and t["type"] in ("keyword", "dense_vector")
+        if f not in props and (t["type"] in ("keyword", "dense_vector") or f == "context")
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
@@ -212,6 +213,7 @@ def index_chunks(
     summary_vector: list[float] | None = None,
     prompt_shas: list[str] | None = None,
     index: str | None = None,
+    contexts: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -242,6 +244,7 @@ def index_chunks(
                 "bboxes": c.bboxes,
                 "embedding": v,
                 **({"prompt_sha": prompt_shas[i]} if prompt_shas else {}),
+                **({"context": contexts[i]} if contexts and contexts[i] else {}),
                 **({"summary_embedding": summary_vector} if c.n == 0 and summary_vector else {}),
             },
         }

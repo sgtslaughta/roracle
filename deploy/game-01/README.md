@@ -25,3 +25,20 @@ Timeout (`ROR_RERANK_TIMEOUT_S`, 3 s), HTTP error or malformed reply: fused orde
 
 ## Fallback server
 llama.cpp `/v1/rerank` with `ROR_RERANK_API=cohere` (no adapter needed).
+
+## Context-note model (LLM contextual chunk notes, P13 T5)
+Notes are one LLM call per chunk with the whole document (up to `ROR_CONTEXT_DOC_CHARS`, 24000) in a stable
+prefix, so the Ollama model needs `num_ctx >= 16384` (the default 4096 silently truncates the document).
+Create a variant on game-01 (operator step; the app only references it by name):
+```
+cat > Modelfile.roracle-context <<'M'
+FROM qwen2.5:14b
+PARAMETER num_ctx 16384
+PARAMETER temperature 0
+M
+ollama create roracle-context -f Modelfile.roracle-context
+```
+Then `ROR_CONTEXT_MODEL=roracle-context` (unset = feature off; `ROR_CONTEXT_NOTES` stays `false` until the
+gate in `docs/eval/2026-11-context-notes.md` is PASS). Build the A/B shadow index with
+`roracle rebuild --what context --into chunks-<slug>-shadow`; drop it with `roracle rebuild --drop <name>`.
+`exclude_llm` documents never reach this model (heading path instead).

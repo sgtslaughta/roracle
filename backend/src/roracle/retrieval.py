@@ -206,7 +206,9 @@ def search_chunks(
         query={
             "bool": {
                 "filter": flt,
-                "must": [{"multi_match": {"query": query, "fields": ["text^1", "title^2", "headings"]}}],
+                "must": [
+                    {"multi_match": {"query": query, "fields": ["text^1", "title^2", "headings", "context"]}}
+                ],
             }
         },
         highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},

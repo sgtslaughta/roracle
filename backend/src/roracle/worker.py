@@ -10,6 +10,7 @@ from roracle.db import make_session_factory
 from roracle.eval.generate import handle_eval_generate
 from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
+from roracle.ingest.rebuild import handle_rebuild_units, handle_rebuild_watch
 from roracle.maintenance import ensure_maintenance, handle_maintenance, handle_reconcile_tags
 from roracle.notes.evidence import handle_evidence_scan
 from roracle.queue import Handler, run_forever
@@ -54,6 +55,15 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         "eval_generate": partial(
             handle_eval_generate, settings=settings, es=clients.es(settings), llm=clients.llm(settings)
         ),
+        "rebuild_units": partial(
+            handle_rebuild_units,
+            settings=settings,
+            store=blob_store_from(settings),
+            es=clients.es(settings),
+            llm=clients.llm(settings),
+            session_factory=session_factory,
+        ),
+        "rebuild_watch": partial(handle_rebuild_watch, settings=settings),
         "reembed": partial(
             handle_reembed,
             settings=settings,

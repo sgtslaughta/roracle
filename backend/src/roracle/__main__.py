@@ -37,6 +37,9 @@ def main(argv: list[str] | None = None) -> None:
     from roracle.eval.cli import add_parser
 
     add_parser(sub)
+    from roracle.ingest.rebuild_cli import add_parser as add_rebuild
+
+    add_rebuild(sub)
     args = p.parse_args(argv)
 
     if args.cmd == "api":
@@ -47,6 +50,10 @@ def main(argv: list[str] | None = None) -> None:
         from roracle.worker import main as worker_main
 
         worker_main()
+    elif args.cmd == "rebuild":
+        from roracle.ingest.rebuild_cli import run as rebuild_run
+
+        sys.exit(rebuild_run(args))
     elif args.cmd == "eval":
         from roracle.eval.cli import run
 

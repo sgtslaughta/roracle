@@ -17,7 +17,8 @@ from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
-from roracle.ingest.embed import doc_prompt, embed, from_bytes, prompt_sha, to_bytes
+from roracle.ingest.context import notes_for
+from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, from_bytes, prompt_sha, to_bytes
 from roracle.ingest.neardup import find_near_duplicate, minhash
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
@@ -131,21 +132,32 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
 
 
 def _index(
-    session: Session, v: DocumentVersion, d: Document, doc: dict, settings: Settings, es, llm, sf
-) -> None:
+    session: Session, v: DocumentVersion, d: Document, doc: dict, settings: Settings, es, llm, sf,
+    store=None, *, into: str | None = None, rebuild: bool = False,
+) -> None:  # fmt: skip
+    """`into`: write another index (shadow / new generation) instead of the active one. `rebuild`: the
+    version is already searchable, so no stage moves and no citations job."""
     title = d.title or "none"
     chunks = chunk(doc, title, settings.embed_tokenizer)
     if not chunks:
         raise NonRetryable("no text extracted")
-    set_stage(sf, v.id, "chunked")
-    prompts = [doc_prompt(title, c.contextual, v.summary) for c in chunks]
+    if not rebuild:
+        set_stage(sf, v.id, "chunked")
+    notes = None
+    if settings.context_notes and settings.context_model:
+        notes = notes_for(session, llm, settings, store, v, d, document_text(doc), chunks)
+    prompts = [
+        chunk_prompt(title, c.contextual, v.summary, notes[i] if notes else None)
+        for i, c in enumerate(chunks)
+    ]
     shas = [prompt_sha(p) for p in prompts]
-    index = search_index.active_index(settings)
+    index = into or search_index.active_index(settings)
     cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
     miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
     fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
     vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
-    set_stage(sf, v.id, "embedded")
+    if not rebuild:
+        set_stage(sf, v.id, "embedded")
     acl = search_index.acl_fields(session, d)
     session.refresh(v)
     newest = session.scalar(
@@ -174,7 +186,7 @@ def _index(
     )  # fmt: skip
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-        summary_vector=sv, prompt_shas=shas, index=index,
+        summary_vector=sv, prompt_shas=shas, index=index, contexts=notes,
     )  # fmt: skip
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
@@ -190,6 +202,8 @@ def _index(
     if fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_chunks(es, v.id, len(chunks))
+    if rebuild:
+        return
     if latest:
         search_index.mark_previous_versions(es, d.id, v.version)
         if v.version > 1:
@@ -264,4 +278,4 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         if _dedupe(session, v, d, document_text(doc), settings, sf):
             return
         session.refresh(v)
-    _index(session, v, d, doc, settings, es, llm, sf)
+    _index(session, v, d, doc, settings, es, llm, sf, store)

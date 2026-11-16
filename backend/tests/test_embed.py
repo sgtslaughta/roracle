@@ -1,3 +1,4 @@
+import hashlib
 import os
 from types import SimpleNamespace as NS
 
@@ -68,7 +69,7 @@ def test_prompts():
     assert doc_prompt("T", "x", "S") == "title: T | text: S\n\nx"
     assert doc_prompt("", "x", "  ") == "title: none | text: x"
     assert doc_prompt("T", "x", None) == "title: T | text: x"
-    assert prompt_sha("a") == "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+    assert prompt_sha("a") == hashlib.sha256(b"v2\na").hexdigest()  # version-prefixed (R8)
     assert query_prompt("q") == "task: search result | query: q"
 
 

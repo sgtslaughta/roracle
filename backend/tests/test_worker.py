@@ -13,6 +13,8 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "maintenance",
         "reconcile_tags",
         "reembed",
+        "rebuild_units",
+        "rebuild_watch",
         "eval_run",
         "eval_generate",
     } and callable(h["ingest"])

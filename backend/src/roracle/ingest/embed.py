@@ -17,8 +17,18 @@ def doc_prompt(title: str, text: str, summary: str | None = None) -> str:
     return f"title: {title or 'none'} | text: {text}"
 
 
+EMBED_PROMPT_VERSION = "2"  # hashed into prompt_sha: a bump re-embeds every chunk once (R8)
+
+
+def chunk_prompt(title: str, contextual: str, summary: str | None, context: str | None) -> str:
+    """A context note supersedes the summary prefix; without one the prompt is the plain `doc_prompt`."""
+    if context and context.strip():
+        return doc_prompt(title, f"{context}\n\n{contextual}")
+    return doc_prompt(title, contextual, summary)
+
+
 def prompt_sha(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode()).hexdigest()
+    return hashlib.sha256(f"v{EMBED_PROMPT_VERSION}\n{prompt}".encode()).hexdigest()
 
 
 def query_prompt(q: str) -> str:
