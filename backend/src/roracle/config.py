@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     grobid_timeout_s: float = 120.0
     grobid_url: str = ""
     clamav_host: str = ""
+    rerank_url: str = ""
+    rerank_model: str = ""
     near_dup_threshold: float = 0.85
 
     @field_validator("oidc_allowed_clients", mode="before")

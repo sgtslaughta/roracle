@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -120,3 +121,66 @@ class Job(Base):
     last_error: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+
+
+class Vote(Base):
+    __tablename__ = "votes"
+    __table_args__ = (
+        CheckConstraint("value IN (-1, 1)", name="ck_votes_value"),
+        CheckConstraint(
+            "reason IS NULL OR reason IN ('outdated','wrong','low_quality','superseded')",
+            name="ck_votes_reason",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    value: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str | None] = mapped_column(String)
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag: Mapped[str] = mapped_column(String(40), primary_key=True)
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_items"
+
+    collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("collections.id"), primary_key=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+
+
+class DocCitation(Base):
+    """Every library document a reference may denote (R18); the viewer's best visible one is picked at read time."""
+
+    __tablename__ = "doc_citations"
+
+    src_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    ref_no: Mapped[int] = mapped_column(Integer, primary_key=True)  # 1-based position in version.references
+    target_document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    confidence: Mapped[float] = mapped_column(Float)

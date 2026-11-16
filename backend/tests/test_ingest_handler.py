@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -71,6 +71,8 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     assert src["owner_id"] == str(user.id) and src["visibility"] == "shared"
     assert src["share_users"] == [] and src["org_unit"] == "/" and src["is_latest"] is True
     assert src["title"] == "A Study of Retrieval" and src["pages"] == [1] and len(src["embedding"]) == DIMS
+    jobs = db_session.scalars(select(Job).where(Job.kind == "citations")).all()  # R6
+    assert [j.payload for j in jobs] == [{"version_id": str(v.id)}]
 
 
 @pytest.mark.integration
@@ -322,3 +324,99 @@ def test_llm_down_is_retryable_and_stage_unchanged(
     job = db_session.scalars(select(Job)).first()
     assert job.status == "queued" and not job.last_error.startswith("user:")
     assert _stage(db_session, v) == "chunked"
+
+
+@pytest.mark.integration
+def test_tags_indexed_and_new_version_clears_outdated_reasons(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Tag, Vote
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    db_session.add_all([Tag(document_id=v1.document_id, tag="rag"), Tag(document_id=v1.document_id, tag="a")])
+    db_session.add(Vote(user_id=user.id, document_id=v1.document_id, value=-1, reason="outdated"))
+    other = make_version(db_session, store, user)
+    db_session.add(Vote(user_id=user.id, document_id=other.document_id, value=-1, reason="outdated"))
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v1)
+    assert {tuple(h["_source"]["tags"]) for h in _chunks(es, cfg, v1)} == {("a", "rag")}
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, v1.document_id)).reason == "outdated"  # v1 keeps it
+    v2 = make_version(db_session, store, user, doc=db_session.get(Document, v1.document_id), version=2)
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    mine = db_session.get(Vote, (user.id, v1.document_id))
+    assert (mine.value, mine.reason) == (-1, None)
+    assert db_session.get(Vote, (user.id, other.document_id)).reason == "outdated"
+
+
+@pytest.mark.integration
+def test_reingest_keeps_votes_cast_after_new_version(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Vote
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v1 = make_version(db_session, store, user)
+    doc = db_session.get(Document, v1.document_id)
+    v2 = make_version(db_session, store, user, doc=doc, version=2)
+    db_session.add(Vote(user_id=user.id, document_id=doc.id, value=-1, reason="outdated"))
+    db_session.commit()
+    db_session.query(DocumentVersion).filter_by(id=v2.id).update(
+        {"created_at": datetime.now(UTC) + timedelta(hours=1)}
+    )
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, doc.id)).reason is None
+    db_session.get(Vote, (user.id, doc.id)).reason = "outdated"  # voted after v2 appeared
+    db_session.query(DocumentVersion).filter_by(id=v2.id).update(
+        {"created_at": datetime.now(UTC) - timedelta(hours=1), "stage": "uploaded"}
+    )
+    db_session.commit()
+    _run(db_session, session_factory, cfg, store, es, v2)
+    db_session.expire_all()
+    assert db_session.get(Vote, (user.id, doc.id)).reason == "outdated"
+
+
+@pytest.mark.integration
+def test_acl_changed_between_read_and_index_converges(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="everyone")
+    real = pipeline.search_index.index_chunks
+
+    def patch_lands_first(*a, **k):  # PATCH commits after ingest read the ACL but before the bulk index
+        with session_factory() as s:
+            s.query(Document).filter_by(id=v.document_id).update({"visibility": "private"})
+            s.commit()
+        return real(*a, **k)
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", patch_lands_first)
+    _run(db_session, session_factory, cfg, store, es, v)
+    hits = _chunks(es, cfg, v)
+    assert hits and {h["_source"]["visibility"] for h in hits} == {"private"}
+
+
+@pytest.mark.integration
+def test_tag_added_between_read_and_index_converges(
+    db_session, session_factory, cfg, store, es, user, monkeypatch
+):
+    from roracle.models import Tag
+
+    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
+    v = make_version(db_session, store, user, visibility="everyone")
+    real = pipeline.search_index.index_chunks
+
+    def tag_lands_first(*a, **k):  # add_tag commits and syncs ES before these chunks exist
+        with session_factory() as s:
+            s.add(Tag(document_id=v.document_id, tag="late"))
+            s.commit()
+        return real(*a, **k)
+
+    monkeypatch.setattr(pipeline.search_index, "index_chunks", tag_lands_first)
+    _run(db_session, session_factory, cfg, store, es, v)
+    hits = _chunks(es, cfg, v)
+    assert hits and {tuple(h["_source"]["tags"]) for h in hits} == {("late",)}

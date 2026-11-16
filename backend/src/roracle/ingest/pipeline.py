@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import search_index
+from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
@@ -22,13 +23,14 @@ from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
     bump_attempts,
-    demote_older_versions,
+    clear_outdated_reasons,
+    mark_searchable_and_enqueue,
     set_stage,
     update_document,
     update_version,
 )
 from roracle.ingest.summary import summarize
-from roracle.models import Document, DocumentVersion
+from roracle.models import Document, DocumentVersion, Tag
 from roracle.queue import NonRetryable
 from roracle.storage import BlobStore
 
@@ -115,15 +117,23 @@ def _index(
     newest = session.scalar(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == d.id)
     )
+    tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
     latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
     search_index.index_chunks(
-        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest
+        es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags
     )
+    # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
+    # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
+    fresh = read_acl(sf, d.id)
+    if fresh is not None and fresh[0] != {**acl, "tags": tags}:
+        search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_chunks(es, v.id, len(chunks))
     if latest:
         search_index.mark_previous_versions(es, d.id, v.version)
-        demote_older_versions(sf, d.id, v.id)
-    set_stage(sf, v.id, "searchable")
+        if v.version > 1:
+            clear_outdated_reasons(sf, d.id, v.id)
+    # R6 + demotion: stage, citations job and the is_latest flip commit atomically
+    mark_searchable_and_enqueue(sf, v.id, demote_doc=d.id if latest else None)
 
 
 def handle_ingest(

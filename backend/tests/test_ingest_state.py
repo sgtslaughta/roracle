@@ -111,3 +111,20 @@ def test_demote_by_older_version_never_touches_newer(session_factory, db_session
     ids = _versions(db_session, document, blob, [True, True, True])
     demote_older_versions(session_factory, document.id, ids[1])
     assert _flags(db_session, ids) == [False, False, True]
+
+
+def test_promotion_demotes_and_marks_searchable_atomically(
+    session_factory, db_session, document, blob, monkeypatch
+):
+    from roracle.ingest import state
+
+    ids = _versions(db_session, document, blob, [True, False])
+    monkeypatch.setattr(state, "enqueue", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        state.mark_searchable_and_enqueue(session_factory, ids[1], demote_doc=document.id)
+    assert _flags(db_session, ids) == [True, False]  # all or nothing: the old version is still live
+    monkeypatch.undo()
+    state.mark_searchable_and_enqueue(session_factory, ids[1], demote_doc=document.id)
+    db_session.expire_all()
+    assert _flags(db_session, ids) == [False, True]
+    assert db_session.get(DocumentVersion, ids[1]).stage == "searchable"

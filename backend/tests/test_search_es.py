@@ -1,0 +1,72 @@
+"""Search API against a real Elasticsearch: ACL pre-filter, facets from the visible set only."""
+
+import uuid
+from types import SimpleNamespace
+
+import pytest
+from api_seed import seed, user_id
+from elasticsearch import Elasticsearch
+
+from roracle.api.routes.library import get_es
+from roracle.api.routes.search import get_llm
+from roracle.auth import get_app_settings
+from roracle.ingest.chunking import Chunk
+from roracle.models import Tag
+from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
+
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_blob_store_override")]
+DIMS = 4
+
+
+class FakeLLM:
+    def __init__(self):
+        self.embeddings = SimpleNamespace(create=lambda model, input: SimpleNamespace(
+            data=[SimpleNamespace(index=i, embedding=[1.0, 0.0, 0.0, 0.1]) for i in range(len(input))]))  # fmt: skip
+
+
+@pytest.fixture
+def es(settings):
+    c = Elasticsearch(settings.elastic_url)
+    yield c
+    c.close()
+
+
+@pytest.fixture
+def wired(app, settings, es):
+    model = f"Test Model:{uuid.uuid4().hex[:8]}"
+    cfg = settings.model_copy(update={"embed_model": model, "embed_dims": DIMS, "rerank_url": ""})
+    ensure_index(es, model, DIMS)
+    app.dependency_overrides[get_es] = lambda: es
+    app.dependency_overrides[get_llm] = FakeLLM
+    app.dependency_overrides[get_app_settings] = lambda: cfg
+    yield cfg
+    es.indices.delete(index=index_name(model), ignore_unavailable=True)
+
+
+def index(es, cfg, db, doc, ver, text, tags=()):
+    index_chunks(
+        es, ver, doc, [Chunk(0, text, text, ["H"], [1], [{"page": 1, "l": 1, "t": 2, "r": 3, "b": 4, "coord_origin": "BOTTOMLEFT"}])],
+        [[1.0, 0.0, 0.0, 0.1]], acl_fields(db, doc), cfg.embed_model, title=doc.title, tags=list(tags),
+    )  # fmt: skip
+    es.indices.refresh(index=index_name(cfg.embed_model))
+
+
+def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
+    _ana, bob = user_id(db_session, client, as_ana, "ana"), user_id(db_session, client, as_bob, "bob")
+    d1, v1 = seed(db_session, bob, title="Open", year=2021)
+    d2, v2 = seed(db_session, bob, title="Secret", visibility="private", year=1999)
+    db_session.add_all([Tag(document_id=d1.id, tag="ml"), Tag(document_id=d2.id, tag="secret")])
+    db_session.flush()
+    index(es, wired, db_session, d1, v1, "quokka text", ["ml"])
+    index(es, wired, db_session, d2, v2, "quokka secret text", ["secret"])
+    r = client.get("/search", headers=as_ana, params={"q": "quokka"}).json()
+    assert [x["title"] for x in r["results"]] == ["Open"] and r["total"] == 1
+    assert r["results"][0]["passages"][0]["highlight"].count("<em>quokka</em>") == 1
+    assert r["facets"]["tags"] == [{"value": "ml", "count": 1}]
+    assert r["facets"]["year"] == [{"value": "2021", "count": 1}]
+    own = client.get("/search", headers=as_bob, params={"q": "quokka"}).json()
+    assert own["total"] == 2
+    none = client.get("/search", headers=as_ana, params={"q": "secret", "tags": "secret"}).json()
+    assert none["total"] == 0  # facets are disjunctive (R17) but never mention the invisible doc
+    assert none["facets"]["tags"] == [{"value": "ml", "count": 1}]
+    assert none["facets"]["year"] == []  # year facet honours the tags=secret filter, which no visible doc has

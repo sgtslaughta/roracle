@@ -1,9 +1,10 @@
 """Elasticsearch chunk index: `chunks-<model-slug>-1` behind alias `chunks` (ADR-0002 ACL fields)."""
 
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from elasticsearch import Elasticsearch, helpers
+from elasticsearch import Elasticsearch, NotFoundError, helpers
 from elasticsearch.exceptions import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +39,9 @@ def _mapping(dims: int) -> dict[str, Any]:
             "share_groups": kw,
             "title": {"type": "text", "analyzer": "english"},
             "authors": kw,
+            "tags": kw,
+            "file_type": kw,
+            "collections": kw,
             "year": {"type": "integer"},
             "text": {"type": "text", "analyzer": "english"},
             "headings": {"type": "text", "analyzer": "english"},
@@ -65,6 +69,11 @@ def ensure_index(es: Elasticsearch, model: str, dims: int, alias: str = ALIAS) -
             if e.error != "resource_already_exists_exception":
                 raise
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
+    missing = {
+        f: t for f, t in _mapping(dims)["properties"].items() if f not in props and t == {"type": "keyword"}
+    }
+    if missing:  # backfill handles keyword fields only (R9); fields added after the index was created (R9)
+        es.indices.put_mapping(index=name, properties=missing)
     if props.get("embedding", {}).get("dims") != dims:
         raise NonRetryable("search index dimension mismatch: reindex required")
     if not es.indices.exists_alias(name=alias, index=name):
@@ -87,6 +96,12 @@ def acl_fields(session: Session, document: Document) -> dict[str, Any]:
     }
 
 
+def file_type(filename: str | None) -> str:
+    """Lowercase extension without dot; "other" when absent."""
+    ext = (filename or "").rsplit(".", 1)[1].lower() if "." in (filename or "") else ""
+    return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else "other"
+
+
 def index_chunks(
     es: Elasticsearch,
     version: DocumentVersion,
@@ -98,6 +113,7 @@ def index_chunks(
     *,
     title: str,
     is_latest: bool | None = None,
+    tags: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     meta = version.meta or {}
@@ -110,6 +126,8 @@ def index_chunks(
         "title": title,
         "authors": meta.get("authors") or [],
         "year": meta.get("year"),
+        "tags": tags or [],
+        "file_type": file_type(version.filename),
         "embedding_model": model,
     }
     actions = [
@@ -163,3 +181,51 @@ def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str =
         refresh=True,
         conflicts="proceed",
     )
+
+
+MAX_SYNC_TRIES = 3
+
+
+def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]") -> None:
+    """update_by_query with response checks. `build` recomputes the kwargs from Postgres on each try:
+    non-empty `failures` raise; `version_conflicts` retry (concurrent writer), then raise.
+    A missing index is a no-op (nothing ingested yet)."""
+    for _ in range(MAX_SYNC_TRIES):
+        try:
+            r = es.update_by_query(**build(), refresh=True, conflicts="proceed") or {}
+        except NotFoundError:
+            return
+        if r.get("failures"):
+            raise RuntimeError(f"update_by_query failures: {r['failures'][:1]}")
+        if not r.get("version_conflicts"):
+            return
+    raise RuntimeError("update_by_query version conflicts persisted")
+
+
+_ACL_SCRIPT = (
+    "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
+    "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
+    "ctx._source.share_groups = params.share_groups; "
+    "if (params.title != null) { ctx._source.title = params.title; } "
+    "if (params.tags != null) { ctx._source.tags = params.tags; }"
+)
+
+
+def sync_acl(
+    es: Elasticsearch, doc_id, compute: "Callable[[], tuple[dict[str, Any], str | None] | None]"
+) -> None:
+    """Push ACL fields (and title when not None) to every chunk of the document; `compute` re-reads PG
+    each try and returns (acl, title), or None when the document is gone."""
+
+    def build() -> dict[str, Any]:
+        got = compute()
+        if got is None:
+            return {"index": ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
+        acl, title = got
+        return {
+            "index": ALIAS,
+            "query": {"term": {"doc_id": str(doc_id)}},
+            "script": {"source": _ACL_SCRIPT, "lang": "painless", "params": {**acl, "title": title}},
+        }
+
+    run_update_by_query(es, build)

@@ -80,10 +80,10 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 - Results grouped per document with highlighted passages; document-level summary embedding used for
   broad "papers about X" queries and near-dup only.
 - Votes: one per user per document; downvote reasons (outdated, wrong/misleading, low quality,
-  superseded + link). Ranking boost = Wilson lower bound mapped to **±15% cap**. "Outdated" reasons
+  superseded + link). Ranking boost = smoothed vote ratio (up+1)/(n+2) mapped to **±15% cap**. "Outdated" reasons
   reset when a new version arrives.
 - Facets (from current results only): collection, tags, org unit, author, year, file type, venue.
-  Sorts: relevance, newest, most useful, title. Cursor pagination (`search_after` + PIT).
+  Sorts: relevance, newest, most useful (`votes` sort key = net up−down), title. Cursor pagination (`search_after` + PIT).
 - Tags: shared, normalised (lowercase, hyphens), autocomplete; any reader adds, owner/admin removes,
   admins merge synonyms. Collections scope search, chat and MCP.
 - Chat: streaming SSE, mandatory citations (doc, version, page, chunk), hover excerpt + page crop,
@@ -121,7 +121,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 replicates / supersedes, linking two docs). Anchored by quote + context + page bbox; re-anchored on
 new versions, else flagged "may not apply to version N". Visibility private / users+groups /
 everyone; reader needs access to both doc and note. Default: agent notes private, human notes
-everyone. Threads, votes (Wilson), reports; doc owner may hide; admins remove (audited).
+everyone. Threads, votes (smoothed ratio), reports; doc owner may hide; admins remove (audited).
 
 **Agent proposals** — agents only *propose* (`propose_annotation`); user approves / edits / rejects /
 bulk-approves in the UI. Approved notes are attributed to the user with "agent-assisted" badge.

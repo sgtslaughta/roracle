@@ -4,8 +4,9 @@ import logging
 import signal
 import time
 from collections.abc import Callable, Collection
+from datetime import timedelta
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.models import Job
@@ -25,9 +26,11 @@ class NonRetryable(Exception):
     """Raised by a handler to fail its job permanently; its message is user-safe (shown in My uploads)."""
 
 
-def enqueue(session: Session, kind: str, payload: dict) -> int:
+def enqueue(session: Session, kind: str, payload: dict, run_after_s: float = 0) -> int:
     """Insert a job in the caller's transaction (no commit)."""
     job = Job(kind=kind, payload=payload)
+    if run_after_s:
+        job.run_after = func.now() + timedelta(seconds=run_after_s)
     session.add(job)
     session.flush()
     return job.id

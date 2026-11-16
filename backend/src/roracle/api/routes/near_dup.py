@@ -4,12 +4,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, literal, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from roracle.api.routes.library import MAX_TAGS
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
-from roracle.models import Blob, Document, DocumentShare, DocumentVersion
+from roracle.models import (
+    Blob,
+    CollectionItem,
+    Document,
+    DocumentShare,
+    DocumentVersion,
+    Tag,
+    Vote,
+)
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -69,6 +79,33 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
     old_doc_id = v.document_id
     v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, True
     session.flush()
-    # The uploader's document is now empty: hard-delete it (its shares first; no other FKs point at it).
+    _merge_library(session, old_doc_id, target.id)
+    # The uploader's document is now empty: hard-delete it (shares first; library rows moved above).
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == old_doc_id))
     session.execute(delete(Document).where(Document.id == old_doc_id))
+
+
+def _merge_library(session: Session, old: UUID, new: UUID) -> None:
+    """Other users may have tagged/voted/collected the doc while in review: carry tags and collections over."""
+    have = select(Tag.tag).where(Tag.document_id == new)
+    room = MAX_TAGS - (session.scalar(select(func.count()).select_from(have.subquery())) or 0)
+    moving = (  # the target's own tags stay; only as many of the old ones as fit under the cap
+        select(literal(new), Tag.tag)
+        .where(Tag.document_id == old, Tag.tag.not_in(have))
+        .order_by(Tag.tag)
+        .limit(max(room, 0))
+    )
+    session.execute(insert(Tag).from_select(["document_id", "tag"], moving).on_conflict_do_nothing())
+    session.execute(delete(Tag).where(Tag.document_id == old))
+    session.execute(
+        insert(CollectionItem)
+        .from_select(
+            ["collection_id", "document_id"],
+            select(CollectionItem.collection_id, literal(new)).where(CollectionItem.document_id == old),
+        )
+        .on_conflict_do_nothing()
+    )
+    session.execute(delete(CollectionItem).where(CollectionItem.document_id == old))
+    session.execute(delete(Vote).where(Vote.document_id == old))
+    session.execute(update(Vote).where(Vote.superseded_by == old).values(superseded_by=None))
+    enqueue(session, "acl_sync", {"doc_id": str(new)})  # ES tags follow the merged set
