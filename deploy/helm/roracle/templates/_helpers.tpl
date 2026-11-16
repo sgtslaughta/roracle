@@ -35,6 +35,11 @@ ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- if eq .Values.minio.mode "tenant" }}
 ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
 {{- end }}
+{{- with .Values.rerank }}{{ if .url }}
+ROR_RERANK_URL: {{ .url | quote }}
+ROR_RERANK_API: {{ .api | quote }}
+ROR_RERANK_MODEL: {{ .model | quote }}
+{{- end }}{{ end }}
 {{- $pf := printf "%s-" (include "roracle.fullname" .) }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
 ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
@@ -94,6 +99,9 @@ ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- if $key }}
 - {name: {{ $env }}, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $key | quote }}, optional: true}}}
 {{- end }}
+{{- end }}
+{{- if .Values.secrets.rerankApiKeyEnabled }}
+- {name: ROR_RERANK_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.rerankApiKey | quote }}}}}
 {{- end }}
 {{- if .Values.secrets.llmApiKeyEnabled }}
 - {name: ROR_LLM_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.llmApiKey | quote }}}}}

@@ -13,6 +13,14 @@ JOB_RUNS = Counter("roracle_job_runs_total", "Job runs by outcome (done|retry|fa
 INGEST_STAGE_FAILURES = Counter(
     "roracle_ingest_stage_failures_total", "Ingest failures by the stage being advanced", ["stage"]
 )
+RERANK_SECONDS = Histogram(
+    "roracle_rerank_seconds",
+    "Reranker call latency",
+    buckets=(0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 3, 6),
+)
+RERANK_FALLBACK = Counter(
+    "roracle_rerank_fallback_total", "Rerank failures that kept the fused order", ["reason"]
+)
 
 _DEPTH_SQL = text(
     "SELECT kind, status, count(*), "

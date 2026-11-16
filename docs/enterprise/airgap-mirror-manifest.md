@@ -25,6 +25,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `gotenberg/gotenberg` | `8.20.1` | parser | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
 | `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
+| `ghcr.io/huggingface/text-embeddings-inference` | `89-1.9` | reranker on the GPU host (`deploy/game-01`); runs `HF_HUB_OFFLINE=1`, model mounted read-only | pin in mirror (`reranker.sh pull` records the digest) |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
 
 
@@ -90,7 +91,7 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 |---|---|---|
 | Embeddings | EmbeddingGemma-300m (768-d) or e5-mistral-7b-instruct (4096-d) | admin config (ADR-0006) |
 | Tokenizer files | matching the embedding model | for chunk sizing in workers (no network) |
-| Reranker | site reranker (cross-encoder) | |
+| Reranker | `BAAI/bge-reranker-v2-m3` @ HF commit `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`, served by TEI (below) | `deploy/game-01/reranker.sh pull` writes `SHA256SUMS`. LFS sha256: `model.safetensors` `d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286`, `sentencepiece.bpe.model` `cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865`, `tokenizer.json` `69564b696052886ed0ac63fa393e928384e0f8caada38c1f4864a9bfbf379c15`; plus `config.json`, `special_tokens_map.json`, `tokenizer_config.json` (sum them at pull) |
 | Chat | site allowlist | ≥ 32k context recommended |
 | Document parsing | granite-docling (VLM) or Docling's bundled layout/OCR/table models | bake model files into the docling-serve image |
 | GROBID models | bundled in image | |

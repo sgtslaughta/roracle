@@ -280,7 +280,7 @@ def retrieve_for_chat(
         )
     ranked = rank_for_chat(
         session, es, llm, settings, p, question,
-        viewer=viewer, scope=scope, excludes=excludes, depth=50,
+        viewer=viewer, scope=scope, excludes=excludes, depth=settings.chat_candidates,
     )  # fmt: skip
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
     if sel and sel_id and sel_id not in dropped:

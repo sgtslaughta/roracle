@@ -217,3 +217,93 @@ def test_search_chunks_summary_knn_third_list():
 def test_search_chunks_tolerates_index_without_summary_field():
     out = _run_search(_ES(summary_error=True))
     assert [x.chunk_id for x in out] == ["a"]
+
+
+def _tei():
+    return _settings().model_copy(update={"rerank_api": "tei", "rerank_api_key": "sekret"})
+
+
+def test_tei_request_texts_and_list_response_reorders():
+    import json
+
+    seen = {}
+
+    def h(req):
+        seen.update(json.loads(req.content))
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(200, json=[{"index": 1, "score": 0.9}, {"index": 0, "score": 0.1}])
+
+    out = _rerank(_tei(), "q", [P("a", "d", 0.5), P("b", "d", 0.4)], _http(h))
+    assert [x.chunk_id for x in out] == ["b", "a"]
+    assert "documents" not in seen and len(seen["texts"]) == 2 and seen["truncate"] is True
+    assert seen["auth"] == "Bearer sekret"
+
+
+def test_cohere_has_no_auth_without_key_and_pure_helpers():
+    from roracle.retrieval import _rerank_order, _rerank_request
+
+    s = _settings()
+    assert _rerank_request(s, "q", ["x"]) == {"model": "m", "query": "q", "documents": ["x"]}
+    assert _rerank_order(
+        s, {"results": [{"index": 0, "relevance_score": 1}, {"index": 1, "relevance_score": 2}]}
+    ) == [1, 0]
+    assert _rerank_order(_tei(), [{"index": 0, "score": 1}, {"index": 1, "score": 2}]) == [1, 0]
+    seen = {}
+
+    def h(req):
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(200, json={"results": []})
+
+    _rerank(s, "q", [P("a", "d", 0.5)], _http(h))
+    assert seen["auth"] is None
+
+
+def _fallback(reason):
+    from roracle.metrics import RERANK_FALLBACK
+
+    return RERANK_FALLBACK.labels(reason)._value.get()
+
+
+def test_fallback_reasons_counted():
+    ps = [P("a", "d", 0.5), P("b", "d", 0.4)]
+
+    def boom(req):
+        raise httpx.ReadTimeout("slow")
+
+    for reason, h in (
+        ("timeout", boom),
+        ("http", lambda r: httpx.Response(503)),
+        ("malformed", lambda r: httpx.Response(200, json={"x": 1})),
+    ):
+        before = _fallback(reason)
+        assert _rerank(_tei(), "q", ps, _http(h)) is ps
+        assert _fallback(reason) == before + 1
+
+
+def test_texts_truncated_and_depth_200_sends_200():
+    import json
+
+    seen = {}
+
+    def h(req):
+        seen.update(json.loads(req.content))
+        n = len(seen["texts"])
+        return httpx.Response(200, json=[{"index": i, "score": 1 - i / n} for i in range(n)])
+
+    s = _tei().model_copy(update={"rerank_max_chars": 5})
+    ps = [P(f"c{i}", "d", 1 - i / 300) for i in range(250)]
+    for x in ps:
+        x.text = "x" * 50
+    out = _rerank(s, "q", ps, _http(h))
+    assert Settings().rerank_depth == 200 and len(seen["texts"]) == 200 and set(seen["texts"]) == {"xxxxx"}
+    assert len(out) == 250
+
+
+def test_chat_search_uses_chat_candidates(monkeypatch):
+    from roracle.chat import retrieve
+
+    sizes = []
+    monkeypatch.setattr(retrieve, "search_chunks", lambda *a, **k: sizes.append(k["size"]) or [])
+    monkeypatch.setattr(retrieve.Policy, "load", staticmethod(lambda s: None))
+    retrieve._search(None, None, None, _settings(), None, "q", None, _settings().chat_candidates, [0.0])
+    assert sizes == [200] and Settings().chat_candidates == 200

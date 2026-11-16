@@ -6,6 +6,7 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 
 import html
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,6 +17,7 @@ from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest.embed import embed, query_prompt
 from roracle.labels.policy import Policy
+from roracle.metrics import RERANK_FALLBACK, RERANK_SECONDS
 from roracle.search_acl import acl_filter
 from roracle.search_index import active_index
 
@@ -110,22 +112,40 @@ def _passage(hit: dict, score: float = 0.0) -> Passage:
     )
 
 
+def _rerank_request(settings: Settings, query: str, texts: list[str]) -> dict:
+    if settings.rerank_api == "tei":
+        return {"query": query, "texts": texts, "truncate": True, "raw_scores": False}
+    return {"model": settings.rerank_model, "query": query, "documents": texts}
+
+
+def _rerank_order(settings: Settings, body: Any) -> list[int]:
+    """Indices best-first from a rerank response body. Raises ValueError/KeyError/TypeError if malformed."""
+    results = body if settings.rerank_api == "tei" else body["results"]
+    key = "score" if settings.rerank_api == "tei" else "relevance_score"
+    return [o["index"] for o in sorted(results, key=lambda x: -x[key])]
+
+
 def _rerank(
     settings: Settings, query: str, passages: list[Passage], http: httpx.Client | None
 ) -> list[Passage]:
     head = passages[: settings.rerank_depth]
     if not head:
         return passages
+    payload = _rerank_request(settings, query, [x.text[: settings.rerank_max_chars] for x in head])
+    headers = {"Authorization": f"Bearer {settings.rerank_api_key}"} if settings.rerank_api_key else {}
+    t0 = time.monotonic()
+    reason = ""
     try:
-        payload = {"model": settings.rerank_model, "query": query, "documents": [x.text for x in head]}
         if http is not None:
-            r = http.post(settings.rerank_url, json=payload)
+            r = http.post(
+                settings.rerank_url, json=payload, headers=headers, timeout=settings.rerank_timeout_s
+            )
         else:
-            with httpx.Client(timeout=5.0) as client:
-                r = client.post(settings.rerank_url, json=payload)
+            with httpx.Client(timeout=settings.rerank_timeout_s) as client:
+                r = client.post(settings.rerank_url, json=payload, headers=headers)
         r.raise_for_status()
-        order = sorted(r.json()["results"], key=lambda x: -x["relevance_score"])
-        idx = [o["index"] for o in order]
+        reason = "malformed"  # anything below failing is a bad body
+        idx = _rerank_order(settings, r.json())
         if not all(type(i) is int and 0 <= i < len(head) for i in idx) or len(set(idx)) != len(head):
             raise ValueError("malformed rerank result")
         if len(idx) != len(head):
@@ -135,8 +155,15 @@ def _rerank(
         for x, sc in zip(reranked, scores, strict=True):
             x.score = sc
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
-        log.warning("rerank failed, keeping fused order: %s", e)
+        if isinstance(e, httpx.TimeoutException):
+            reason = "timeout"
+        elif isinstance(e, httpx.HTTPError):
+            reason = "http"
+        RERANK_FALLBACK.labels(reason or "malformed").inc()
+        log.warning("rerank failed (%s), keeping fused order: %s", reason, type(e).__name__)
         return passages
+    finally:
+        RERANK_SECONDS.observe(time.monotonic() - t0)
     return reranked + passages[settings.rerank_depth :]
 
 

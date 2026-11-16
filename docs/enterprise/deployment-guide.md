@@ -210,7 +210,11 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_SEARCH_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of library search (BM25 hits are not floored); `0` disables. Measured on embeddinggemma: relevant hits 0.38-0.73, unrelated <=0.28. Scores are model-specific: re-tune after changing the embedding model |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_CHAT_NOTE_MIN_UPVOTES`, `ROR_CHAT_NOTE_MIN_RATIO` | `3`, `0.6` | Community notes by other users reach an LLM (chat, MCP `ask`/`search`) only with at least this many upvotes and a vote ratio above the floor (the asker's own notes always qualify); prompt-injection gate |
-| `ROR_RERANK_DEPTH` | `50` | Top-N passages sent to the reranker (10-100) |
+| `ROR_RERANK_DEPTH` | `200` | Top-N passages sent to the reranker (10-500) |
+| `ROR_RERANK_URL`, `ROR_RERANK_API` | empty, `cohere` | Reranker endpoint; `tei` = HF text-embeddings-inference (`deploy/game-01`). Empty URL disables |
+| `ROR_RERANK_API_KEY` | empty | Optional bearer token for the reranker (Secret key `rerankApiKey`; never logged) |
+| `ROR_RERANK_TIMEOUT_S`, `ROR_RERANK_MAX_CHARS` | `3`, `2000` | Slow/failed rerank keeps the fused order (`roracle_rerank_fallback_total{reason}`); chars per passage sent |
+| `ROR_CHAT_CANDIDATES` | `200` | BM25 and kNN list size on the chat path |
 | `ROR_UPLOAD_QUOTA_BYTES` | `0` | Per-user quota: logical bytes of the user's document versions, including trash until purged and excluding rejected/cancelled versions; over = 413 `upload quota exceeded`; hard (uploads serialized per user); `0` = unlimited |
 | `ROR_DB_CONNECT_TIMEOUT_S` | `5` | Postgres connect timeout (seconds) for API, worker, `/readyz` and the metrics collector. Raise for cross-AZ/managed PG under load; a `?connect_timeout=` in `ROR_DATABASE_URL` overrides it |
 | `ROR_RATE_LIMIT_PER_MINUTE` | `0` | Per-token request budget per API replica (token bucket, `0` = off): `429` + `Retry-After` when exceeded; PATs and JWTs are separate buckets; with N replicas the cluster-wide limit is about N x this value (use ingress limits for a hard cap). See security.md section 8 |

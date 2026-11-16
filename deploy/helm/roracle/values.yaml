@@ -17,11 +17,19 @@ secrets:
     s3SecretKey: ROR_S3_SECRET_KEY
     elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
     llmApiKey: ROR_LLM_API_KEY
+    rerankApiKey: ROR_RERANK_API_KEY   # optional; only read when rerank.apiKeyEnabled
     # Optional (key may be absent/empty = not set). Use instead of userinfo in the URLs above.
     elasticUsername: ROR_ELASTIC_USERNAME
     elasticPassword: ROR_ELASTIC_PASSWORD
     databasePassword: ROR_DATABASE_PASSWORD   # injected into ROR_DATABASE_URL (which then carries no password)
+  rerankApiKeyEnabled: false   # true = inject ROR_RERANK_API_KEY from the Secret (optional key)
   llmApiKeyEnabled: true   # false if the inference endpoint needs no key (backend default "unused")
+
+# Reranker (cross-encoder; deploy/game-01). Empty url = off. Allow its CIDR/port in networkPolicy.egressCIDRs.llm.
+rerank:
+  url: ""                  # e.g. http://game-01.internal:28080/rerank
+  api: cohere              # cohere | tei
+  model: ""                # cohere-style servers only (bge-reranker-v2-m3)
 
 # Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
 config:

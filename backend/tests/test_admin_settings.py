@@ -40,17 +40,17 @@ def test_every_admin_call_audited(client, adm, db_session):
     )
     assert by["admin.get_settings"].target == "/admin/settings"
     assert by["admin.get_settings"].detail == {"query": {"x": "1"}}
-    assert by["admin.settings_update"].detail == {"changes": {"rerank_depth": {"old": 50, "new": 20}}}
+    assert by["admin.settings_update"].detail == {"changes": {"rerank_depth": {"old": 200, "new": 20}}}
 
 
 def test_get_shape_and_null_resets(client, adm):
     s = client.get("/admin/settings", headers=adm).json()
-    assert s["rerank_depth"] == {"value": 50, "source": "env"}
+    assert s["rerank_depth"] == {"value": 200, "source": "env"}
     assert set(s) == set(runtime.KEYS)
     out = put(client, adm, {"rerank_depth": 20}).json()
     assert out["rerank_depth"] == {"value": 20, "source": "override"}
     out = put(client, adm, {"rerank_depth": None}).json()
-    assert out["rerank_depth"] == {"value": 50, "source": "env"}
+    assert out["rerank_depth"] == {"value": 200, "source": "env"}
 
 
 def test_note_gate_overridable(client, adm):
@@ -234,7 +234,7 @@ def test_quota_counts_trash_not_rejected_or_cancelled(client, adm, as_ana, db_se
 
 
 def test_put_bounds_and_dedupe(client, adm):
-    assert put(client, adm, {"rerank_depth": 101}).status_code == 422
+    assert put(client, adm, {"rerank_depth": 501}).status_code == 422
     assert put(client, adm, {"upload_quota_bytes": 2**63}).status_code == 422
     out = put(client, adm, {"chat_models": ["a", "b", "a"]}).json()
     assert out["chat_models"]["value"] == ["a", "b"]

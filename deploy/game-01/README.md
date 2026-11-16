@@ -1,0 +1,27 @@
+# game-01 reranker (TEI + bge-reranker-v2-m3)
+
+Cross-encoder behind rOracle retrieval (ADR-0015 §3). One RTX 4090; serves `POST /rerank` on
+`127.0.0.1:28080` only (never exposed). Budget: p95 <= 800 ms for 200 passages.
+
+## Install (air-gapped)
+1. Connected host: `./reranker.sh pull` (pinned HF commit, `SHA256SUMS`, image tar + digest in `reranker-bundle/`).
+2. Carry the bundle over; `./reranker.sh install` (rsync to `/srv/roracle/models`, verify sums, `docker load`).
+3. `./reranker.sh run`, then on game-01 `./reranker.sh health`.
+The container runs `HF_HUB_OFFLINE=1` with the model dir mounted read-only: nothing downloads at runtime.
+Env: `HOST` (default `game-01`), `BUNDLE`, `URL`/`KEY` for `health` through a tunnel.
+
+## Dev access
+SSH tunnel `ssh -N -L 21480:127.0.0.1:28080 game-01` (like Ollama on 21434), then
+`ROR_RERANK_URL=http://localhost:21480/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3`.
+Live test: `uv run pytest -m integration tests/test_rerank_live.py -s` (skips without the endpoint).
+
+## Auth
+TEI has no auth; if exposed beyond the tunnel/mesh put a reverse proxy in front and set `ROR_RERANK_API_KEY`
+(sent as `Authorization: Bearer`). Never logged.
+
+## Failure behaviour
+Timeout (`ROR_RERANK_TIMEOUT_S`, 3 s), HTTP error or malformed reply: fused order is kept and
+`roracle_rerank_fallback_total{reason=timeout|http|malformed}` increments. Latency: `roracle_rerank_seconds`.
+
+## Fallback server
+llama.cpp `/v1/rerank` with `ROR_RERANK_API=cohere` (no adapter needed).

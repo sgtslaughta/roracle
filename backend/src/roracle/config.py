@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     clamav_port: int = 3310
     rerank_url: str = ""
     rerank_model: str = ""
+    rerank_api: Literal["cohere", "tei"] = (
+        "cohere"  # tei: HF text-embeddings-inference {query, texts} -> [{index, score}]
+    )
+    rerank_api_key: str = ""  # optional; sent as `Authorization: Bearer` (never logged)
+    rerank_timeout_s: float = 3.0  # exceeded -> fused order (RERANK_FALLBACK{timeout})
+    rerank_max_chars: int = 2000  # per passage sent to the reranker
+    chat_candidates: int = 200  # BM25 and kNN list size on the chat path
     near_dup_threshold: float = 0.85
     near_dup_summary_threshold: float = 0.97
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
@@ -86,7 +93,7 @@ class Settings(BaseSettings):
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6
-    rerank_depth: int = 50
+    rerank_depth: int = 200
     eval_judge_model: str = ""  # P13 LLM judge; empty = first chat model
     eval_judge_sample: int = 100  # (query x principal) pairs judged per run
     eval_on_reindex: bool = True  # enqueue `eval_run` on the reference set after a re-embed cutover

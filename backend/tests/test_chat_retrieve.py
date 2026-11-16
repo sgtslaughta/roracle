@@ -179,7 +179,7 @@ def test_tab_second_search_adds_candidates(db_session, settings, me, other, call
     docs = [seed(db_session, other.id, title=f"D{i}") for i in range(3)]
     es = FakeES([hit(d, v) for d, v in docs])
     run(db_session, es, settings, me, Viewer(tabs=[Tab(doc_id=str(docs[2][0].id))]))
-    assert [kw["size"] for _, kw in calls] == [50, 20]
+    assert [kw["size"] for _, kw in calls] == [200, 20]
     assert calls[1][1]["doc_ids"] == [str(docs[2][0].id)]
 
 
@@ -249,7 +249,7 @@ def test_keyword_only_call_and_min_similarity(db_session, settings, me, other, c
     run(db_session, es, s, me)
     args, kw = calls[0]
     assert len(args) == 4
-    assert kw["query"] == "alpha" and kw["filters"] == {} and kw["doc_ids"] is None and kw["size"] == 50
+    assert kw["query"] == "alpha" and kw["filters"] == {} and kw["doc_ids"] is None and kw["size"] == 200
     assert kw["min_similarity"] == 0.4
     assert next(c for c in es.calls if "knn" in c)["knn"]["similarity"] == 0.4
     s0 = settings.model_copy(update={"chat_min_similarity": 0})
