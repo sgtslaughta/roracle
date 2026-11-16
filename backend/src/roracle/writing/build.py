@@ -189,7 +189,7 @@ class PandocBuilder:
                 c.stream("POST", url, files={"files": ("index.html", html.encode(), "text/html")}) as r,
             ):
                 if r.status_code != 200:
-                    down = r.status_code >= 500
+                    down = r.status_code not in (400, 413, 422)  # only a rejected document blames the draft
                     raise BuildError(
                         "build service unavailable" if down else "build service rejected the document",
                         503 if down else 422,

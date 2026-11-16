@@ -235,6 +235,8 @@ def test_gotenberg_ok_and_request_shape():
         (httpx.Response(200, content=b"<html>"), 503),
         (httpx.Response(400, content=b"no"), 422),
         (httpx.Response(502, content=b"no"), 503),
+        (httpx.Response(404, content=b"no"), 503),  # misconfigured service, not the draft
+        (httpx.Response(401, content=b"no"), 503),
     ],
 )
 def test_gotenberg_errors(resp, status):
