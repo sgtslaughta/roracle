@@ -5,12 +5,16 @@ Parser callers: ONLY the worker (ingest pipeline + evidence scan handlers); the 
 {{- define "roracle.npPods" -}}
 podSelector: {matchLabels: {app.kubernetes.io/name: {{ .root.Chart.Name }}, app.kubernetes.io/instance: {{ .root.Release.Name | quote }}}, matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [{{ join ", " .comps }}]}]}
 {{- end -}}
-{{- /* egress rule to CIDRs; nothing when empty (an empty `to` would mean "anywhere"). args: cidrs, ports */ -}}
+{{- /* egress rule to CIDRs and/or one in-cluster peer (namespaceSelector + podSelector in one item = AND); nothing when
+all empty (an empty `to` would mean "anywhere"). args: cidrs, ports, namespaceSelector?, podSelector? */ -}}
 {{- define "roracle.npCidrRule" -}}
-{{- if .cidrs }}
+{{- if or .cidrs .namespaceSelector .podSelector }}
 - to:
     {{- range .cidrs }}
     - ipBlock: {cidr: {{ . | quote }}}
+    {{- end }}
+    {{- if or .namespaceSelector .podSelector }}
+    - {  {{- if .namespaceSelector }}namespaceSelector: {matchLabels: {{ toJson .namespaceSelector }}}{{ if .podSelector }}, {{ end }}{{ end }}{{ if .podSelector }}podSelector: {matchLabels: {{ toJson .podSelector }}}{{ end }}}
     {{- end }}
   ports: [{{ range $i, $p := .ports }}{{ if $i }}, {{ end }}{port: {{ $p }}, protocol: TCP}{{ end }}]
 {{- end }}
@@ -42,6 +46,7 @@ metadata:
 {{- $np := .Values.networkPolicy }}
 {{- $fn := include "roracle.fullname" . }}
 {{- $root := . }}
+{{- if and .Values.parsers.clamav.enabled .Values.parsers.clamav.mirrorUrl (not .Values.parsers.clamav.mirrorCIDRs) }}{{ fail "parsers.clamav.mirrorCIDRs is required when parsers.clamav.mirrorUrl is set (egress to the mirror is otherwise denied)" }}{{ end }}
 {{- $w := include "roracle.npPods" (dict "root" . "comps" (list "worker")) }}
 {{- $api := include "roracle.npPods" (dict "root" . "comps" (list "api")) }}
 {{- $web := include "roracle.npPods" (dict "root" . "comps" (list "web")) }}
@@ -124,7 +129,7 @@ spec:
   egress: {{ $ext | nindent 4 }}
 {{- end }}
 {{- /* worker -> enabled parsers and connector CIDRs */}}
-{{- $weg := include "roracle.npCidrRule" (dict "cidrs" .Values.connectors.egressCIDRs "ports" .Values.connectors.ports) }}
+{{- $weg := print (include "roracle.npCidrRule" (dict "cidrs" .Values.connectors.egressCIDRs "ports" .Values.connectors.ports)) (include "roracle.npCidrRule" $np.egressCIDRs.parsers) }}
 {{- range $p := list "gotenberg" "docling" "grobid" "clamav" }}{{ $v := get $.Values.parsers $p }}{{ if $v.enabled }}
 {{- $weg = printf "%s\n- to: [{%s}]\n  ports: [{port: %v, protocol: TCP}]" $weg (include "roracle.npPods" (dict "root" $root "comps" (list $p))) $v.port }}
 {{- end }}{{ end }}

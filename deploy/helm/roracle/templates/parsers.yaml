@@ -7,6 +7,39 @@
 {{- $sel := include "roracle.selector" (dict "root" $root "comp" $name) }}
 {{- $uid := $v.runAsUser }}
 {{- $gid := default $uid $v.runAsGroup }}
+{{- $lim := "" }}
+{{- if eq $name "clamav" }}
+{{- /* fail closed: clamd limits must cover the largest accepted upload/evidence; ClamAV caps at < 4G */}}
+{{- $lim = int64 (include "roracle.bytes" $v.limits) }}
+{{- $need := max (int64 (include "roracle.bytes" (default "524288000" $root.Values.config.ROR_MAX_UPLOAD_BYTES))) (int64 (include "roracle.bytes" (default "1073741824" $root.Values.config.ROR_EVIDENCE_MAX_BYTES))) }}
+{{- if lt $lim $need }}{{ fail (printf "parsers.clamav.limits (%s) must be >= max(ROR_MAX_UPLOAD_BYTES, ROR_EVIDENCE_MAX_BYTES) = %d bytes, else oversize files would be unscanned" $v.limits $need) }}{{ end }}
+{{- if ge $lim 4294967296 }}{{ fail "parsers.clamav.limits must be < 4G (ClamAV maximum)" }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-conf
+  labels: {{ include "roracle.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+data:
+  clamd.conf: |
+    Foreground yes
+    LogFile /var/log/clamav/clamd.log
+    LogTime yes
+    LocalSocket /tmp/clamd.sock
+    TCPSocket {{ $v.port }}
+    TCPAddr 0.0.0.0
+    StreamMaxLength {{ $v.limits }}
+    MaxFileSize {{ $v.limits }}
+    MaxScanSize {{ $v.limits }}
+    AlertExceedsMax yes
+  freshclam.conf: |
+    DatabaseDirectory /var/lib/clamav
+    {{- if $v.mirrorUrl }}
+    PrivateMirror {{ $v.mirrorUrl }}
+    {{- end }}
+    NotifyClamd /etc/clamav/clamd.conf
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +54,10 @@ spec:
     metadata:
       labels: {{ include "roracle.labels" $root | nindent 8 }}
         app.kubernetes.io/component: {{ $name }}
+      {{- if eq $name "clamav" }}
+      annotations:
+        checksum/conf: {{ $lim | toString | sha256sum }}{{ $v.mirrorUrl | sha256sum }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "roracle.saName" $root }}
       automountServiceAccountToken: false
@@ -45,7 +82,7 @@ spec:
         - name: seed
           image: {{ include "roracle.dataImage" (dict "root" $root "img" $v.image) }}
           imagePullPolicy: {{ $v.image.pullPolicy }}
-          command: [sh, -ec, 'cp -a {{ $v.seedDir }}/. /seed/']
+          command: [sh, -ec, 'cp -R {{ $v.seedDir }}/. /seed/']
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 512Mi}
@@ -58,13 +95,14 @@ spec:
         - name: {{ $name }}
           image: {{ include "roracle.dataImage" (dict "root" $root "img" $v.image) }}
           imagePullPolicy: {{ $v.image.pullPolicy }}
+          {{- with $v.command }}
+          command: {{ toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $v.args }}
           args: {{ toYaml . | nindent 12 }}
           {{- end }}
           {{- $env := dict }}
-          {{- if eq $name "clamav" }}
-          {{- if $v.mirrorUrl }}{{ $_ := set $env "FRESHCLAM_CONF_PrivateMirror" $v.mirrorUrl }}{{ else }}{{ $_ := set $env "CLAMAV_NO_FRESHCLAMD" "true" }}{{ end }}
-          {{- end }}
+          {{- if and (eq $name "clamav") (not $v.mirrorUrl) }}{{ $_ := set $env "CLAMAV_NO_FRESHCLAMD" "true" }}{{ end }}
           {{- $env = merge $env (deepCopy $v.env) }}
           {{- if $env }}
           env:
@@ -74,10 +112,12 @@ spec:
           {{- end }}
           ports:
             - {name: tcp, containerPort: {{ $v.port }}}
-          {{- if $v.probe.tcp }}
-          startupProbe: {tcpSocket: {port: tcp}, periodSeconds: 10, failureThreshold: 90}
-          readinessProbe: {tcpSocket: {port: tcp}, periodSeconds: 10}
-          livenessProbe: {tcpSocket: {port: tcp}, periodSeconds: 20, failureThreshold: 6}
+          {{- if eq $name "clamav" }}
+          {{- /* readiness/startup: effective config must show fail-closed limits (clamconf prints bytes); liveness: clamd answers PING */}}
+          {{- $chk := printf "clamconf -c /etc/clamav | grep -qx 'AlertExceedsMax = \"yes\"' && for k in StreamMaxLength MaxFileSize MaxScanSize; do clamconf -c /etc/clamav | grep -qx \"$k = \\\"%d\\\"\" || exit 1; done && printf 'zPING\\0' | nc -w 3 127.0.0.1 %v | grep -q PONG" $lim $v.port }}
+          startupProbe: {exec: {command: [sh, -c, {{ $chk | quote }}]}, periodSeconds: 10, failureThreshold: 90, timeoutSeconds: 10}
+          readinessProbe: {exec: {command: [sh, -c, {{ $chk | quote }}]}, periodSeconds: 10, timeoutSeconds: 10}
+          livenessProbe: {exec: {command: [sh, -c, {{ printf "printf 'zPING\\0' | nc -w 3 127.0.0.1 %v | grep -q PONG" $v.port | quote }}]}, periodSeconds: 20, failureThreshold: 6, timeoutSeconds: 10}
           {{- else }}
           startupProbe: {httpGet: {path: {{ $v.probe.path }}, port: tcp}, periodSeconds: 10, failureThreshold: 60}
           readinessProbe: {httpGet: {path: {{ $v.probe.path }}, port: tcp}, periodSeconds: 10}
@@ -87,19 +127,22 @@ spec:
           securityContext:
             {{- $sc := deepCopy $root.Values.containerSecurityContext }}{{ $_ := set $sc "readOnlyRootFilesystem" $v.readOnlyRootFilesystem }}
             {{- toYaml $sc | nindent 12 }}
-          {{- with $v.writableDirs }}
           volumeMounts:
-            {{- range $i, $d := . }}
+            {{- range $i, $d := $v.writableDirs }}
             - {name: w{{ $i }}, mountPath: {{ $d.path }}}
             {{- end }}
-          {{- end }}
-      {{- with $v.writableDirs }}
+            {{- if eq $name "clamav" }}
+            - {name: conf, mountPath: /etc/clamav, readOnly: true}
+            {{- end }}
       volumes:
-        {{- range $i, $d := . }}
+        {{- range $i, $d := $v.writableDirs }}
         - name: w{{ $i }}
           emptyDir: {sizeLimit: {{ $d.size }}}
         {{- end }}
-      {{- end }}
+        {{- if eq $name "clamav" }}
+        - name: conf
+          configMap: {name: {{ $fn }}-conf}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

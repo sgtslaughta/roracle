@@ -238,7 +238,7 @@ parsers:
     replicas: 2
     runAsUser: 1001
     readOnlyRootFilesystem: true
-    writableDirs: [{path: /tmp, size: 4Gi}, {path: /opt/app-root/src/.cache, size: 2Gi}]   # HF/model cache, models are baked in the image
+    writableDirs: [{path: /tmp, size: 4Gi}]   # do NOT add a cache emptyDir: it would hide the models baked into the image
     probe: {path: /health}
     args: []
     env: {DOCLING_SERVE_MAX_NUM_PAGES: "2000", DOCLING_SERVE_MAX_FILE_SIZE: "629145600"}
@@ -251,12 +251,12 @@ parsers:
     port: 8070
     replicas: 2
     runAsUser: 1000
-    # GROBID (JVM + DeLFT/Wapiti models under /opt/grobid) writes next to its install and is not known to cope with a
-    # read-only root; set true and extend writableDirs if your mirrored image does.
-    readOnlyRootFilesystem: false
-    writableDirs: [{path: /opt/grobid/grobid-home/tmp, size: 2Gi}, {path: /tmp, size: 1Gi}]
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /opt/grobid/grobid-home/tmp, size: 2Gi}, {path: /tmp, size: 1Gi}, {path: /opt/grobid/logs, size: 100Mi}]
     probe: {path: /api/isalive}
     args: []
+    # Old JDKs on cgroup v2 nodes can crash/mis-size the heap: workaround env JAVA_TOOL_OPTIONS=-XX:-UseContainerSupport
+    # (then set -Xmx explicitly to fit resources.limits).
     env: {}
     resources:
       requests: {cpu: "2", memory: 4Gi}
@@ -266,18 +266,23 @@ parsers:
     image: {repository: clamav/clamav, tag: "1.4", digest: "", pullPolicy: IfNotPresent}
     port: 3310             # backend scan() hardcodes 3310: do not change
     replicas: 2
-    runAsUser: 100         # image default is root; "clamav" user (uid 100 / gid 101) via /init-unprivileged
+    runAsUser: 100         # image default is root; "clamav" user (uid 100 / gid 101)
     runAsGroup: 101
     readOnlyRootFilesystem: true
-    # emptyDirs hide the signature DB baked into the image: an init container seeds /var/lib/clamav from it.
+    # /init-unprivileged: the default /init chowns and sed-edits /etc/clamav from CLAMD_CONF_* (impossible non-root/read-only).
+    command: [/init-unprivileged]
+    # clamd.conf / freshclam.conf come from a ConfigMap mounted read-only at /etc/clamav. Fail closed: AlertExceedsMax yes
+    # and limits >= the upload/evidence caps (template fails if lower: config.ROR_MAX_UPLOAD_BYTES, ROR_EVIDENCE_MAX_BYTES).
+    # ClamAV maximum is < 4G. Suffix K/M/G.
+    limits: 1100M
+    # emptyDirs hide the signature DB baked into the image: an init container seeds /var/lib/clamav from it (cp -R).
     seedDir: /var/lib/clamav
     writableDirs: [{path: /var/lib/clamav, size: 2Gi}, {path: /var/log/clamav, size: 100Mi}, {path: /run/clamav, size: 10Mi}, {path: /tmp, size: 1Gi}]
-    probe: {tcp: true}
+    probe: {tcp: true}     # unused for clamav: exec probes verify the effective limits and clamd PING
     args: []
-    # fail closed: limits exceed the 500 MB upload cap (see compose.yaml)
-    env: {CLAMD_CONF_StreamMaxLength: 600M, CLAMD_CONF_MaxFileSize: 600M, CLAMD_CONF_MaxScanSize: 600M, CLAMD_CONF_AlertExceedsMax: "yes"}
+    env: {}
     # Private freshclam mirror (URL). Empty = freshclamd off (CLAMAV_NO_FRESHCLAMD): signatures are only those baked into
-    # the image, so rebuild/re-mirror the image regularly. Set => egress to mirrorCIDRs (+DNS) is allowed for clamav only.
+    # the image, so rebuild/re-mirror the image regularly. Set => mirrorCIDRs REQUIRED (egress + DNS for clamav only).
     mirrorUrl: ""
     mirrorCIDRs: []
     resources:
@@ -314,13 +319,16 @@ networkPolicy:
   enabled: true
   ingressNamespaceSelector: {kubernetes.io/metadata.name: ingress-nginx}   # namespace labels of the ingress controller
   # Egress for api/worker(/migrate) to non-bundled data services. Bundled modes use pod selectors instead.
-  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied).
+  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
   externalCIDRs:
     postgres: {cidrs: [], ports: [5432]}
     elasticsearch: {cidrs: [], ports: [9200]}
-  # api+worker: inference (LLM), OIDC (JWKS fetch), OTLP collector. In-cluster targets: use the pod/service CIDR.
+  # api+worker: inference (LLM), OIDC (JWKS), OTLP collector; worker: external (non-chart) parsers.
+  # Each entry: cidrs (ipBlock) and/or an in-cluster peer: namespaceSelector / podSelector matchLabels (both = AND).
+  # NetworkPolicies apply AFTER service DNAT: use pod/node/external-LB CIDRs or selectors, never Service ClusterIP CIDRs.
   egressCIDRs:
-    llm: {cidrs: [], ports: [443]}
-    oidc: {cidrs: [], ports: [443]}
-    otel: {cidrs: [], ports: [4317]}
+    llm: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
+    oidc: {cidrs: [], ports: [443], namespaceSelector: {}, podSelector: {}}
+    otel: {cidrs: [], ports: [4317], namespaceSelector: {}, podSelector: {}}
+    parsers: {cidrs: [], ports: [3000, 5001, 8070, 3310], namespaceSelector: {}, podSelector: {}}
   scrape: {enabled: false, ports: [8000]}   # allow monitoringNamespace -> api/worker (backend has no /metrics yet)

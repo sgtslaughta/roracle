@@ -297,3 +297,12 @@ initContainers:
 {{- define "roracle.snapProtocol" -}}
 {{- default (ternary (ternary "https" "http" .Values.minio.requestAutoCert) "https" (eq .Values.minio.mode "tenant")) .Values.elasticsearch.snapshot.protocol -}}
 {{- end -}}
+
+{{/* "1100M" / "2G" / "512K" / "1048576" -> bytes (int64). */}}
+{{- define "roracle.bytes" -}}
+{{- $s := toString . | lower -}}
+{{- if hasSuffix "g" $s }}{{ mul (int64 (trimSuffix "g" $s)) 1073741824 }}
+{{- else if hasSuffix "m" $s }}{{ mul (int64 (trimSuffix "m" $s)) 1048576 }}
+{{- else if hasSuffix "k" $s }}{{ mul (int64 (trimSuffix "k" $s)) 1024 }}
+{{- else }}{{ int64 $s }}{{ end -}}
+{{- end -}}
