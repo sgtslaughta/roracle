@@ -80,3 +80,8 @@ def test_read_facets_shapes():
     assert out["label"] == [{"value": "L1", "count": 3, "label": label_json(LBL)}]
     assert out["collection"] == [{"value": "c1", "count": 4, "label": "Mine"}]
     assert out["venue"] == []
+
+
+def test_no_collections_omits_collection_agg():
+    assert "f_collection" not in facet_aggs(SearchParams(), {})
+    assert read_facets({}, Policy([]), {})["collection"] == []

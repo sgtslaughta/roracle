@@ -20,6 +20,8 @@ def facet_aggs(f: SearchParams, colls: dict[str, tuple[str, list[str]]]) -> dict
     """One `f_<name>` filter agg per facet, filtered by every OTHER facet (disjunctive counts)."""
     out: dict[str, Any] = {}
     for k in (*FACETS, "year"):
+        if k == "collection" and not colls:
+            continue  # ES rejects an empty `filters` agg
         if k == "year":
             inner = {"histogram": {"field": "year", "interval": 1, "min_doc_count": 1}}
         elif k == "collection":
