@@ -17,7 +17,7 @@ from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
 from roracle.labels import service
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
-from roracle.queue import enqueue, payload_uuid
+from roracle.queue import check_lease, enqueue, fence, payload_uuid
 from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
 
 log = logging.getLogger(__name__)
@@ -129,6 +129,9 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                     doc_id,
                     func.now(),
                 )
+            fence(
+                s
+            )  # LAST, right before the commit: FOR SHARE must not be held across the MinIO upload above
             s.commit()
             return result
     finally:
@@ -188,6 +191,7 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     try:
         with closing(source_for(c, eff, deadline, warn)) as it:
             for item in it:
+                check_lease()  # per item: a lost lease aborts the run cooperatively
                 # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
                 if (
                     stats["seen"] - stats["unchanged"] >= settings.connector_max_items

@@ -1,7 +1,7 @@
 """Ingest state writes.
 
 RULE: during ingest ALL writes to document_versions (and documents) go through these helpers.
-The handler's own session (inside run_once's SAVEPOINT, holding the job claim lock) is read-only
+The handler's own session (its own transaction, inside run_once's SAVEPOINT; completion happens in it) is read-only
 for those tables and must never commit. Each helper uses its OWN short session and commits; if the
 handler session had already written the same row, the helper would wait on that lock forever, so
 every helper sets a lock_timeout and fails loudly (retryable) instead.
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import notify
 from roracle.models import Document, DocumentVersion, Vote
-from roracle.queue import enqueue
+from roracle.queue import enqueue, fence
 
 LOCK_TIMEOUT_S = 10.0
 
@@ -33,6 +33,7 @@ def update_version(
 ) -> None:
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        fence(s)  # a stale (lease-lost) worker must not write
         res = s.execute(update(DocumentVersion).where(DocumentVersion.id == version_id).values(**fields))
         if res.rowcount == 0:
             raise LookupError(f"document version {version_id} not found")
@@ -44,6 +45,7 @@ def clear_summary_embeddings(session_factory: sessionmaker[Session]) -> None:
     while True:  # batched: one giant UPDATE would hold row locks (and WAL) for the whole table
         with session_factory() as s:
             _lock_timeout(s, 60)
+            fence(s)
             ids = select(DocumentVersion.id).where(DocumentVersion.summary_embedding.is_not(None)).limit(1000)
             n = s.execute(
                 update(DocumentVersion).where(DocumentVersion.id.in_(ids)).values(summary_embedding=None)
@@ -62,6 +64,7 @@ def update_document(
 ) -> None:
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        fence(s)  # a stale (lease-lost) worker must not write
         res = s.execute(update(Document).where(Document.id == doc_id).values(**fields))
         if res.rowcount == 0:
             raise LookupError(f"document {doc_id} not found")
@@ -83,6 +86,7 @@ def bump_attempts(
 ) -> int:
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        fence(s)  # a stale (lease-lost) worker must not write
         n = s.scalar(
             update(DocumentVersion)
             .where(DocumentVersion.id == version_id)
@@ -93,6 +97,21 @@ def bump_attempts(
             raise LookupError(f"document version {version_id} not found")
         s.commit()
         return n
+
+
+def refund_attempt(
+    session_factory: sessionmaker[Session], version_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+) -> None:
+    """Undo one `bump_attempts`: a deferral that is nobody's fault (busy owner lock) must not eat the crash budget."""
+    with session_factory() as s:
+        _lock_timeout(s, lock_timeout_s)
+        fence(s)
+        s.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.id == version_id, DocumentVersion.ingest_attempts > 0)
+            .values(ingest_attempts=DocumentVersion.ingest_attempts - 1)
+        )
+        s.commit()
 
 
 def _demote(s: Session, doc_id: UUID, version_id: UUID) -> None:
@@ -123,6 +142,7 @@ def clear_outdated_reasons(
     """A new latest version makes `outdated` downvotes stale: keep the votes, drop the reason (R8)."""
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
+        fence(s)  # a stale (lease-lost) worker must not write
         made = select(DocumentVersion.created_at).where(DocumentVersion.id == version_id).scalar_subquery()
         s.execute(  # only votes cast before this version: idempotent on re-ingest
             update(Vote)
@@ -144,13 +164,18 @@ def mark_searchable_and_enqueue(
     the document has no live version)."""
     with session_factory() as s:
         _lock_timeout(s, lock_timeout_s)
-        if demote_doc is not None:
-            _demote(s, demote_doc, version_id)
+        fence(s)  # a stale (lease-lost) worker must not write
         res = s.execute(
-            update(DocumentVersion).where(DocumentVersion.id == version_id).values(stage="searchable")
+            update(DocumentVersion)
+            .where(DocumentVersion.id == version_id, DocumentVersion.stage != "searchable")
+            .values(stage="searchable")
         )
         if res.rowcount == 0:
-            raise LookupError(f"document version {version_id} not found")
+            if s.get(DocumentVersion, version_id) is None:
+                raise LookupError(f"document version {version_id} not found")
+            return  # already searchable (another run got here first): no second citations job or notification
+        if demote_doc is not None:
+            _demote(s, demote_doc, version_id)
         enqueue(s, "citations", {"version_id": str(version_id)})
         v = s.get(DocumentVersion, version_id)
         d = s.get(Document, v.document_id)

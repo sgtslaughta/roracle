@@ -1,7 +1,8 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { SEARCH_DEBOUNCE_MS, searchable } from "@/lib/searchTyping";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-/** Top-bar search: debounced 150 ms, writes `q` into the library URL (resets paging). */
+/** Top-bar search: debounced 300 ms, 3+ characters (or empty), writes `q` into the library URL (resets paging). */
 export function GlobalSearch({ icon }: { icon: ReactNode }) {
   const navigate = useNavigate();
   const urlQ = useRouterState({ select: (s) => (s.location.pathname === "/library" ? ((s.location.search as { q?: string }).q ?? "") : null) });
@@ -15,9 +16,10 @@ export function GlobalSearch({ icon }: { icon: ReactNode }) {
   const onChange = (v: string) => {
     setValue(v);
     clearTimeout(timer.current);
+    if (!searchable(v.trim())) return;
     timer.current = setTimeout(() => {
       void navigate({ to: "/library", search: (prev: Record<string, unknown>) => ({ ...(urlQ === null ? {} : prev), q: v || undefined, page: undefined }) });
-    }, 150);
+    }, SEARCH_DEBOUNCE_MS);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
 

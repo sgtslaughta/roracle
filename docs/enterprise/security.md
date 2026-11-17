@@ -321,6 +321,8 @@ visibility; labels never grant access.
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner and admins, **including their PATs** |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
+**Ruling (cross-encoder reranker):** `exclude_llm` text may be scored by the site-hosted cross-encoder reranker (`ROR_RERANK_URL`, TEI on game-01). It is non-generative and returns only scores, like the embedding model, so it is not an "LLM" for this gate. Keep the endpoint on a trusted network (loopback/mesh); it never receives text the viewer cannot already read, because ES ACL filters run before reranking.
+
 Export routes under `block_export`: `GET /documents/{id}/versions/{n}/file` (attachment), the same
 `file`/`pdf`/`docling` for non-owner PATs, `GET /export/bibtex` and MCP `export_bibtex` (gated documents are
 silently omitted), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block
@@ -386,3 +388,43 @@ Chunks carry `label_id` (keyword) via `search_index.acl_fields`. Gate sets resol
 current labels, so reorder and gate edits need no reindex; only a document's label change needs `acl_sync`.
 Migration `0012` enqueues one `acl_sync` job per non-deleted document to backfill the field (see the
 runbook). `search_acl.acl_filter` adds `must_not terms label_id` for PAT principals.
+
+## 14. Retrieval-quality surfaces (ADR-0015) and performance tooling
+
+All of these are OFF by default except the admin APIs and the quick search mode; none widens what a caller can read.
+
+### LLM gate coverage (`exclude_llm` / `block_agents`)
+No `exclude_llm` document text reaches a generative model through any path added here once its label is seen (a label raised during a notes job can still have one batch of at most `ROR_CONTEXT_CONCURRENCY` calls in flight; the result is discarded, never cached), and a PAT principal never gets `block_agents`
+documents:
+
+| Path | Where the gate sits |
+|---|---|
+| Contextual chunk notes | the document's label is re-read from Postgres before every batch of note calls; an `exclude_llm` document gets its heading path instead and is never sent; a batch in flight when the label is raised is discarded and not cached (`ingest/context.py`) |
+| RAPTOR units | an `exclude_llm` document gets no units and no calls (`ingest/raptor.py`) |
+| Router | the prompt carries the question only (<= 600 characters), no document text (`chat/router.py`) |
+| Global map-reduce | candidates come from ES with the `exclude_llm` filter (plus the PAT `block_agents` filter), then Postgres re-checks visibility, gate (a), the latest searchable version and `gated_docs`; each map call sees one document's own units (`chat/global_answer.py`) |
+| Agentic loop | every retrieval, the first and each sub-query, is `rank_for_chat` as the caller; the planner prompt holds the question and passages that came out of it, with delimiter tags neutralised (`_quote`); sub-queries are plain strings, scope and principal are fixed by the caller (`chat/agentic.py`) |
+| Eval judge | refuses with `LabelGateError` if a gated document is in its input (`eval/judge.py`) |
+| Eval question generation | samples only documents visible to the chosen non-admin principal and `llm_allowed`, re-checked per document (`eval/generate.py`) |
+| Reranker | a cross-encoder service you operate, not a generative model. On library search it receives the passages the caller already sees, **including `exclude_llm` documents** (their text is withheld from PATs, not from the human who may read them); chat and MCP `ask` retrieve with the `exclude_llm` filter. Keep the reranker host inside the same trust boundary as the API |
+
+### No cross-document artefacts
+Notes, section/document units and map findings are per document and per version (`derived/{version_id}/...`), carry only their own document's ACL
+and label fields in ES (so `acl_sync`, deletes and the Postgres re-check apply unchanged), and a citation always resolves to a real chunk of the
+cited document (units expand to source passages; a global answer cites documents). Corpus-wide GraphRAG was rejected for exactly this reason.
+
+### New endpoints and modes
+- **`/admin/eval/*`** and **`POST /admin/retrieval/rebuild`** require a JWT admin (PATs are refused) and write one audit row per request
+  (`admin.<name>`). Gold queries, gold document ids, ranked results and judge text can reveal that private documents exist, so the eval API is
+  admin-only; runs evaluate every named principal through the production path, and a run fails on any hit the principal may not see.
+- **`GET /search?mode=quick`** (command palette): one Elasticsearch title search under the caller's ACL filter, then the Postgres visibility re-check;
+  no embedding or LLM call; takes only `q` (filters, `after` or `page` > 1 are a `422`; `sort`/`size`/`notes` are ignored).
+- Interactive embedding failures (`/search`, chat, MCP `ask`) are a prompt `503 inference unavailable`: no retries and no shared pause, so a throttled endpoint
+  cannot stall other requests. Batch work (ingest, re-embed, rebuild) retries with backoff.
+- **Admission caps** (global answers and agentic loops): one per user, a per-process maximum; excess requests take the plain path.
+
+### Performance tooling (`roracle perf`)
+The perf harness mints its own test tokens with a throw-away key and serves the matching JWKS from a loopback port of the suite process; the API under test is
+configured to trust only that URL. **There is no token-minting code in the application and nothing to enable or disable in production**; a deployment trusts only
+the keys its Keycloak publishes. The CLI refuses any database not named `roracle_perf...` and only touches `perf-*` Elasticsearch indices (the `--es-url` itself is
+not guarded: never point it at production).

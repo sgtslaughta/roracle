@@ -75,10 +75,12 @@ def test_ingest_end_to_end(
         size=5,
     )["hits"]["hits"]
     assert knn and knn[0]["_source"]["version_id"] == vid
-    assert (
-        len(es.get(index=hits[0]["_index"], id=hits[0]["_id"])["_source"]["embedding"])
-        == e2e_settings.embed_dims
+    got = es.search(
+        index=hits[0]["_index"], query={"ids": {"values": [hits[0]["_id"]]}}, fields=["embedding"]
     )
+    assert (
+        len(got["hits"]["hits"][0]["fields"]["embedding"]) == e2e_settings.embed_dims
+    )  # not in _source (ES 9.2+)
 
     mine = client.get("/me/uploads", headers=as_ana).json()["items"]
     assert [i["stage"] for i in mine if i["version_id"] == vid] == ["searchable"]

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from elasticsearch import NotFoundError
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle import reembed
@@ -24,8 +25,9 @@ class FakeIndices:
     def exists_alias(self, name, index=None):
         return name in self.es.aliases and (index is None or index in self.es.aliases[name])
 
-    def create(self, index, mappings=None, aliases=None):
+    def create(self, index, mappings=None, aliases=None, settings=None):
         self.es.data[index] = {}
+        self.es.created[index] = (settings or {}).get("index", {})
         for a in aliases or {}:
             self.es.aliases.setdefault(a, set()).add(index)
 
@@ -44,6 +46,16 @@ class FakeIndices:
             s = self.es.aliases.setdefault(spec["alias"], set())
             (s.add if op == "add" else s.discard)(spec["index"])
 
+    def put_settings(self, index, settings):
+        self.es.index_settings.setdefault(index, {}).update(settings["index"])
+        self.es.settings_calls.append((index, settings["index"]))
+
+    def refresh(self, index):
+        self.es.refreshes.append(index)
+
+    def forcemerge(self, index, **kw):
+        self.es.merges.append(index)
+
     def delete(self, index):
         for i in [index] if isinstance(index, str) else index:
             self.es.data.pop(i)
@@ -57,6 +69,10 @@ class FakeEs:
         self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
         self.indices = FakeIndices(self)
         self.mutations = []
+        self.updates: list[dict] = []
+        self.drift_docs: list[str] = []  # doc ids the fake reports as acl-drifted
+        self.index_settings, self.settings_calls, self.refreshes, self.merges = {}, [], [], []
+        self.created: dict[str, dict] = {}
         self.after_bulk = lambda: None  # hook: a concurrent change landing right after our write
 
     def put(self, cid, doc_id, text="hello", index=SRC, **kw):
@@ -67,19 +83,40 @@ class FakeEs:
             "embedding": [9.0, 9.0], "embedding_model": "old", **kw,
         }  # fmt: skip
 
-    def count(self, index):
-        return {"count": len(self.data[index])}
+    @staticmethod
+    def _in_slice(cid, query):
+        rng = (query or {}).get("range", {}).get("chunk_id")
+        return rng is None or (cid >= rng.get("gte", "") and cid < rng.get("lt", "\uffff"))
+
+    def count(self, index, query=None):
+        return {"count": sum(1 for k in self.data[index] if self._in_slice(k, query))}
+
+    msearch = _es_msearch
 
     def search(self, index, size=10, sort=None, search_after=None, query=None, **kw):
         docs = self.data[index]
+        if kw.get("aggs"):  # composite aggregation over doc_id (orphan purge)
+            comp = kw["aggs"]["docs"]["composite"]
+            done = comp.get("after", {}).get("d", "")
+            fld = comp["sources"][0]["d"]["terms"]["field"]
+            ids = sorted({d[fld] for d in docs.values() if d[fld] > done})[: comp["size"]]
+            agg = {"buckets": [{"key": {"d": i}} for i in ids]}
+            if ids:
+                agg["after_key"] = {"d": ids[-1]}
+            return {"hits": {"hits": []}, "aggregations": {"docs": agg}}
+        if query and "should" in query.get("bool", {}):  # acl drift query of the pre-swap convergence
+            return {"hits": {"hits": [{"fields": {"doc_id": [d]}} for d in self.drift_docs]}}
         if query and "ids" in query:
             ids = [i for i in query["ids"]["values"] if i in docs]
             return {"hits": {"hits": [{"_id": i} for i in ids]}}
-        keys = sorted(k for k in docs if not search_after or k > search_after[0])[:size]
+        keys = sorted(
+            k for k in docs if (not search_after or k > search_after[0]) and self._in_slice(k, query)
+        )[:size]
         return {"hits": {"hits": [{"_id": k, "_source": dict(docs[k]), "sort": [k]} for k in keys]}}
 
     def update_by_query(self, **kw):
         self.mutations.append(kw["index"])
+        self.updates.append(kw)
         return {}
 
     def delete_by_query(self, **kw):
@@ -90,6 +127,9 @@ class FakeEs:
         elif "term" in q:
             ((f, v),) = q["term"].items()
             doomed = [i for i, d in docs.items() if d.get(f) == v]
+        elif "terms" in q:
+            ((f, vs),) = q["terms"].items()
+            doomed = [i for i, d in docs.items() if d.get(f) in vs]
         else:
             doomed = []
         for i in doomed:
@@ -138,7 +178,7 @@ def vid(db_session, document, blob):
 
 @pytest.fixture
 def base():
-    return Settings(embed_model="old", embed_dims=2)
+    return Settings(embed_model="old", embed_dims=2, reembed_slices=1)  # serial chain: the legacy tests
 
 
 def drain(db, sf, es, llm, base, limit=50):

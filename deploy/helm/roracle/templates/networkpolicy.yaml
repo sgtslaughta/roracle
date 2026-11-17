@@ -23,6 +23,10 @@ all empty (an empty `to` would mean "anywhere"). args: cidrs, ports, namespaceSe
 {{- if eq .Values.postgres.mode "cnpg" }}
 - to: [{podSelector: {matchLabels: {cnpg.io/cluster: {{ printf "%s-pg" (include "roracle.fullname" .) | quote }}}}}]
   ports: [{port: 5432, protocol: TCP}]
+{{- if .Values.postgres.pooler.enabled }}
+- to: [{podSelector: {matchLabels: {cnpg.io/poolerName: {{ printf "%s-pg-pooler-rw" (include "roracle.fullname" .) | quote }}}}}]
+  ports: [{port: 5432, protocol: TCP}]
+{{- end }}
 {{- else }}
 {{- include "roracle.npCidrRule" .Values.networkPolicy.externalCIDRs.postgres }}
 {{- end }}

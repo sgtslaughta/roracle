@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -56,6 +57,7 @@ class Document(Base):
         CheckConstraint(
             "visibility IN ('private','shared','org_unit','everyone')", name="ck_documents_visibility"
         ),
+        Index("ix_documents_vis_org", "visibility", "org_unit", postgresql_where=text("deleted_at IS NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -84,6 +86,12 @@ class DocumentVersion(Base):
             "'searchable','review','needs_title','rejected','cancelled')",
             name="ck_document_versions_stage",
         ),
+        Index(  # browse: newest searchable latest versions straight off the index, no sort
+            "ix_versions_latest_searchable",
+            text("created_at DESC"),
+            "document_id",
+            postgresql_where=text("is_latest AND stage = 'searchable'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -108,7 +116,10 @@ class DocumentVersion(Base):
 
 class DocumentShare(Base):
     __tablename__ = "document_shares"
-    __table_args__ = (CheckConstraint("principal_kind IN ('user','group')", name="ck_document_shares_kind"),)
+    __table_args__ = (
+        CheckConstraint("principal_kind IN ('user','group')", name="ck_document_shares_kind"),
+        Index("ix_document_shares_principal", "principal_kind", "principal", "document_id"),
+    )
 
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
     principal_kind: Mapped[str] = mapped_column(String, primary_key=True)
@@ -127,11 +138,45 @@ class DocumentCoauthor(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
 
 
+# Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
+# claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
+# (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
+BULK_KINDS = ("rebuild_units", "reconcile_tags")
+
+
+def bulk_sql(*, bulk: bool) -> str:
+    quoted = ", ".join(f"'{k}'" for k in BULK_KINDS)
+    if len(BULK_KINDS) == 1:
+        return f"kind {'=' if bulk else '<>'} {quoted}"
+    return f"kind {'IN' if bulk else 'NOT IN'} ({quoted})"
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','done','failed')", name="ck_jobs_status"),
-        Index("ix_jobs_status_run_after", "status", "run_after"),
+        # the claim repeats these predicates literally (queue.claim); bulk kinds get their own index so a
+        # backlog of them never sits between a user job and the head of ix_jobs_due_user
+        Index(
+            "ix_jobs_due_user",
+            "run_after",
+            "id",
+            postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=False)}"),
+        ),
+        Index(
+            "ix_jobs_due_bulk",
+            "run_after",
+            "id",
+            postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=True)}"),
+        ),
+        Index(  # claimed before a rebuild_units backlog: its own partial index, no scan past that backlog
+            "ix_jobs_due_reconcile",
+            "run_after",
+            "id",
+            postgresql_where=text("status = 'queued' AND kind = 'reconcile_tags'"),
+        ),
+        Index("ix_jobs_kind_status", "kind", "status"),
+        Index("ix_jobs_lease", "lease_until", postgresql_where=text("status = 'running'")),  # requeue_expired
         Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),
     )
 
@@ -141,9 +186,30 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String, default="queued", server_default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     run_after: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    lease_until: Mapped[datetime | None] = mapped_column(
+        TZ
+    )  # while running: extended by the worker heartbeat
+    claim_token: Mapped[int | None] = mapped_column(
+        BigInteger
+    )  # unique per claim (sequence): the fencing token
+    released: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # shutdown/defer refunds
     last_error: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+
+
+class VersionLsh(Base):
+    """LSH bands of a version's MinHash (16 x 8 rows): near-duplicate candidates by equality, no scan."""
+
+    __tablename__ = "version_lsh"
+
+    band: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    hash: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    __table_args__ = (Index("ix_version_lsh_version_id", "version_id"),)
 
 
 class Vote(Base):
@@ -170,6 +236,7 @@ class Vote(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
+    __table_args__ = (Index("ix_tags_tag", "tag", "document_id"),)
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
@@ -225,6 +292,7 @@ class Chat(Base):
     excludes: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+    hidden_at: Mapped[datetime | None] = mapped_column(TZ)  # owner removed it from their list (soft)
 
 
 class ChatMessage(Base):
@@ -325,6 +393,11 @@ class HandoffShare(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
+    __table_args__ = (
+        Index(
+            "ix_audit_label_view", "user_id", "target", "at", postgresql_where=text("action = 'label.view'")
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), index=True)
@@ -407,7 +480,7 @@ class AppSetting(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
-from roracle import models_labels, models_notes, models_writing  # noqa: F401  (register tables)
+from roracle import models_eval, models_labels, models_notes, models_writing  # noqa: F401  (register tables)
 from roracle.models_labels import Label  # noqa: F401
 from roracle.models_notes import (  # noqa: F401
     Annotation,

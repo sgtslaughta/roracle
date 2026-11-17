@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "check:dist": "node scripts/check-dist.mjs",
+    "check:size": "node scripts/check-size.mjs",
     "contours": "node scripts/gen-contours.mjs"
   },
   "packageManager": "pnpm@9.15.9",

@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 from roracle.api.app import create_app
 from roracle.auth import JwksCache, get_jwks
 from roracle.config import Settings
-from roracle.db import get_session, make_session_factory
+from roracle.db import get_session, get_stream_session, make_session_factory
 from roracle.models import Base, Blob, Document, User
 from roracle.storage import BlobStore, stage
 
@@ -74,6 +74,7 @@ def app(settings, db_session):
     """App whose get_session yields the test's db_session (the fixture owns the transaction)."""
     app = create_app(settings)
     app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_stream_session] = lambda: db_session  # one transaction owner in tests
     return app
 
 
@@ -323,3 +324,16 @@ def prefix(s3_client, test_bucket):
     yield p
     for o in s3_client.list_objects_v2(Bucket=test_bucket, Prefix=p).get("Contents", []):
         s3_client.delete_object(Bucket=test_bucket, Key=o["Key"])
+
+
+@pytest.fixture(autouse=True)
+def _clear_search_caches():
+    """Process-wide memo/page caches must never leak between tests."""
+    from roracle import retrieval
+    from roracle.api.routes import search as search_routes
+    from roracle.ingest import neardup
+
+    neardup._ready = False  # the LSH-ready marker lives in app_settings (truncated per test)
+    retrieval._EMBEDS.clear()
+    search_routes.PAGE_CACHE.clear()
+    yield

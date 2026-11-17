@@ -28,10 +28,26 @@ app.kubernetes.io/component: {{ .comp }}
 {{- end -}}
 
 {{/* Computed defaults for config entries the user left empty. Later tasks extend this (elastic, parsers). */}}
+{{/* Worst-case Postgres client connections at full autoscale: replicas x (pool + overflow) for api and worker. */}}
+{{- define "roracle.pgClients" -}}
+{{- $api := .Values.api }}{{- $wk := .Values.worker }}{{- $c := .Values.config }}
+{{- $apiMax := ternary $api.autoscaling.maxReplicas $api.replicas $api.autoscaling.enabled | int }}
+{{- $wkMax := ternary $wk.autoscaling.maxReplicas $wk.replicas $wk.autoscaling.enabled | int }}
+{{- add (mul $apiMax (add (int $c.ROR_DB_POOL_SIZE) (int $c.ROR_DB_MAX_OVERFLOW))) (mul $wkMax (add (int $c.ROR_WORKER_DB_POOL_SIZE) (int $c.ROR_WORKER_DB_MAX_OVERFLOW) 1)) | int }}
+{{- end -}}
+
 {{- define "roracle.endpoints" -}}
+{{- if and (eq .Values.postgres.mode "cnpg") .Values.postgres.pooler.enabled }}
+ROR_DB_DISABLE_PREPARED: "true"   # transaction pooling: no server-side prepared statements (any PgBouncer version)
+{{- end }}
 {{- if .Values.ingress.host }}
 ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- end }}
+{{- with .Values.rerank }}{{ if .url }}
+ROR_RERANK_URL: {{ .url | quote }}
+ROR_RERANK_API: {{ .api | quote }}
+ROR_RERANK_MODEL: {{ .model | quote }}
+{{- end }}{{ end }}
 {{- $pf := printf "%s-" (include "roracle.fullname" .) }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
 ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
@@ -87,6 +103,9 @@ ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- if $key }}
 - {name: {{ $env }}, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $key | quote }}, optional: true}}}
 {{- end }}
+{{- end }}
+{{- if .Values.secrets.rerankApiKeyEnabled }}
+- {name: ROR_RERANK_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.rerankApiKey | quote }}}}}
 {{- end }}
 {{- if .Values.secrets.llmApiKeyEnabled }}
 - {name: ROR_LLM_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.llmApiKey | quote }}}}}

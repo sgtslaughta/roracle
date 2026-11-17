@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, select, tuple_, update
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
@@ -53,7 +53,7 @@ def list_chats(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     before: str | None = None,
 ) -> dict:
-    q = select(Chat).where(Chat.owner_id == p.user_id)
+    q = select(Chat).where(Chat.owner_id == p.user_id, Chat.hidden_at.is_(None))
     if before is not None:
         try:
             ts, _, cid = base64.urlsafe_b64decode(before.encode()).decode().partition("|")
@@ -178,6 +178,19 @@ def patch_chat(chat_id: UUID, body: ChatPatch, p: Who, session: Db, settings: Cf
     session.commit()
     session.refresh(chat)
     return _agent_chat(session, p, chat_json(chat))
+
+
+@router.delete("/chats/{chat_id}", status_code=204)
+def hide_chat(chat_id: UUID, p: Who, session: Db) -> Response:
+    """Remove from the owner's list only; messages, ratings, shares and GET /chats/{id} are untouched."""
+    chat = owned_chat(session, p, chat_id)
+    if chat.hidden_at is None:
+        # core update: no ORM onupdate, so updated_at (the list order) is kept
+        session.execute(
+            update(Chat).where(Chat.id == chat.id).values(hidden_at=func.now(), updated_at=Chat.updated_at)
+        )
+        session.commit()
+    return Response(status_code=204)
 
 
 class SharesIn(BaseModel):

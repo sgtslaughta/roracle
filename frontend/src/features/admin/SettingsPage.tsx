@@ -12,7 +12,7 @@ import { useSaveSetting, useSettings } from "./dataApi";
 const MiB = 1024 * 1024;
 const BOUNDS: Record<string, { min?: number; max?: number; step?: number }> = {
   chat_passages: { min: 4, max: 12 }, chat_note_min_upvotes: { min: 0 }, chat_note_min_ratio: { min: 0, max: 1, step: 0.05 },
-  rerank_depth: { min: 10, max: 100 }, near_dup_threshold: { min: 0.5, max: 1, step: 0.01 }, near_dup_summary_threshold: { min: 0.5, max: 1, step: 0.01 },
+  rerank_depth: { min: 10, max: 500 }, near_dup_threshold: { min: 0.5, max: 1, step: 0.01 }, near_dup_summary_threshold: { min: 0.5, max: 1, step: 0.01 },
   max_upload_bytes: { min: MiB, max: 5 * 1024 * MiB }, upload_quota_bytes: { min: 0 }, rate_limit_per_minute: { min: 0 },
 };
 const BYTES = new Set(["max_upload_bytes", "upload_quota_bytes"]);

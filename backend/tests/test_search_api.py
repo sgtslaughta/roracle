@@ -217,13 +217,13 @@ def test_filtered_query_embeds_once(client, as_ana, ana, db_session, fes, monkey
     d, v = seed(db_session, ana, year=2021)
     fes.hits = [hit(d, v)]
     n = []
-    from roracle.retrieval import embed as real
+    from roracle.retrieval_util import embed as real
 
     def counting(*a, **k):
         n.append(1)
         return real(*a, **k)
 
-    monkeypatch.setattr("roracle.retrieval.embed", counting)
+    monkeypatch.setattr("roracle.retrieval_util.embed", counting)
     assert get(client, as_ana, q="alpha", year=[2021]).json()["total"] == 1
     assert len(n) == 1
 

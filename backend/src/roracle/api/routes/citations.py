@@ -53,7 +53,7 @@ def _title(d: Document, v: DocumentVersion | None) -> str:
 @router.get("/documents/{doc_id}/references")
 def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
     v = _readable(session, p, doc_id)
-    bt = best_targets(p)
+    bt = best_targets(p, sources=[v.id])
     best = dict(
         session.execute(
             select(bt.c.ref_no, bt.c.target_document_id).where(bt.c.src_version_id == v.id, bt.c.rn == 1)
@@ -101,7 +101,7 @@ def cited_by(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[dict]:
     _readable(session, p, doc_id)
-    bt = best_targets(p)
+    bt = best_targets(p, targets=[doc_id])
     # one row per citing document (newest qualifying version), so limit/offset page documents
     one = (
         select(DocumentVersion.id.label("vid"))

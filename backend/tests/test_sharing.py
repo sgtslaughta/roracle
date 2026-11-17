@@ -37,6 +37,12 @@ def patch(client, h, d, **body):
     return client.patch(f"/documents/{d.id}", headers=h, json=body)
 
 
+def F(call):
+    """The per-document field payload of an ACL update_by_query call."""
+    (payload,) = call["script"]["params"]["acl"].values()
+    return payload["fields"]
+
+
 def test_empty_body_422(client, as_ana, ana, db_session, fes):
     d, _ = seed(db_session, ana)
     assert patch(client, as_ana, d).status_code == 422
@@ -51,10 +57,10 @@ def test_owner_updates_and_es_params(client, as_ana, ana, bob, db_session, fes):
     assert r.status_code == 200, r.text
     assert r.json()["title"] == "New" and r.json()["visibility"] == "shared"
     (call,) = fes.calls
-    assert call["query"] == {"term": {"doc_id": str(d.id)}}
+    assert call["query"] == {"terms": {"doc_id": [str(d.id)]}}
     assert call["refresh"] is True and call["conflicts"] == "proceed"
     assert "New" not in call["script"]["source"]
-    assert call["script"]["params"] == {
+    assert F(call) == {
         "owner_id": str(ana), "visibility": "shared", "org_unit": "/", "title": "New",
         "share_users": [str(bob)], "share_groups": ["/Math/Sub", "/Physics"], "coauthor_users": [],
         "label_id": str(d.label_id),
@@ -67,8 +73,8 @@ def test_shares_replace_and_title_omitted(client, as_ana, ana, bob, db_session, 
     patch(client, as_ana, d, share_users=[])
     rows = db_session.execute(select(DocumentShare.principal_kind, DocumentShare.principal)).all()
     assert [tuple(x) for x in rows] == [("group", "/A")]
-    assert fes.calls[-1]["script"]["params"]["title"] is None
-    assert fes.calls[-1]["script"]["params"]["share_users"] == []
+    assert "title" not in F(fes.calls[-1])  # omitted: the script leaves the title alone
+    assert F(fes.calls[-1])["share_users"] == []
 
 
 def test_unknown_user_422(client, as_ana, ana, db_session, fes):
@@ -85,7 +91,7 @@ def test_org_unit_normalised(client, as_ana, ana, db_session, fes, raw, norm):
     d, _ = seed(db_session, ana)
     r = patch(client, as_ana, d, org_unit=raw)
     assert r.status_code == 200 and r.json()["org_unit"] == norm
-    assert fes.calls[-1]["script"]["params"]["org_unit"] == norm
+    assert F(fes.calls[-1])["org_unit"] == norm
 
 
 @pytest.mark.parametrize("bad", ["A/B", "", "   "])
@@ -109,7 +115,7 @@ def test_non_owner_404_invisible_403_visible(client, as_ana, as_bob, ana, db_ses
 def test_admin_can_patch(client, admin, ana, db_session, fes):
     d, _ = seed(db_session, ana, visibility="private")
     assert patch(client, admin, d, visibility="everyone").status_code == 200
-    assert fes.calls[0]["script"]["params"]["owner_id"] == str(ana)
+    assert F(fes.calls[0])["owner_id"] == str(ana)
 
 
 def test_missing_index_skipped(client, as_ana, ana, db_session, app):
@@ -150,7 +156,7 @@ def test_es_failure_503_db_unchanged_and_job_queued(app, client, as_ana, ana, bo
     assert db_session.get(Document, d.id).visibility == "everyone"
     assert db_session.scalars(select(DocumentShare)).all() == []
     assert len(f.calls) == 2  # failed update, then re-sync of the committed state (also fails)
-    assert f.calls[1]["script"]["params"]["visibility"] == "everyone"
+    assert F(f.calls[1])["visibility"] == "everyone"
     jobs = db_session.scalars(select(Job).where(Job.kind == "acl_sync")).all()
     assert [j.payload for j in jobs] == [{"doc_id": str(d.id)}] * 2  # pre-ES delayed job + recovery job
 
@@ -199,7 +205,7 @@ def test_commit_fails_after_es_success_resyncs(app, client, as_ana, ana, db_sess
 
     monkeypatch.setattr(db_session, "commit", flaky)
     assert patch(client, as_ana, d, visibility="private").status_code == 503
-    assert [c["script"]["params"]["visibility"] for c in f.calls] == ["private", "everyone"]
+    assert [F(c)["visibility"] for c in f.calls] == ["private", "everyone"]
     db_session.expire_all()
     assert db_session.get(Document, d.id).visibility == "everyone"
 
@@ -212,18 +218,17 @@ def test_acl_sync_handler_recomputes_from_pg(session_factory, ana, db_session):
     f = FakeES()
     handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f, session_factory=session_factory)
     (c,) = f.calls
-    assert c["query"] == {"term": {"doc_id": str(d.id)}}
-    assert c["script"]["params"]["visibility"] == "private" and c["script"]["params"]["title"] == "Real"
-    assert c["script"]["params"]["tags"] == []
+    assert c["query"] == {"terms": {"doc_id": [str(d.id)]}}
+    assert F(c)["visibility"] == "private" and F(c)["title"] == "Real"
+    assert F(c)["tags"] == []
     db_session.add(Tag(document_id=d.id, tag="ml"))
     db_session.commit()
     handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f, session_factory=session_factory)
-    assert f.calls[-1]["script"]["params"]["tags"] == ["ml"]
-    assert "ctx._source.tags = params.tags" in f.calls[-1]["script"]["source"]
+    assert F(f.calls[-1])["tags"] == ["ml"]
     d2, _ = seed(db_session, ana, title=None)
     db_session.commit()
     handle_acl_sync(db_session, {"doc_id": str(d2.id)}, es=f, session_factory=session_factory)
-    assert f.calls[-1]["script"]["params"]["title"] == "none"
+    assert F(f.calls[-1])["title"] == "none"
     f2 = FakeES(fail=True)
     with pytest.raises(RuntimeError):
         handle_acl_sync(db_session, {"doc_id": str(d.id)}, es=f2, session_factory=session_factory)

@@ -1,16 +1,24 @@
 import logging
 from functools import partial
 
-from roracle import clients, runtime, search_index, worker_health
+from roracle import clients, http_pool, runtime, search_index, worker_health
 from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
-from roracle.db import make_session_factory
+from roracle.db import heartbeat_session_factory, worker_session_factory
+from roracle.eval.generate import handle_eval_generate
+from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
-from roracle.maintenance import ensure_maintenance, handle_maintenance, handle_reconcile_tags
+from roracle.ingest.rebuild import handle_rebuild_units, handle_rebuild_watch
+from roracle.maintenance import (
+    ensure_maintenance,
+    handle_lsh_backfill,
+    handle_maintenance,
+    handle_reconcile_tags,
+)
 from roracle.notes.evidence import handle_evidence_scan
-from roracle.queue import Handler, run_forever
+from roracle.queue import Handler, run_forever, set_heartbeat_factory, set_lease
 from roracle.reembed import handle_reembed
 from roracle.storage import blob_store_from
 
@@ -41,7 +49,27 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         "maintenance": partial(
             handle_maintenance, settings=settings, store=blob_store_from(settings), es=clients.es(settings)
         ),
-        "reconcile_tags": handle_reconcile_tags,
+        "reconcile_tags": partial(handle_reconcile_tags, es=clients.es(settings)),
+        "lsh_backfill": handle_lsh_backfill,
+        "eval_run": partial(
+            handle_eval_run,
+            settings=settings,
+            es=clients.es(settings),
+            llm=clients.llm(settings),
+            session_factory=session_factory,
+        ),
+        "eval_generate": partial(
+            handle_eval_generate, settings=settings, es=clients.es(settings), llm=clients.llm(settings)
+        ),
+        "rebuild_units": partial(
+            handle_rebuild_units,
+            settings=settings,
+            store=blob_store_from(settings),
+            es=clients.es(settings),
+            llm=clients.llm(settings),
+            session_factory=session_factory,
+        ),
+        "rebuild_watch": partial(handle_rebuild_watch, settings=settings),
         "reembed": partial(
             handle_reembed,
             settings=settings,
@@ -69,7 +97,7 @@ def main() -> None:
     settings = get_settings()
     if not settings.clamav_host:
         log.warning("clamav_host is empty: malware scanning disabled")
-    sf = make_session_factory(settings.database_url, settings.db_connect_timeout_s)
+    sf = worker_session_factory(settings)
     HANDLERS.update(build_handlers(settings, sf))
     worker_health.serve(
         settings.worker_health_port
@@ -77,4 +105,10 @@ def main() -> None:
     ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
-    run_forever(sf, HANDLERS)
+    set_lease(settings.job_lease_s, settings.job_drain_s)
+    set_heartbeat_factory(heartbeat_session_factory(settings))
+    http_pool.init()  # shared keep-alive client for rerank calls made by eval/chat-shaped jobs
+    try:
+        run_forever(sf, HANDLERS)
+    finally:
+        http_pool.close()

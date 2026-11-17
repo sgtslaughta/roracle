@@ -1,0 +1,13 @@
+# Binding performance budgets (milliseconds). `roracle perf load --budget` gates on the scenario's percentile.
+# Source: .superpowers/sdd/rq/perf-audit.md table (b); plan Task 10.
+search: {p95: 400}
+search_filtered: {p95: 500}
+browse: {p95: 100}          # at 10M docs
+chat_retrieve: {p95: 800}   # TTFT excluding the LLM; 1100 with RAPTOR
+mcp_search: {p95: 450}      # /search budget + 50 ms
+doc_read: {p95: 80}
+claim: {p99: 5}             # at 100k queued jobs, one claimer; p50 is round-trip bound (server 16 us), not gated
+ingest_overhead_s: {p95: 2}
+near_dup: {p95: 50}
+rebuild_chunks_per_s: {min: 1000}
+reconcile_es_writes: {max: 0}

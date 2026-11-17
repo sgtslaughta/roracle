@@ -176,6 +176,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
                 dep(app, library.get_es),
                 dep(app, search_routes.get_llm),
                 settings,
+                dep(app, search_routes.get_http),
                 q=query,
                 tags=None,
                 year=None,

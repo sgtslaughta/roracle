@@ -76,7 +76,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 
 ## 5. Retrieval & chat (ADR-0007)
 
-- Hybrid search: BM25 + kNN, fused in the app with RRF, reranked (top 50 → 8–10 for chat).
+- Hybrid search: BM25 + kNN, fused in the app with RRF, reranked (top 200 → 8–10 for chat; ADR-0015).
 - Results grouped per document with highlighted passages; document-level summary embedding used for
   broad "papers about X" queries and near-dup only.
 - Votes: one per user per document; downvote reasons (outdated, wrong/misleading, low quality,
@@ -94,6 +94,23 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
   retrieval searches open docs first, then corpus. Users can drop a doc from context.
 - Community notes (public annotations) are indexed separately and cited with a distinct badge;
   toggle "include community notes" (default on); low-scoring/reported notes excluded.
+
+### 5.1 Retrieval quality (ADR-0015)
+
+- **Eval-gated**: every retrieval change is measured on a gold set (YAML fixtures + admin-curated sets in
+  Postgres) **per principal** (never admin-only; leaks fail the run): Recall@5/10/50/100, MRR, nDCG@10
+  (passage + document level) and LLM-judged answer faithfulness / citation support. Runs from the CLI,
+  CI (synthetic corpus) and after every re-embed or index rebuild; admins see the trend. A feature is on
+  by default only when it meets the ADR-0015 gain threshold; otherwise it stays behind its setting.
+- Cross-encoder rerank (bge-reranker-v2-m3) of the top 200 fused passages; timeout → fused order.
+- Contextual chunks: a 50–100-token LLM note situating each chunk in its document, prepended for BM25
+  and embedding; `exclude_llm` documents use their heading path instead (no LLM call).
+- Per-document hierarchical summaries (section → document) are extra retrieval units carrying the
+  document's ACL + label; citations always resolve to source passages and pages.
+- Query router (specific fact / multi-hop / global); global questions map-reduce over summaries of
+  caller-visible, LLM-allowed documents only (Postgres re-check, bounded fan-out) and cite documents.
+  Optional query decomposition loop in chat and MCP `ask`.
+- Never: corpus-wide GraphRAG or cross-document summaries (cannot be ACL post-filtered).
 
 ## 6. Reader & links
 
@@ -220,6 +237,7 @@ mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one Sem
 | 9 | Writing | Profiles, drafts, validate/check_citations, pandoc + latex-builder, submit/review |
 | 10 | Connectors & admin | S3/fs/HTTP connectors, admin section, notifications |
 | 11 | Production | Helm, HA, observability, backups, hardening, load tests against latency targets |
+| 13 | Retrieval quality | **Runs before 12.** Eval harness (gold sets, per-principal Recall@k/MRR/nDCG, LLM judge, CI, admin trend), cross-encoder rerank, contextual chunk notes, per-document summary units, query router + global map-reduce, eval-gated agentic retrieval |
 | 12 | Documentation | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
 | 14 | Infrastructure as code | Terraform onto existing Kubernetes wrapping the Helm charts; placeholder-gated air-gap mirrors; sizing profiles; kind apply rehearsal in CI-able script |
 

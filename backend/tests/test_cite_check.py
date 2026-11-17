@@ -7,6 +7,7 @@ import pytest
 from api_seed import seed
 from conftest import bearer
 from elasticsearch import ConnectionError as EsConnectionError
+from es_fakes import msearch as _es_msearch
 from mcp_helpers import call
 from sqlalchemy import select
 from test_mcp_tools import mc, pat  # noqa: F401
@@ -25,6 +26,8 @@ class FES:
 
     def __init__(self, hits=(), exc=None):
         self.hits, self.calls, self.exc = list(hits), [], exc
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)
