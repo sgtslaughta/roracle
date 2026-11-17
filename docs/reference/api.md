@@ -103,7 +103,7 @@ The chat body takes `content` (1 to 4000 characters), optional `model` (must be 
 
 A `201` returns `document_id`, `version_id` and `sha256`. Ingestion then runs in the background: poll `GET /api/me/uploads` for `stage` and `status`. A version in the `needs_title` stage waits for `PUT /api/documents/{doc_id}/versions/{version_id}/title`.
 
-**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"code": "duplicate", "document_id": "..."}`, which usually makes a retry after a timeout harmless. The check is best effort: it does not see another upload of the same file that is still in flight, so two concurrent uploads can both succeed. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
+**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"code": "duplicate", "document_id": "..."}`, which usually makes a retry after a timeout harmless. The check is best effort: it cannot see a concurrent request that has not committed yet, so two simultaneous uploads of the same file can both succeed. A committed upload that is still ingesting is matched. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
 
 An `org_unit` visibility needs the uploader to belong to an organisational unit, else `422`.
 
@@ -175,7 +175,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 
 ### Admin
 
-Admin routes sit under `/api/admin/` and need a JWT with the admin role: users and groups, labels, connectors, jobs and maintenance, reindex, runtime settings, eval, writing profiles, audit, tags, drafts review. Each successful admin call is audited as `admin.<endpoint>` (failed calls roll the row back), and a denied call is audited as `admin.denied`. Operations are described in the [admin guide](../admin/README.md); the routes are in [openapi.json](openapi.json).
+Admin routes sit under `/api/admin/` and need a JWT with the admin role: users and groups, labels, connectors, jobs and maintenance, reindex, runtime settings, eval, writing profiles, audit, tags, drafts review. Each successful admin call is audited as `admin.<endpoint>` (failed calls roll the row back), and a denied call is audited (best effort) as `admin.denied`. Operations are described in the [admin guide](../admin/README.md); the routes are in [openapi.json](openapi.json).
 
 ### Operations
 
