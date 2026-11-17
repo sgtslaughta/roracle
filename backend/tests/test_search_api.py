@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -6,7 +7,7 @@ from api_seed import FakeES, seed
 from roracle import search_legacy
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
-from roracle.models import Collection, CollectionItem, Tag, Vote
+from roracle.models import Collection, CollectionItem, DocCitation, Tag, Vote
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -217,3 +218,113 @@ def test_library_query_applies_similarity_floor(client, as_ana, ana, db_session,
     fes.calls.clear()
     get(client, as_ana, q="alpha")
     assert all("similarity" not in c["knn"] for c in fes.calls if "knn" in c)
+
+
+# --- query path on a search-fields index (Task 8) ---
+
+
+class ReadyES(FakeES):
+    """FakeES on an index with the search-fields marker: non-empty `q` runs the new query path."""
+
+    def __init__(self, hits=()):
+        super().__init__(hits)
+        meta = {"mappings": {"_meta": {"search_fields": 1}}}
+        self.indices = SimpleNamespace(get_mapping=lambda index: {index: meta})
+
+
+@pytest.fixture
+def ready(app):
+    f = ReadyES()
+    app.dependency_overrides[get_es] = lambda: f
+    app.dependency_overrides[get_llm] = lambda: FakeLLM()
+    return f
+
+
+def first_stage(es) -> list[dict]:
+    return [c for c in es.calls if c.get("size") == 100 and "query" in c]  # BM25 bodies
+
+
+def test_head_scope_sends_no_knn_and_excludes_on_title(client, as_ana, ana, db_session, ready):
+    d, v = seed(db_session, ana, title="x")
+    ready.hits = [hit(d, v)]
+    r = get(client, as_ana, q="x -y", **{"in": "title"})
+    assert r.status_code == 200 and r.json()["total"] == 1
+    assert not any("knn" in c for c in ready.calls)
+    (bm25,) = first_stage(ready)
+    q = bm25["query"]["bool"]
+    assert {"multi_match": {"query": "y", "type": "phrase", "fields": ["title"]}} in q["must_not"]
+    assert {"term": {"doc_head": True}} in q["filter"]
+    assert q["must"] == [{"multi_match": {"query": "x", "fields": ["title"]}}]
+
+
+def test_new_params_reach_first_stage(client, as_ana, ana, db_session, ready):
+    d, v = seed(db_session, ana)
+    ready.hits = [hit(d, v)]
+    r = get(client, as_ana, q="alpha", tags_not="a", sort="pages", has_doi="yes")
+    assert r.status_code == 200, r.text  # Task 7's "browse only" 422 is gone
+    bm25 = first_stage(ready)[0]["query"]["bool"]
+    assert {"terms": {"tags": ["a"]}} in bm25["must_not"] and {"term": {"has_doi": True}} in bm25["filter"]
+    knns = [c["knn"]["filter"] for c in ready.calls if "knn" in c]
+    main = [k for k in knns if isinstance(k, dict)]  # {"bool": {filter, must_not}} when must_not is set
+    assert len(main) == 2 and all({"terms": {"tags": ["a"]}} in k["bool"]["must_not"] for k in main)
+    assert len(knns) == 4 and all("tags" not in str(k) for k in knns if k not in main)  # light universe pass
+
+
+def test_cache_key_differs_by_include_exclude(client, as_ana, ana, db_session, ready):
+    d, v = seed(db_session, ana)
+    ready.hits = [hit(d, v)]
+    n = lambda: len(first_stage(ready))
+    get(client, as_ana, q="alpha", tags="a")
+    once = n()
+    get(client, as_ana, q="alpha", tags="a")
+    assert n() == once  # cached: paging/re-sorting makes no ES call
+    get(client, as_ana, q="alpha", tags_not="a")
+    assert n() > once
+
+
+def test_no_positive_word_is_422(client, as_ana, ready):
+    r = get(client, as_ana, q="-a")
+    assert r.status_code == 422 and r.json()["detail"] == "add at least one word to search for"
+    assert ready.calls == []
+
+
+def test_query_facets_acl_first_over_rechecked_ids(client, as_ana, ana, bob, db_session, ready):
+    a, va = seed(db_session, ana, title="A")
+    h, vh = seed(db_session, bob, title="Hidden", visibility="private")
+    ready.hits = [hit(h, vh), hit(a, va)]
+    body = get(client, as_ana, q="alpha", tags_not="zz").json()
+    assert [x["title"] for x in body["results"]] == ["A"] and body["total"] == 1
+    (fac,) = [c for c in ready.calls if c.get("size") == 0]
+    flt = fac["query"]["bool"]["filter"]
+    assert "visibility" in str(flt[0]) and {"terms": {"doc_id": [str(a.id)]}} in flt
+    assert {"term": {"doc_head": True}} in flt and "aggs" in fac
+
+
+def test_invisible_scope_is_absent_on_query_path(client, as_ana, bob, db_session, ready):
+    _, bv = seed(db_session, bob, visibility="private")
+    hidden = get(client, as_ana, q="alpha", cites=str(bv.document_id)).json()
+    assert hidden == get(client, as_ana, q="alpha", cites=str(uuid.uuid4())).json()
+    assert hidden["total"] == 0 and ready.calls == []
+
+
+def _citer(db, target, owner, visibility):
+    _, cv = seed(db, owner, title="citer", visibility=visibility)
+    db.add(DocCitation(src_version_id=cv.id, ref_no=1, target_document_id=target.id, confidence=1.0))
+    db.flush()
+
+
+def test_invisible_citers_change_nothing(client, as_ana, ana, bob, db_session, ready):
+    a, va = seed(db_session, ana, title="A")
+    b, vb = seed(db_session, ana, title="B")
+    _citer(db_session, a, ana, "everyone")
+    ready.hits = [hit(b, vb), hit(a, va)]
+    reqs = [{"sort": "cited"}, {"cited_min": 1}, {"cited_min": 2}, {"cited_min": 1, "sort": "title"}]
+    before = [get(client, as_ana, q="alpha", **r).json() for r in reqs]
+    for _ in range(3):
+        _citer(db_session, b, bob, "private")
+        _citer(db_session, a, bob, "private")
+    after = [get(client, as_ana, q="alpha", **r).json() for r in reqs]
+    assert before == after
+    assert [x["title"] for x in before[0]["results"]] == ["A", "B"]
+    assert before[1]["total"] == 1 and before[2]["total"] == 0
+    assert [x["cited_by_count"] for x in before[0]["results"]] == [1, 0]

@@ -22,11 +22,19 @@ PAGE_CACHE_MAX = 64
 
 
 def cache_key(
-    p: Principal, settings: Settings, q: str, filters: dict, coll_docs, light: bool, policy: Policy
+    p: Principal,
+    settings: Settings,
+    q: str,
+    filters: dict,
+    coll_docs,
+    light: bool,
+    policy: Policy,
+    extra: tuple = (),
 ) -> tuple[Any, ...]:
     """Everything that shapes the first-stage result: the principal (never shared across principals), the query,
     filters and collection scope, the label policy (exact labels tuple: a relabel/gate change is a miss) and the
-    search configuration (active index = re-embed cutover, rerank and similarity settings)."""
+    search configuration (active index = re-embed cutover, rerank and similarity settings); `extra` = any further
+    request state that shapes it (the query path passes `cache_tuple` of its parameters)."""
     return (
         p.user_id,
         tuple(sorted(p.groups)),
@@ -42,6 +50,7 @@ def cache_key(
         settings.rerank_blend,
         settings.search_rerank_depth,
         settings.search_min_similarity,
+        extra,
     )
 
 

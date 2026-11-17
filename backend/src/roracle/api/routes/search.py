@@ -1,5 +1,5 @@
 """GET /search: ES browse for empty queries (R3), legacy path until the search-fields reindex (R5), the hybrid
-query path, quick title search; GET /search/facets/{name}: the facet find box."""
+query path (search_ranked), quick title search; GET /search/facets/{name}: the facet find box."""
 
 from typing import Annotated
 from uuid import UUID
@@ -34,6 +34,8 @@ from roracle.search_index import active_index
 from roracle.search_legacy import _query_rows, legacy_search
 from roracle.search_limits import BadInput
 from roracle.search_params import FindParams, SearchParams, uses_new_params
+from roracle.search_query import parse_query
+from roracle.search_ranked import ranked
 from roracle.search_scope import resolve_scope
 
 router = APIRouter()
@@ -154,19 +156,18 @@ def search(
         if uses_new_params(f):
             raise HTTPException(503, UPGRADING)
         return {**legacy_search(session, es, llm, settings, http, p, **_legacy_kwargs(f)), "upgrading": True}
-    if f.q.strip():
-        # ponytail: the query path keeps the legacy body until Task 8 moves it to search fields
-        if uses_new_params(f):
-            raise HTTPException(422, "these filters apply to browsing only (empty q) for now")
-        return legacy_search(session, es, llm, settings, http, p, **_legacy_kwargs(f))
     policy = Policy.load(session)
     try:
+        pq = parse_query(f.q) if f.q.strip() else None
         scope = resolve_scope(session, p, f)
     except BadInput as e:
         raise HTTPException(422, str(e)) from None
     if scope is None:
         return empty_body(f.page, policy)
-    got = browse(session, es, settings, p, policy, f, scope)
+    if pq is not None:
+        got = ranked(session, es, llm, settings, http, p, policy, f, scope, pq)
+    else:
+        got = browse(session, es, settings, p, policy, f, scope)
     out = {k: got[k] for k in ("total", "total_capped", "next", "facets")} | {"page": f.page}
     out["results"] = [_hit(r) for r in got["rows"]]
     decorate(session, p, policy, out["results"], f.notes)

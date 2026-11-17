@@ -16,6 +16,7 @@ from roracle.models import Tag, User
 from roracle.retrieval import search_chunks
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
 from roracle.search_query import bm25_clause, parse_query, text_clauses
+from roracle.search_signals import sync_signals
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_blob_store_override")]
 DIMS = 4
@@ -54,7 +55,7 @@ def index(es, cfg, db, doc, ver, text, tags=()):
     es.indices.refresh(index=index_name(cfg.embed_model))
 
 
-def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
+def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired, session_factory):
     _ana, bob = user_id(db_session, client, as_ana, "ana"), user_id(db_session, client, as_bob, "bob")
     d1, v1 = seed(db_session, bob, title="Open", year=2021)
     d2, v2 = seed(db_session, bob, title="Secret", visibility="private", year=1999)
@@ -62,6 +63,9 @@ def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
     db_session.flush()
     index(es, wired, db_session, d1, v1, "quokka text", ["ml"])
     index(es, wired, db_session, d2, v2, "quokka secret text", ["secret"])
+    db_session.commit()  # facets count head docs the signals job marked searchable (R13)
+    sync_signals(es, session_factory, [str(d1.id), str(d2.id)])
+    es.indices.refresh(index=index_name(wired.embed_model))
     r = client.get("/search", headers=as_ana, params={"q": "quokka"}).json()
     assert [x["title"] for x in r["results"]] == ["Open"] and r["total"] == 1
     assert r["results"][0]["passages"][0]["highlight"].count("<em>quokka</em>") == 1

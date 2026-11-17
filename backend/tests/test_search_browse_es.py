@@ -338,3 +338,38 @@ def test_after_walks_missing_values(client, as_ana, ana, db_session, es, wired, 
         if after is None:
             break
     assert seen == by_page
+
+
+def test_query_facets_count_only_pg_visible(client, as_ana, ana, bob, db_session, es, wired, session_factory):
+    mine, vm = seed(db_session, ana, title="Deep mine")
+    other, vo = seed(db_session, bob, title="Deep other")  # indexed while visible to everyone
+    put(es, wired, db_session, mine, vm, ["ml"])
+    put(es, wired, db_session, other, vo, ["secret", "ml"])
+    sync(es, wired, db_session, session_factory, [mine, other])
+    assert {x["value"] for x in get(client, as_ana, q="deep")["facets"]["tags"]} == {"ml", "secret"}
+    other.visibility = "private"  # ES ACL now stale: Postgres re-check is the authority (R19)
+    db_session.flush()
+    for params in ({}, {"tags": "ml"}, {"tags_not": "zz", "sort": "title"}):
+        r = get(client, as_ana, q="deep", **params)
+        assert [x["title"] for x in r["results"]] == ["Deep mine"] and r["total"] == 1
+        assert r["facets"]["tags"] == [{"value": "ml", "count": 1}], params
+
+
+def test_query_path_ignores_invisible_citers(
+    client, as_ana, ana, bob, db_session, es, wired, session_factory
+):
+    a, va = seed(db_session, ana, title="Deep a")
+    b, vb = seed(db_session, ana, title="Deep b")
+    _cite(db_session, a, ana, "everyone", 2)
+    for d, v in ((a, va), (b, vb)):
+        put(es, wired, db_session, d, v, ["t"])
+    sync(es, wired, db_session, session_factory, [a, b])
+    reqs = [{"sort": "cited"}, {"cited_min": 2}, {"cited_min": 3}, {"cited_min": 1, "sort": "title"}]
+    before = [get(client, as_ana, q="deep", **r) for r in reqs]
+    _cite(db_session, b, bob, "private", 4)  # b: global 4, visible 0
+    _cite(db_session, a, bob, "private", 1)
+    sync(es, wired, db_session, session_factory, [a, b])
+    assert [get(client, as_ana, q="deep", **r) for r in reqs] == before
+    assert [x["title"] for x in before[0]["results"]] == ["Deep a", "Deep b"]
+    assert (before[1]["total"], before[2]["total"]) == (1, 0)
+    assert before[1]["facets"]["tags"] == [{"value": "t", "count": 1}]
