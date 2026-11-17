@@ -9,7 +9,7 @@ import type { useLibraryNav } from "./useLibraryNav";
 const SCOPE_LABEL = { anywhere: "Anywhere", title: "Title", authors: "Authors", abstract: "Abstract", fulltext: "Full text" } as const;
 const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 
-function Refine({ q, onApply }: { q: string; onApply: (q: string) => void }) {
+export function Refine({ q, onApply }: { q: string; onApply: (q: string) => void }) {
   const init = splitQuery(q);
   const [words, setWords] = useState(init.words);
   const [phrases, setPhrases] = useState(init.phrases.join("\n"));
@@ -27,6 +27,14 @@ function Refine({ q, onApply }: { q: string; onApply: (q: string) => void }) {
   );
 }
 
+export function ScopeSelect({ search, nav }: { search: LibrarySearch; nav: Pick<ReturnType<typeof useLibraryNav>, "patch"> }) {
+  return (
+    <select className="sel" aria-label="Search in" value={search.in ?? "anywhere"} onChange={(e) => nav.patch({ in: e.target.value as LibrarySearch["in"] })}>
+      {SCOPES.map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
+    </select>
+  );
+}
+
 export function QueryBar({ search, nav }: { search: LibrarySearch; nav: Pick<ReturnType<typeof useLibraryNav>, "patch"> }) {
   const q = search.q ?? "";
   const [draft, setDraft] = useState(q);
@@ -39,9 +47,7 @@ export function QueryBar({ search, nav }: { search: LibrarySearch; nav: Pick<Ret
       <span className="qbar-input"><Search aria-hidden />
         <input type="search" aria-label="Search the library" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search the library" />
       </span>
-      <select className="sel" aria-label="Search in" value={search.in ?? "anywhere"} onChange={(e) => nav.patch({ in: e.target.value as LibrarySearch["in"] })}>
-        {SCOPES.map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
-      </select>
+      <ScopeSelect search={search} nav={nav} />
     </form>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild><Button><SlidersHorizontal aria-hidden />Refine</Button></PopoverTrigger>

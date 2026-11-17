@@ -47,13 +47,13 @@ describe("library search", () => {
     await userEvent.click(within(tagGroup).getByRole("checkbox", { name: "Include Tags: expanders" }));
     await waitFor(() => expect(results()).toHaveLength(2));
     expect(router.state.location.search).toMatchObject({ tags: ["expanders"] });
-    const chip = screen.getByRole("button", { name: "Remove filter Tags: expanders" });
+    const chip = screen.getByRole("button", { name: "Remove: tagged expanders" });
     // facets show only values present in the current results
     expect(within(screen.getByRole("group", { name: "File type" })).queryByRole("checkbox", { name: "Include File type: Word" })).toBeNull();
     await userEvent.click(chip);
     await waitFor(() => expect(results()).toHaveLength(7));
     expect(within(screen.getByRole("group", { name: "File type" })).getByRole("checkbox", { name: "Include File type: Word" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Remove filter/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove: / })).toBeNull();
   });
 
   it("a selected facet value with no matches stays visible at zero", async () => {
@@ -95,12 +95,10 @@ describe("library search", () => {
     await waitFor(() => expect(body).toMatchObject({ value: -1, reason: "superseded", superseded_by: expect.any(String) }));
   });
 
-  it("caps active filter chips at 5 with a +K menu offering Clear all", async () => {
-    await renderLibrary("/library?tags=a&tags=b&tags=c&tags=d&tags=e&tags=f&tags=g");
-    const bar = await screen.findByLabelText("Active filters");
-    expect(within(bar).getAllByRole("button", { name: /Remove filter/ })).toHaveLength(5);
-    await userEvent.click(within(bar).getByRole("button", { name: "More filters: 2 more" }));
-    expect(await screen.findByRole("button", { name: "Clear all" })).toBeInTheDocument();
+  it("many values of one facet read as one clause", async () => {
+    await renderLibrary("/library?tags=a&tags=b&tags=c");
+    const sentence = await screen.findByLabelText("Current search");
+    expect(within(sentence).getByRole("button", { name: "tagged a, b or c" })).toBeInTheDocument();
   });
 
   it("facet groups show 8 values then Show all K in a searchable menu", async () => {
@@ -179,15 +177,6 @@ describe("library search", () => {
     await userEvent.pointer({ keys: "[MouseRight]", target: within(other).getAllByRole("button", { name: /^#/ })[0] });
     await screen.findByRole("menuitem", { name: "Copy tag" });
     expect(screen.queryByRole("menuitem", { name: "Remove tag" })).toBeNull();
-  });
-
-  it("active filter chips have a context menu with Remove filter and Copy value", async () => {
-    const router = await renderLibrary("/library?tags=expanders");
-    const chip = await screen.findByRole("button", { name: "Remove filter Tags: expanders" });
-    await userEvent.pointer({ keys: "[MouseRight]", target: chip });
-    expect(await screen.findByRole("menuitem", { name: "Copy value" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("menuitem", { name: "Remove filter" }));
-    await waitFor(() => expect(router.state.location.search.tags).toBeUndefined());
   });
 });
 

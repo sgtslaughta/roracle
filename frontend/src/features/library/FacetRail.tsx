@@ -21,6 +21,26 @@ export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> =
 };
 const ORDER = Object.keys(FACET_META) as FacetKey[];
 
+/** Rows for one facet group: server counts, with selected and excluded values kept at 0. */
+export function facetRows(k: FacetKey, facets: Record<FacetName, FacetValue[]> | undefined, search: LibrarySearch, collName: (id: string) => string, labelName: (id: string) => string) {
+  const fv = facets?.[k] ?? [];
+  const labels = new Map(fv.map((f) => [f.value, f.label]));
+  const ranks = new Map(fv.map((f) => [f.value, typeof f.label === "object" ? f.label.rank : 0]));
+  const nameOf = (v: string) => {
+    const l = labels.get(v);
+    return typeof l === "string" ? l : l ? l.name : k === "collection" ? collName(v) : k === "label" ? labelName(v) : v;
+  };
+  const sel = search[k] ?? [];
+  const exc = search[`${k}_not`] ?? [];
+  const counts = new Map(fv.map((f) => [f.value, f.count]));
+  [...sel, ...exc].forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
+  const vals = [...counts.keys()];
+  if (k === "label") vals.sort((a, b) => (ranks.get(a) ?? 0) - (ranks.get(b) ?? 0)); // most sensitive last
+  const values: FacetRow[] = vals.map((v) => ({ value: v, name: nameOf(v), count: counts.get(v) ?? 0 }));
+  const opKey = k === "author" ? "author_op" as const : k === "tags" ? "tags_op" as const : undefined;
+  return { values, sel, exc, nameOf, opKey };
+}
+
 type Nav = Pick<ReturnType<typeof useLibraryNav>, "toggle" | "patch">;
 
 /** Values come from the server's facet counts; selected and excluded values stay visible at 0. */
@@ -31,21 +51,7 @@ export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, F
     <aside className="facets" aria-label="Filters">
       <p className="fnote">{search.q ? "Counts cover these results." : "Counts cover everything you can see."}</p>
       {ORDER.map((k) => {
-        const fv = facets?.[k] ?? [];
-        const labels = new Map(fv.map((f) => [f.value, f.label]));
-        const ranks = new Map(fv.map((f) => [f.value, typeof f.label === "object" ? f.label.rank : 0]));
-        const nameOf = (v: string) => {
-          const l = labels.get(v);
-          return typeof l === "string" ? l : l ? l.name : k === "collection" ? collName(v) : k === "label" ? labelName(v) : v;
-        };
-        const sel = search[k] ?? [];
-        const exc = search[`${k}_not`] ?? [];
-        const counts = new Map(fv.map((f) => [f.value, f.count]));
-        [...sel, ...exc].forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
-        const vals = [...counts.keys()];
-        if (k === "label") vals.sort((a, b) => (ranks.get(a) ?? 0) - (ranks.get(b) ?? 0)); // most sensitive last
-        const values: FacetRow[] = vals.map((v) => ({ value: v, name: nameOf(v), count: counts.get(v) ?? 0 }));
-        const opKey = k === "author" ? "author_op" : k === "tags" ? "tags_op" : undefined;
+        const { values, sel, exc, nameOf, opKey } = facetRows(k, facets, search, collName, labelName);
         return (
           <Fragment key={k}>
           {k === "venue" && <YearFacet buckets={facets?.year ?? []} min={search.year_min} max={search.year_max} onCommit={(a, b) => nav.patch({ year_min: a, year_max: b })} />}

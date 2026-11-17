@@ -1,22 +1,18 @@
 import { SearchX } from "lucide-react";
 import { openDoc } from "@/features/reader/useReaderStore";
-import { ARRAY_KEYS, SORTS, type LibrarySearch } from "@/lib/searchParams";
+import { ARRAY_KEYS, type LibrarySearch } from "@/lib/searchParams";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
 import type { HandoffSource } from "@/features/agents/HandoffDialog";
-import { ActiveFilters } from "./ActiveFilters";
 import { FacetRail } from "./FacetRail";
 import { FiltersButton } from "./FiltersButton";
 import { QueryBar } from "./QueryBar";
+import { QuerySentence, useSentenceNames } from "./QuerySentence";
+import { SortSelect } from "./SortSelect";
 import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
-
-const SORT_LABEL = {
-  relevance: "Relevance", newest: "Recently added", votes: "Most useful", title: "Title", published_desc: "Newest published", published_asc: "Oldest published",
-  cited: "Most cited", pages: "Shortest", venue: "Venue", author: "Author",
-} as const;
 
 /** Exactly one collection filter hands off the collection; otherwise the search with this page's results. */
 function searchHandoff(search: LibrarySearch, docIds: string[], total: number, collName: (id: string) => string): HandoffSource {
@@ -51,6 +47,7 @@ export function SearchPage() {
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
   const collName = useCollectionName();
+  const names = useSentenceNames(search.cites);
 
   return (
     <section className="view" aria-label="Library search">
@@ -64,14 +61,11 @@ export function SearchPage() {
         <div className="sortrow">
           <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
           <FiltersButton facets={data?.facets} search={search} nav={nav} />
-          <span className="sortpair"><label className="vis" htmlFor="sort">Sort</label>
-          <select id="sort" className="sel" value={search.sort ?? "relevance"} onChange={(e) => nav.setSort(e.target.value as (typeof SORTS)[number])}>
-            {SORTS.map((s) => <option key={s} value={s}>{SORT_LABEL[s]}</option>)}
-          </select></span>
+          <SortSelect value={search.sort} onChange={nav.setSort} />
         </div>
       </div>
       <QueryBar search={search} nav={nav} />
-      <ActiveFilters search={search} onRemove={(k, v) => nav.patch({ [k]: (search[k] ?? []).filter((x) => x !== v) })} onClear={nav.clear} />
+      <QuerySentence search={search} nav={nav} names={names} facets={data?.facets} />
       <div className="sbody">
         <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>
         <div>

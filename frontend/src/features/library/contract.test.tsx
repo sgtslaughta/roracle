@@ -36,7 +36,7 @@ describe("P3 contract: collections by id", () => {
 
   it("the collection chip and facet show the name, not the id", async () => {
     const router = await renderLibrary("/library?collection=c1");
-    expect(await screen.findByRole("button", { name: "Remove filter Collection: Thesis reading list" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Remove: in collection “Thesis reading list”" })).toBeInTheDocument();
     const g = await screen.findByRole("group", { name: "Collection" });
     expect(await within(g).findByRole("checkbox", { name: "Include Collection: Thesis reading list" })).toBeChecked();
     expect(router.state.location.search).toMatchObject({ collection: ["c1"] });

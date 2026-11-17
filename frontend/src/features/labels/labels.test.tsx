@@ -96,7 +96,7 @@ describe("library", () => {
     await waitFor(() => expect(document.querySelectorAll(".result")).toHaveLength(1));
     expect(sent("GET", /\/search$/).some((r) => new URL(r.url).searchParams.get("label") === CONF.id)).toBe(true);
     expect(document.querySelector(".result .slabel")).toHaveTextContent("Confidential");
-    expect(screen.getByRole("button", { name: "Remove filter Sensitivity: Confidential" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove: labelled Confidential" })).toBeInTheDocument();
   });
   it("orders label facet values by rank", async () => {
     await renderApp("/library");
