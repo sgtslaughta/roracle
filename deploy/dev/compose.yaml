@@ -77,6 +77,8 @@ services:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}lfoppiano/grobid:0.8.1
     ports: ["8070:8070"]
+    # JDK cgroup-v2 detection NPEs on newer kernels (CgroupInfo.getMountPoint): skip container probing
+    environment: { JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport" }
   gotenberg:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}gotenberg/gotenberg:8.20.1

@@ -292,6 +292,7 @@ class Chat(Base):
     excludes: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+    hidden_at: Mapped[datetime | None] = mapped_column(TZ)  # owner removed it from their list (soft)
 
 
 class ChatMessage(Base):

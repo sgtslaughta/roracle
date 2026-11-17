@@ -25,6 +25,8 @@ const afterCursor = (cur: string): ((c: Chat) => boolean) | null => {
     return t && id ? (c) => c.updated_at < t || (c.updated_at === t && c.id < id) : null;
   } catch { return null; }
 };
+/** removed from the owner's list (soft; GET by id still works, a new message brings the chat back); lives on the chat so a state reset clears it */
+type Hideable = ChatDetail & { hidden?: boolean };
 const find = (id: unknown) => chats().find((c) => c.id === id);
 
 /** Pick up to 3 paragraphs sharing words with the question (viewer tabs preferred) and write a cited answer. */
@@ -114,7 +116,7 @@ export const chatHandlers = [
     const before = q.get("before");
     const keep = before === null ? () => true : afterCursor(before);
     if (!keep) return unprocessable("invalid cursor");
-    const rows = chats().filter((c) => c.is_owner).map(plain).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id)).filter(keep);
+    const rows = chats().filter((c) => c.is_owner && !(c as Hideable).hidden).map(plain).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id)).filter(keep);
     const items = rows.slice(0, limit);
     return HttpResponse.json({ items, next: rows.length > limit ? cursorOf(items[items.length - 1]) : null });
   }),
@@ -135,6 +137,13 @@ export const chatHandlers = [
     if (model && !MODELS.includes(model)) return unprocessable("unknown model");
     Object.assign(c, { ...(title !== undefined && { title }), ...(model && { model }), ...(scope && { scope }), ...(pins && { pins }), ...(excludes && { excludes }), updated_at: now() });
     return HttpResponse.json(plain(c));
+  }),
+  http.delete(url("/chats/:id"), ({ params }) => {
+    const c = find(params.id);
+    if (!c) return notFound();
+    if (!c.is_owner) return HttpResponse.json({ detail: "read-only" }, { status: 403 });
+    (c as Hideable).hidden = true;
+    return new HttpResponse(null, { status: 204 });
   }),
   http.get(url("/chats/:id/shares"), ({ params }) => {
     const c = find(params.id);
@@ -172,6 +181,7 @@ export const chatHandlers = [
     if ((body.viewer?.selection?.text.length ?? 0) > MAX_CHARS) return unprocessable("selection too long");
     if (/trigger 503/i.test(body.content)) return HttpResponse.json({ detail: "inference unavailable" }, { status: 503 });
     if (body.model && !MODELS.includes(body.model)) return unprocessable("unknown model");
+    (c as Hideable).hidden = false;
     return stream(c, body, request.signal);
   }),
 ];

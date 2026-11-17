@@ -292,6 +292,7 @@ def post_message(
         )
         if not chat.title:
             chat.title = body.content[:80]
+        chat.hidden_at = None  # in use again
         session.commit()  # no transaction (and no pooled connection) stays open into the stream
         passages, notes = split_notes(passages)
         hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
