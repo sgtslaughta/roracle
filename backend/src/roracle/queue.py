@@ -9,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.elements import ClauseElement
 
 from roracle import worker_health
 from roracle.metrics import JOB_RUNS
@@ -48,17 +49,34 @@ def enqueue(session: Session, kind: str, payload: dict, run_after_s: float = 0) 
 
 
 BULK_KINDS = ("rebuild_units",)
+# The claim SQL repeats the predicates of ix_jobs_due_user / ix_jobs_due_bulk (migration 0014) literally:
+# a partial index is used only when the query's WHERE implies the index predicate.
+assert BULK_KINDS == ("rebuild_units",)
+_USER_ONLY = text("kind <> 'rebuild_units'")
+_BULK_ONLY = text("kind = 'rebuild_units'")
 
 
-def claim(session: Session, kinds: Collection[str]) -> Job | None:
-    """Claim one due job; the row lock lasts until the caller's transaction ends (no commit)."""
-    job = session.scalar(
+def _claim_step(session: Session, kinds: list[str], only: ClauseElement) -> Job | None:
+    return session.scalar(
         select(Job)
-        .where(Job.status == "queued", Job.run_after <= text("now()"), Job.kind.in_(list(kinds)))
-        .order_by(Job.kind.in_(BULK_KINDS), Job.run_after, Job.id)  # bulk backfills never starve user work
+        .where(text("status = 'queued'"), only, Job.run_after <= text("now()"), Job.kind.in_(kinds))
+        .order_by(Job.run_after, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     )
+
+
+def claim(session: Session, kinds: Collection[str]) -> Job | None:
+    """Claim one due job; the row lock lasts until the caller's transaction ends (no commit).
+
+    Two steps, each an index-ordered `LIMIT 1` (no Sort): user kinds by (run_after, id), then bulk kinds
+    (same order), so bulk backfills never starve user work and a bulk backlog is never scanned past.
+    """
+    user = [k for k in kinds if k not in BULK_KINDS]
+    bulk = [k for k in kinds if k in BULK_KINDS]
+    job = _claim_step(session, user, _USER_ONLY) if user else None
+    if job is None and bulk:
+        job = _claim_step(session, bulk, _BULK_ONLY)
     if job is not None:
         job.status = "running"
         job.attempts += 1

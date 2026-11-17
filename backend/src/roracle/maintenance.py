@@ -30,6 +30,7 @@ GC_MIN_AGE = timedelta(days=1)
 PURGE_BATCH = 100
 GC_BATCH = 500
 RECONCILE_BATCH = 500
+JOB_BATCH = 10_000
 _MISSING = {"404", "NoSuchKey", "NotFound"}
 
 
@@ -52,6 +53,24 @@ def purge(session: Session, es: Elasticsearch, settings: Any, store: BlobStore) 
         except Exception:
             log.exception("purge of document %s failed; skipped", doc_id)
     return len(docs)
+
+
+def prune_jobs(session: Session, *, done_days: int = 7, failed_days: int = 30, batch: int = JOB_BATCH) -> int:
+    """Delete up to `batch` finished jobs: `done` older than `done_days`, `failed` older than `failed_days`.
+    `queued`/`running` rows are never touched. Returns the number deleted (== batch: more to do)."""
+    deleted = 0
+    for status, days in (("done", done_days), ("failed", failed_days)):
+        if deleted >= batch:
+            break
+        r = session.execute(
+            text(
+                "DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE status = :st"
+                " AND updated_at < now() - make_interval(days => :d) ORDER BY id LIMIT :n FOR UPDATE SKIP LOCKED)"
+            ),
+            {"st": status, "d": days, "n": batch - deleted},
+        )
+        deleted += r.rowcount
+    return deleted
 
 
 def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UUID) -> None:
@@ -186,7 +205,7 @@ def _scheduled(session: Session, *statuses: str) -> bool:
 def handle_maintenance(
     session: Session, payload: dict, *, settings: Any, store: BlobStore, es: Elasticsearch
 ) -> None:
-    """`op` = purge | gc | reconcile (manual) or all (periodic: runs all three, then reschedules itself)."""
+    """`op` = purge | prune_jobs | gc | reconcile (manual) or all (periodic: runs all, then reschedules itself)."""
     op = payload.get("op", "all")
     periodic = op == "all"
     if periodic and not _scheduled(session, "queued"):
@@ -198,6 +217,7 @@ def handle_maintenance(
 
     steps = {
         "purge": lambda: purge(session, es, settings, store) == PURGE_BATCH,
+        "prune_jobs": lambda: prune_jobs(session) == JOB_BATCH,
         "gc": lambda: gc_blobs(session, store) == GC_BATCH,
         "reconcile": _reconcile,
     }

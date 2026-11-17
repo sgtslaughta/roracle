@@ -25,7 +25,7 @@ RERANK_FALLBACK = Counter(
 _DEPTH_SQL = text(
     "SELECT kind, status, count(*), "
     "COALESCE(EXTRACT(EPOCH FROM now() - min(run_after) FILTER (WHERE status = 'queued')), 0) "
-    "FROM jobs GROUP BY kind, status"
+    "FROM jobs WHERE status IN ('queued', 'running', 'failed') GROUP BY kind, status"
 )
 
 

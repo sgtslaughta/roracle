@@ -7,7 +7,8 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_BUDGETS = "docs/perf/budgets.yaml"
+_REPO_BUDGETS = Path(__file__).parents[4] / "docs/perf/budgets.yaml"
+DEFAULT_BUDGETS = "docs/perf/budgets.yaml" if Path("docs/perf/budgets.yaml").exists() else str(_REPO_BUDGETS)
 
 
 def add_parser(sub) -> None:

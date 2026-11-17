@@ -131,7 +131,21 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','done','failed')", name="ck_jobs_status"),
-        Index("ix_jobs_status_run_after", "status", "run_after"),
+        # the claim repeats these predicates literally (queue.claim); bulk kinds get their own index so a
+        # backlog of them never sits between a user job and the head of ix_jobs_due_user
+        Index(
+            "ix_jobs_due_user",
+            "run_after",
+            "id",
+            postgresql_where=text("status = 'queued' AND kind <> 'rebuild_units'"),
+        ),
+        Index(
+            "ix_jobs_due_bulk",
+            "run_after",
+            "id",
+            postgresql_where=text("status = 'queued' AND kind = 'rebuild_units'"),
+        ),
+        Index("ix_jobs_kind_status", "kind", "status"),
         Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),
     )
 
