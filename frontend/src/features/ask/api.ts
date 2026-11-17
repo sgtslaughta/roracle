@@ -51,6 +51,16 @@ export function usePatchChat(id: string) {
   });
 }
 
+/** Soft "remove from my chats": hides it from the owner's list only (204). */
+export function useHideChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: QUIET,
+    mutationFn: (id: string) => apiFetch<void>(`/chats/${seg(id)}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["chats"] }),
+  });
+}
+
 export const useShares = (id: string, enabled: boolean) =>
   useQuery({ queryKey: ["shares", id], queryFn: () => apiFetch<Shares>(`/chats/${seg(id)}/shares`), enabled, gcTime: 0 });
 

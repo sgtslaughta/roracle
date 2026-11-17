@@ -464,3 +464,12 @@ def test_persist_failure_still_sends_error(db_session, user):
     frames = list(gen)
     assert frames[-1].startswith("event: error")
     gen.close()  # must not raise
+
+
+def test_new_message_unhides_chat(client, as_ana, ana, db_session, setup):
+    setup(hits=[])
+    cid = new_chat(client, as_ana)
+    assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204
+    assert client.get("/chats", headers=as_ana).json()["items"] == []
+    assert client.post(f"/chats/{cid}/messages", headers=as_ana, json={"content": "again"}).status_code == 200
+    assert [c["id"] for c in client.get("/chats", headers=as_ana).json()["items"]] == [cid]
