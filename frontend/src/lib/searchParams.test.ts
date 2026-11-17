@@ -43,5 +43,7 @@ describe("validateLibrarySearch", () => {
     expect(validateLibrarySearch(parseSearch("?year_min=2024&year_max=2018&pages_min=9&pages_max=3&added_min=2025-02-01&added_max=2025-01-01"))).toEqual({});
     expect(validateLibrarySearch(parseSearch("?year_min=2018&year_max=2018"))).toEqual({ year_min: 2018, year_max: 2018 });
   });
+  it("exclusion wins for has_id", () => expect(validateLibrarySearch(parseSearch("?has_id=doi&has_id=arxiv&has_id_not=doi"))).toEqual({ has_id: ["arxiv"], has_id_not: ["doi"] }));
+  it("exclusion wins for has_id even when nothing is left", () => expect(validateLibrarySearch(parseSearch("?has_id=doi&has_id_not=doi"))).toEqual({ has_id_not: ["doi"] }));
   it("exclusion wins for author too", () => expect(validateLibrarySearch(parseSearch("?author=Lee&author=Kim&author_not=Lee"))).toEqual({ author: ["Kim"], author_not: ["Lee"] }));
 });

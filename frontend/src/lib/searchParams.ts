@@ -96,7 +96,7 @@ export function validateLibrarySearch(s: Record<string, unknown>): LibrarySearch
   for (const k of ARRAY_KEYS) { const a = strs(s[k]); if (a.length) out[k] = a; }
   for (const k of ["journal", "journal_not"] as const) { const a = (out[k] as string[] | undefined)?.filter((x) => ISSN_RE.test(x)); if (a?.length) out[k] = a; else delete out[k]; }
   for (const k of ["has_id", "has_id_not"] as const) { const a = strs(s[k]).filter((x): x is IdKind => (ID_KINDS as readonly string[]).includes(x)); if (a.length) out[k] = [...new Set(a)]; }
-  for (const k of FACET_KEYS) { // exclusion wins
+  for (const k of [...FACET_KEYS, "has_id"] as const) { // exclusion wins
     const ex = out[`${k}_not`] as string[] | undefined;
     if (ex && out[k]) { const a = (out[k] as string[]).filter((x) => !ex.includes(x)); if (a.length) out[k] = a; else delete out[k]; }
   }

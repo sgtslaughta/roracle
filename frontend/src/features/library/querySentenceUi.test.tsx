@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "@/app/router";
 
 async function renderLibrary(path: string) {
@@ -80,5 +80,34 @@ describe("query sentence UI", () => {
   it("no Clear all with one clause", async () => {
     await renderLibrary("/library?tags=ml");
     expect(screen.queryByRole("button", { name: "Clear all" })).toBeNull();
+  });
+
+  describe("with motion allowed", () => {
+    const motion = () => vi.spyOn(window, "matchMedia").mockImplementation((q: string) => ({ matches: q.includes("no-preference"), media: q, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }) as MediaQueryList);
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+    it("two removals inside the leave animation both apply", async () => {
+      const router = await renderLibrary("/library?tags=ml&year_min=2018&venue=Nature");
+      motion();
+      vi.useFakeTimers();
+      fireEvent.click(sentence().getByRole("button", { name: "Remove: tagged ml" }));
+      fireEvent.click(sentence().getByRole("button", { name: "Remove: published 2018 or later" }));
+      expect(document.querySelectorAll(".qchip[data-leaving]")).toHaveLength(2); // the first chip keeps leaving
+      await act(async () => { vi.advanceTimersByTime(400); });
+      vi.useRealTimers();
+      await waitFor(() => expect(router.state.location.search).toEqual({ venue: ["Nature"] }));
+    });
+
+    it("a removal pending at unmount never navigates back to the library", async () => {
+      const router = await renderLibrary("/library?tags=ml");
+      motion();
+      vi.useFakeTimers();
+      fireEvent.click(sentence().getByRole("button", { name: "Remove: tagged ml" }));
+      await act(async () => { await router.navigate({ to: "/uploads" }); });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(router.state.location.pathname).toBe("/uploads");
+    });
   });
 });

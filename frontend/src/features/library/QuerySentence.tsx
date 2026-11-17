@@ -44,11 +44,22 @@ export function QuerySentence({ search, nav, names, facets }: { search: LibraryS
     if (el) { el.focus(); pending.current = null; }
   }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // removals waiting for the leave animation: merged, applied as ONE patch when the timer fires (never after unmount)
+  const queued = useRef<{ patch: Partial<LibrarySearch>; gone: string[]; timer?: number }>({ patch: {}, gone: [] });
+  useEffect(() => () => window.clearTimeout(queued.current.timer), []);
   const go = (patch: Partial<LibrarySearch>, gone: string[], focus: string) => {
     pending.current = focus;
     if (!animate()) return nav.patch(patch);
-    setLeaving(gone);
-    window.setTimeout(() => { setLeaving([]); nav.patch(patch); }, LEAVE_MS);
+    const q = queued.current;
+    q.patch = { ...q.patch, ...patch };
+    q.gone = [...q.gone, ...gone];
+    setLeaving(q.gone);
+    q.timer ??= window.setTimeout(() => {
+      const { patch: all } = queued.current;
+      queued.current = { patch: {}, gone: [] };
+      setLeaving([]);
+      nav.patch(all);
+    }, LEAVE_MS);
   };
   const remove = (c: Clause, i: number) => go(c.remove, [c.id], clauses[i + 1]?.id ?? INPUT);
   const clearAll = () => go(Object.assign({}, ...clauses.map((c) => c.remove)), clauses.map((c) => c.id), INPUT);
