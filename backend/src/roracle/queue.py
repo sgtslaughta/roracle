@@ -86,7 +86,29 @@ class LeaseLost(Exception):
     `check_lease`/`fence`; `run_once` treats it as a lost lease: roll back, record nothing, the new owner decides."""
 
 
-# (job id, claim attempts, "lost" event) of the job running on THIS thread; None outside a worker job.
+class RequeueLater(Exception):
+    """Raised by a handler that cannot proceed NOW for a reason that is nobody's fault (e.g. a per-owner lock is busy):
+    the job goes back to the queue after `delay_s` WITHOUT spending an attempt (counted in `released`)."""
+
+    def __init__(self, message: str, delay_s: float = 5.0):
+        super().__init__(message)
+        self.delay_s = delay_s
+
+
+def _requeue_later(sf, jid: int, token: int, delay_s: float) -> None:
+    with sf() as s:
+        s.execute(
+            text(
+                "UPDATE jobs SET status = 'queued', released = released + 1, lease_until = NULL, updated_at = now(),"
+                " run_after = now() + make_interval(secs => :d)"
+                " WHERE id = :id AND status = 'running' AND claim_token = :n"
+            ),
+            {"d": delay_s, "id": jid, "n": token},
+        )
+        s.commit()
+
+
+# (job id, claim token, "lost" event) of the job running on THIS thread; None outside a worker job.
 _current: contextvars.ContextVar[tuple[int, int, threading.Event] | None] = contextvars.ContextVar(
     "current_job", default=None
 )
@@ -100,7 +122,10 @@ def check_lease() -> None:
 
 
 def fence(session: Session) -> None:
-    """Fence a write made through an OWN short session (R9 helpers, advisory-lock sessions): in that transaction,
+    """Fence a write made through an OWN short session. Call it LATE (the last statement before the commit when the
+    transaction does slow work such as an object-store upload): `FOR SHARE` conflicts with the heartbeat's and the
+    sweep's row updates, so holding it across slow work would stall them.
+    Fence a write made through an OWN short session (R9 helpers, advisory-lock sessions): in that transaction,
     take a shared lock on the job row of THIS claim (`FOR SHARE` blocks a concurrent `requeue_expired` until the
     short transaction ends) and raise `LeaseLost` when the job is not running under our claim any more. No-op
     outside a worker job (API, CLI, tests)."""
@@ -110,7 +135,7 @@ def fence(session: Session) -> None:
         return
     if (
         session.execute(
-            text("SELECT 1 FROM jobs WHERE id = :i AND status = 'running' AND attempts = :n FOR SHARE"),
+            text("SELECT 1 FROM jobs WHERE id = :i AND status = 'running' AND claim_token = :n FOR SHARE"),
             {"i": cur[0], "n": cur[1]},
         ).first()
         is None
@@ -148,44 +173,49 @@ def claim(session: Session, kinds: Collection[str], lease_s: float | None = None
         job = _claim_step(session, bulk, _BULK_ONLY)
     if job is not None:
         job.status = "running"
-        job.attempts += 1
+        job.attempts += 1  # monotonic: never decremented (a release is counted in `released`)
+        job.claim_token = func.nextval("jobs_claim_seq")  # the fencing token of THIS claim (never reused)
         job.lease_until = func.now() + timedelta(seconds=LEASE_S if lease_s is None else lease_s)
         session.flush()
+        session.refresh(
+            job, ["claim_token", "lease_until"]
+        )  # the server-side values, not the SQL expressions
     return job
 
 
-def complete(session: Session, job_id: int, attempts: int) -> bool:
-    """Mark done. Guarded by `status = 'running'` AND `attempts` (the fencing token of this claim): False means the
-    lease was lost (requeued / reclaimed) and the caller must roll back."""
+def complete(session: Session, job_id: int, token: int) -> bool:
+    """Mark done. Guarded by `status = 'running'` AND `claim_token` (the fencing token of this claim, unique per
+    claim): False means the lease was lost (requeued / reclaimed / released) and the caller must roll back."""
     r = session.execute(
         text(
             "UPDATE jobs SET status = 'done', lease_until = NULL, updated_at = now()"
-            " WHERE id = :id AND status = 'running' AND attempts = :n"
+            " WHERE id = :id AND status = 'running' AND claim_token = :n"
         ),
-        {"id": job_id, "n": attempts},
+        {"id": job_id, "n": token},
     )
     return r.rowcount == 1
 
 
-def fail(session: Session, job: Job, error: str, *, retryable: bool = True) -> bool:
+def fail(session: Session, job: Job, error: str, *, retryable: bool = True, token: int | None = None) -> bool:
     """Requeue with 10 * 2**attempts seconds backoff; fail permanently at MAX_ATTEMPTS.
 
-    `attempts` is the DB value (already incremented by `claim`) and is also the fencing token: a stale worker whose
+    The attempt count is `attempts - released` (a shutdown release is refunded without touching `attempts`). The
+    fence is the claim `token` (default: the loaded row's): a stale worker whose
     lease was reclaimed changes nothing (returns False). `retryable=False` fails at once.
     """
     r = session.execute(
         text(
-            "UPDATE jobs SET status = CASE WHEN NOT :retry OR attempts >= :max THEN 'failed' ELSE 'queued' END,"
+            "UPDATE jobs SET status = CASE WHEN NOT :retry OR attempts - released >= :max THEN 'failed' ELSE 'queued' END,"
             " last_error = :err, updated_at = now(), lease_until = NULL,"
-            " run_after = now() + make_interval(secs => 10 * power(2, attempts))"
-            " WHERE id = :id AND status = 'running' AND attempts = :n"
+            " run_after = now() + make_interval(secs => 10 * power(2, attempts - released))"
+            " WHERE id = :id AND status = 'running' AND claim_token = :n"
         ),
         {
             "max": MAX_ATTEMPTS,
             "retry": retryable,
             "err": error[:MAX_ERROR_LEN],
             "id": job.id,
-            "n": job.attempts,
+            "n": job.claim_token if token is None else token,
         },
     )
     session.refresh(job)
@@ -199,9 +229,9 @@ def requeue_expired(session: Session) -> int:
     Safe to call from every worker concurrently. No commit."""
     rows = session.execute(
         text(
-            "UPDATE jobs SET status = CASE WHEN attempts >= :max THEN 'failed' ELSE 'queued' END,"
-            " last_error = 'worker lost (lease expired) after ' || attempts || ' attempt(s)',"
-            " run_after = now() + make_interval(secs => 10 * power(2, attempts)),"
+            "UPDATE jobs SET status = CASE WHEN attempts - released >= :max THEN 'failed' ELSE 'queued' END,"
+            " last_error = 'worker lost (lease expired) after ' || (attempts - released) || ' attempt(s)',"
+            " run_after = now() + make_interval(secs => 10 * power(2, attempts - released)),"
             " lease_until = NULL, updated_at = now()"
             " WHERE status = 'running' AND lease_until < now() RETURNING id, status, kind"
         ),
@@ -232,15 +262,15 @@ class _Heartbeat(threading.Thread):
     worker that is busy with long jobs still recovers a crashed peer's job. `lost` is set when the claim no longer
     belongs to us (handlers poll it through `check_lease`/`fence`)."""
 
-    def __init__(self, sf: sessionmaker[Session], job_id: int, attempts: int, lease_s: float, period: float):
+    def __init__(self, sf: sessionmaker[Session], job_id: int, token: int, lease_s: float, period: float):
         super().__init__(daemon=True, name=f"lease-{job_id}")
-        self.sf, self.job_id, self.attempts, self.lease_s, self.period = sf, job_id, attempts, lease_s, period
+        self.sf, self.job_id, self.token, self.lease_s, self.period = sf, job_id, token, lease_s, period
         self.stop_ev, self.lost = threading.Event(), threading.Event()
 
     def run(self) -> None:
         while not self.stop_ev.wait(self.period):
             try:
-                if not heartbeat(self.sf, self.job_id, self.attempts, self.lease_s):
+                if not heartbeat(self.sf, self.job_id, self.token, self.lease_s):
                     self.lost.set()
                     if not self.stop_ev.is_set():  # a tick racing completion is not a loss
                         log.warning(
@@ -248,6 +278,13 @@ class _Heartbeat(threading.Thread):
                         )
                     return
                 with self.sf() as s:
+                    bound = f"{max(1, int(self.lease_s / 6 * 1000))}ms"  # same bounds as the heartbeat itself
+                    s.execute(
+                        text(
+                            "SELECT set_config('statement_timeout', :v, true), set_config('lock_timeout', :v, true)"
+                        ),
+                        {"v": bound},
+                    )
                     n = requeue_expired(s)
                     s.commit()
                 if n:
@@ -256,7 +293,7 @@ class _Heartbeat(threading.Thread):
                 log.warning("job %s: heartbeat failed", self.job_id, exc_info=True)
 
 
-def heartbeat(sf: sessionmaker[Session], job_id: int, attempts: int, lease_s: float) -> bool:
+def heartbeat(sf: sessionmaker[Session], job_id: int, token: int, lease_s: float) -> bool:
     """Extend the lease of this claim. False when the job is no longer running under this claim generation.
     Bounded by statement/lock timeouts (a blackholed connection must not hang the thread past a few ticks)."""
     with sf() as s:
@@ -268,9 +305,9 @@ def heartbeat(sf: sessionmaker[Session], job_id: int, attempts: int, lease_s: fl
         r = s.execute(
             text(
                 "UPDATE jobs SET lease_until = now() + make_interval(secs => :l)"
-                " WHERE id = :id AND status = 'running' AND attempts = :n"
+                " WHERE id = :id AND status = 'running' AND claim_token = :n"
             ),
-            {"l": lease_s, "id": job_id, "n": attempts},
+            {"l": lease_s, "id": job_id, "n": token},
         )
         s.commit()
         return r.rowcount == 1
@@ -286,9 +323,7 @@ def _failure_message(exc: Exception) -> tuple[str, bool]:
     return msg, user_safe
 
 
-_active: dict | None = (
-    None  # the job this process runs now: {sf, id, attempts, hb} (for the shutdown release)
-)
+_active: dict | None = None  # the job this process runs now: {sf, id, token, hb} (for the shutdown release)
 
 
 def release_active() -> bool:
@@ -302,10 +337,10 @@ def release_active() -> bool:
     with cur["sf"]() as s:
         r = s.execute(
             text(
-                "UPDATE jobs SET status = 'queued', attempts = attempts - 1, lease_until = NULL, run_after = now(),"
-                " updated_at = now() WHERE id = :id AND status = 'running' AND attempts = :n"
+                "UPDATE jobs SET status = 'queued', released = released + 1, lease_until = NULL, run_after = now(),"
+                " updated_at = now() WHERE id = :id AND status = 'running' AND claim_token = :n"
             ),
-            {"id": cur["id"], "n": cur["attempts"]},
+            {"id": cur["id"], "n": cur["token"]},
         )
         s.commit()
         return r.rowcount == 1
@@ -319,15 +354,16 @@ def run_once(
 ) -> bool:
     """Run at most one job; return True if one was claimed.
 
-    1. Claim in a short transaction and COMMIT (running + attempts + lease): no transaction is open while the job runs.
+    1. Claim in a short transaction and COMMIT (running + attempts + claim token + lease): no transaction is open while the job runs.
     2. The handler runs in its OWN session, inside a SAVEPOINT; a heartbeat thread renews the lease every lease/3
        and sets `lost` when it cannot (handlers abort cooperatively; their own-session writes are fenced).
-    3. Success: `complete` in the handler's transaction, guarded by (status running, attempts = our claim), then
+    3. Success: `complete` in the handler's transaction, guarded by (status running, claim token = our claim), then
        commit: the handler's DB writes and the completion are atomic. If the lease was lost the guard matches nothing
        and the whole transaction is rolled back: a reclaimed job never has its DB effects applied twice.
     4. Failure: the handler transaction is rolled back (handler work only); `fail` records the error/backoff in a
        fresh short transaction, guarded the same way.
-    `attempts` counts claims, so a worker that dies mid-job also spends an attempt (bounded retries).
+    `attempts` counts claims (never decremented), so a worker that dies mid-job also spends an attempt (bounded
+    retries); a shutdown release is counted in `released` and refunded. The fence is the per-claim `claim_token`.
     `heartbeat_s` overrides the heartbeat PERIOD (tests); the lease length stays `lease_s`."""
     global _active
     lease = LEASE_S if lease_s is None else lease_s
@@ -335,19 +371,19 @@ def run_once(
         job = claim(cs, handlers.keys(), lease)
         if job is None:
             return False
-        jid, kind, payload, attempts = job.id, job.kind, dict(job.payload), job.attempts
+        jid, kind, payload, token = job.id, job.kind, dict(job.payload), job.claim_token
         cs.commit()
     worker_health.working = True
     hb = _Heartbeat(
-        _HB_SF or session_factory, jid, attempts, lease, lease / 3 if heartbeat_s is None else heartbeat_s
+        _HB_SF or session_factory, jid, token, lease, lease / 3 if heartbeat_s is None else heartbeat_s
     )
     hb.start()
-    _active = {"sf": _HB_SF or session_factory, "id": jid, "attempts": attempts, "hb": hb}
-    token = _current.set((jid, attempts, hb.lost))
+    _active = {"sf": _HB_SF or session_factory, "id": jid, "token": token, "hb": hb}
+    ctx = _current.set((jid, token, hb.lost))
     try:
-        _execute(session_factory, handlers[kind], jid, kind, payload, attempts, hb)
+        _execute(session_factory, handlers[kind], jid, kind, payload, token, hb)
     finally:
-        _current.reset(token)
+        _current.reset(ctx)
         _active = None
         hb.stop_ev.set()
         hb.join(timeout=5)  # a tick racing completion must not log a false "lease lost"
@@ -355,7 +391,7 @@ def run_once(
     return True
 
 
-def _execute(sf, handler: Handler, jid: int, kind: str, payload: dict, attempts: int, hb: _Heartbeat) -> None:
+def _execute(sf, handler: Handler, jid: int, kind: str, payload: dict, token: int, hb: _Heartbeat) -> None:
     error: Exception | None = None
     with sf() as hs:
         try:
@@ -365,12 +401,16 @@ def _execute(sf, handler: Handler, jid: int, kind: str, payload: dict, attempts:
             hs.rollback()
             log.warning("job %s (%s): lease lost, aborted; the new owner (or the queue) decides", jid, kind)
             return
+        except RequeueLater as exc:
+            hs.rollback()
+            _requeue_later(sf, jid, token, exc.delay_s)
+            return
         except Exception as exc:
             log.exception("job %s (%s) failed", jid, kind)
             hs.rollback()
             error = exc
         else:
-            if hb.lost.is_set() or not complete(hs, jid, attempts):
+            if hb.lost.is_set() or not complete(hs, jid, token):
                 hs.rollback()  # lease lost: someone else owns the job now; discard our DB effects
                 log.warning("job %s (%s): lease lost, result discarded", jid, kind)
                 return
@@ -378,10 +418,13 @@ def _execute(sf, handler: Handler, jid: int, kind: str, payload: dict, attempts:
             JOB_RUNS.labels(kind, "done").inc()
     if error is None:
         return
+    if hb.lost.is_set():  # a stale handler's error must never touch the new owner's claim
+        log.warning("job %s (%s): lease lost; its error is not recorded", jid, kind)
+        return
     msg, user_safe = _failure_message(error)
     with sf() as fs:
         job = fs.get(Job, jid)
-        if job is not None and fail(fs, job, msg, retryable=not user_safe):
+        if job is not None and fail(fs, job, msg, retryable=not user_safe, token=token):
             JOB_RUNS.labels(kind, "failed" if job.status == "failed" else "retry").inc()
             if job.status == "failed":
                 _notify_failed(fs, job)

@@ -58,7 +58,7 @@ config:
   ROR_WORKER_DB_MAX_OVERFLOW: "1"
   ROR_DB_POOL_TIMEOUT_S: "10"
   ROR_JOB_LEASE_S: "90"              # job lease; a crashed worker's job is requeued after it (heartbeat every lease/3)
-  ROR_JOB_DRAIN_S: "3300"            # SIGTERM: a running job gets this long (< worker.terminationGracePeriodSeconds), then it is released
+  ROR_JOB_DRAIN_S: "120"             # SIGTERM: a running job gets this long, then it is RELEASED (no attempt spent); keep < worker grace
   ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream
   # Elasticsearch index settings, applied when an index is CREATED (docs/enterprise/capacity-planning.md for sizing)
   ROR_ES_SHARDS: "1"                 # ~30-50 GB per shard: 12 for 50M chunks
@@ -116,7 +116,7 @@ worker:
   # CPU HPA; for queue-depth scaling use KEDA/external metrics on the `jobs` table instead.
   autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70}
   pdb: {enabled: true, minAvailable: 1}
-  terminationGracePeriodSeconds: 3600   # let long ingest jobs finish
+  terminationGracePeriodSeconds: 150    # = ROR_JOB_DRAIN_S + 30: running jobs are released at the deadline and resume per stage/batch
   runAsUser: 10001
   extraEnv: []
   nodeSelector: {}

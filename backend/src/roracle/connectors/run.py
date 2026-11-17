@@ -63,7 +63,6 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
         stream.close()
     try:
         with sf() as s:
-            fence(s)  # a stale (lease-lost) run must not ingest items
             # key-share lock: a concurrent DELETE of the connector waits for this commit; checked before any put
             if (
                 s.scalar(select(Connector.id).where(Connector.id == cid).with_for_update(key_share=True))
@@ -130,6 +129,9 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                     doc_id,
                     func.now(),
                 )
+            fence(
+                s
+            )  # LAST, right before the commit: FOR SHARE must not be held across the MinIO upload above
             s.commit()
             return result
     finally:

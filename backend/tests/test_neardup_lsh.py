@@ -533,6 +533,8 @@ def test_a_stale_worker_cannot_decide(db_session, session_factory, settings, sto
     with session_factory() as s:
         queue.claim(s, ["ingest"], 60)
         s.commit()
+    with session_factory() as s:
+        first_token = s.get(Job, jid).claim_token
     with session_factory() as s:  # the job is requeued and reclaimed by someone else
         s.execute(text("UPDATE jobs SET lease_until = now() - interval '1 s'"))
         queue.requeue_expired(s)
@@ -541,7 +543,7 @@ def test_a_stale_worker_cannot_decide(db_session, session_factory, settings, sto
     with session_factory() as s:
         queue.claim(s, ["ingest"], 60)
         s.commit()
-    token = queue._current.set((jid, 1, threading.Event()))  # we are the STALE worker (attempt 1 of 2)
+    token = queue._current.set((jid, first_token, threading.Event()))  # we are the STALE worker
     try:
         with pytest.raises(queue.LeaseLost):
             _dedupe(session_factory, settings, a.id, _text())

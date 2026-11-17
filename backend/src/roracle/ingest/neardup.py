@@ -244,7 +244,9 @@ def find_near_duplicate(
                 DocumentVersion.stage != "searchable",
                 DocumentVersion.summary_embedding.is_not(None),
                 DocumentVersion.id.not_in(ids) if ids else text("true"),
-            ).limit(MAX_CANDIDATES)
+            )
+            .order_by(DocumentVersion.created_at.desc(), DocumentVersion.id)  # deterministic under the cap
+            .limit(MAX_CANDIDATES)
         )
     return _best(version, cands, threshold, summary_threshold)
 
@@ -312,7 +314,14 @@ def find_sibling_duplicate(
     if not match:
         return None
     return _best(
-        version, session.scalars(q.where(or_(*match)).limit(MAX_CANDIDATES)), threshold, summary_threshold
+        version,
+        session.scalars(
+            q.where(or_(*match))
+            .order_by(DocumentVersion.created_at.desc(), DocumentVersion.id)
+            .limit(MAX_CANDIDATES)
+        ),
+        threshold,
+        summary_threshold,
     )
 
 

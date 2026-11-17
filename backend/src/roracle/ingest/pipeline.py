@@ -31,6 +31,7 @@ from roracle.ingest.state import (
     bump_attempts,
     clear_outdated_reasons,
     mark_searchable_and_enqueue,
+    refund_attempt,
     set_stage,
     update_document,
     update_version,
@@ -39,7 +40,7 @@ from roracle.ingest.summary import summarize
 from roracle.labels.policy import Policy
 from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
-from roracle.queue import NonRetryable, check_lease, fence, payload_uuid
+from roracle.queue import NonRetryable, RequeueLater, check_lease, fence, payload_uuid
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
     return doc
 
 
-class DedupeBusy(Exception):
+class DedupeBusy(RequeueLater):
     """The owner's dedupe lock stayed busy beyond the bounded backoff: retry the job later (the lock is held for
     milliseconds, so this only happens when something is badly wrong)."""
 
@@ -120,7 +121,7 @@ def _owner_lock(ls: Session, owner_id) -> None:
         if ls.execute(text_("SELECT pg_try_advisory_xact_lock(hashtextextended(:k, 0))"), key).scalar():
             return
         time.sleep(min(LOCK_SLEEP_S * (1 + i / 4), 0.5))
-    raise DedupeBusy(f"dedupe lock of owner {owner_id} busy")
+    raise DedupeBusy(f"dedupe lock of owner {owner_id} busy", delay_s=5.0)
 
 
 def _dedupe(
@@ -416,7 +417,14 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         )
         session.refresh(v)
     if v.stage == "summarized":
-        if _dedupe(session, v, d, document_text(doc), settings, sf, es):
+        try:
+            parked = _dedupe(session, v, d, document_text(doc), settings, sf, es)
+        except (
+            DedupeBusy
+        ):  # a deferral, not a crash: give back the ingest start it consumed (the job is requeued too)
+            refund_attempt(sf, vid)
+            raise
+        if parked:
             return
         session.refresh(v)
     check_lease()  # before the expensive embed + index phase

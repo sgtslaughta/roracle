@@ -174,7 +174,7 @@ def test_stale_worker_cannot_fail_or_complete_a_reclaimed_job(session_factory, d
     with session_factory() as s:
         old = claim(s, ["ingest"], lease_s=0.01)
         s.commit()
-        old_attempts = old.attempts
+        old_attempts, old_token = old.attempts, old.claim_token
     time.sleep(0.05)
     with session_factory() as s:
         requeue_expired(s)
@@ -185,12 +185,13 @@ def test_stale_worker_cannot_fail_or_complete_a_reclaimed_job(session_factory, d
         s.commit()
         assert new.attempts == old_attempts + 1
     with session_factory() as s:  # the stale worker finally wakes up
-        assert queue.complete(s, jid, old_attempts) is False
+        assert queue.complete(s, jid, old_token) is False
         cur = s.get(Job, jid)
+        assert queue.fail(s, cur, "late", retryable=False, token=old_token) is False  # stale: changes nothing
         assert queue.fail(s, cur, "late", retryable=False) is True  # ...the current owner can
         s.rollback()
-        assert queue.heartbeat(session_factory, jid, old_attempts, 60) is False
-        assert heartbeat(session_factory, jid, new.attempts, 60) is True
+        assert queue.heartbeat(session_factory, jid, old_token, 60) is False
+        assert heartbeat(session_factory, jid, new.claim_token, 60) is True
     assert job_row(session_factory, jid)[:2] == ("running", 2)
 
 
@@ -333,10 +334,12 @@ def test_release_at_shutdown_returns_the_job_without_spending_the_attempt(sessio
     assert released == [True]
     assert job_row(session_factory, jid) == (
         "queued",
-        0,
+        1,
         None,
         None,
-    )  # attempt refunded, lease cleared, no error
+    )  # attempts NEVER decremented (token unique)
+    with session_factory() as s:
+        assert s.get(Job, jid).released == 1  # the refund lives here: budget = attempts - released
     with session_factory() as s:
         assert s.scalar(select(Job.id).where(Job.kind == "side")) is None  # the aborted handler rolled back
     assert queue.release_active() is False  # nothing running any more
@@ -372,9 +375,106 @@ def test_heartbeat_thread_is_joined_at_completion_and_makes_no_false_loss_warnin
 def test_complete_requires_the_claim_generation(session_factory, db_session):
     jid = add(session_factory)
     with session_factory() as s:
-        queue.claim(s, ["ingest"], lease_s=60)
+        tok = queue.claim(s, ["ingest"], lease_s=60).claim_token
         s.commit()
     with session_factory() as s:
         with pytest.raises(TypeError):
             queue.complete(s, jid)  # type: ignore[call-arg]
-        assert queue.complete(s, jid, 99) is False and queue.complete(s, jid, 1) is True
+        assert queue.complete(s, jid, tok + 1) is False and queue.complete(s, jid, tok) is True
+
+
+def test_release_reclaim_then_the_stale_handler_fails_loudly_and_the_new_owner_is_untouched(
+    session_factory, db_session, document, blob
+):
+    """ABA: after a shutdown release the next claim must not be fenceable by the old handler, whatever it raises."""
+    from roracle.models import DocumentVersion
+
+    v = DocumentVersion(
+        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="f", content_type="x", size=1,
+        stage="parsed", is_latest=True,
+    )  # fmt: skip
+    db_session.add(v)
+    db_session.commit()
+    with session_factory() as s:  # a REAL version: a recorded permanent failure WOULD notify its uploader
+        jid = enqueue(s, "ingest", {"version_id": str(v.id)})
+        s.commit()
+    new_owner = {}
+
+    def stale_handler(session, payload):
+        assert queue.release_active()  # shutdown deadline: the job goes back to the queue
+        with session_factory() as s:  # another worker claims it at once
+            job = claim(s, ["ingest"], lease_s=60)
+            s.commit()
+            new_owner.update(token=job.claim_token, attempts=job.attempts)
+        raise NonRetryable("boom while shutting down")  # the stale handler's error, user-visible kind
+
+    assert run_once(session_factory, {"ingest": stale_handler}, lease_s=60, heartbeat_s=0.05)
+    with session_factory() as s:
+        j = s.get(Job, jid)
+        assert (j.status, j.attempts, j.claim_token, j.last_error) == ("running", 2, new_owner["token"], None)
+        assert j.released == 1 and j.lease_until is not None  # the new owner's claim is intact
+        assert s.scalar(select(Notification.id)) is None  # and nobody was told the job failed
+    # the stale heartbeat must not keep renewing the new owner's lease either: its token no longer matches
+    assert queue.heartbeat(session_factory, jid, new_owner["token"] + 1, 60) is False
+
+
+def test_retry_budget_is_attempts_minus_released(session_factory, db_session):
+    jid = add(session_factory)
+    with session_factory() as s:
+        s.execute(
+            text("UPDATE jobs SET attempts = :n, released = 3 WHERE id = :i"),
+            {"n": MAX_ATTEMPTS + 2, "i": jid},
+        )
+        s.commit()
+    with session_factory() as s:
+        job = claim(s, ["ingest"], lease_s=60)  # attempts MAX+3, effective MAX
+        assert job.attempts - job.released == MAX_ATTEMPTS
+        s.commit()
+    with session_factory() as s:
+        assert queue.fail(s, s.get(Job, jid), "x") is True
+        s.commit()
+    assert job_row(session_factory, jid)[0] == "failed"  # budget exhausted counting only real attempts
+
+
+def test_requeue_later_does_not_spend_an_attempt(session_factory, db_session):
+    jid = add(session_factory)
+
+    def busy(session, payload):
+        raise queue.RequeueLater("owner lock busy", delay_s=30)
+
+    assert run_once(session_factory, {"ingest": busy})
+    with session_factory() as s:
+        j = s.get(Job, jid)
+        assert (j.status, j.attempts, j.released, j.last_error) == ("queued", 1, 1, None)
+        assert j.run_after > s.scalar(text("SELECT now()"))  # deferred, not immediate
+
+
+def test_dedupe_busy_requeues_without_spending_an_attempt_or_an_ingest_start(
+    session_factory, db_session, document, blob
+):
+    from roracle.ingest import pipeline
+    from roracle.ingest.state import bump_attempts
+    from roracle.models import DocumentVersion
+
+    v = DocumentVersion(
+        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="f", content_type="x", size=1,
+        stage="summarized", is_latest=True,
+    )  # fmt: skip
+    db_session.add(v)
+    db_session.commit()
+    jid = add(session_factory, payload={"version_id": str(v.id)})
+
+    def handler(session, payload):
+        assert bump_attempts(session_factory, v.id) == 1  # what handle_ingest does at its start
+        try:
+            raise pipeline.DedupeBusy("owner lock busy", delay_s=30)
+        except pipeline.DedupeBusy:
+            pipeline.refund_attempt(session_factory, v.id)  # what handle_ingest does for a deferral
+            raise
+
+    assert run_once(session_factory, {"ingest": handler})
+    with session_factory() as s:
+        j = s.get(Job, jid)
+        assert (j.status, j.attempts, j.released) == ("queued", 1, 1)  # job budget: attempts - released == 0
+        assert j.run_after > s.scalar(text("SELECT now()"))
+        assert s.get(DocumentVersion, v.id).ingest_attempts == 0  # the ingest start was given back too

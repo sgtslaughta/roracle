@@ -99,6 +99,21 @@ def bump_attempts(
         return n
 
 
+def refund_attempt(
+    session_factory: sessionmaker[Session], version_id: UUID, *, lock_timeout_s: float = LOCK_TIMEOUT_S
+) -> None:
+    """Undo one `bump_attempts`: a deferral that is nobody's fault (busy owner lock) must not eat the crash budget."""
+    with session_factory() as s:
+        _lock_timeout(s, lock_timeout_s)
+        fence(s)
+        s.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.id == version_id, DocumentVersion.ingest_attempts > 0)
+            .values(ingest_attempts=DocumentVersion.ingest_attempts - 1)
+        )
+        s.commit()
+
+
 def _demote(s: Session, doc_id: UUID, version_id: UUID) -> None:
     number = s.scalar(select(DocumentVersion.version).where(DocumentVersion.id == version_id))
     if number is None:

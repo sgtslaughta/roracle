@@ -32,12 +32,12 @@ could not reclaim dead tuples in `jobs`, `notifications`, `votes`, `audit_log`, 
 each worker pinned a connection for the job's duration.
 
 Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=90`, heartbeat every 30 s):
-1. **Claim commits at once.** `claim` sets `status='running'`, `attempts += 1` and `lease_until = now() + lease` and
-   `run_once` commits: the row lock lasts milliseconds. `attempts` is also the **fencing token** of the claim.
+1. **Claim commits at once.** `claim` sets `status='running'`, `attempts += 1`, a fresh `claim_token` and `lease_until = now() + lease` and
+   `run_once` commits: the row lock lasts milliseconds. the fencing token of the claim is `jobs.claim_token` (a sequence value, unique per claim; migration 0016) and `attempts` counts claims (never decremented).
 2. **The handler runs in its own session/transaction**, inside a SAVEPOINT, with the same contract as before (it must
    not commit). A daemon thread extends the lease every `lease/3` (`heartbeat`, guarded by `status='running' AND
-   attempts = n`).
-3. **Completion is in the handler's transaction**: `complete` (guarded by status and attempts) then commit, so the
+   claim_token = t`).
+3. **Completion is in the handler's transaction**: `complete` (guarded by status and `claim_token`) then commit, so the
    handler's DB writes and "done" are atomic exactly as before. If the lease was lost (the job was requeued/reclaimed)
    the guard matches nothing and the whole handler transaction is rolled back: **DB side effects made through the
    handler session are applied exactly once**, never twice, even when a slow worker finishes after a reclaim.
@@ -59,20 +59,23 @@ Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=90`, heartbeat ev
    cooperatively at checkpoints (`queue.check_lease()`: ingest stage boundaries, reembed/rebuild/connector/eval loops)
    by raising `LeaseLost` (the transaction rolls back, nothing is recorded); (b) every write made through an OWN short
    session (the R9 helpers in `ingest/state.py`, the near-dup decision, connector items) is FENCED: `queue.fence(session)`
-   takes `FOR SHARE` on the job row of this claim (`id`, `attempts`, `status='running'`) inside the same transaction
+   takes `FOR SHARE` on the job row of this claim (`id`, `claim_token`, `status='running'`) inside the same transaction
    and raises `LeaseLost` otherwise; `FOR SHARE` also keeps `requeue_expired` from stealing the job between the check and
    the write; (c) `mark_searchable_and_enqueue` is a compare-and-set on `stage <> 'searchable'` (a repeat enqueues no
-   second `citations` job and no second notification); (d) completion is fenced by `attempts`. So the earlier statement
+   second `citations` job and no second notification); (d) completion and failure are fenced by `claim_token`, and a stale handler's own error is never recorded once its lease is lost. So the earlier statement
    "stages are resumable and monotonic" holds for sequential re-runs, and for overlapping runs the stale one is stopped
    by (a)-(c). External effects (ES writes, S3, LLM spend) of a stale run can still happen once more; they are
    idempotent by design.
 8. **Latency of recovery and shutdown.** Crash recovery latency is the lease (90 s) plus up to one sweep interval
    (idle workers every 30 s, busy workers on every heartbeat tick). The lease is deliberately short; the heartbeat is
    one single-row UPDATE per 30 s on its own connection (bounded by statement/lock timeouts and TCP keepalives).
-   On SIGTERM a worker stops claiming and lets the running job finish for `ROR_JOB_DRAIN_S` (3300 s in the chart, below
-   the 3600 s pod grace period); at the deadline it RELEASES the job (`release_active`: the handler is told to abort,
-   the job goes back to `queued` with its attempt refunded, no lease wait): a rolling deploy therefore does not spend
-   attempts. A SIGKILL/OOM/node loss is the only path that spends an attempt (the claim already counted it).
+   On SIGTERM a worker stops claiming and lets the running job finish for `ROR_JOB_DRAIN_S` (120 s in the chart; the
+   pod grace period is drain + 30 s, so a rollout is not held up by long jobs); at the deadline it RELEASES the job
+   (`release_active`: the handler is told to abort, the job goes back to `queued` immediately and the refund is
+   counted in `jobs.released`; `attempts` itself is NEVER decremented, so the per-claim `claim_token` fence stays
+   unique and a stale handler can never touch the next claim). Jobs resume where they left off (ingest per stage,
+   re-embed/rebuild per page or batch through their cursor, connectors per item; eval restarts). A rolling deploy
+   therefore does not spend attempts. The retry budget is `attempts - released`. A SIGKILL/OOM/node loss is the only path that spends an attempt (the claim already counted it).
 
 Guarantees per handler (the contract is **at-least-once execution, exactly-once for DB writes made through the handler
 session, idempotent for everything else**). A crash after an external effect and before completion re-runs the job:

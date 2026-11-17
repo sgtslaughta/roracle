@@ -72,9 +72,10 @@ def test_failure_backs_off_then_fails_after_five_attempts(session_factory, db_se
 def test_complete_marks_done(session_factory, db_session):
     jid = _job(session_factory)
     with session_factory() as s:
-        claim(s, ["ingest"])
-        complete(s, jid, 1)
+        job = claim(s, ["ingest"])
+        complete(s, jid, job.claim_token)
         s.commit()
+        s.expire_all()  # the raw UPDATE bypassed the identity map
         assert s.get(Job, jid).status == "done"
 
 
