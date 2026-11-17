@@ -199,6 +199,21 @@ containers), the dind service sharing the job's network namespace (Kubernetes ex
 `KIND_E2E_IMAGE` (bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum; the job fails fast when unset). dockerd is started on loopback only
 (`--host=tcp://127.0.0.1:2375`), never on the pod IP. Run the job in a runner namespace with a default-deny ingress NetworkPolicy. Not part of the default pipeline.
 
+## Decommissioning the object store (rook-ceph)
+
+Locked backup buckets and Rook's delete protections make this deliberate. Do it in this order; the admin identity is the break-glass identity.
+1. **Export and verify.** Copy every bucket to the new store (`rclone sync` or `aws s3 sync` with `--endpoint-url`, one run per bucket: `roracle`, `roracle-pg-backup`, `roracle-es-snapshots`) and compare object counts/sizes; take a last Postgres backup and ES snapshot first (runbook 2). Point the app at the new store before deleting anything.
+2. **Admin credentials** (from the cluster, never from state):
+   `kubectl -n rook-ceph get secret rook-ceph-object-user-roracle-roracle-admin -o jsonpath='{.data.AccessKey}' | base64 -d` (and `.data.SecretKey`); export `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_CA_BUNDLE` (the `ca.crt` of `roracle-rgw-tls`), `S3=https://rook-ceph-rgw-roracle.rook-ceph.svc:443` (run from a pod in the Ceph or app namespace, e.g. the backend image, or `kubectl port-forward`).
+3. **Empty the buckets.** App bucket (owner = its OBC user: use the `roracle-s3` keys, or delete the OBC in step 5 which empties nothing, so empty it first): `aws --endpoint-url $S3 s3 rm s3://roracle --recursive`.
+   Backup buckets (GOVERNANCE): the admin owns them and may bypass retention: list every version and delete it with the bypass flag:
+   `aws --endpoint-url $S3 s3api list-object-versions --bucket roracle-pg-backup --query '[Versions,DeleteMarkers][][].{Key:Key,VersionId:VersionId}' --output json > v.json`, then for each entry
+   `aws --endpoint-url $S3 s3api delete-object --bucket roracle-pg-backup --key <Key> --version-id <VersionId> --bypass-governance-retention` (loop with `jq -c '.[]'`; repeat until the listing is empty; same for `roracle-es-snapshots`). Then `aws --endpoint-url $S3 s3api delete-bucket --bucket <name>`.
+   **COMPLIANCE mode cannot be shortened or bypassed by anyone**, not even the admin: the data stays until each version's retention expires (`retain-until` date: `aws s3api head-object --version-id`). Wait it out; the buckets (and therefore the object store) cannot be deleted before.
+4. **Remove the identities and claims.** `kubectl -n roracle delete objectbucketclaim --all`; `kubectl -n rook-ceph delete cephobjectstoreuser --all` (Rook refuses while buckets still exist: a stuck delete means step 3 is incomplete: `kubectl -n rook-ceph describe` shows the reason).
+5. **Destroy.** Switch the release with `terraform state mv` as in "Destroy cautions", then `terraform destroy -var-file=... -var protect_data=false`. Rook deletes the `CephObjectStore` only when no buckets/users remain; if the destroy times out, fix step 3/4 and run it again. Pools are kept (`preservePoolsOnDelete`) and the StorageClass reclaim policy is `Retain`.
+6. **Wipe the OSD disks before any reinstall.** Rook leaves Ceph metadata on the devices and `/var/lib/rook` on every node: on each node run `rm -rf /var/lib/rook`, and for each OSD device `sgdisk --zap-all /dev/<dev>; dd if=/dev/zero of=/dev/<dev> bs=1M count=100 oflag=direct,dsync` (or `wipefs -a`), plus `ls /dev/mapper/ceph-* | xargs -I% dmsetup remove %` and `rm -rf /dev/ceph-*` if LVM volumes were created. A reinstall on unwiped disks fails OSD prepare (the cluster id differs). Consider the Rook `cleanupPolicy` (set before deleting the CephCluster) for automated wiping.
+
 ### Live Rook-Ceph rehearsal (local only)
 
 ```sh
