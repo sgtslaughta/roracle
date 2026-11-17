@@ -59,12 +59,19 @@ describe("saved searches", () => {
     expect(await within(pop).findByText("You already have a saved search with this name.")).toBeInTheDocument();
   });
 
-  it("shows the server message for the 422 limit", async () => {
+  it("disables Save with a message when the query exceeds 4000 chars", async () => {
+    await go(`/library?q=${"a".repeat(4100)}`);
+    const pop = await openMenu();
+    expect(within(pop).getByRole("button", { name: "Save this search" })).toBeDisabled();
+    expect(within(pop).getByText("This search is too long to save. Remove some filters.")).toBeInTheDocument();
+  });
+
+  it("shows product copy for the 422 limit", async () => {
     server.use(http.post(BASE, () => HttpResponse.json({ detail: "at most 200 saved searches" }, { status: 422 })));
     await go("/library?q=a");
     const pop = await openMenu();
     await userEvent.click(within(pop).getByRole("button", { name: "Save this search" }));
-    expect(await within(pop).findByText("at most 200 saved searches")).toBeInTheDocument();
+    expect(await within(pop).findByText("You can keep up to 200 saved searches. Delete one to save another.")).toBeInTheDocument();
   });
 
   it("renames a saved search", async () => {

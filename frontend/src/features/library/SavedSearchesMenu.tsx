@@ -8,7 +8,7 @@ import { RowMenu } from "@/components/RowMenu";
 import { parseSearch, validateLibrarySearch, type LibrarySearch } from "@/lib/searchParams";
 import { buildSentence, sentenceText } from "./querySentence";
 import { useSentenceNames } from "./QuerySentence";
-import { saveError, savedQuery, useDeleteSavedSearch, useRenameSavedSearch, useSaveSearch, useSavedSearches } from "./savedSearches";
+import { QUERY_MAX, TOO_LONG, saveError, savedQuery, useDeleteSavedSearch, useRenameSavedSearch, useSaveSearch, useSavedSearches } from "./savedSearches";
 
 function Row({ s, onOpen }: { s: SavedSearch; onOpen: () => void }) {
   const [editing, setEditing] = useState(false);
@@ -53,9 +53,11 @@ export function SavedSearchesMenu({ search }: { search: LibrarySearch }) {
     if (o) { setName(sentenceText(buildSentence(search, names)).slice(0, 100)); save.reset(); }
     setOpen(o);
   };
+  const query = savedQuery(search);
+  const tooLong = query.length > QUERY_MAX;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (name.trim()) save.mutate({ name: name.trim(), query: savedQuery(search) });
+    if (name.trim() && !tooLong) save.mutate({ name: name.trim(), query });
   };
   const openSaved = (s: SavedSearch) => {
     setOpen(false);
@@ -67,7 +69,8 @@ export function SavedSearchesMenu({ search }: { search: LibrarySearch }) {
       <PopoverContent className="ssmenu" role="dialog" aria-label="Saved searches">
         <form onSubmit={submit} className="ssform">
           <label>Name<input aria-label="Name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
-          <Button type="submit" disabled={save.isPending || !name.trim()}>Save this search</Button>
+          <Button type="submit" disabled={save.isPending || !name.trim() || tooLong}>Save this search</Button>
+          {tooLong && <p className="sserr" role="alert">{TOO_LONG}</p>}
           {save.isError && <p className="sserr" role="alert">{saveError(save.error)}</p>}
         </form>
         {data?.length ? <ul className="sslist">{data.map((s) => <Row key={s.id} s={s} onOpen={() => openSaved(s)} />)}</ul> : <p className="ssempty">No saved searches yet.</p>}

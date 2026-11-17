@@ -10,9 +10,19 @@ const BASE = "/me/saved-searches";
 /** The URL query string for a search: no leading `?`, no page. */
 export const savedQuery = (s: LibrarySearch) => stringifySearch({ ...s, page: undefined }).slice(1);
 
-/** Readable text for a failed save/rename (409 is the duplicate name; 422 carries the server's limit message). */
-export const saveError = (e: unknown) =>
-  e instanceof ApiError && e.status === 409 ? "You already have a saved search with this name." : e instanceof ApiError ? e.message : "That didn't work. Try again.";
+export const QUERY_MAX = 4000;
+export const TOO_LONG = "This search is too long to save. Remove some filters.";
+
+/** Product copy for any failed saved-search request (the one place server errors are mapped). */
+export function saveError(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 409) return "You already have a saved search with this name.";
+    if (e.status === 404) return "That saved search no longer exists.";
+    if (e.status === 422 && /at most 200/.test(e.message)) return "You can keep up to 200 saved searches. Delete one to save another.";
+    if (e.status === 422 && /4000/.test(e.message)) return TOO_LONG;
+  }
+  return "Couldn't complete that. Try again.";
+}
 
 export const useSavedSearches = () => useQuery({ queryKey: KEY, queryFn: () => apiFetch<SavedSearch[]>(BASE) });
 
@@ -44,6 +54,7 @@ export function useDeleteSavedSearch() {
       const undo = () => apiFetch(BASE, { method: "POST", json: { name: s.name, query: s.query } }).then(refresh, () => toast("Couldn't undo. Save the search again."));
       toast("Saved search deleted.", { action: { label: "Undo", onClick: () => void undo() } });
     },
+    onError: (e) => toast(saveError(e)),
     onSettled: refresh,
   });
 }
