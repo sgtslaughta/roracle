@@ -9,10 +9,13 @@ from elasticsearch import Elasticsearch
 
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
-from roracle.auth import get_app_settings
+from roracle.auth import Principal, get_app_settings
 from roracle.ingest.chunking import Chunk
-from roracle.models import Tag
+from roracle.labels.policy import Policy
+from roracle.models import Tag, User
+from roracle.retrieval import search_chunks
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
+from roracle.search_query import bm25_clause, parse_query, text_clauses
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("_blob_store_override")]
 DIMS = 4
@@ -70,3 +73,26 @@ def test_acl_and_facets_real_es(client, as_ana, as_bob, db_session, es, wired):
     assert none["total"] == 0  # facets are disjunctive (R17) but never mention the invisible doc
     assert none["facets"]["tags"] == [{"value": "ml", "count": 1}]
     assert none["facets"]["year"] == []  # year facet honours the tags=secret filter, which no visible doc has
+
+
+def _search(es, cfg, db, user, q="x", **kw):
+    p = Principal(user.id, "sub", "u", (), False)
+    return search_chunks(es, FakeLLM(), cfg, p, q, policy=Policy([]), filters={}, **kw)
+
+
+def test_exclusion_and_field_scope_real_es(client, as_ana, db_session, es, wired):
+    ana = user_id(db_session, client, as_ana, "ana")
+    d1, v1 = seed(db_session, ana, title="One", authors=("Zola",))
+    d2, v2 = seed(db_session, ana, title="Two", authors=("Hugo",))
+    index(es, wired, db_session, d1, v1, "alpha beta")
+    index(es, wired, db_session, d2, v2, "alpha gamma")
+    user = db_session.get(User, ana)
+    _flt, nn = text_clauses(parse_query("alpha -gamma"), "anywhere")
+    got = _search(es, wired, db_session, user, "alpha", must_not=nn)
+    assert {x.doc_id for x in got} == {str(d1.id)}
+    pq = parse_query("Zola")
+    got = _search(
+        es, wired, db_session, user, "Zola", knn=False,
+        extra_filter=[{"term": {"doc_head": True}}], bm25=bm25_clause(pq, "authors", ("chunk",)),
+    )  # fmt: skip
+    assert {x.doc_id for x in got} == {str(d1.id)}
