@@ -1,8 +1,6 @@
 # Extra Helm values for the kind rehearsal (extra_values_file in kind.tfvars). Merged last, wins over Terraform values.
 # Small footprint: heavy parsers (docling, grobid, clamav, chromium gotenberg) are off; only the ingest gotenberg runs.
-# minio_mode=external: quay.io/minio/{minio,mc} are private (401), an S3 stand-in is used (test/s3-stub.yaml); backups/snapshots stay off.
-config:
-  ROR_S3_ENDPOINT: http://s3-stub.rorac-s3.svc:9000
+# object_store=external with an S3 stand-in (test/s3-stub.yaml); backups/snapshots stay off.
 parsers:
   docling: {enabled: false}
   grobid: {enabled: false}

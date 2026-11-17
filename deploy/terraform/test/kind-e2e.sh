@@ -48,10 +48,8 @@ CHARTS=(
   "plugin-barman-cloud https://cloudnative-pg.github.io/charts 0.9.0"
   "cert-manager https://charts.jetstack.io v1.17.0"
   "eck-operator https://helm.elastic.co 2.16.0"
-  "operator https://operator.min.io 7.0.0"
 )
-# Images: "<upstream ref> <path in mirror>". MinIO server/mc/operator-sidecar are NOT mirrored: quay.io/minio/{minio,mc} are
-# private now (401), so the rehearsal runs minio_mode=external (README, known gaps). Terraform values render <mirror>/<path>; chart images keep the upstream
+# Images: "<upstream ref> <path in mirror>". Object storage is external here (Rook-Ceph needs raw disks, kind has none). Terraform values render <mirror>/<path>; chart images keep the upstream
 # path under global.imageRegistry. Keep in sync with the tag pins in kind.tfvars and chart values.
 IMAGES=(
   "ghcr.io/cloudnative-pg/cloudnative-pg:1.26.0 cloudnative-pg/cloudnative-pg:1.26.0"
@@ -62,7 +60,6 @@ IMAGES=(
   "quay.io/jetstack/cert-manager-cainjector:v1.17.0 jetstack/cert-manager-cainjector:v1.17.0"
   "quay.io/jetstack/cert-manager-startupapicheck:v1.17.0 jetstack/cert-manager-startupapicheck:v1.17.0"
   "docker.elastic.co/eck/eck-operator:2.16.0 eck/eck-operator:2.16.0"
-  "quay.io/minio/operator:v7.0.0 minio/operator:v7.0.0"
   "ghcr.io/cloudnative-pg/postgresql:16.6 ghcr.io/cloudnative-pg/postgresql:16.6"
   "docker.elastic.co/elasticsearch/elasticsearch:8.15.3 docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
   "curlimages/curl:8.10.1 curlimages/curl:8.10.1"
@@ -158,10 +155,7 @@ build_app() {
 secrets() {
   [ -f "$TOOLS/secrets.json" ] && return 0
   local r='openssl rand -hex 16'
-  (umask 077; jq -n --arg db "$($r)" --arg es "$($r)" --arg mu "u$($r)" --arg mp "$($r)" \
-    --arg s1 "$($r)" --arg s2 "$($r)" --arg a1 "a$($r)" --arg a2 "$($r)" --arg b1 "b$($r)" --arg b2 "$($r)" --arg c1 "c$($r)" --arg c2 "$($r)" \
-    '{db_password:$db, es_app_password:$es, minio_root_user:$mu, minio_root_pass:$mp,
-      s3_access_key:$s1, s3_secret_key:$s2, minio_app:{access:$a1,secret:$a2}, minio_pg_backup:{access:$b1,secret:$b2}, minio_es_snapshot:{access:$c1,secret:$c2}}' >"$TOOLS/secrets.json")
+  (umask 077; jq -n --arg db "$($r)" --arg es "$($r)"     --arg s1 "$($r)" --arg s2 "$($r)"     '{db_password:$db, es_app_password:$es,       s3_access_key:$s1, s3_secret_key:$s2}' >"$TOOLS/secrets.json")
 }
 
 cmd_up() {
@@ -184,10 +178,10 @@ gate_checks() { # fresh state: nothing is created in the cluster
   tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var mirror_registry=MIRROR.example.com -var allow_placeholders=true \
     -target=terraform_data.placeholder_gate >/dev/null || die "allow_placeholders=true did not pass the gate"
   echo "gate: allow_placeholders=true passes (ok)"
-  # 3. minio_mode=tenant without explicit minio_images is refused (community images ended Oct 2025)
-  if out="$(tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var minio_mode=tenant 2>&1)"; then die "tenant applied without minio_images"; fi
-  grep -q "minio_images" <<<"$out" || { echo "$out" >&2; die "tenant refusal did not name minio_images"; }
-  echo "gate: minio_mode=tenant without minio_images refused (ok)"
+  # 3. object_store=rook-ceph without mirrored charts/images/devices is refused (nothing created)
+  if out="$(tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var object_store=rook-ceph 2>&1)"; then die "rook-ceph applied without charts/images/devices"; fi
+  grep -q "ceph.device_filter\|ceph.image\|rook_ceph" <<<"$out" || { echo "$out" >&2; die "rook-ceph refusal did not name ceph placeholders"; }
+  echo "gate: object_store=rook-ceph without mirror values/devices refused (ok)"
   rm -f "$gs" "$gs.backup"
 }
 
