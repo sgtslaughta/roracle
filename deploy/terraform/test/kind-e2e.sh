@@ -83,7 +83,7 @@ tf() { [ -s "$TOOLS/secrets.json" ] || die "missing $TOOLS/secrets.json (run app
 tfargs=(-input=false -var-file="$TFVARS")
 [ "$PROFILE" = ceph ] && tfargs+=(-var-file="$TOOLS/ceph-osd.tfvars")
 # shellcheck disable=SC1091
-[ "$PROFILE" = ceph ] && source "$HERE/kind-e2e-ceph.sh"
+source "$HERE/kind-e2e-ceph.sh" # functions only; down uses ceph_loops_down whatever the profile
 
 fetch() { # name url dest sha
   local f="$TOOLS/dl/$1"; mkdir -p "$TOOLS/dl" "$TOOLS/bin"
@@ -280,7 +280,7 @@ cmd_destroy() {
 }
 
 cmd_down() {
-  [ "$PROFILE" != ceph ] || ceph_loops_down
+  ceph_loops_down # idempotent: acts whenever loops.list exists, whatever the profile
   kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" 2>/dev/null || kind delete cluster --name "$CLUSTER" || true
   docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
   rm -f "$STATE" "$STATE.backup" "$KUBECONFIG" "$TOOLS/kind.tfplan"
