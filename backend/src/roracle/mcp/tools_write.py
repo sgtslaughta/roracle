@@ -26,7 +26,7 @@ from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
-from roracle.chat.global_answer import route_question
+from roracle.chat.global_answer import answer_sync, route_question
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.service import label_by_name
@@ -57,14 +57,16 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     s = dep(app, get_app_settings, session)
     llm = dep(app, search_routes.get_llm)
     scope = f"collection:{collection}" if collection else "all"
-    plan, meta = None, {}  # `route` is reported only when the router is on
+    prep, plan, meta = None, None, {}  # `route` is reported only when the router is on
     try:
         if s.router:
-            plan, meta = route_question(
-                session, dep(app, library.get_es), llm, s, p, question, scope == "all"
-            )
+            es = dep(app, library.get_es)
+            prep, meta = route_question(session, es, llm, s, p, question, scope == "all")
+            plan = answer_sync(session, es, llm, s, p, question, prep) if prep else None
+            if prep and plan is None:  # nothing citable in the global pass: answer from the fact path
+                meta = {"route": "fact"}
         passages = (
-            plan.passages
+            plan[1]
             if plan
             else retrieve_for_chat(
                 session=session,
@@ -84,7 +86,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             return {"answer": NO_PASSAGES, "citations": [], **meta}
         r = llm.chat.completions.create(
             model=s.chat_model_list[0],
-            messages=plan.messages if plan else build_messages(question, passages, [], 0, notes),
+            messages=plan[0] if plan else build_messages(question, passages, [], 0, notes),
             **({"max_tokens": s.global_reduce_tokens} if plan else {}),
         )
     except ValueError as e:

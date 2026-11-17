@@ -30,6 +30,7 @@ def mkrun(
     es_acl=0,
     p95=100,
     noise=None,
+    d40=None,
     pri=PRINCIPALS,
     judge=True,
 ):
@@ -44,6 +45,7 @@ def mkrun(
                 "p_recall@100": r100,
                 "p_mrr": 0.5,
                 "d_recall@10": r10 + d,
+                "d_recall@40": 0.9 + (d40(i) if d40 else 0.0),
             }
             j = {"faithfulness": faith, "citation_support": cite} if judge else None
             pairs.append(PairView(f"q{i}", pr, ["fact", "multihop", "global"][i % 3], scores, j))
@@ -250,3 +252,15 @@ def test_global_scope_uses_doc_recall_and_guards_fact():
     hurt = mkrun(300, noise=lambda i: 0.06 if i % 3 == 2 else (-0.01 if i % 3 == 0 else 0.0))
     v = gate.verdict(base, hurt, scope="global")  # fact ndcg -0.01 < -0.005
     assert v.status == "FAIL" and any("fact p_ndcg@10" in r for r in v.reasons)
+
+
+def test_global_scope_guards_doc_recall_40_not_passage_recall_100():
+    """Ledger I7: the global candidate list is capped at 40 documents, so p_recall@100 does not apply to it."""
+    base = mkrun(300)
+    gain = lambda i: 0.06 if i % 3 == 2 else 0.0
+    low100 = mkrun(300, noise=gain, r100=0.5)  # passage recall@100 collapses; doc recall@40 holds
+    assert gate.verdict(base, low100, scope="global").status == "PASS"
+    assert gate.verdict(base, low100, scope="all").status == "FAIL"  # other scopes still guard p_recall@100
+    lost = mkrun(300, noise=gain, d40=lambda i: -0.1 if i % 3 == 2 else 0.0)
+    v = gate.verdict(base, lost, scope="global")
+    assert v.status == "FAIL" and any("d_recall@40" in r for r in v.reasons)

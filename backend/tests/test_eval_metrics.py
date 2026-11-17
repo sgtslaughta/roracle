@@ -35,7 +35,7 @@ def test_three_gold_exact_metrics():
     assert set(s) == {
         f"{p}_{m}"
         for p in "pd"
-        for m in ("recall@5", "recall@10", "recall@50", "recall@100", "mrr", "ndcg@10")
+        for m in ("recall@5", "recall@10", "recall@40", "recall@50", "recall@100", "mrr", "ndcg@10")
     }
     assert all(0 <= v <= 1 for v in s.values())
 

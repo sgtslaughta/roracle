@@ -21,8 +21,8 @@ from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat
 from roracle.chat.answer import build_messages, split_notes, stream_answer
-from roracle.chat.global_answer import route_question
-from roracle.chat.retrieve import Viewer, has_open_context, open_blocked, retrieve_for_chat
+from roracle.chat.global_answer import route_question, stream_prepare
+from roracle.chat.retrieve import Viewer, _uids, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.textgate import replay_history
@@ -94,9 +94,18 @@ def create_chat(body: ChatIn, p: Who, session: Db, settings: Cfg) -> dict:
 class ClosingStreamingResponse(StreamingResponse):
     """Always aclose() the body iterator, so a disconnect reliably runs `_frames`' finally."""
 
+    def __init__(self, *a, closer=None, **kw):
+        super().__init__(*a, **kw)
+        self.closer = closer  # sync close of the answer stream: runs even if iteration never started
+
     async def stream_response(self, send) -> None:
-        async with contextlib.aclosing(self.body_iterator):
-            await super().stream_response(send)
+        try:
+            async with contextlib.aclosing(self.body_iterator):
+                await super().stream_response(send)
+        finally:
+            if self.closer:
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(self.closer)
 
 
 async def _frames(gen: Iterator[str]) -> AsyncIterator[str]:
@@ -137,25 +146,19 @@ def post_message(
     passages = []
     excluded: list[dict] = []
     meta: dict | None = None
-    plan = None
+    prep = None
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
     else:
         try:
             if settings.router:
-                plan, meta = route_question(
-                    session,
-                    es,
-                    llm,
-                    settings,
-                    p,
-                    body.content,
+                prep, meta = route_question(
+                    session, es, llm, settings, p, body.content,
                     chat.scope == "all" and not body.viewer.tabs and not body.viewer.selection,
-                )
-            if plan:
-                passages = plan.passages
-            else:
+                    dropped=set(_uids(chat.excludes)) | set(_uids(body.viewer.ignored)), pins=_uids(chat.pins),
+                )  # fmt: skip
+            if prep is None:
                 passages = retrieve_for_chat(
                     session, es, llm, settings, p, body.content, body.viewer, chat.scope,
                     list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
@@ -167,41 +170,36 @@ def post_message(
             raise HTTPException(503, "inference unavailable") from None
         except (EsConnectionError, TransportError):
             raise HTTPException(503, "search unavailable") from None
-    session.add(
-        ChatMessage(chat_id=chat.id, role="user", content=body.content, viewer=body.viewer.model_dump())
-    )
-    if not chat.title:
-        chat.title = body.content[:80]
-    session.commit()
-    passages, notes = split_notes(passages)
-    if plan:
-        hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
-        messages = [plan.messages[0], *hist, *plan.messages[1:]]
-    else:
-        messages = build_messages(body.content, passages, history, HISTORY, notes)
-    vids = [UUID(x.version_id) for x in (*passages, *notes)]
-    versions = {
-        str(i): n
-        for i, n in session.execute(
-            select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+    try:
+        session.add(
+            ChatMessage(chat_id=chat.id, role="user", content=body.content, viewer=body.viewer.model_dump())
         )
-    }
-    gen = stream_answer(
-        session,
-        llm,
-        chat.id,
-        model,
-        messages,
-        passages,
-        versions,
-        canned,
-        notes,
-        excluded,
-        meta,
-        settings.global_reduce_tokens if plan else None,
-    )
+        if not chat.title:
+            chat.title = body.content[:80]
+        session.commit()  # no transaction (and no pooled connection) stays open into the stream
+        passages, notes = split_notes(passages)
+        hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
+        messages = [] if prep else build_messages(body.content, passages, history, HISTORY, notes)
+        vids = [UUID(x.version_id) for x in (*passages, *notes)]
+        versions = {
+            str(i): n
+            for i, n in session.execute(
+                select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+            )
+        }
+        gen = stream_answer(
+            session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded, meta,
+            settings.global_reduce_tokens if prep else None,
+            stream_prepare(session, es, llm, settings, p, body.content, prep, hist) if prep else None,
+            prep.release if prep else None,
+        )  # fmt: skip
+    except BaseException:
+        if prep:
+            prep.release()
+        raise
     return ClosingStreamingResponse(
         _frames(gen),
+        closer=gen.close,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

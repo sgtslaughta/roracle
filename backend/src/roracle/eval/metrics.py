@@ -9,7 +9,7 @@ from statistics import fmean
 from roracle.eval.gold import GoldItem
 
 DEPTH = 100
-KS = (5, 10, 50, 100)
+KS = (5, 10, 40, 50, 100)  # 40 = the global path's document cap (ledger I7)
 
 
 def norm(s: str) -> str:

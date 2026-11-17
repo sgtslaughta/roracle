@@ -31,6 +31,12 @@ _MULTI = re.compile(
     r"(?:affect|influence|relate to|lead to)|and then|both .{2,40} and)\b",
     re.IGNORECASE,
 )
+_SINGLE = re.compile(  # a singular target: one named/deictic document is a fact question, never a library sweep
+    r"\b(?i:(?:this|that|the|his|her|their|my|our|a|one)\s+(?:\w+\s+)?(?:paper|study|article|document|report|trial|"
+    r"preprint|thesis|chapter|pdf|file|manuscript))\b"
+    r"|\b[A-Z][a-z]+(?:\s+(?:et\s+al\.?|and\s+[A-Z][a-z]+))?,?\s+\(?(?:19|20)\d\d[a-z]?\)?"
+    r"|[\"“«][^\"”»]{6,}[\"”»]"
+)
 SYSTEM = (
     'Classify the user question for a research library. Reply with JSON only: {"route": "fact"|"multihop"|"global"}. '
     "fact = answerable from a few passages; multihop = needs combining several separate facts or comparing "
@@ -41,6 +47,8 @@ SYSTEM = (
 def heuristic(question: str) -> Route | None:
     """`global`/`multihop` on a strong cue, `fact` for short questions, None when it cannot tell."""
     q = question[:MAX_Q]
+    if _SINGLE.search(q):  # veto: never a global sweep, never worth an LLM call
+        return "multihop" if _MULTI.search(q) else "fact"
     if _GLOBAL.search(q):
         return "global"
     if _MULTI.search(q):

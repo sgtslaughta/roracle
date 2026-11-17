@@ -32,10 +32,15 @@ def _label(n: int, x: Passage) -> str:
     return f"[{n}] {title}, p. {page}"
 
 
+TAGS = ("passage", "note", "unit", "finding")  # every delimiter tag used in a prompt
+_CLOSE = re.compile(r"<\s*/\s*([A-Za-z][\w-]*)")
+_OPEN = re.compile(rf"<\s*({'|'.join(TAGS)})\b", re.IGNORECASE)
+
+
 def _quote(text: str) -> str:
-    return re.sub(
-        r"(?i)</(passage|note)", lambda m: "<\\/" + m.group(1).lower(), text
-    )  # cannot close its own tag
+    """Quoted data cannot close ANY tag (even `< /x >`) or open one of ours: `</` becomes `<\\/`, `<tag` becomes `<\\tag`."""
+    text = _CLOSE.sub(lambda m: "<\\/" + m.group(1).lower(), text)
+    return _OPEN.sub(lambda m: "<\\" + m.group(1).lower(), text)
 
 
 def split_notes(items: list[Passage]) -> tuple[list[Passage], list[Passage]]:
@@ -120,19 +125,31 @@ class AnswerStream:
         self, session: Session, llm, chat_id: UUID, model: str | None, messages: list[dict],
         passages: list[Passage], versions: dict[str, int] | None = None, canned: str | None = None,
         notes: list[Passage] | None = None, excluded: list[dict] | None = None,
-        meta: dict | None = None, max_tokens: int | None = None,
+        meta: dict | None = None, max_tokens: int | None = None, prepare=None, cleanup=None,
     ):  # fmt: skip
         self.excluded = excluded or []
         self.meta, self.max_tokens = meta, max_tokens
-        v = versions or {}
-        self.items = [citation_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
-        self.retrieved = [retrieved_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
-        self.retrieved += [{**retrieved_item(0, x, v.get(x.version_id)), "n": None} for x in notes or []]
+        self.prepare, self.cleanup = prepare, cleanup
+        self.set_items(passages, versions, notes)
         self.session, self.llm, self.chat_id, self.model = session, llm, chat_id, model
         self.messages, self.canned = messages, canned
         self.parts: list[str] = []
         self.saved = False
         self._gen = self._run()
+
+    def set_items(self, passages, versions=None, notes=None) -> None:
+        v = versions or {}
+        self.items = [citation_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
+        self.retrieved = [retrieved_item(i, x, v.get(x.version_id)) for i, x in enumerate(passages, 1)]
+        self.retrieved += [{**retrieved_item(0, x, v.get(x.version_id)), "n": None} for x in notes or []]
+
+    def _cleanup(self) -> None:
+        cb, self.cleanup = self.cleanup, None
+        if cb:
+            try:
+                cb()
+            except Exception:
+                log.exception("stream cleanup failed")
 
     def __iter__(self):
         return self
@@ -143,6 +160,7 @@ class AnswerStream:
     def close(self) -> None:
         self._gen.close()
         self._persist("interrupted", safe=True)
+        self._cleanup()
 
     def _persist(self, status: str, safe: bool = False) -> UUID | None:
         if self.saved:
@@ -176,6 +194,9 @@ class AnswerStream:
                     "meta",
                     {**({"excluded_by_label": self.excluded} if self.excluded else {}), **(self.meta or {})},
                 )
+            if self.prepare:  # e.g. global map phase: no DB connection held while the model calls run
+                self.messages, passages, versions, self.canned = yield from self.prepare()
+                self.set_items(passages, versions)
             if self.canned is not None:
                 self.parts.append(self.canned)
                 yield frame("token", {"text": self.canned})
@@ -200,6 +221,7 @@ class AnswerStream:
             self._persist("failed", safe=True)
             yield frame("error", {"detail": "inference failed"})
         finally:
+            self._cleanup()
             close = getattr(stream, "close", None)
             if close:
                 try:
@@ -212,8 +234,21 @@ def stream_answer(
     session: Session, llm, chat_id: UUID, model: str | None, messages: list[dict],
     passages: list[Passage], versions: dict[str, int] | None = None, canned: str | None = None,
     notes: list[Passage] | None = None, excluded: list[dict] | None = None,
-    meta: dict | None = None, max_tokens: int | None = None,
+    meta: dict | None = None, max_tokens: int | None = None, prepare=None, cleanup=None,
 ) -> AnswerStream:  # fmt: skip
     return AnswerStream(
-        session, llm, chat_id, model, messages, passages, versions, canned, notes, excluded, meta, max_tokens
+        session,
+        llm,
+        chat_id,
+        model,
+        messages,
+        passages,
+        versions,
+        canned,
+        notes,
+        excluded,
+        meta,
+        max_tokens,
+        prepare,
+        cleanup,
     )

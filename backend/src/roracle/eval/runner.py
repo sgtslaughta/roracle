@@ -51,13 +51,35 @@ def visible_ids(session: Session, p: Principal, doc_ids: set[str], path: str) ->
     return {str(i) for i in session.scalars(select(Document.id).where(*cond))}
 
 
-def default_rank(session: Session, es, llm, settings: Settings, path: str) -> Rank:
+def _global_answer(session, es, llm, settings: Settings, p: Principal, q: str, docs) -> dict:
+    t0 = time.perf_counter()
+    msgs, passages = global_answer.reduce_inputs(session, es, llm, settings, p, q, docs)
+    text = global_answer.NO_FINDINGS
+    if passages:
+        r = llm.chat.completions.create(
+            model=settings.chat_model_list[0],
+            messages=msgs,
+            temperature=0.2,
+            max_tokens=settings.global_reduce_tokens,
+        )
+        text = r.choices[0].message.content or ""
+    return {
+        "answer": text, "docs_considered": len(docs), "docs_cited": len(passages),
+        "latency_ms": round((time.perf_counter() - t0) * 1000), "passages": passages,
+    }  # fmt: skip
+
+
+def default_rank(
+    session: Session, es, llm, settings: Settings, path: str, answers: dict | None = None
+) -> Rank:
     def chat(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
         if settings.router and query_router.classify(llm, settings, q) == "global":
             docs = global_answer.candidates(session, es, llm, settings, p, q, raw=raw)
             if (
                 len(docs) >= global_answer.MIN_DOCS
             ):  # the global path's candidate documents as the ranked list
+                if answers is not None:  # judged run: sampled pairs also run map + reduce (M2)
+                    answers[(str(p.user_id), q)] = docs
                 return global_answer.ranked(docs)
             raw.clear()
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
@@ -96,7 +118,8 @@ def run_set(
         raise ValueError("the judge needs the chat path")
     principals = resolve_principals(session, gs)  # R5 before anything is written
     settings = runtime.apply(settings, overrides or {})
-    rank = rank or default_rank(session, es, llm, settings, path)
+    answers: dict = {}
+    rank = rank or default_rank(session, es, llm, settings, path, answers if judge else None)
     judge_fn = judge_fn or (lambda p, q, ps: judge_mod.judge_pair(session, llm, settings, p, q, ps))
     db_set = store.set_by_name(session, gs.name) if gs.name else None
     config = {
@@ -132,7 +155,12 @@ def run_set(
                     key=lambda x: hashlib.sha1(f"{x[0].query_key}|{x[0].principal}".encode()).digest()
                 )
                 for r, _, top, p, text in eligible[: settings.eval_judge_sample]:
-                    judged[(r.query_key, r.principal)] = judge_fn(p, text, top)
+                    docs = answers.get((str(p.user_id), text))
+                    g = _global_answer(session, es, llm, settings, p, text, docs) if docs else None
+                    j = judge_fn(p, text, g["passages"] if g and g["passages"] else top)
+                    judged[(r.query_key, r.principal)] = (
+                        {**j, "global": {k: v for k, v in g.items() if k != "passages"}} if g else j
+                    )
             for r, ranked, *_ in pairs:
                 store.add_result(ws, run_id, r, ranked, judged.get((r.query_key, r.principal)))
             agg = m.aggregate([x[0] for x in pairs])

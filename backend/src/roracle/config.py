@@ -116,7 +116,10 @@ class Settings(BaseSettings):
     router_model: str = ""  # empty = summary_model
     router_timeout_s: float = 1.5
     global_max_docs: int = 40
-    global_concurrency: int = 8
+    global_concurrency: int = 8  # parallel map calls of ONE global question
+    global_max_concurrent: int = 16  # process-wide cap on in-flight map calls (all users); busy => fact path
+    global_call_timeout_s: float = 20.0  # per map call, also bounded by the question's remaining deadline
+    global_mcp_budget_s: float = 45.0  # MCP `ask` global budget (clients time out near 60 s)
     global_timeout_s: float = 90.0
     global_doc_chars: int = 6000  # one document's own text sent per map call
     global_map_tokens: int = 200  # hard cap per map note

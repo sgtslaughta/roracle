@@ -38,7 +38,9 @@
   | `router_model` | `""` (= `summary_model`) | – |
   | `global_max_docs` | `40` | – |
   | `global_concurrency` | `8` | – |
-  | `global_timeout_s` | `90.0` | – |
+  | `global_timeout_s` | `90.0` (deadline for the whole map phase) | – |
+  | `global_max_concurrent` | `16` (process-wide in-flight map calls; one global question per user; busy => fact path) | – |
+  | `global_call_timeout_s` / `global_mcp_budget_s` | `20.0` / `45.0` | – |
   | `agentic_retrieval` | `false` → flips per Task 8 gate | `bool` |
   | `agentic_max_steps` | `3` | – |
   | `agentic_max_subqueries` | `4` | – |

@@ -131,10 +131,13 @@ def verdict(
             short.append("no fact queries in both runs to guard p_ndcg@10")
         elif fact["delta"] < -FACT_NDCG_MAX_LOSS:
             fails.append(f"fact p_ndcg@10 {fact['delta']:+.4f} (loss > {FACT_NDCG_MAX_LOSS})")
-    if (m := d("p_recall@100")) is None:
-        short.append("p_recall@100 missing")
+    # global scope (ledger I7): the candidate list is capped at 40 documents, so the passage recall@100 guard cannot
+    # apply; doc-level recall@40 takes its place with the same tolerance
+    guard = "d_recall@40" if scope == "global" else "p_recall@100"
+    if (m := d(guard)) is None:
+        short.append(f"{guard} missing")
     elif m["delta"] < -RECALL100_MAX_LOSS:
-        fails.append(f"p_recall@100 {m['delta']:+.4f} (loss > {RECALL100_MAX_LOSS})")
+        fails.append(f"{guard} {m['delta']:+.4f} (loss > {RECALL100_MAX_LOSS})")
     for key in (
         JUDGE_KEYS if base.path == cand.path == "chat" else ()
     ):  # the judge only exists on the chat path
