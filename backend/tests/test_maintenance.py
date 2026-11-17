@@ -181,7 +181,23 @@ def test_gc_missing_s3_object_still_drops_row(db_session):
     assert db_session.get(Blob, "9" * 64) is None
 
 
-def test_reconcile_one_acl_sync_per_live_doc_and_resumes(db_session, user, monkeypatch):
+class DriftEs:
+    """search() reports `drift` doc ids as drifted; update_by_query records the synced doc ids."""
+
+    def __init__(self, drift=()):
+        self.drift, self.synced, self.queries = set(drift), [], []
+
+    def search(self, **kw):
+        self.queries.append(kw)
+        hits = [{"fields": {"doc_id": [d]}} for d in self.drift]
+        return {"hits": {"hits": hits}}
+
+    def update_by_query(self, **kw):
+        self.synced.append(sorted(kw["script"]["params"]["acl"]))
+        return {"updated": 1}
+
+
+def test_reconcile_batches_resumes_and_syncs_only_drifted(db_session, user, monkeypatch):
     monkeypatch.setattr(maintenance, "RECONCILE_BATCH", 2)
     ids = []
     for i in range(5):
@@ -192,17 +208,23 @@ def test_reconcile_one_acl_sync_per_live_doc_and_resumes(db_session, user, monke
     gone = Document(owner_id=user.id, title="x", org_unit="/", visibility="private", deleted_at=func.now())
     db_session.add(gone)
     db_session.commit()
-    maintenance.handle_reconcile_tags(db_session, {})
-    first = jobs(db_session, "acl_sync")
-    assert len(first) == 2
+    es = DriftEs(drift={str(sorted(ids)[1])})
+    maintenance.handle_reconcile_tags(db_session, {}, es=es)
     nxt = jobs(db_session, "reconcile_tags")
-    assert len(nxt) == 1 and nxt[0].payload["after"] == first[-1].payload["doc_id"]
-    maintenance.handle_reconcile_tags(db_session, nxt[0].payload)
-    maintenance.handle_reconcile_tags(db_session, jobs(db_session, "reconcile_tags")[-1].payload)
-    synced = [j.payload["doc_id"] for j in jobs(db_session, "acl_sync")]
-    assert sorted(synced) == sorted(str(i) for i in ids) and len(synced) == 5
-    assert str(gone.id) not in synced
+    assert len(nxt) == 1 and nxt[0].payload["after"] == str(sorted(ids)[1])
+    assert es.synced == [[str(sorted(ids)[1])]]
+    es.drift = set()
+    maintenance.handle_reconcile_tags(db_session, nxt[0].payload, es=es)
+    maintenance.handle_reconcile_tags(db_session, jobs(db_session, "reconcile_tags")[-1].payload, es=es)
     assert len(jobs(db_session, "reconcile_tags")) == 2  # last batch (1 < 2) does not chain
+    assert len(es.synced) == 1  # no drift, no further writes
+    assert not jobs(db_session, "acl_sync")
+    queried = {
+        c["term"]["doc_id"]
+        for q in es.queries
+        for c in [s["bool"]["filter"][0] for s in q["query"]["bool"]["should"]]
+    }
+    assert str(gone.id) not in queried and queried == {str(i) for i in ids}
 
 
 def test_periodic_maintenance_runs_all_and_reschedules(db_session, user, store):

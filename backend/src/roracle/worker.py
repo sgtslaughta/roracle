@@ -44,7 +44,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         "maintenance": partial(
             handle_maintenance, settings=settings, store=blob_store_from(settings), es=clients.es(settings)
         ),
-        "reconcile_tags": handle_reconcile_tags,
+        "reconcile_tags": partial(handle_reconcile_tags, es=clients.es(settings)),
         "eval_run": partial(
             handle_eval_run,
             settings=settings,

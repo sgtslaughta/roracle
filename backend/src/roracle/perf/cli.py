@@ -32,6 +32,7 @@ def add_parser(sub) -> None:
     es.add_argument("--docs", type=int, default=20_000)
     es.add_argument("--users", type=int, default=100)
     es.add_argument("--alias", action="append", default=[], help="alias to add (repeatable)")
+    es.add_argument("--label-id", default=None, help="default label id of the PG corpus (enables acl_hash)")
     es.add_argument("--seed", type=int, default=1)
 
     ld = s.add_parser("load", help="open-loop load test against a running API")
@@ -43,6 +44,13 @@ def add_parser(sub) -> None:
     ld.add_argument("--concurrency", type=int, default=32)
     ld.add_argument("--docs", type=int, default=1000)
     ld.add_argument("--budget", default=DEFAULT_BUDGETS)
+
+    rc = s.add_parser(
+        "reconcile", help="run the drift-only ACL reconcile over the scratch corpus (set ROR_MUTATE_ALIAS)"
+    )
+    rc.add_argument("--url", required=True)
+    rc.add_argument("--es-url", default="http://localhost:9200")
+    rc.add_argument("--index", default="perf-chunks-1")
 
     ex = s.add_parser("explain", help="time a hot statement (claim) on the scratch DB")
     ex.add_argument("what", choices=["claim"])
@@ -78,6 +86,7 @@ def run(args: argparse.Namespace) -> int:
             n = synth_es.seed(
                 Elasticsearch(args.es_url), args.index, chunks=args.chunks, dims=args.dims, docs=args.docs,
                 personas={"users": args.users}, seed=args.seed, aliases=tuple(args.alias),
+                label_id=args.label_id,
             )  # fmt: skip
             print(json.dumps({"chunks": n}))
         case "load":
@@ -94,6 +103,8 @@ def run(args: argparse.Namespace) -> int:
             return 0 if ok else 1
         case "explain":
             return _explain_claim(args)
+        case "reconcile":
+            return _reconcile(args)
     return 2
 
 
@@ -128,3 +139,44 @@ def _explain_claim(args: argparse.Namespace) -> int:
     ok = all(getattr(r, q) <= v for q, v in budget.items())
     print(json.dumps({**r.__dict__, "indexes": sorted(index_names(user_plan)), "budget": budget, "pass": ok}))
     return 0 if ok else 1
+
+
+def _reconcile(args: argparse.Namespace) -> int:
+    """Walk the whole corpus with `handle_reconcile_tags`; report duration, batches and ES index operations
+    (indexing.index_total delta of the scratch index: updates count, no-ops do not)."""
+    import time
+
+    from elasticsearch import Elasticsearch
+    from sqlalchemy import delete, select
+
+    from roracle.db import make_session_factory
+    from roracle.maintenance import handle_reconcile_tags
+    from roracle.models import Job
+
+    _require_scratch(args.url)
+    es = Elasticsearch(args.es_url)
+
+    def ops() -> int:
+        es.indices.refresh(index=args.index)
+        return es.indices.stats(index=args.index, metric="indexing")["_all"]["primaries"]["indexing"][
+            "index_total"
+        ]
+
+    before, t0, batches, payload = ops(), time.perf_counter(), 0, {}
+    sf = make_session_factory(args.url)
+    with sf() as s:
+        while True:
+            handle_reconcile_tags(s, payload, es=es)
+            batches += 1
+            nxt = s.scalar(select(Job).where(Job.kind == "reconcile_tags").order_by(Job.id.desc()))
+            s.execute(delete(Job).where(Job.kind == "reconcile_tags"))
+            s.commit()
+            if nxt is None:
+                break
+            payload = nxt.payload
+    print(
+        json.dumps(
+            {"batches": batches, "seconds": round(time.perf_counter() - t0, 1), "es_writes": ops() - before}
+        )
+    )
+    return 0

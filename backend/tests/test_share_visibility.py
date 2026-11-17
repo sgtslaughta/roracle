@@ -116,4 +116,4 @@ def test_patch_to_private_drops_shares_and_revokes(app, client, as_ana, as_bob, 
         assert db_session.scalars(select(Job).where(Job.kind == "acl_sync")).first() is not None
     client.patch(f"/documents/{d.id}", headers=as_ana, json={"visibility": "private"})
     assert client.get(f"/documents/{d.id}", headers=as_bob).status_code == 404
-    assert fes.calls[-1]["script"]["params"]["share_users"] == []
+    assert next(iter(fes.calls[-1]["script"]["params"]["acl"].values()))["fields"]["share_users"] == []

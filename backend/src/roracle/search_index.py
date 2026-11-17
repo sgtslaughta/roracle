@@ -1,7 +1,8 @@
 """Elasticsearch chunk index: `chunks-<model-slug>-<gen>`; read alias `chunks` (one index), mutation alias
 `chunks-all` (all live generations, ADR-0002 ACL fields)."""
 
-import logging
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,7 @@ def _mapping(dims: int) -> dict[str, Any]:
             "visibility": kw,
             "org_unit": kw,
             "label_id": kw,
+            "acl_hash": kw,  # acl_hash(): lets the reconcile find drift without rewriting anything
             "share_users": kw,
             "share_groups": kw,
             "coauthor_users": kw,
@@ -212,6 +214,7 @@ def _base(version, document, acl, model, title, is_latest, tags) -> dict[str, An
     meta = version.meta or {}
     return {
         **acl,
+        "acl_hash": acl_hash({**acl, "tags": tags or []}, title),
         "doc_id": str(document.id),
         "version_id": str(version.id),
         "version": version.version,
@@ -400,7 +403,7 @@ def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str =
 MAX_SYNC_TRIES = 3
 
 
-def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]") -> None:
+def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]") -> dict[str, Any]:
     """update_by_query with response checks. `build` recomputes the kwargs from Postgres on each try:
     non-empty `failures` raise; `version_conflicts` retry (concurrent writer), then raise.
     A missing index is a no-op (nothing ingested yet)."""
@@ -408,49 +411,89 @@ def run_update_by_query(es: Elasticsearch, build: "Callable[[], dict[str, Any]]"
         try:
             r = es.update_by_query(**build(), refresh=True, conflicts="proceed") or {}
         except NotFoundError:
-            return
+            return {}
         if r.get("failures"):
             raise RuntimeError(f"update_by_query failures: {r['failures'][:1]}")
         if not r.get("version_conflicts"):
-            return
+            return r
     raise RuntimeError("update_by_query version conflicts persisted")
 
 
+ACL_KEYS = (
+    "owner_id", "visibility", "org_unit", "share_users", "share_groups", "coauthor_users", "label_id",
+)  # fmt: skip
+ACL_BATCH = 500  # doc ids per update_by_query
+
+
+def acl_hash(acl: dict[str, Any], title: str | None) -> str:
+    """Digest of everything `acl_sync` writes (ACL fields, tags, title): equal PG and ES hashes mean no drift.
+    `acl` carries `tags` (read_acl); lists are order-insensitive."""
+    parts = [acl.get(k) for k in ACL_KEYS]
+    parts = [sorted(v) if isinstance(v, list) else v for v in parts]
+    parts += [sorted(acl.get("tags") or []), title]
+    return hashlib.sha256(json.dumps(parts, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def acl_payload(acl: dict[str, Any], title: str | None) -> dict[str, Any]:
+    """Fields the script writes for one document. Without title or tags the hash cannot be recomputed, so the
+    stale one is dropped (`drop_hash`): the reconcile then re-syncs the document in full."""
+    fields = {k: acl.get(k) for k in ACL_KEYS}
+    if title is not None:
+        fields["title"] = title
+    if acl.get("tags") is not None:
+        fields["tags"] = acl["tags"]
+    full = title is not None and acl.get("tags") is not None
+    if full:
+        fields["acl_hash"] = acl_hash(acl, title)
+    return {"fields": fields, "drop_hash": not full}
+
+
+# Compares before writing: an unchanged document is a `noop` (no reindex, no vector re-insert into HNSW).
 _ACL_SCRIPT = (
-    "ctx._source.owner_id = params.owner_id; ctx._source.visibility = params.visibility; "
-    "ctx._source.org_unit = params.org_unit; ctx._source.share_users = params.share_users; "
-    "ctx._source.share_groups = params.share_groups; ctx._source.coauthor_users = params.coauthor_users; "
-    "ctx._source.label_id = params.label_id; "
-    "if (params.title != null) { ctx._source.title = params.title; } "
-    "if (params.tags != null) { ctx._source.tags = params.tags; }"
+    "def f = params.acl[ctx._source.doc_id]; if (f == null) { ctx.op = 'noop'; return; } "
+    "boolean changed = false; "
+    "for (def e : f.fields.entrySet()) { "
+    "if (!Objects.equals(ctx._source[e.getKey()], e.getValue())) { ctx._source[e.getKey()] = e.getValue(); "
+    "changed = true; } } "
+    "if (f.drop_hash == true && ctx._source.containsKey('acl_hash')) { ctx._source.remove('acl_hash'); "
+    "changed = true; } "
+    "if (!changed) { ctx.op = 'noop'; }"
 )
 
 
-def _ensure_label_mapping(es: Elasticsearch) -> None:
-    """`label_id` must be a keyword before the first script writes it, or dynamic mapping makes it `text`
-    and the `terms label_id` pre-filter silently never matches (Postgres still enforces). Idempotent."""
-    try:
-        es.indices.put_mapping(index=MUTATE_ALIAS, properties={"label_id": {"type": "keyword"}})
-    except Exception:
-        logging.getLogger(__name__).warning("could not ensure the label_id mapping", exc_info=True)
+def _acl_request(items: dict[str, tuple[dict[str, Any], str | None]]) -> dict[str, Any]:
+    return {
+        "index": MUTATE_ALIAS,
+        "query": {"terms": {"doc_id": list(items)}},
+        "script": {
+            "source": _ACL_SCRIPT,
+            "lang": "painless",
+            "params": {"acl": {d: acl_payload(a, t) for d, (a, t) in items.items()}},
+        },
+    }
+
+
+def sync_acl_many(es: Elasticsearch, items: dict[str, tuple[dict[str, Any], str | None]]) -> int:
+    """Converge ACL/title/tags of many documents (`doc_id -> (acl, title)`), `ACL_BATCH` per update_by_query;
+    unchanged documents are no-ops. Returns the number of chunks actually updated."""
+    updated = 0
+    keys = list(items)
+    for i in range(0, len(keys), ACL_BATCH):
+        part = {k: items[k] for k in keys[i : i + ACL_BATCH]}
+        updated += (run_update_by_query(es, lambda part=part: _acl_request(part)) or {}).get("updated", 0)
+    return updated
 
 
 def sync_acl(
     es: Elasticsearch, doc_id, compute: "Callable[[], tuple[dict[str, Any], str | None] | None]"
 ) -> None:
-    """Push ACL fields (and title when not None) to every chunk of the document; `compute` re-reads PG
+    """Push ACL fields (and title / tags when given) to every chunk of the document; `compute` re-reads PG
     each try and returns (acl, title), or None when the document is gone."""
 
     def build() -> dict[str, Any]:
         got = compute()
         if got is None:
             return {"index": MUTATE_ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
-        acl, title = got
-        return {
-            "index": MUTATE_ALIAS,
-            "query": {"term": {"doc_id": str(doc_id)}},
-            "script": {"source": _ACL_SCRIPT, "lang": "painless", "params": {**acl, "title": title}},
-        }
+        return _acl_request({str(doc_id): got})
 
-    _ensure_label_mapping(es)
     run_update_by_query(es, build)

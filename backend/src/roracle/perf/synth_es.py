@@ -11,7 +11,7 @@ import numpy as np
 from elasticsearch import Elasticsearch, helpers
 
 from roracle.perf.synth_pg import det_uuid, visibility
-from roracle.search_index import _mapping
+from roracle.search_index import _mapping, acl_hash
 
 VOCAB = 5000
 WORDS_PER_CHUNK = 40
@@ -53,6 +53,7 @@ def _actions(
         }
         if label_id:
             src["label_id"] = label_id
+            src["acl_hash"] = acl_hash({**src, "tags": src["tags"]}, src["title"])  # equals the PG-side hash
         yield {"_index": index, "_id": f"{vid}:{n}", "_source": src}
 
 

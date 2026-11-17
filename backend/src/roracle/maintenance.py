@@ -19,6 +19,8 @@ from elasticsearch import Elasticsearch, NotFoundError
 from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from roracle import search_index
+from roracle.acl_sync import drifted, read_acl_many
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue, payload_uuid
 from roracle.search_index import ALIAS, MUTATE_ALIAS
@@ -180,14 +182,17 @@ def gc_blobs(session: Session, store: BlobStore) -> int:
     return removed
 
 
-def handle_reconcile_tags(session: Session, payload: dict) -> None:
-    """Enqueue `acl_sync` for the next batch of live documents after the id cursor; chain while full."""
+def handle_reconcile_tags(session: Session, payload: dict, *, es: Elasticsearch) -> None:
+    """Drift-only reconcile of the next RECONCILE_BATCH live documents after the id cursor: compare each
+    document's Postgres `acl_hash` with the hashes in ES and sync only the drifted ones (an in-sync corpus
+    causes 0 ES writes). One chain job per batch while full."""
     q = select(Document.id).where(Document.deleted_at.is_(None))
     if payload.get("after"):
         q = q.where(Document.id > payload_uuid(payload, "after"))
     ids = session.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)).all()
-    for doc_id in ids:
-        enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
+    items = read_acl_many(session, ids)
+    if bad := drifted(es, items):
+        search_index.sync_acl_many(es, {d: items[d] for d in bad})
     if len(ids) == RECONCILE_BATCH:
         enqueue(session, "reconcile_tags", {"after": str(ids[-1])})
 

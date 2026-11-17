@@ -162,7 +162,6 @@ class Settings(AliasConfig):
     worker_health_port: int = 8001  # worker /healthz + /metrics; 0 = off
     retention_deleted_days: int = 0  # purge soft-deleted documents after N days; 0 = never
     maintenance_interval_s: int = 86400  # periodic purge + blob gc + tag reconcile
-    read_alias: str = "chunks"  # exclusive read alias re-embed swaps; only tests override it
     embed_index: str = ""  # active ES index; set only by re-embed cutover (runtime override), "" = derived
 
     @model_validator(mode="after")
