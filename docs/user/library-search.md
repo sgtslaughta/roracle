@@ -64,7 +64,7 @@ Results are 20 to a page. The line under the title reads "Showing 1–20 of 1,23
 
 - Without a query the count covers everything you can see, up to 10,000; above that it reads "10,000+".
 - A query, the **Most cited** sort and the "cited by at least" filter look at the best 200 papers. When there are more the count reads "200+".
-- At the last page you can reach the note "Refine the search to see more papers." asks you to narrow the search.
+- On the last page you can reach, the note "Refine the search to see more papers." asks you to narrow the search.
 
 ## Sorting
 
