@@ -45,6 +45,8 @@ Later tasks append a link line under the matching heading when they add a page.
 
 - [Architecture index](architecture/README.md)
 - [Architecture overview](architecture/overview.md): context, containers, components
+- [Ingest data flow](architecture/ingest.md): upload and connector stages, one sequence diagram each
+- [Retrieval and chat data flow](architecture/retrieval-chat.md): search, chat modes, citations, `exclude_llm`
 
 ### Enterprise (operations and security)
 
