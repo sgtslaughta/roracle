@@ -480,7 +480,7 @@ class AppSetting(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
-from roracle import models_eval, models_labels, models_notes, models_writing  # noqa: F401  (register tables)
+from roracle import models_eval, models_labels, models_notes, models_saved, models_writing  # noqa: F401  (register tables)
 from roracle.models_labels import Label  # noqa: F401
 from roracle.models_notes import (  # noqa: F401
     Annotation,
