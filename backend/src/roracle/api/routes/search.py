@@ -1,33 +1,37 @@
 """GET /search: hybrid query path or Postgres browse path (R15), ACL-filtered disjunctive facets (R17), sorts, paging."""
 
-import copy
-import re
 from collections import Counter
-from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
 from elasticsearch import Elasticsearch, NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, exists, false, func, literal_column, or_, select
-from sqlalchemy.dialects.postgresql import array
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from roracle import clients
-from roracle.access import visible_documents
 from roracle.api.routes.library import get_es
+from roracle.api.routes.search_load import (  # noqa: F401 (names re-exported for callers and tests)
+    ROW_COLUMNS,
+    Row,
+    _is_uuid,
+    _load,
+    _votes,
+    cursor_of,
+    load_stmt,
+)
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.citations import cited_by_counts
 from roracle.config import Settings
-from roracle.cursor import make_cursor, parse_cursor
-from roracle.db import get_session
+from roracle.cursor import parse_cursor
+from roracle.db import get_session, release_before_io
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import gated_docs
-from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
+from roracle.models import Collection, CollectionItem
 from roracle.notes.community import attach_notes
-from roracle.retrieval import DocHit, Passage, TtlLru, embed_query, group_by_document, search_chunks
+from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
+from roracle.search_cache import PAGE_CACHE, PAGE_CACHE_MAX, cache_key, rehydrate, slim
 from roracle.search_index import file_type as ext_of
 
 router = APIRouter()
@@ -64,194 +68,8 @@ def get_llm(request: Request):
 
 
 def get_http(request: Request) -> httpx.Client:
-    """One keep-alive client for the reranker (connection and TLS reuse), closed with the app."""
-    app = request.app
-    if not hasattr(app.state, "http"):
-        app.state.http = httpx.Client()
-    return app.state.http
-
-
-PAGE_CACHE = TtlLru()  # first-stage ES results, for paging/facet clicks within search_cache_s (never shared)
-
-
-@dataclass
-class Row:
-    doc: Document
-    ver: DocumentVersion
-    tags: list[str] = field(default_factory=list)
-    votes: tuple[int, int, int] = (0, 0, 0)  # up, down, mine
-    colls: list[tuple[str, str]] = field(default_factory=list)  # caller's (id, name)
-    score: float = 0.0
-    passages: list[Passage] = field(default_factory=list)
-
-    @property
-    def meta(self) -> dict:
-        return self.ver.meta or {}
-
-    @property
-    def title(self) -> str:
-        return self.doc.title or self.meta.get("title") or self.ver.filename
-
-    def facet_values(self) -> dict[str, list[str]]:
-        year = self.meta.get("year")
-        return {
-            "tags": self.tags,
-            "year": [] if year is None else [str(year)],
-            "file_type": [ext_of(self.ver.filename)],
-            "org_unit": [self.doc.org_unit],
-            "collection": [c for c, _ in self.colls],
-            "author": list(self.meta.get("authors") or []),
-            "label": [str(self.doc.label_id)],
-        }
-
-
-def _votes(session: Session, ids: list[UUID], uid: UUID) -> dict[str, tuple[int, int, int]]:
-    mine = func.coalesce(func.max(case((Vote.user_id == uid, Vote.value))), 0)
-    rows = session.execute(
-        select(
-            Vote.document_id,
-            func.count().filter(Vote.value == 1),
-            func.count().filter(Vote.value == -1),
-            mine,
-        )
-        .where(Vote.document_id.in_(ids))
-        .group_by(Vote.document_id)
-    ).all()
-    return {str(d): (u, n, m) for d, u, n, m in rows}
-
-
-def _is_uuid(x: str) -> bool:
-    try:
-        UUID(x)
-    except ValueError:
-        return False
-    return True
-
-
-def _file_type_clause(want: set[str]):
-    """SQL twin of search_index.file_type: lowercase extension of 1-8 [a-z0-9] chars, else "other"."""
-    name = func.lower(DocumentVersion.filename)
-    ext = r"\.[a-z0-9]{1,8}$"
-    exts = sorted(w for w in want if w != "other" and re.fullmatch(r"[a-z0-9]{1,8}", w))
-    parts = []
-    if exts:
-        parts.append(name.op("~")(r"\.(" + "|".join(exts) + ")$"))
-    if "other" in want:
-        parts.append(~name.op("~")(ext))
-    return or_(*parts) if parts else false()
-
-
-# The only DocumentVersion columns a `Row` reads. Everything else (minhash, summary_embedding, references,
-# summary: ~4 KB per row) is never loaded; `raiseload` makes any other access an error instead of a lazy query.
-ROW_COLUMNS = (
-    DocumentVersion.id,
-    DocumentVersion.document_id,
-    DocumentVersion.version,
-    DocumentVersion.filename,
-    DocumentVersion.created_at,
-    DocumentVersion.meta,
-)
-
-
-def cursor_of(row: "Row") -> str:
-    return make_cursor(row.ver.created_at, row.doc.id)
-
-
-def load_stmt(
-    p: Principal,
-    ids: list[UUID] | None,
-    wanted: dict[str, set[str]] | None = None,
-    limit: int | None = None,
-    columns=ROW_COLUMNS,
-    after: tuple[datetime, UUID] | None = None,
-):
-    """Visible documents with a searchable latest version, newest first.
-
-    `wanted` pushes every facet filter down to SQL, so `limit` is always safe. `after` is the keyset cursor of
-    the (created_at DESC, document id ASC) order: only rows strictly after it."""
-    stmt = (
-        select(Document, DocumentVersion)
-        .options(load_only(*columns, raiseload=True))
-        .join(
-            DocumentVersion,
-            and_(
-                DocumentVersion.document_id == Document.id,
-                # literal, not `IS true` / a bind: both must imply ix_versions_latest_searchable's predicate
-                DocumentVersion.is_latest,
-                DocumentVersion.stage == literal_column("'searchable'"),
-            ),
-        )
-        .where(visible_documents(p))
-        .order_by(DocumentVersion.created_at.desc(), Document.id)
-    )
-    if ids is not None:
-        stmt = stmt.where(Document.id.in_(ids))
-    if after is not None:
-        at, last = after
-        stmt = stmt.where(
-            or_(
-                DocumentVersion.created_at < at,
-                and_(DocumentVersion.created_at == at, Document.id > last),
-            )
-        )
-    for name, want in (wanted or {}).items():
-        if not want:
-            continue
-        if name == "year":
-            stmt = stmt.where(DocumentVersion.meta["year"].astext.in_(want))
-        elif name == "org_unit":
-            stmt = stmt.where(Document.org_unit.in_(want))
-        elif name == "tags":
-            stmt = stmt.where(exists().where(Tag.document_id == Document.id, Tag.tag.in_(want)))
-        elif name == "author":
-            stmt = stmt.where(DocumentVersion.meta["authors"].has_any(array(sorted(want))))
-        elif name == "label":
-            stmt = stmt.where(Document.label_id.in_([UUID(x) for x in want if _is_uuid(x)]))
-        elif name == "file_type":
-            stmt = stmt.where(_file_type_clause(want))
-        elif name == "collection":
-            stmt = stmt.where(
-                Document.id.in_(
-                    select(CollectionItem.document_id)
-                    .join(Collection, Collection.id == CollectionItem.collection_id)
-                    .where(Collection.owner_id == p.user_id, Collection.id.in_([UUID(c) for c in want]))
-                )
-            )
-    if limit is not None:
-        stmt = stmt.limit(limit)
-    return stmt
-
-
-def _load(
-    session: Session,
-    p: Principal,
-    ids: list[UUID] | None,
-    wanted: dict[str, set[str]] | None = None,
-    limit: int | None = None,
-    columns=ROW_COLUMNS,
-    after: tuple[datetime, UUID] | None = None,
-    votes: dict[str, tuple[int, int, int]] | None = None,
-) -> list[Row]:
-    """`load_stmt` rows enriched from Postgres (tags, caller's collections, votes; pass `votes` if the caller
-    already has them for these ids)."""
-    stmt = load_stmt(p, ids, wanted, limit, columns, after)
-    rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
-    if rows:
-        keys = list(rows)
-        for doc_id, tag in session.execute(select(Tag.document_id, Tag.tag).where(Tag.document_id.in_(keys))):
-            rows[doc_id].tags.append(tag)
-        for r in rows.values():
-            r.tags.sort()
-        for doc_id, cid, name in session.execute(
-            select(CollectionItem.document_id, Collection.id, Collection.name)
-            .join(Collection, Collection.id == CollectionItem.collection_id)
-            .where(Collection.owner_id == p.user_id, CollectionItem.document_id.in_(keys))
-        ):
-            rows[doc_id].colls.append((str(cid), name))
-        for k, v in (votes if votes is not None else _votes(session, keys, p.user_id)).items():
-            if UUID(k) in rows:
-                rows[UUID(k)].votes = v
-    return list(rows.values())
+    """The process-wide keep-alive client created at app startup (`http_pool`)."""
+    return request.app.state.http
 
 
 def _own_collections(session: Session, p: Principal, values: list[str]) -> tuple[list[str], list[str]]:
@@ -351,22 +169,6 @@ def _response(
     }
 
 
-def _cache_key(p: Principal, q: str, filters: dict, coll_docs, light: bool, policy: Policy) -> tuple:
-    """Everything that shapes the first-stage result: the principal (never shared across principals), the
-    query, filters, collection scope and the label policy (a relabel changes the key)."""
-    return (
-        p.user_id,
-        tuple(sorted(p.groups)),
-        p.via,
-        p.is_admin,
-        q,
-        tuple(sorted((k, tuple(sorted(map(str, v)))) for k, v in filters.items() if v)),
-        None if coll_docs is None else tuple(sorted(coll_docs)),
-        light,
-        policy.version,
-    )
-
-
 def _query_rows(
     session: Session,
     es: Elasticsearch,
@@ -388,12 +190,13 @@ def _query_rows(
     if coll_docs is not None and not coll_docs:
         return []
     policy = policy or Policy.load(session)
-    key = _cache_key(p, q, filters, coll_docs, light, policy)
+    key = cache_key(p, settings, q, filters, coll_docs, light, policy)
     use_cache = settings.search_cache_s > 0 and raw is None
-    passages = PAGE_CACHE.get(key, settings.search_cache_s) if use_cache else None
-    if passages is not None:
-        passages = copy.deepcopy(passages)
+    cached = PAGE_CACHE.get(key, settings.search_cache_s) if use_cache else None
+    if cached is not None:
+        passages = rehydrate(cached)
     else:
+        release_before_io(session)  # release the connection: ES and rerank can take 100s of ms
         try:
             passages = search_chunks(
                 es,
@@ -414,7 +217,7 @@ def _query_rows(
         except NotFoundError:  # nothing ingested yet: no index
             return []
         if use_cache and passages:  # never cache "nothing": a fresh grant must show up at once
-            PAGE_CACHE.put(key, copy.deepcopy(passages), 256)
+            PAGE_CACHE.put(key, slim(passages), PAGE_CACHE_MAX)
     if raw is not None:  # eval: ES hits before the Postgres re-check
         raw.extend(passages)
     ids = []
@@ -430,6 +233,8 @@ def _query_rows(
     for h in hits:
         if h.doc_id in by_id:
             r = by_id[h.doc_id]
+            if any(x.version_id != str(r.ver.id) for x in h.passages):
+                continue  # a newer version became latest after the first stage ran: never show its old snippets
             r.score, r.passages = h.score, h.passages
             rows.append(r)
     return rows
@@ -506,6 +311,7 @@ def search(
     filtered = any(wanted.values())
     policy = Policy.load(session)  # once per request
     if q.strip():
+        release_before_io(session)  # no pooled connection held idle-in-transaction across embed / ES / rerank
         try:
             qvec = embed_query(llm, settings, q)  # once for both searches
             rows = _query_rows(

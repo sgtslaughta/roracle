@@ -6,7 +6,7 @@ import pytest
 from api_seed import FakeES, seed
 from test_search_api import FakeLLM, get, hit
 
-from roracle import retrieval
+from roracle import http_pool, retrieval
 from roracle.api.routes import search as search_mod
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
@@ -14,6 +14,7 @@ from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.labels.policy import Policy
 from roracle.retrieval import LIGHT_SOURCE, rrf, search_chunks
+from roracle.search_cache import cache_key, slim
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -173,7 +174,7 @@ def test_universe_pass_is_light_and_unreranked_and_the_client_is_shared(
     assert [(s[0], s[1]) for s in seen] == [(False, 50), (True, 50)]
     get(client, as_ana, q="alpha2", year=2020)
     clients = {id(s[2]) for s in seen if s[2] is not None}
-    assert len(clients) == 1 and client.app.state.http is seen[0][2]
+    assert len(clients) == 1 and client.app.state.http is seen[0][2] is http_pool.get()
 
 
 def test_cache_key_changes_with_policy():
@@ -185,7 +186,7 @@ def test_cache_key_changes_with_policy():
     }  # fmt: skip
     a = Policy([LabelInfo(**base, exclude_llm=False)])
     b = Policy([LabelInfo(**base, exclude_llm=True)])
-    assert a.version != b.version and a.version == Policy([LabelInfo(**base, exclude_llm=False)]).version
+    assert a.labels != b.labels and a.labels == Policy([LabelInfo(**base, exclude_llm=False)]).labels
 
 
 def test_empty_results_are_not_cached_so_a_new_grant_shows_at_once(client, as_bob, ana, db_session, fes):
@@ -195,3 +196,116 @@ def test_empty_results_are_not_cached_so_a_new_grant_shows_at_once(client, as_bo
     fes.hits = [hit(d, v)]  # the doc has been shared with bob since
     assert [r["title"] for r in get(client, as_bob, q="alpha").json()["results"]] == ["later"]
     assert len(fes.calls) > n
+
+
+def test_msearch_subsearch_errors_keep_the_es_error_types():
+    from elasticsearch import ApiError, NotFoundError
+
+    class Es:
+        def __init__(self, status):
+            self.status = status
+
+        def msearch(self, index=None, searches=()):
+            return {
+                "responses": [{"hits": {"hits": []}}, {"error": {"reason": "boom"}, "status": self.status}]
+            }
+
+    for status, kind in ((429, ApiError), (503, ApiError), (404, NotFoundError)):
+        with pytest.raises(kind):
+            run(Es(status), summary_knn=False)
+
+
+def test_embed_memo_is_float32_array_bounded():
+    from array import array
+
+    llm = SimpleNamespace(
+        embeddings=SimpleNamespace(
+            create=lambda model, input: SimpleNamespace(
+                data=[SimpleNamespace(index=0, embedding=[0.25] * 768)]
+            )
+        )
+    )
+    s = settings().model_copy(update={"embed_cache_size": 2})
+    for q in ("a", "b", "c"):
+        retrieval.embed_query(llm, s, q)
+    assert len(retrieval._EMBEDS._d) == 2
+    assert all(isinstance(v[1], array) and v[1].typecode == "f" for v in retrieval._EMBEDS._d.values())
+    assert retrieval.embed_query(llm, s, "c") == [0.25] * 768
+
+
+def test_slim_keeps_full_content_for_two_best_passages_per_doc_only():
+    ps = [
+        retrieval.Passage(
+            f"c{i}", "d1", "v", "text", "hl", [1], [{"page": 1}, {"page": 2}], 1 - i / 10, source_chunks=["x"]
+        )
+        for i in range(4)
+    ]
+    out = slim(ps)
+    assert [x.text for x in out] == ["text", "text", "", ""] and [len(x.bboxes) for x in out] == [1, 1, 0, 0]
+    assert [x.score for x in out] == [x.score for x in ps] and ps[2].text == "text"  # originals untouched
+
+
+def test_cache_key_covers_index_rerank_and_similarity_settings():
+    pol = Policy([])
+    base = settings()
+    k = cache_key(ADMIN, base, "q", {}, None, False, pol)
+    for change in (
+        {"embed_index": "chunks-other-2"},
+        {"rerank_url": "http://rr"},
+        {"rerank_blend": 0.9},
+        {"search_rerank_depth": 10},
+        {"search_min_similarity": 0.5},
+    ):
+        assert cache_key(ADMIN, base.model_copy(update=change), "q", {}, None, False, pol) != k, change
+
+
+def test_nan_rerank_scores_cannot_poison_the_blend():
+    from roracle.retrieval import blend_order
+
+    order = blend_order([0.3, 0.2, 0.1], [float("nan"), 0.9, 0.1], 0.5)
+    assert sorted(order) == [0, 1, 2] and order[0] == 1
+
+
+def test_shared_pool_is_created_once_and_closed():
+    http_pool.close()
+    a = http_pool.init()
+    assert http_pool.init() is a and http_pool.get() is a
+    http_pool.close()
+    assert http_pool.get() is None and a.is_closed
+
+
+def test_stale_version_snippets_are_never_shown(client, as_ana, ana, db_session, fes):
+    d, v1 = seed(db_session, ana, title="doc", versions=1)
+    fes.hits = [hit(d, v1)]
+    assert len(get(client, as_ana, q="alpha").json()["results"]) == 1
+    v1.is_latest = False
+    from roracle.models import DocumentVersion
+
+    new = DocumentVersion(
+        document_id=d.id, version=2, blob_sha256=v1.blob_sha256, filename="p.pdf", content_type="application/pdf",
+        size=1, stage="searchable", is_latest=True, meta={},
+    )  # fmt: skip
+    db_session.add(new)
+    db_session.flush()
+    n = len(fes.calls)
+    assert get(client, as_ana, q="alpha").json()["results"] == []  # cached snippet belongs to v1: dropped
+    assert len(fes.calls) == n
+
+
+def test_relabel_to_block_agents_during_ttl_hides_doc_from_pat(db_session, ana, client, fes):
+    from roracle.models import Document, Label
+
+    lab = Label(name="NoAgents", colour="#111111", rank=5, block_agents=True)
+    db_session.add(lab)
+    db_session.flush()
+    d, v = seed(db_session, ana, title="doc")
+    fes.hits = [hit(d, v)]
+    pat = Principal(user_id=ana, sub="s", username="u", groups=(), is_admin=False, via="pat")
+    s = settings()
+    rows = search_mod._query_rows(db_session, fes, None, s, pat, "alpha", {}, None, [0.1])
+    assert len(rows) == 1
+    db_session.get(Document, d.id).label_id = lab.id
+    db_session.flush()
+    n = len(fes.calls)
+    assert search_mod._query_rows(db_session, fes, None, s, pat, "alpha", {}, None, [0.1]) == []
+    assert len(fes.calls) == n  # served from the cache; PG gate dropped it

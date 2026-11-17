@@ -26,6 +26,7 @@ from roracle.chat.answer import _quote, frame
 from roracle.chat.global_map import MIN_CALL_S, DocUnits, MapNote, _key, iter_map, map_docs  # noqa: F401
 from roracle.chat.retrieve import MAX_CHARS, _live, _search
 from roracle.config import Settings
+from roracle.db import release_before_io
 from roracle.labels.policy import Policy
 from roracle.labels.textgate import gated_docs
 from roracle.models import DocumentVersion
@@ -75,6 +76,9 @@ def candidates(
 ) -> list[DocUnits]:  # fmt: skip
     """<= `global_max_docs` documents, best first (pinned first), each with its own (summary then chunk) units.
     `dropped` = chat excludes / ignored documents; `raw` (eval out-param) receives the ES hits before the Postgres check."""
+    release_before_io(
+        session
+    )  # connection back to the pool before the embedding call (and the search commits again)
     qvec = embed_query(llm, settings, question)
     hits = _search(session, es, llm, settings, p, question, None, settings.chat_candidates, qvec, UNITS)
     pinned = [d for d in pins if d not in dropped]

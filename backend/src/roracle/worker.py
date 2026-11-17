@@ -1,12 +1,12 @@
 import logging
 from functools import partial
 
-from roracle import clients, runtime, search_index, worker_health
+from roracle import clients, http_pool, runtime, search_index, worker_health
 from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
-from roracle.db import make_session_factory
+from roracle.db import worker_session_factory
 from roracle.eval.generate import handle_eval_generate
 from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
@@ -91,7 +91,7 @@ def main() -> None:
     settings = get_settings()
     if not settings.clamav_host:
         log.warning("clamav_host is empty: malware scanning disabled")
-    sf = make_session_factory(settings.database_url, settings.db_connect_timeout_s)
+    sf = worker_session_factory(settings)
     HANDLERS.update(build_handlers(settings, sf))
     worker_health.serve(
         settings.worker_health_port
@@ -99,4 +99,8 @@ def main() -> None:
     ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
-    run_forever(sf, HANDLERS)
+    http_pool.init()  # shared keep-alive client for rerank calls made by eval/chat-shaped jobs
+    try:
+        run_forever(sf, HANDLERS)
+    finally:
+        http_pool.close()

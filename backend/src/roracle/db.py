@@ -7,11 +7,61 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+RELEASE_BEFORE_IO = "release_before_io"
 
-def make_session_factory(url: str, connect_timeout_s: int = 5) -> sessionmaker[Session]:
-    """`?connect_timeout=` in the URL wins over `connect_timeout_s` (ROR_DB_CONNECT_TIMEOUT_S)."""
+
+def release_before_io(session: Session) -> None:
+    """Commit so the pooled connection goes back before a slow external call (ES, rerank, LLM). Only for request
+    sessions (api factory sets the flag): worker/eval sessions run inside the job transaction (ADR-0003) and must
+    never commit mid-handler."""
+    if session.info.get(RELEASE_BEFORE_IO):
+        session.commit()
+
+
+def make_session_factory(
+    url: str,
+    connect_timeout_s: int = 5,
+    *,
+    pool_size: int = 5,
+    max_overflow: int = 10,
+    pool_timeout_s: float = 30.0,
+    release_before_io: bool = False,
+) -> sessionmaker[Session]:
+    """`?connect_timeout=` in the URL wins over `connect_timeout_s` (ROR_DB_CONNECT_TIMEOUT_S).
+    The process holds at most `pool_size + max_overflow` connections (the Helm budget multiplies this by the
+    replica count); the defaults are SQLAlchemy's, long-running callers pass the settings."""
     args = {} if "connect_timeout" in make_url(url).query else {"connect_timeout": connect_timeout_s}
-    return sessionmaker(create_engine(url, pool_pre_ping=True, connect_args=args), expire_on_commit=False)
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args=args,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=pool_timeout_s,
+    )
+    info = {RELEASE_BEFORE_IO: True} if release_before_io else {}
+    return sessionmaker(engine, expire_on_commit=False, info=info)
+
+
+def api_session_factory(settings) -> sessionmaker[Session]:
+    return make_session_factory(
+        settings.database_url,
+        settings.db_connect_timeout_s,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout_s=settings.db_pool_timeout_s,
+        release_before_io=True,
+    )
+
+
+def worker_session_factory(settings) -> sessionmaker[Session]:
+    return make_session_factory(
+        settings.database_url,
+        settings.db_connect_timeout_s,
+        pool_size=settings.worker_db_pool_size,
+        max_overflow=settings.worker_db_max_overflow,
+        pool_timeout_s=settings.db_pool_timeout_s,
+    )
 
 
 def get_session(request: Request) -> Iterator[Session]:

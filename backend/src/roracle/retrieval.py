@@ -7,21 +7,19 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 import html
 import logging
 import math
-import threading
 import time
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 from elasticsearch import BadRequestError
-from elasticsearch.exceptions import HTTP_EXCEPTIONS
 
+from roracle import http_pool
 from roracle.auth import Principal
 from roracle.config import Settings
-from roracle.ingest.embed import embed, prompt_sha, query_prompt
 from roracle.labels.policy import Policy
 from roracle.metrics import RERANK_FALLBACK, RERANK_SECONDS
+from roracle.retrieval_util import _EMBEDS, TtlLru, _msearch, embed_query  # noqa: F401 (re-exported)
 from roracle.search_acl import acl_filter
 from roracle.search_index import active_index
 
@@ -194,7 +192,8 @@ def _rerank_scored(
     """Scores for all texts, in requests of <= rerank_max_batch; one wall-clock budget (rerank_timeout_s) overall."""
     step = max(1, settings.rerank_max_batch)
     scores: list[float] = []
-    client = http or httpx.Client()
+    shared = http or http_pool.get()  # the process-wide keep-alive client (app/worker startup), if any
+    client = shared or httpx.Client()
     try:
         for i in range(0, len(texts), step):
             left = settings.rerank_timeout_s - (time.monotonic() - t0)
@@ -210,12 +209,15 @@ def _rerank_scored(
             r.raise_for_status()
             scores += _rerank_scores(settings, r.json(), len(chunk))
     finally:
-        if http is None:
+        if shared is None:
             client.close()
     return scores
 
 
 def _minmax(xs: list[float]) -> list[float]:
+    finite = [x for x in xs if math.isfinite(x)]
+    floor = min(finite) if finite else 0.0
+    xs = [x if math.isfinite(x) else floor for x in xs]  # a NaN/inf score must not poison min/max or the sort
     lo, hi = min(xs), max(xs)
     return [0.0 if hi == lo else (x - lo) / (hi - lo) for x in xs]
 
@@ -269,67 +271,6 @@ def _rerank(
     finally:
         RERANK_SECONDS.observe(time.monotonic() - t0)
     return reranked + passages[depth:]
-
-
-class TtlLru:
-    """Small thread-safe LRU with a TTL (embedding memo; the search page cache uses the same type)."""
-
-    def __init__(self) -> None:
-        self._d: OrderedDict[Any, tuple[float, Any]] = OrderedDict()
-        self._lock = threading.Lock()
-
-    def get(self, key: Any, ttl: float) -> Any | None:
-        with self._lock:
-            hit = self._d.get(key)
-            if hit is None or time.monotonic() - hit[0] > ttl:
-                self._d.pop(key, None)
-                return None
-            self._d.move_to_end(key)
-            return hit[1]
-
-    def put(self, key: Any, value: Any, max_entries: int) -> None:
-        with self._lock:
-            self._d[key] = (time.monotonic(), value)
-            self._d.move_to_end(key)
-            while len(self._d) > max(1, max_entries):
-                self._d.popitem(last=False)
-
-    def clear(self) -> None:
-        with self._lock:
-            self._d.clear()
-
-
-_EMBEDS = TtlLru()
-
-
-def embed_query(llm, settings: Settings, query: str) -> list[float]:
-    """Query embedding, memoized per (model, dims, prompt digest): repeated and paged searches skip the call."""
-    key = (settings.embed_model, settings.embed_dims, prompt_sha(query_prompt(query)))
-    if settings.embed_cache_size > 0 and (hit := _EMBEDS.get(key, settings.embed_cache_ttl_s)) is not None:
-        return list(hit)
-    [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
-    if settings.embed_cache_size > 0:
-        _EMBEDS.put(key, tuple(vec), settings.embed_cache_size)
-    return vec
-
-
-def _msearch(es, index: str, bodies: list[dict]) -> list[dict | Exception]:
-    """ONE round trip for several searches. A failed sub-search comes back as its exception (not raised), so
-    the caller decides (e.g. the optional summary kNN) exactly as it would for separate searches."""
-    searches: list[dict] = []
-    for b in bodies:
-        searches += [{}, b]
-    out: list[dict | Exception] = []
-    for r in es.msearch(index=index, searches=searches)["responses"]:
-        if "error" in r:
-            from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
-
-            status = int(r.get("status", 500))
-            meta = ApiResponseMeta(status, "1.1", HttpHeaders(), 0.0, NodeConfig("http", "es", 9200))
-            out.append(HTTP_EXCEPTIONS.get(status, Exception)(str(r["error"])[:300], meta, r["error"]))
-        else:
-            out.append(r)
-    return out
 
 
 def search_chunks(

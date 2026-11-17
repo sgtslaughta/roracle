@@ -313,7 +313,9 @@ def test_chat_search_uses_chat_candidates(monkeypatch):
     sizes = []
     monkeypatch.setattr(retrieve, "search_chunks", lambda *a, **k: sizes.append(k["size"]) or [])
     monkeypatch.setattr(retrieve.Policy, "load", staticmethod(lambda s: None))
-    retrieve._search(None, None, None, _settings(), None, "q", None, _settings().chat_candidates, [0.0])
+    retrieve._search(
+        SimpleNamespace(info={}), None, None, _settings(), None, "q", None, _settings().chat_candidates, [0.0]
+    )
     assert sizes == [200] and Settings().chat_candidates == 200
 
 

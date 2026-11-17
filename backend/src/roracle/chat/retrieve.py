@@ -16,6 +16,7 @@ from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
 from roracle.config import Settings
+from roracle.db import release_before_io
 from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion
 from roracle.notes.community import note_passages, strict_gate
@@ -132,6 +133,9 @@ def _search(
     session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec,
     units: tuple[str, ...] = ("chunk",), policy: Policy | None = None,
 ):  # fmt: skip
+    release_before_io(
+        session
+    )  # release the pooled connection before ES / rerank (no idle-in-transaction across I/O)
     try:
         return search_chunks(
             es,
@@ -231,6 +235,7 @@ def rank_for_chat(
 
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
+        release_before_io(session)  # connection back to the pool before the embedding call
         qvec = embed_query(llm, settings, question)  # embed once per turn
         units = ("chunk", "section", "document") if settings.raptor else ("chunk",)
         main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units, policy)
@@ -241,6 +246,7 @@ def rank_for_chat(
         )
         found = _merge(main, tab)
         if any(x.unit for x in found.values()):  # R11: the LLM only ever sees real passages
+            release_before_io(session)  # no connection held across the ES + rerank round trips
             ex = expand_units(es, settings, p, policy, question, list(found.values()), exclude_llm=True)
             found = {x.chunk_id: x for x in ex}
     if raw is not None:

@@ -10,6 +10,21 @@
 {{- if and $bk.enabled (not $bk.endpointURL) (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert (not $bk.endpointCA.name) }}
 {{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
 {{- end }}
+{{- /* Connection budget: every api/worker pod holds up to pool+overflow connections at full autoscale. */}}
+{{- $api := .Values.api }}
+{{- $wk := .Values.worker }}
+{{- $apiMax := ternary $api.autoscaling.maxReplicas $api.replicas $api.autoscaling.enabled | int }}
+{{- $wkMax := ternary $wk.autoscaling.maxReplicas $wk.replicas $wk.autoscaling.enabled | int }}
+{{- $c := .Values.config }}
+{{- $clients := add (mul $apiMax (add (int $c.ROR_DB_POOL_SIZE) (int $c.ROR_DB_MAX_OVERFLOW))) (mul $wkMax (add (int $c.ROR_WORKER_DB_POOL_SIZE) (int $c.ROR_WORKER_DB_MAX_OVERFLOW))) | int }}
+{{- $maxConn := int (default 100 $pg.parameters.max_connections) }}
+{{- if $pg.pooler.enabled }}
+{{- $server := add (mul (int $pg.pooler.instances) (int $pg.pooler.defaultPoolSize)) (int $pg.reservedConnections) }}
+{{- if gt (int $server) $maxConn }}{{ fail (printf "postgres.pooler: %d instances x defaultPoolSize %d + %d reserved = %d server connections exceeds max_connections %d" (int $pg.pooler.instances) (int $pg.pooler.defaultPoolSize) (int $pg.reservedConnections) (int $server) $maxConn) }}{{ end }}
+{{- if gt $clients (mul (int $pg.pooler.instances) (int $pg.pooler.maxClientConn)) }}{{ fail (printf "postgres.pooler: %d client connections at full autoscale exceed %d x maxClientConn %d" $clients (int $pg.pooler.instances) (int $pg.pooler.maxClientConn)) }}{{ end }}
+{{- else if gt (add $clients (int $pg.reservedConnections)) $maxConn }}
+{{- fail (printf "connection budget: api %d x (pool+overflow) + worker %d x (pool+overflow) = %d, + %d reserved exceeds postgres.parameters.max_connections %d: lower the ROR_DB_* pools, raise max_connections (RAM: ~10 MB each) or enable postgres.pooler" $apiMax $wkMax $clients (int $pg.reservedConnections) $maxConn) }}
+{{- end }}
 {{- $rc := $pg.recovery }}
 {{- if $rc.enabled }}
 {{- if not $bk.enabled }}{{ fail "postgres.recovery.enabled requires postgres.backup.enabled" }}{{ end }}
@@ -151,5 +166,23 @@ data:
       target_databases: [postgres]
       metrics:
         - seconds_since_last_archive: {usage: GAUGE, description: Seconds since the last WAL segment was archived (primary only; no sample until the first archive)}
+{{- end }}
+{{- if $pg.pooler.enabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ $name }}-pooler-rw
+  labels: {{ include "roracle.labels" . | nindent 4 }}
+spec:
+  cluster: {name: {{ $name }}}
+  instances: {{ $pg.pooler.instances }}
+  type: rw
+  pgbouncer:
+    poolMode: {{ $pg.pooler.poolMode }}
+    parameters:
+      max_client_conn: {{ $pg.pooler.maxClientConn | quote }}
+      default_pool_size: {{ $pg.pooler.defaultPoolSize | quote }}
+      max_prepared_statements: "200"
 {{- end }}
 {{- end }}

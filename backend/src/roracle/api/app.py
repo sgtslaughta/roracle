@@ -1,12 +1,13 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
 from fastapi import FastAPI, Request
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from roracle import __version__
+from roracle import __version__, http_pool
 from roracle.api import input_guard
 from roracle.api.routes import (
     admin,
@@ -46,7 +47,7 @@ from roracle.api.routes import (
 )
 from roracle.auth import JwksCache
 from roracle.config import Settings, get_settings
-from roracle.db import make_session_factory
+from roracle.db import api_session_factory
 from roracle.labels.policy import ExportBlocked, export_blocked_handler
 from roracle.mcp.auth import BearerAuth
 from roracle.mcp.server import build_mcp
@@ -55,20 +56,21 @@ from roracle.metrics import http_middleware
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # every sync route and every streamed answer holds one worker thread: anyio's default of 40 tokens would
+    # stall /search, MCP and the readiness checks behind ~40 concurrent chats
+    anyio.to_thread.current_default_thread_limiter().total_tokens = app.state.settings.api_threads
     async with app.state.mcp.session_manager.run():
         yield
-    if http := getattr(app.state, "http", None):
-        http.close()
+    http_pool.close()
     app.state.session_factory.kw["bind"].dispose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="rOracle", version=__version__, lifespan=_lifespan)
     app.state.settings = settings or get_settings()
-    app.state.session_factory = make_session_factory(
-        app.state.settings.database_url, app.state.settings.db_connect_timeout_s
-    )
+    app.state.session_factory = api_session_factory(app.state.settings)
     app.state.jwks = JwksCache(app.state.settings.oidc_jwks_url)
+    app.state.http = http_pool.init()  # shared reranker client: created at startup, closed in the lifespan
     app.middleware("http")(http_middleware)
     input_guard.install(app)
     app.add_exception_handler(ExportBlocked, export_blocked_handler)

@@ -157,6 +157,7 @@ helm:
     - cd deploy/helm/roracle
     - helm lint --strict . -f ci/min-values.yaml
     - helm lint --strict . -f ci/full-values.yaml
+    - '! helm template r . -f ci/full-values.yaml --set config.ROR_DB_POOL_SIZE=40 2>/dev/null'  # connection budget guard must fail the render
     - mkdir -p ../../../rendered
     - helm template r . -f ci/min-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/min.yaml
     - helm template r . -f ci/full-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/full.yaml

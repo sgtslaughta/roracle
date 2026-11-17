@@ -50,6 +50,14 @@ config:
   ROR_EVIDENCE_MAX_BYTES: "1073741824"
   ROR_RETENTION_DELETED_DAYS: "0"   # purge soft-deleted documents after N days; 0 = never
   ROR_DB_CONNECT_TIMEOUT_S: "5"
+  # Connection budget (docs/perf/connection-budget.md): per process = pool + overflow; the chart fails the render when
+  # replicas x these + postgres.reservedConnections exceed postgres.parameters.max_connections (or the pooler budget).
+  ROR_DB_POOL_SIZE: "8"              # api
+  ROR_DB_MAX_OVERFLOW: "4"
+  ROR_WORKER_DB_POOL_SIZE: "3"       # worker (claim session + stage session)
+  ROR_WORKER_DB_MAX_OVERFLOW: "1"
+  ROR_DB_POOL_TIMEOUT_S: "10"
+  ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream
   ROR_MAINTENANCE_INTERVAL_S: "86400"  # periodic purge + blob gc + tag reconcile
 
 # Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.
@@ -153,7 +161,13 @@ postgres:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  parameters: {}           # extra postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters)
+  # postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters). max_connections is checked
+  # against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory.
+  parameters: {max_connections: "200", shared_buffers: 2GB, work_mem: 16MB}
+  reservedConnections: 15  # superuser_reserved (3) + CNPG/monitoring/replication + migrate Job + operator headroom
+  # PgBouncer (CNPG Pooler, transaction mode). When enabled, point ROR_DATABASE_URL at <release>-pg-pooler-rw and keep the
+  # migrate Job on the direct <release>-pg-rw service. Server connections = instances x defaultPoolSize.
+  pooler: {enabled: false, instances: 2, poolMode: transaction, maxClientConn: 1000, defaultPoolSize: 40}
   # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
   # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
   appCredentialsSecret: ""
