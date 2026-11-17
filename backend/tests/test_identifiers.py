@@ -109,3 +109,14 @@ def test_extract(text, want):
 )
 def test_arxiv_stamp(text, want):
     assert extract_arxiv_stamp(text) == want
+
+
+def test_doi_hostile_input_bounded():
+    import time
+
+    from roracle.identifiers import extract_ids, normalize
+
+    t = time.perf_counter()
+    assert normalize("doi", "10.1234/" + ")" * 200_000) is None
+    extract_ids("10.1234/x" + ")" * 200_000)
+    assert time.perf_counter() - t < 1.0

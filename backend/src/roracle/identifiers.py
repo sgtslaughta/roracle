@@ -15,7 +15,7 @@ _ARX_OLD = r"[a-z\-]+(?:\.[a-z]{2})?/\d{7}"
 _ARX_ID = rf"(?:{_ARX_NEW}|{_ARX_OLD})"
 _ACL_ID = r"(?:\d{4}\.[a-z0-9\-]+\.\d+|[a-z]\d{2}-\d{4})"
 _ACL_PATH = r"(?:pdf/|[a-z]/[a-z]\d{2}/)?"  # new /pdf/ form or old /P/P19/ directories
-_DOI = r"10\.\d{4,9}/[^\s\"'<>]+"
+_DOI = r"10\.\d{4,9}/[^\s\"'<>]{1,300}"  # cap: bounds strip loop (untrusted PDF text)
 _I = re.IGNORECASE
 
 _EXTRACT = {
@@ -99,6 +99,8 @@ def _norm_acl(v: str) -> str | None:
 def _norm_doi(v: str) -> str | None:
     s = unquote(str(v or "")).strip()
     s = re.sub(r"(?i)^(https?://(www\.)?(dx\.)?doi\.org/|doi:\s*)", "", s).strip().lower()
+    if len(s) > 320:  # ponytail: length cap keeps the strip below O(n^2) blow-up on hostile input
+        return None
     while s and s[-1] in _TRAIL:
         c = s[-1]
         if c in _OPEN and s.count(c) <= s.count(_OPEN[c]):  # balanced bracket: part of the DOI
