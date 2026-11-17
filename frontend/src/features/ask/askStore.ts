@@ -17,6 +17,8 @@ export interface PendingTurn {
   excluded?: ExcludedByLabel[];
   /** status line while the library is searched (agentic retrieval), cleared by the first token */
   progress?: string;
+  /** "Summarizing <title> (v<n>)": which paper a whole-document summary reads */
+  note?: string;
   status: "streaming" | "done" | "interrupted" | "failed";
   detail?: string;
   messageId?: string;
@@ -29,11 +31,12 @@ const gone = createStore<Record<string, true>>({});
 export const useChatGone = (chatId: string | undefined) => gone.use((s) => !!chatId && !!s[chatId]);
 /** message id -> context withheld by label (the server does not store it, so it is kept for the session). */
 export const excludedByMessage = new Map<string, ExcludedByLabel[]>();
+export const noteByMessage = new Map<string, string>();
 const ctrls = new Map<string, AbortController>();
 const viewers = new Map<string, number>();
 
 export const usePendingTurn = (chatId: string | undefined) => turns.use((s) => (chatId ? s[chatId] : undefined));
-export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); excludedByMessage.clear(); turns.reset(); gone.reset(); };
+export const resetAskTurns = () => { ctrls.forEach((c) => c.abort()); ctrls.clear(); viewers.clear(); excludedByMessage.clear(); noteByMessage.clear(); turns.reset(); gone.reset(); };
 
 const put = (id: string, p: PendingTurn | null) =>
   turns.set((s) => {
@@ -96,10 +99,14 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     onToken: (t) => { buf += t; schedule(); },
     onProgress: (g) => patch(chatId, (p) => ({ ...p, progress: `Searching sub-question ${Math.min(g.done + 1, g.of)}/${g.of} (round ${g.step})…` })),
     onCitations: (items) => { flush(); patch(chatId, (p) => ({ ...p, citations: items })); },
+    onReading: (part, of) => patch(chatId, (p) => ({ ...p, progress: `Reading part ${part} of ${of}…` })),
+    onSummarizing: (s) => patch(chatId, (p) => ({ ...p, note: `Summarizing ${s.title} (v${s.version})${s.partial ? `: read ${s.partial.read} of ${s.partial.of} parts, so the summary is partial` : ""}` })),
     onExcluded: (items) => patch(chatId, (p) => ({ ...p, excluded: items })),
     onDone: (messageId) => {
       const ex = turns.get()[chatId]?.excluded;
       if (ex?.length) excludedByMessage.set(messageId, ex);
+      const note = turns.get()[chatId]?.note;
+      if (note) noteByMessage.set(messageId, note);
       finish({ status: "done", messageId });
     },
     onError: (detail) => finish({ status: "failed", detail }),

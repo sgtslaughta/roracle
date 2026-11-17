@@ -134,7 +134,11 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_SEARCH_CACHE_S` | `float` | `60.0` |  | /search first-stage result cache for paging (0 = off) |
 | `ROR_SEARCH_MIN_SIMILARITY` | `float` | `0.35` |  | kNN cosine floor for library search; 0 disables (relevant ~0.4-0.75, unrelated <=0.3) |
 | `ROR_SEARCH_RERANK_DEPTH` | `int` | `50` |  | /search only: the page shows ~20 documents |
+| `ROR_SUMMARY_DOC_CHARS` | `int` | `32000` |  | single-pass budget (~8k tokens; chat model needs num_ctx >= 16k) |
+| `ROR_SUMMARY_MAP_TIMEOUT_S` | `float` | `60.0` |  | one map call; the slot TTL covers every window plus a reduce |
+| `ROR_SUMMARY_MAX_ADMITTED` | `int` | `16` |  | map-reduce summaries running at once per process (1 per user) |
 | `ROR_SUMMARY_MODEL` | `str` | `'qwen2.5:3b'` |  | Model for document summaries |
+| `ROR_SUMMARY_WINDOW_CHARS` | `int` | `6000` |  | text per map call when a document is map-reduced |
 | `ROR_UPLOAD_QUOTA_BYTES` | `int` | `0` | yes | per user, sum of live version sizes; 0 = unlimited |
 | `ROR_VECTOR_INDEX_TYPE` | `Literal['int8_hnsw', 'int4_hnsw', 'bbq_hnsw']` | `'int8_hnsw'` |  | bbq only after an eval gate |
 | `ROR_VECTOR_RESCORE_OVERSAMPLE` | `float` | `3.0` |  | bbq_hnsw: candidates rescored with float vectors |

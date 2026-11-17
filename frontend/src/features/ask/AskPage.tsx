@@ -69,8 +69,8 @@ export function AskPage({ chatId }: { chatId?: string }) {
       }
     }
     startTurn(qc, id, { question, viewer, model: model || undefined });
-    if (!chatId) void navigate({ to: "/ask/$chatId", params: { chatId: id }, replace: true });
     focusComposer();
+    if (!chatId) void navigate({ to: "/ask/$chatId", params: { chatId: id }, replace: true }).then(focusComposer); // the page remounts the composer
   };
 
   const sendRef = useRef(send);
