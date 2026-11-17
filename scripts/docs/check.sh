@@ -11,11 +11,11 @@ echo "== links"; run python "$ROOT/scripts/docs/check_links.py"
 echo "== code refs"; run python "$ROOT/scripts/docs/check_refs.py"
 echo "== markdown lint"
 targets=("$ROOT/docs" "$ROOT/deploy")  # root + component READMEs are added once they exist
-for f in README.md backend/README.md frontend/README.md; do [ -f "$f" ] && targets+=("$ROOT/$f"); done
-run pymarkdown --config "$ROOT/.pymarkdown.json" scan "${targets[@]}"
+for f in README.md backend/README.md frontend/README.md; do if [ -f "$f" ]; then targets+=("$ROOT/$f"); fi; done
+run pymarkdown --config "$ROOT/.pymarkdown.json" scan -r "${targets[@]}"
 echo "== line cap (500)"
 # No exceptions needed today: the longest existing file (docs/superpowers/plans) is 430 lines.
-files=$(find docs deploy -name '*.md' -not -path '*/node_modules/*'; for f in README.md backend/README.md frontend/README.md; do [ -f "$f" ] && echo "$f"; done)
+files=$(find docs deploy -name '*.md' -not -path '*/node_modules/*'; for f in README.md backend/README.md frontend/README.md; do if [ -f "$f" ]; then echo "$f"; fi; done)
 over=$(echo "$files" | xargs wc -l | awk '$2 != "total" && $1 > 500 {print $2 " (" $1 " lines)"}')
 if [ -n "$over" ]; then echo "over 500 lines:"; echo "$over"; exit 1; fi
 echo "== scripts lint + tests"

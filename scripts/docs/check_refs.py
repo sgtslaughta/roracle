@@ -49,29 +49,43 @@ def norm_route(p: str) -> str:
     return p.rstrip("/") or "/"
 
 
+def seg_match(cand: str, tmpl: str) -> bool:
+    """Segment-wise match; a `{}` segment in either side matches any single segment (concrete ids in examples)."""
+    a, b = cand.split("/"), tmpl.split("/")
+    return len(a) == len(b) and all(x == y or "{}" in (x, y) for x, y in zip(a, b, strict=True))
+
+
+ROUTE_RE = re.compile(r"(?<![\w/.:-])(/(?:api|mcp|healthz|readyz|metrics)\b[^\s`\"'),;]*)")
+
+
 def bad_routes(text: str, routes: set[str]) -> list[Hit]:
-    """`/api/...` is the ingress/web-proxy prefix (stripped before the API sees it)."""
+    """Route-looking paths in inline code AND fenced blocks (also after an HTTP verb) must be in openapi.json.
+
+    `/api/...` is the ingress/web-proxy prefix (stripped before the API sees it).
+    """
     norm = {norm_route(r) for r in routes} | ROUTE_EXTRA
+    spans = ticks(text) + [(n, ln) for n, ln, fence in lines(text) if fence is not None]
     out = []
-    for n, t in ticks(text):
-        if not re.match(r"/(api|mcp|healthz|readyz|metrics)\b", t) or " " in t:
-            continue
-        prefix = t.endswith(("/", "*", "…", "..."))
-        p = norm_route(t.rstrip("*…."))
-        cands = {p, "/" + p.removeprefix("/api").lstrip("/")} if p.startswith("/api") else {p}
-        cands = {c if c != "/" else "/" for c in cands}
-        if p == "/api" or any(c in norm for c in cands):
-            continue
-        if prefix and any(r.startswith(c.rstrip("/") + "/") or r == c for c in cands for r in norm):
-            continue
-        out.append((n, t))
+    for n, s in spans:
+        for t in ROUTE_RE.findall(s):
+            t = t.rstrip(".:")
+            prefix = t.endswith(("/", "*", "…", "..."))
+            p = norm_route(t.rstrip("*…."))
+            cands = {p, "/" + p.removeprefix("/api").lstrip("/")} if p.startswith("/api") else {p}
+            if p == "/api" or any(seg_match(c, r) for c in cands for r in norm):
+                continue
+            if prefix and any(r.startswith(c.rstrip("/") + "/") or r == c for c in cands for r in norm):
+                continue
+            out.append((n, t))
     return out
 
 
 def bad_cli(text: str, cmds: set[str]) -> list[Hit]:
-    """`roracle <sub> ...` at the start of an inline span or fenced line must follow the argparse tree.
+    """`roracle <sub> ...` invocations in inline code and fences must follow the argparse tree.
 
-    cmds are the tree's full names ('roracle api', ...). Mid-line mentions (kubectl -n roracle ...) are ignored.
+    cmds are the tree's full names ('roracle api', ...). Matched at span/line start (after `$`, `uv run`,
+    `python -m`) and after `-- `, `|`, `&&`, `;`, `$(` (e.g. `kubectl exec x -- roracle migrate`). Other mid-line
+    uses (`kubectl -n roracle delete`, `helm upgrade roracle ...`) are resource names and ignored.
     """
     cmds = cmds | {"roracle"}
     spans = [(n, t) for n, t in ticks(text)]
@@ -79,7 +93,8 @@ def bad_cli(text: str, cmds: set[str]) -> list[Hit]:
     out = []
     for n, s in spans:
         for m in re.finditer(
-            r"^\s*(?:\$\s+)?(?:uv run\s+)?(?:python3? -m\s+)?roracle((?:\s+[A-Za-z][\w-]*)+)", s
+            r"(?:^\s*|--\s+|\|\s*|&&\s*|;\s*|\$\(\s*)(?:\$\s+)?(?:uv run\s+)?(?:python3? -m\s+)?roracle((?:\s+[A-Za-z][\w-]*)+)",
+            s,
         ):
             cur = "roracle"
             for w in m.group(1).split():
@@ -121,14 +136,18 @@ def bad_metrics(text: str, known: set[str]) -> list[Hit]:
 
 
 def bad_tfvars(text: str, variables: set[str]) -> list[Hit]:
+    """`var.x` and column-0 keys in tfvars/hcl fences vs the ROOT module's variables*.tf (module variables are not checked)."""
     out = []
     for n, ln, fence in lines(text):
         for t in re.findall(r"\bvar\.([a-z_][a-z0-9_]*)", ln):
             if t not in variables:
                 out.append((n, f"var.{t}"))
-        if fence in ("tfvars", "hcl", "terraform"):
+        if fence in (
+            "tfvars",
+            "hcl",
+        ):  # column-0 `key = value` lines only (indented ones are resource attributes)
             m = re.match(r"^([a-z_][a-z0-9_]*)\s*=", ln)
-            if m and fence == "tfvars" and m.group(1) not in variables:
+            if m and m.group(1) not in variables:
                 out.append((n, m.group(1)))
     return out
 
@@ -136,12 +155,12 @@ def bad_tfvars(text: str, variables: set[str]) -> list[Hit]:
 def helm_has(values: object, path: str) -> bool:
     cur = values
     for part in path.split("."):
-        if isinstance(cur, dict) and cur:  # an empty map is free-form (extraEnv, annotations, ...)
+        if isinstance(cur, dict) and cur:
             if part not in cur:
                 return False
             cur = cur[part]
-        else:
-            return True  # free-form / list / scalar beyond this point: cannot verify deeper
+        else:  # empty map / null / list are free-form placeholders; a scalar has nothing below it
+            return cur is None or isinstance(cur, (list, dict))
     return True
 
 
@@ -154,30 +173,30 @@ def bad_helm(text: str, values: dict) -> list[Hit]:
 
 
 # ---------------------------------------------------------------- code-side facts
-def code_facts(root: Path) -> dict:
+def code_facts(root: Path) -> tuple[dict, list[str]]:
+    """Facts from code + generated reference. Returns (facts, missing required sources)."""
     f: dict = {}
+    missing: list[str] = []
+
+    def need(path: Path) -> str:
+        if not path.is_file():
+            missing.append(path.relative_to(root).as_posix())
+            return ""
+        return path.read_text()
+
     ref = root / "docs/reference"
-    st = ref / "settings.md"
-    f["settings"] = set(re.findall(r"`(ROR_[A-Z0-9_]+)`", st.read_text())) if st.is_file() else None
-    if (
-        f["settings"] is not None
-    ):  # web-container env (nginx envsubst), read by the frontend image rather than Settings
-        for web in [*(root / "frontend/nginx").glob("*"), root / "frontend/Dockerfile"]:
-            if web.is_file():
-                f["settings"].update(re.findall(r"\bROR_[A-Z0-9_]+", web.read_text(errors="ignore")))
-    op = ref / "openapi.json"
-    f["routes"] = set(json.loads(op.read_text())["paths"]) if op.is_file() else None
-    cli = ref / "cli.md"
-    f["cmds"] = (
-        set(re.findall(r"^#+ `(roracle[^`]*)`", cli.read_text(), re.MULTILINE)) if cli.is_file() else None
-    )
-    mt = ref / "mcp-tools.md"
-    if mt.is_file():
-        s = mt.read_text()
-        f["tools"] = set(re.findall(r"^## `([a-z0-9_]+)`", s, re.MULTILINE))
-        f["mcp_extra"] = set(re.findall(r"`([a-z][a-z0-9_]*)`", s))  # parameters, prompts, resources
-    else:
-        f["tools"] = f["mcp_extra"] = None
+    st = need(ref / "settings.md")
+    f["settings"] = set(re.findall(r"`(ROR_[A-Z0-9_]+)`", st))
+    # web-container env (nginx envsubst) is read by the frontend image rather than Settings
+    for web in [*(root / "frontend/nginx").glob("*"), root / "frontend/Dockerfile"]:
+        if web.is_file():
+            f["settings"].update(re.findall(r"\bROR_[A-Z0-9_]+", web.read_text(errors="ignore")))
+    op = need(ref / "openapi.json")
+    f["routes"] = set(json.loads(op)["paths"]) if op else set()
+    f["cmds"] = set(re.findall(r"^#+ `(roracle[^`]*)`", need(ref / "cli.md"), re.MULTILINE))
+    mt = need(ref / "mcp-tools.md")
+    f["tools"] = set(re.findall(r"^## `([a-z0-9_]+)`", mt, re.MULTILINE))
+    f["mcp_extra"] = set(re.findall(r"`([a-z][a-z0-9_]*)`", mt))  # parameters, prompts, resources
     metrics: set[str] = set()
     for p in list((root / "backend/src").rglob("*.py")) + list((root / "deploy").rglob("*.json")):
         if "node_modules" not in p.parts:
@@ -186,19 +205,24 @@ def code_facts(root: Path) -> dict:
     tf: set[str] = set()
     for p in (root / "deploy/terraform").glob("variables*.tf"):
         tf.update(re.findall(r'^variable\s+"([^"]+)"', p.read_text(), re.MULTILINE))
+    if not tf:
+        missing.append("deploy/terraform/variables*.tf")
     f["tfvars"] = tf
-    vy = root / "deploy/helm/roracle/values.yaml"
+    vy = need(root / "deploy/helm/roracle/values.yaml")
     try:
         import yaml
-
-        f["helm"] = yaml.safe_load(vy.read_text()) if vy.is_file() else None
     except ImportError:
-        f["helm"] = None
-    return f
+        missing.append("PyYAML (python import `yaml`)")
+        f["helm"] = {}
+    else:
+        f["helm"] = yaml.safe_load(vy) or {} if vy else {}
+    return f, missing
 
 
 def run(root: Path = ROOT, allow: set | None = None) -> list[str]:
-    facts = code_facts(root)
+    facts, missing = code_facts(root)
+    if missing:  # required sources: never skip silently
+        return [f"required source missing: {m}" for m in missing]
     allow = load_allow(root / "scripts/docs/refs-allow.txt") if allow is None else allow
     errs: list[str] = []
     for p in md_files(root):
@@ -206,14 +230,13 @@ def run(root: Path = ROOT, allow: set | None = None) -> list[str]:
         if rel.startswith(EXCLUDE) or rel in ("docs/reference/settings.md",):
             continue
         text = p.read_text()
-        found: list[tuple[str, list[Hit]]] = []
-        if facts["settings"] is not None:
-            found.append(("unknown setting", bad_settings(text, facts["settings"])))
-        if facts["routes"] is not None:
-            found.append(("route not in openapi.json", bad_routes(text, facts["routes"])))
-        if facts["cmds"] is not None:
-            found.append(("unknown CLI command", bad_cli(text, facts["cmds"])))
-        if facts["tools"] is not None and rel in (
+        found: list[tuple[str, list[Hit]]] = [
+            ("unknown setting", bad_settings(text, facts["settings"])),
+            ("route not in openapi.json", bad_routes(text, facts["routes"])),
+            ("unknown CLI command", bad_cli(text, facts["cmds"])),
+            ("unknown Terraform variable", bad_tfvars(text, facts["tfvars"])),
+        ]
+        if rel in (
             "docs/reference/mcp.md",
             "docs/enterprise/agent-integration.md",
             "docs/user/agents-and-tokens.md",
@@ -221,9 +244,7 @@ def run(root: Path = ROOT, allow: set | None = None) -> list[str]:
             found.append(("unregistered MCP tool", bad_mcp(text, facts["tools"], facts["mcp_extra"])))
         if rel in ("docs/reference/metrics.md", "docs/enterprise/observability.md"):
             found.append(("unknown metric", bad_metrics(text, facts["metrics"])))
-        if facts["tfvars"]:
-            found.append(("unknown Terraform variable", bad_tfvars(text, facts["tfvars"])))
-        if rel == "docs/reference/helm-values.md" and facts["helm"]:
+        if rel == "docs/reference/helm-values.md":
             found.append(("key not in values.yaml", bad_helm(text, facts["helm"])))
         for what, hits in found:
             for n, tok in hits:
