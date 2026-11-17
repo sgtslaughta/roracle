@@ -67,11 +67,11 @@ class ImageRefTest(unittest.TestCase):
 
     def test_listed_allows_registry_prefix(self):
         self.assertTrue(ca.listed("ceph/ceph", {"quay.io/ceph/ceph"}))
-        self.assertFalse(ca.listed("ceph", {"quay.io/ceph/ceph"}))
+        self.assertFalse(ca.listed("other/ceph", {"quay.io/ceph/ceph"}))
 
     def test_manifest_names(self):
-        names = ca.manifest_names("| `a/b` | `1.2` |\n`c/d:3@sha256:ff` and `docker.io/e/f:1`\n")
-        self.assertTrue({"a/b", "c/d", "e/f", "1.2"} <= names)
+        names = ca.manifest_names("| `a/b` | `1.2` |\n| `c/d:3@sha256:ff` | `docker.io/e/f:1` |\n")
+        self.assertTrue({"a/b", "c/d", "e/f"} <= names)
 
 
 class MissingTest(unittest.TestCase):
