@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select, update
 
+from roracle.cursor import make_cursor
 from roracle.models import Document, DocumentVersion, Job
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
@@ -169,3 +171,5 @@ def test_keyset_paging_and_capped_total(client, as_ana, upload, monkeypatch):
     body = client.get("/me/uploads", headers=as_ana).json()
     assert body["total"] == 3 and body["total_capped"] is True
     assert client.get("/me/uploads", headers=as_ana, params={"after": "junk"}).status_code == 422
+    ok = make_cursor(datetime(2026, 1, 1, tzinfo=UTC), UUID(int=0))
+    assert client.get("/me/uploads", headers=as_ana, params={"after": ok, "offset": 1}).status_code == 422

@@ -1,8 +1,12 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
 import pytest
 from api_seed import FakeES, seed
 
 from roracle.api.routes import search as search_routes
 from roracle.api.routes.library import get_es
+from roracle.cursor import make_cursor
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 
@@ -40,12 +44,17 @@ def test_response_total_stays_capped(client, as_bob, browse, monkeypatch):
 
 
 def test_after_only_for_newest_first_browse(client, as_bob, browse):
-    cur = "2026-01-01T00:00:00+00:00,00000000-0000-0000-0000-000000000000"
+    cur = make_cursor(datetime(2026, 1, 1, tzinfo=UTC), UUID(int=0))
     assert client.get("/search", headers=as_bob, params={"after": "junk"}).status_code == 422
     assert client.get("/search", headers=as_bob, params={"after": "2026-01-01T00:00:00,x"}).status_code == 422
+    assert client.get("/search", headers=as_bob, params={"after": cur, "page": 2}).status_code == 422
     assert client.get("/search", headers=as_bob, params={"after": cur, "q": "x"}).status_code == 422
     assert client.get("/search", headers=as_bob, params={"after": cur, "sort": "title"}).status_code == 422
-    assert client.get("/search", headers=as_bob, params={"after": cur}).status_code == 200
+    ok = client.get("/search", headers=as_bob, params={"after": cur})
+    assert (
+        ok.status_code == 200 and ok.json()["window"] is True
+    )  # total/facets describe the window after the cursor
+    assert "+" not in cur and "," not in cur  # opaque and URL-safe
 
 
 def test_after_never_widens_visibility(client, as_bob, ana, db_session):
@@ -55,7 +64,7 @@ def test_after_never_widens_visibility(client, as_bob, ana, db_session):
     r = client.get(
         "/search",
         headers=as_bob,
-        params={"after": "2027-01-01T00:00:00+00:00,ffffffff-0000-0000-0000-000000000000"},
+        params={"after": make_cursor(datetime(2027, 1, 1, tzinfo=UTC), UUID(int=2**128 - 1))},
     )
     assert titles(r) == ["open"]
 

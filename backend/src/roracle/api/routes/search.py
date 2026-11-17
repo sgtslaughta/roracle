@@ -340,6 +340,8 @@ def search(
             raise HTTPException(422, "malformed after cursor") from None
         if q.strip() or sort not in ("relevance", "newest"):
             raise HTTPException(422, "after applies to the newest-first browse list only")
+        if page != 1:
+            raise HTTPException(422, "after replaces page: use one paging mode")
     es_filters = {
         "tags": tags or [],
         "year": year or [],
@@ -381,6 +383,8 @@ def search(
     seen = {r.doc.id for r in universe}
     universe = universe + [r for r in rows if r.doc.id not in seen]
     out = _response(rows, universe, wanted, sort, page, size)
+    if cursor:  # `total` and the facets describe the window AFTER the cursor, not the whole list
+        out["window"] = True
     if not q.strip() and sort in ("relevance", "newest"):
         shown = rows[(page - 1) * size : page * size]
         out["next"] = cursor_of(shown[-1]) if shown and len(rows) > page * size else None

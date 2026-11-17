@@ -57,6 +57,8 @@ def my_uploads(
     `total` is exact up to TOTAL_CAP, then a cap (`total_capped`): an exact count is O(owned documents)."""
     cursor = None
     if after:
+        if offset:
+            raise HTTPException(422, "after replaces offset: use one paging mode")
         try:
             cursor = parse_cursor(after)
         except ValueError:
