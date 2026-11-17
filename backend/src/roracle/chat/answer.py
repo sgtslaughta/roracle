@@ -54,8 +54,9 @@ def build_messages(
     history: list[ChatMessage],
     max_history: int = 6,
     notes: list[Passage] | None = None,
+    system: str = SYSTEM_PROMPT,
 ) -> list[dict]:
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+    msgs = [{"role": "system", "content": system}]
     kept = [m for m in history if m.content]
     msgs += [{"role": m.role, "content": m.content} for m in kept[-max_history:]]
     blocks = [

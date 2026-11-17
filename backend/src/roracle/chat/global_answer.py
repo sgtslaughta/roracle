@@ -48,6 +48,7 @@ REDUCE_SYSTEM = (
 class GlobalPrep:
     docs: list[DocUnits]
     user: str
+    token: int
     cancel: threading.Event = field(default_factory=threading.Event)
     _done: bool = False
 
@@ -56,7 +57,7 @@ class GlobalPrep:
         if not self._done:
             self._done = True
             self.cancel.set()
-            global_admit.SLOTS.leave(self.user)
+            global_admit.SLOTS.leave(self.user, self.token)
 
     @property
     def meta(self) -> dict:
@@ -207,17 +208,18 @@ def route_question(
         return None, {"route": route}
     user = str(p.user_id)
     ttl = settings.global_timeout_s + 30
-    if not global_admit.SLOTS.admit(settings.global_max_concurrent, user, ttl, settings.global_max_admitted):
+    token = global_admit.SLOTS.enter(settings.global_max_concurrent, user, ttl, settings.global_max_admitted)
+    if not token:
         return None, {"route": "fact", "global": {"skipped": "busy"}}
     prep = None
     try:
         docs = candidates(session, es, llm, settings, p, question, dropped=dropped, pins=pins)
         if len(docs) >= MIN_DOCS:
-            prep = GlobalPrep(docs, user)
+            prep = GlobalPrep(docs, user, token)
     except Exception:
         log.warning("global candidates failed; using the fact path", exc_info=True)
     if prep is None:
-        global_admit.SLOTS.leave(user)
+        global_admit.SLOTS.leave(user, token)
         return None, {"route": "fact"}
     return prep, prep.meta
 

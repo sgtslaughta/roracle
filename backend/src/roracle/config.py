@@ -198,6 +198,16 @@ class Settings(AliasConfig):
     global_doc_chars: int = 6000  # one document's own text sent per map call
     global_map_tokens: int = 200  # hard cap per map note
     global_reduce_tokens: int = 1200  # hard cap on the streamed reduce answer
+    summary_doc_chars: int = Field(
+        32000, ge=200
+    )  # single-pass budget (~8k tokens; chat model needs num_ctx >= 16k)
+    summary_max_admitted: int = Field(
+        16, ge=1
+    )  # map-reduce summaries running at once per process (1 per user)
+    summary_map_timeout_s: float = Field(
+        60.0, gt=0
+    )  # one map call; the slot TTL covers every window plus a reduce
+    summary_window_chars: int = Field(6000, ge=200)  # text per map call when a document is map-reduced
     agentic_retrieval: bool = (
         False  # P13 T8: query decomposition loop on multihop questions (flips on a PASS)
     )
