@@ -101,6 +101,8 @@ locals {
     "images.digests" = "${var.images.backend_digest} ${var.images.web_digest}" },
     # loki's bundled values point at s3.example.com unless overridden
     try(local.enabled_charts["loki"].enabled, false) && !can(regex("endpoint", var.charts["loki"].values)) ? { "loki.s3.endpoint" = "MIRROR.example.com (s3.example.com in loki values)" } : {},
+    # chart defaults quay.io/minio/{minio,mc} have no public upstream any more (community images ended Oct 2025)
+    var.deploy_app && var.minio_mode == "tenant" && (var.minio_images.server == null || var.minio_images.mc == null) ? { "minio_images.server/.mc (tenant needs images you control)" = "PLACEHOLDER" } : {},
     local.app_chart_remote ? { "app_chart.repository" = var.app_chart.repository, "app_chart.version" = var.app_chart.version } : {},
     local.inference_enabled ? {
       "inference.llm"    = "${var.inference.llm.image} ${var.inference.llm.model_path}"

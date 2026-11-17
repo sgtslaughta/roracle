@@ -19,13 +19,15 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
 | `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
-| `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` | MinIO `Tenant` | pin in mirror (quay.io returned 401) |
-| `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` | `minio-policy` hook Job | pin in mirror (quay.io returned 401) |
+| `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` (chart default) | MinIO `Tenant` | **No public upstream** (see note below): supply an image you control |
+| `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` (chart default) | `minio-policy` hook Job | **No public upstream** (see note below): supply an image you control |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
 | `gotenberg/gotenberg` | `8.20.1` | parser | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
 | `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
+
+**MinIO images (no public upstream).** MinIO stopped publishing community container images in Oct 2025 (the community edition is source-only) and `quay.io/minio/minio` / `quay.io/minio/mc` now answer 401, so the two chart defaults above cannot be mirrored and a default install would hit ImagePullBackOff and a stuck `minio-policy` hook. Supply an image you control, pushed to the mirror, and set `minio.image` / `minio.policyJob.image` (Terraform: `minio_images.server` / `.mc`, **required** for `minio_mode = "tenant"`: the placeholder gate refuses apply without them). Options: (1) build MinIO and mc from source at a pinned `RELEASE.*` tag with an internal Dockerfile; (2) a vetted rebuild such as `cgr.dev/chainguard/minio`; (3) the commercial AIStor image (licence); (4) the frozen `bitnamilegacy/minio` (unmaintained, not for production; the kind rehearsal uses it behind `minio_mode = "external"`); (5) `minio_mode = "external"` against an existing S3 service. The MinIO Operator also injects `quay.io/minio/operator-sidecar:<operator version>` (for operator v7.0.0: `v7.0.0`) into tenant pods; mirror it with the operator (`quay.io/minio/operator` is still pullable) and point the CRI registry mirror at it, since it is not set through Terraform.
 
 
 ### Build and CI

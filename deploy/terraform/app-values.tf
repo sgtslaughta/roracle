@@ -89,6 +89,8 @@ locals {
     minio = {
       mode                = var.minio_mode
       storage             = { size = var.storage.minio, storageClass = var.storage.class }
+      image               = var.minio_images.server == null ? {} : var.minio_images.server
+      policyJob           = { image = var.minio_images.mc == null ? {} : var.minio_images.mc }
       configurationSecret = var.secret_names.minio_config
       users = {
         app        = var.secret_names.minio_app

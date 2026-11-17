@@ -134,6 +134,15 @@ variable "minio_mode" {
   }
 }
 
+variable "minio_images" {
+  description = "MinIO server and mc (policy hook Job) images for minio_mode=tenant. REQUIRED for tenant (the gate refuses apply otherwise): MinIO stopped publishing community images in Oct 2025 and quay.io/minio/{minio,mc} are no longer pullable, so the chart defaults cannot be mirrored. repository is relative to global.imageRegistry."
+  type = object({
+    server = optional(object({ repository = string, tag = string }))
+    mc     = optional(object({ repository = string, tag = string }))
+  })
+  default = {}
+}
+
 variable "network" {
   description = "Chart networkPolicy inputs. Empty cidr lists leave traffic denied (kube_api empty = any destination on 443/6443: tighten)."
   type = object({
