@@ -169,6 +169,12 @@ class Job(Base):
             "id",
             postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=True)}"),
         ),
+        Index(  # claimed before a rebuild_units backlog: its own partial index, no scan past that backlog
+            "ix_jobs_due_reconcile",
+            "run_after",
+            "id",
+            postgresql_where=text("status = 'queued' AND kind = 'reconcile_tags'"),
+        ),
         Index("ix_jobs_kind_status", "kind", "status"),
         Index("ix_jobs_lease", "lease_until", postgresql_where=text("status = 'running'")),  # requeue_expired
         Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),

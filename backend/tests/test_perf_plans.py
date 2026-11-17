@@ -40,6 +40,12 @@ def test_claim_uses_partial_indexes_without_sort(big_queue):
     assert not has_node(p, "Sort") and "jobs" not in seq_scans(p)
     p = plan(big_queue, claim_stmt(["rebuild_units"], _BULK_ONLY))
     assert "ix_jobs_due_bulk" in index_names(p) and not has_node(p, "Sort")
+    p = plan(
+        big_queue, claim_stmt(["reconcile_tags"], _BULK_ONLY)
+    )  # claimed first: never scans the rebuild backlog
+    assert (
+        "ix_jobs_due_reconcile" in index_names(p) and not has_node(p, "Sort") and "jobs" not in seq_scans(p)
+    )
     big_queue.rollback()
 
 
