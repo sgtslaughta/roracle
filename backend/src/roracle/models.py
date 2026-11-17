@@ -56,6 +56,7 @@ class Document(Base):
         CheckConstraint(
             "visibility IN ('private','shared','org_unit','everyone')", name="ck_documents_visibility"
         ),
+        Index("ix_documents_vis_org", "visibility", "org_unit", postgresql_where=text("deleted_at IS NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -84,6 +85,12 @@ class DocumentVersion(Base):
             "'searchable','review','needs_title','rejected','cancelled')",
             name="ck_document_versions_stage",
         ),
+        Index(  # browse: newest searchable latest versions straight off the index, no sort
+            "ix_versions_latest_searchable",
+            text("created_at DESC"),
+            "document_id",
+            postgresql_where=text("is_latest AND stage = 'searchable'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -108,7 +115,10 @@ class DocumentVersion(Base):
 
 class DocumentShare(Base):
     __tablename__ = "document_shares"
-    __table_args__ = (CheckConstraint("principal_kind IN ('user','group')", name="ck_document_shares_kind"),)
+    __table_args__ = (
+        CheckConstraint("principal_kind IN ('user','group')", name="ck_document_shares_kind"),
+        Index("ix_document_shares_principal", "principal_kind", "principal", "document_id"),
+    )
 
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), primary_key=True)
     principal_kind: Mapped[str] = mapped_column(String, primary_key=True)
@@ -197,6 +207,7 @@ class Vote(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
+    __table_args__ = (Index("ix_tags_tag", "tag", "document_id"),)
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
@@ -352,6 +363,11 @@ class HandoffShare(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
+    __table_args__ = (
+        Index(
+            "ix_audit_label_view", "user_id", "target", "at", postgresql_where=text("action = 'label.view'")
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), index=True)

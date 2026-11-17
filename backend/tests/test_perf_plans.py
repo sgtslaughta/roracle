@@ -76,3 +76,47 @@ def test_cited_by_counts_is_scoped_to_the_requested_ids(db_session, settings):
             assert fed <= 10 * max(n_cites, 1), (fed, n_cites)
     db_session.execute(text("TRUNCATE users, documents, jobs, blobs RESTART IDENTITY CASCADE"))
     db_session.commit()
+
+
+def test_hot_path_plans_at_200k_docs(db_session, settings):
+    """Browse, tag filter, shares lookup and the label.view audit lookup all use their new indexes."""
+    from datetime import UTC, datetime
+
+    from roracle.api.routes.search import load_stmt
+    from roracle.auth import Principal
+    from roracle.labels.policy import label_view_seen_stmt
+    from roracle.models import DocumentShare
+    from roracle.perf import synth_pg
+
+    synth_pg.seed(settings.database_url, docs=200_000, users=200, audit_rows=200_000)
+    db_session.execute(text("ANALYZE"))
+    db_session.commit()
+    uid = synth_pg.det_uuid(1, "u", 7)
+    p = Principal(user_id=uid, sub="s", username="u", groups=("g3",), is_admin=False)
+
+    browse = plan(db_session, load_stmt(p, None, None, 200))
+    assert "document_versions" not in seq_scans(browse) and not has_node(browse, "Sort")
+    assert "ix_versions_latest_searchable" in index_names(browse)
+    db_session.rollback()
+
+    tagged = plan(db_session, load_stmt(p, None, {"tags": {"tag7"}}, 200))
+    assert "ix_tags_tag" in index_names(tagged) and "tags" not in seq_scans(tagged)
+    db_session.rollback()
+
+    shares = plan(
+        db_session,
+        select(DocumentShare.document_id).where(
+            DocumentShare.principal_kind == "user", DocumentShare.principal == str(uid)
+        ),
+    )
+    assert "ix_document_shares_principal" in index_names(shares) and "document_shares" not in seq_scans(
+        shares
+    )
+    db_session.rollback()
+
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    audit = plan(db_session, label_view_seen_stmt(uid, "target-5", day))
+    assert "ix_audit_label_view" in index_names(audit) and "audit_log" not in seq_scans(audit)
+    db_session.rollback()
+    db_session.execute(text("TRUNCATE users, documents, jobs, blobs, audit_log RESTART IDENTITY CASCADE"))
+    db_session.commit()

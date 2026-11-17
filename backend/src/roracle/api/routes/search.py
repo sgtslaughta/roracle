@@ -3,14 +3,15 @@
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch, NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, exists, false, func, or_, select
+from sqlalchemy import and_, case, exists, false, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import array
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from roracle import clients
 from roracle.access import visible_documents
@@ -18,6 +19,7 @@ from roracle.api.routes.library import get_es
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.citations import cited_by_counts
 from roracle.config import Settings
+from roracle.cursor import make_cursor, parse_cursor
 from roracle.db import get_session
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import gated_docs
@@ -126,24 +128,44 @@ def _file_type_clause(want: set[str]):
     return or_(*parts) if parts else false()
 
 
-def _load(
-    session: Session,
+# The only DocumentVersion columns a `Row` reads. Everything else (minhash, summary_embedding, references,
+# summary: ~4 KB per row) is never loaded; `raiseload` makes any other access an error instead of a lazy query.
+ROW_COLUMNS = (
+    DocumentVersion.id,
+    DocumentVersion.document_id,
+    DocumentVersion.version,
+    DocumentVersion.filename,
+    DocumentVersion.created_at,
+    DocumentVersion.meta,
+)
+
+
+def cursor_of(row: "Row") -> str:
+    return make_cursor(row.ver.created_at, row.doc.id)
+
+
+def load_stmt(
     p: Principal,
     ids: list[UUID] | None,
     wanted: dict[str, set[str]] | None = None,
     limit: int | None = None,
-) -> list[Row]:
-    """Visible documents with a searchable latest version, newest first, enriched from Postgres.
+    columns=ROW_COLUMNS,
+    after: tuple[datetime, UUID] | None = None,
+):
+    """Visible documents with a searchable latest version, newest first.
 
-    `wanted` pushes every facet filter down to SQL, so `limit` is always safe."""
+    `wanted` pushes every facet filter down to SQL, so `limit` is always safe. `after` is the keyset cursor of
+    the (created_at DESC, document id ASC) order: only rows strictly after it."""
     stmt = (
         select(Document, DocumentVersion)
+        .options(load_only(*columns, raiseload=True))
         .join(
             DocumentVersion,
             and_(
                 DocumentVersion.document_id == Document.id,
-                DocumentVersion.is_latest.is_(True),
-                DocumentVersion.stage == "searchable",
+                # literal, not `IS true` / a bind: both must imply ix_versions_latest_searchable's predicate
+                DocumentVersion.is_latest,
+                DocumentVersion.stage == literal_column("'searchable'"),
             ),
         )
         .where(visible_documents(p))
@@ -151,6 +173,14 @@ def _load(
     )
     if ids is not None:
         stmt = stmt.where(Document.id.in_(ids))
+    if after is not None:
+        at, last = after
+        stmt = stmt.where(
+            or_(
+                DocumentVersion.created_at < at,
+                and_(DocumentVersion.created_at == at, Document.id > last),
+            )
+        )
     for name, want in (wanted or {}).items():
         if not want:
             continue
@@ -176,6 +206,20 @@ def _load(
             )
     if limit is not None:
         stmt = stmt.limit(limit)
+    return stmt
+
+
+def _load(
+    session: Session,
+    p: Principal,
+    ids: list[UUID] | None,
+    wanted: dict[str, set[str]] | None = None,
+    limit: int | None = None,
+    columns=ROW_COLUMNS,
+    after: tuple[datetime, UUID] | None = None,
+) -> list[Row]:
+    """`load_stmt` rows enriched from Postgres (tags, caller's collections, votes)."""
+    stmt = load_stmt(p, ids, wanted, limit, columns, after)
     rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
     if rows:
         keys = list(rows)
@@ -383,7 +427,16 @@ def search(
     page: Annotated[int, Query(ge=1)] = 1,
     size: Annotated[int, Query(ge=1, le=50)] = 20,
     notes: bool = True,
+    after: Annotated[str | None, Query(max_length=100)] = None,
 ) -> dict:
+    cursor = None
+    if after:  # keyset paging of the browse list (empty q, newest-first); `next` in the response
+        try:
+            cursor = parse_cursor(after)
+        except ValueError:
+            raise HTTPException(422, "malformed after cursor") from None
+        if q.strip() or sort not in ("relevance", "newest"):
+            raise HTTPException(422, "after applies to the newest-first browse list only")
     es_filters = {
         "tags": tags or [],
         "year": year or [],
@@ -410,12 +463,15 @@ def search(
             raise HTTPException(422, str(e)) from None
         rows = [r for r in rows if _keep(r, wanted)]
     else:
-        rows = _load(session, p, None, wanted, MAX_DOCS)
+        rows = _load(session, p, None, wanted, MAX_DOCS, after=cursor)
         rows = [r for r in rows if _keep(r, wanted)]
-        universe = _load(session, p, None, None, MAX_DOCS) if filtered else rows
+        universe = _load(session, p, None, None, MAX_DOCS, after=cursor) if filtered else rows
     seen = {r.doc.id for r in universe}
     universe = universe + [r for r in rows if r.doc.id not in seen]
     out = _response(rows, universe, wanted, sort, page, size)
+    if not q.strip() and sort in ("relevance", "newest"):
+        shown = rows[(page - 1) * size : page * size]
+        out["next"] = cursor_of(shown[-1]) if shown and len(rows) > page * size else None
     counts = cited_by_counts(session, p, [UUID(h["doc_id"]) for h in out["results"]])
     policy = Policy.load(session)
     for h in out["results"]:

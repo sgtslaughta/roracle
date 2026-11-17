@@ -1,17 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import String, cast, exists, func, select, true
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import String, and_, cast, exists, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from roracle.access import agent_visible, readable_documents
 from roracle.auth import Principal, current_principal
+from roracle.cursor import make_cursor, parse_cursor
 from roracle.db import get_session
 from roracle.labels.policy import Policy, label_json
 from roracle.models import Document, DocumentVersion, Job
 from roracle.queue import USER_PREFIX
 
 router = APIRouter()
+TOTAL_CAP = 10_000
 
 STAGE_LABELS = {
     "uploaded": "Uploaded",
@@ -49,14 +51,27 @@ def my_uploads(
     session: Annotated[Session, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    after: Annotated[str | None, Query(max_length=100)] = None,
 ) -> dict:
+    """Newest first. `after` (the `next` of the previous page) is keyset paging: O(page), not O(offset).
+    `total` is exact up to TOTAL_CAP, then a cap (`total_capped`): an exact count is O(owned documents)."""
+    cursor = None
+    if after:
+        try:
+            cursor = parse_cursor(after)
+        except ValueError:
+            raise HTTPException(422, "malformed after cursor") from None
     owned = (
         Document.owner_id == p.user_id,
         Document.deleted_at.is_(None),
         *((agent_visible(),) if p.via == "pat" else ()),
     )  # gate (b)
     has_ver = exists().where(DocumentVersion.document_id == Document.id)  # drafts have none
-    total = session.scalar(select(func.count()).select_from(Document).where(*owned, has_ver))
+    total = session.scalar(
+        select(func.count()).select_from(
+            select(Document.id).where(*owned, has_ver).limit(TOTAL_CAP + 1).subquery()
+        )
+    )
     # latest version per document, then its most recent job (both lateral: no N+1)
     ver = (
         select(DocumentVersion)
@@ -92,10 +107,19 @@ def my_uploads(
         .join(ver, true())
         .outerjoin(job, true())
         .where(*owned)
+        .where(
+            true()
+            if cursor is None
+            else or_(
+                ver.c.created_at < cursor[0], and_(ver.c.created_at == cursor[0], Document.id < cursor[1])
+            )
+        )
         .order_by(ver.c.created_at.desc(), Document.id.desc())
-        .limit(limit)
+        .limit(limit + 1)
         .offset(offset)
     ).all()
+    more = len(rows) > limit
+    rows = rows[:limit]
     # near-dup match is exposed only if the caller can see it now (no existence leak)
     match_ids = [r.near_dup_of for r in rows if r.near_dup_of]
     visible = {}
@@ -128,4 +152,9 @@ def my_uploads(
         }
         for r in rows
     ]
-    return {"items": items, "total": total}
+    return {
+        "items": items,
+        "total": min(total, TOTAL_CAP),
+        "total_capped": total > TOTAL_CAP,
+        "next": make_cursor(rows[-1].created_at, rows[-1].id) if more else None,
+    }
