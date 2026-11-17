@@ -6,7 +6,7 @@ Read with: [Terraform deployment](deployment-terraform.md), [kind rehearsal](dep
 
 ## 1. Topology
 
-```
+```text
  users ──mTLS──► org proxy ──► ingress (TLS) ──► web (nginx, SPA)
  agents ─mTLS──► org proxy ─┘                 └► api (FastAPI: REST, SSE, /mcp) ──┬─► Postgres (CNPG, 3 inst.)
                                                                                   ├─► Elasticsearch (ECK, 3+ data)
@@ -49,6 +49,7 @@ Use `mode: external` for platform-provided data services. NetworkPolicies: defau
 | Object storage (Rook-Ceph RGW or external S3) | 3+ nodes with raw disks (Ceph), erasure coding | 4 vCPU, 16 GiB, disks for ~10 TiB usable | originals ≈ 5 TiB + derived PDFs + evidence |
 
 Vector math (per embedding model index, 1 replica):
+
 - 768-d (EmbeddingGemma): 50M × 768 × 4 B ≈ 154 GB float; `int8_hnsw` ≈ 39 GB + graph ≈ 7 GB.
 - 4096-d (e5-mistral-7b): ≈ 820 GB float; `int8_hnsw` ≈ 205 GB → needs ~2× the data nodes above.
 - Keep quantized vectors in page cache (off-heap RAM) for p95 < 500 ms; double during re-embed.

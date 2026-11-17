@@ -3,6 +3,7 @@
 Status: Accepted (2026-11-15)
 
 ## Decision
+
 - Writing profiles are versioned YAML managed in admin; each rule is `blocking` or `warning`.
   Deterministic rules may block; LLM-judged rules only warn by default.
 - `check_citations` resolves each citation to a library document and asks a model whether the cited
@@ -11,4 +12,5 @@ Status: Accepted (2026-11-15)
   120 s / 2 GB limits, behind a `Builder` interface (GitLab-runner backend possible later).
 
 ## Consequences
+
 - Fabricated citations cannot be submitted silently. TeX Live image (~5 GB) must be mirrored.

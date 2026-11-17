@@ -3,9 +3,11 @@
 Status: Accepted (2026-11-16)
 
 ## Context
+
 Operators need a repeatable way to install the operator layer (CNPG, barman-cloud plugin, cert-manager, ECK, Rook-Ceph object storage or an external S3, optional observability), Secrets and the rOracle release on a pre-existing, air-gapped Kubernetes cluster.
 
 ## Decision
+
 - `deploy/terraform` drives `helm_release` of the existing chart `deploy/helm/roracle`; the chart stays the single source of truth for workloads and is still installable with plain `helm` (ADR-0013). Terraform adds ordering (operators, CRDs ready, app), typed inputs, and state.
 - Providers: `kubernetes` and `helm` only, targeted by kubeconfig path/context. No cloud-provider resources: clusters, networks, DNS and registries are the platform team's.
 - Values are assembled from typed variables with `yamlencode` as ordered YAML documents (Helm deep-merges), plus an optional extra values file that wins.
@@ -16,6 +18,7 @@ Operators need a repeatable way to install the operator layer (CNPG, barman-clou
   Decision matrix input: Ceph needs >= 3 nodes with raw disks and more RAM per OSD than MinIO needs per drive, but is maintained upstream with published images and gives block/file for later reuse; `external` costs nothing in-cluster. Not exercised on live Ceph in CI/kind (no raw disks): validated with `terraform validate/plan` and `helm template` only.
 
 ## Consequences
+
 - Two ways to install (helm, terraform) must stay equivalent: Terraform only sets documented chart values, never templates the chart.
 - Uninstalling the release deletes the data-tier CRs and PVCs (the chart has no keep policy). `protect_data=true` (default) sets `prevent_destroy` on the release (two resources selected by the variable, since the lifecycle argument cannot be dynamic); the README gives the `state mv` procedure, StorageClass `Retain` and backup guidance.
 - State holds secrets in `create` mode: use an access-controlled backend.

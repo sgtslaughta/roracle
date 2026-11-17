@@ -3,6 +3,7 @@
 Status: Accepted (2026-11-15)
 
 ## Decision
+
 - Layout: `backend/` (uv, pytest, ruff), `frontend/` (pnpm, Vitest, Playwright), `deploy/` (compose
   dev stack, Helm chart), `docs/` (spec, ADRs, plans), `scripts/`.
 - One product version in `/VERSION` (SemVer), starting at `0.1.0`; tags `vX.Y.Z`.
@@ -12,6 +13,7 @@ Status: Accepted (2026-11-15)
 - Source files stay under ~500 lines.
 
 ## Addendum (2026-11-15): Helm chart and CI
+
 - Chart `deploy/helm/roracle` (no subchart dependencies); observability values in `deploy/observability/` as separate releases.
 - Release version: `scripts/check-version.sh` fails CI unless `/VERSION` == Chart `version` == `appVersion`. Bump all three together.
 - Image tags: chart `tag: ""` = `appVersion`; digests override tags.

@@ -5,6 +5,7 @@ Audience: platform engineers and SRE. Back to the [enterprise index](README.md).
 ## Elasticsearch (9.5.6)
 
 ## What the index looks like
+
 One index per embedding model and generation (`chunks-<model>-<n>`), read alias `chunks`, mutation alias `chunks-all`.
 New indices are created with explicit settings (they cannot be changed afterwards except by re-embed / rebuild into a
 new generation): `ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_ES_REFRESH_INTERVAL` (5s), `ROR_VECTOR_INDEX_TYPE`
@@ -15,6 +16,7 @@ reindex and ACL `update_by_query`, and `fields`/`_source.includes` still return 
 The kNN `index_options` are always explicit: ES 9.1+ silently defaults to `bbq_hnsw` for >= 384 dims otherwise.
 
 ## RAM and disk (768 dims, HNSW m=16): ESTIMATES from formulas, not measured
+
 Per copy of the index; with one replica double the numbers. Page cache must hold the quantized vectors plus the graph;
 `bbq_hnsw` additionally reads float vectors from disk to rescore `oversample x k` candidates.
 | chunks | int8_hnsw: vectors + graph | bbq_hnsw: vectors + graph | float32 on disk | disk with vectors in `_source` (estimate ~9 KB/chunk) |
@@ -31,6 +33,7 @@ data node; for 50M chunks with int8 about 6 x 64 GiB data nodes (8-16 GiB heap, 
 `bbq_hnsw` the same corpus needs about a fifth of the vector RAM.
 
 ## Choosing the vector type (eval gate)
+
 The default stays `int8_hnsw`. A measurement on ES 9.5.6 (50k synthetic clustered vectors, 768 dims, 100 queries,
 production kNN `k=100, num_candidates=400`, recall against exact cosine, single segment):
 | type | recall@10 | recall@100 | p50 / p95 ms | store |
@@ -47,12 +50,14 @@ run `roracle eval run` / `compare` against the reference set on that generation,
 (no significant nDCG@10 / Recall@10 loss); otherwise fall back to `int4_hnsw` or keep int8 and add nodes.
 
 ## Write path (H4)
+
 Ingest bulks with no refresh and issues ONE `_refresh` before a version becomes searchable (a first index of a version
 skips the stale-chunk delete, a version-1 document skips the is_latest demotion). The index `refresh_interval` stays 5s
 for everyone else. ACL changes keep their forced refresh (a revocation must be visible at once); the daily reconcile
 writes nothing when there is no drift (10.4). `ensure_index` metadata calls are memoized for 30 s per process.
 
 ## Upgrade notes (8.x -> 9.x)
+
 Supported path for an existing cluster (ECK or not): 8.15 -> **8.19.x** (rolling, run the Upgrade Assistant) -> 9.5.x.
 A direct 8.15 -> 9 jump is refused (ECK's webhook / the node itself); bump `elasticsearch.version` to 8.19.x first, let ECK
 finish, then to 9.5.6. ECK must be a release whose support matrix lists 9.5 (3.x line). After the hop 9.x reads the

@@ -51,6 +51,7 @@ Sources: user upload (≤ 500 MB, admin-configurable), connectors (S3, filesyste
 pluggable interface, schedules, run logs).
 
 Pipeline stages (each a job; user sees them in **My uploads**: Scanned → Parsed → Chunked → Embedded → Searchable):
+
 1. **Scan** with ClamAV (can be turned off when there is no signature mirror).
 2. **Exact dedup**: SHA-256. Same bytes → store blob once (refcount), reuse chunks. Reveal the match
    **only** if the uploader can already see a document with that blob ("You already have access to
@@ -125,6 +126,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 ## 7. Agentic features (ADR-0010)
 
 **Handoff** — "Continue in agent" on chat, reader, search, collection, draft.
+
 - Snapshot for chats; live reference + membership snapshot for collections.
 - `load_handoff` returns manifest: kind, title, goal, LLM brief (editable at creation), doc ids,
   cited passages; full transcript via `get_handoff_part` (paged).

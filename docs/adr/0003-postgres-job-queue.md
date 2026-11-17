@@ -3,17 +3,20 @@
 Status: Accepted (2026-11-15)
 
 ## Context
+
 Ingest is ~10k docs/day (~7/min). Reliability matters more than throughput: an upload must never
 exist without its job, or a job without its upload. Libraries like procrastinate use their own
 connection, so they cannot share the API's SQLAlchemy transaction.
 
 ## Decision
+
 A `jobs` table (`id, kind, payload jsonb, status, attempts, run_after, last_error, timestamps`).
 Enqueue = INSERT in the caller's transaction. Workers claim with
 `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1`, retry with exponential backoff, max 5 attempts.
 Valkey is optional (cache/rate limits), never the queue.
 
 ## Consequences
+
 - No broker to run HA. Queue depth is a SQL query (metrics, admin dashboard).
 - Revisit (RabbitMQ) only if queue metrics show Postgres is the bottleneck.
 
@@ -32,6 +35,7 @@ could not reclaim dead tuples in `jobs`, `notifications`, `votes`, `audit_log`, 
 each worker pinned a connection for the job's duration.
 
 Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=90`, heartbeat every 30 s):
+
 1. **Claim commits at once.** `claim` sets `status='running'`, `attempts += 1`, a fresh `claim_token` and `lease_until = now() + lease` and
    `run_once` commits: the row lock lasts milliseconds. the fencing token of the claim is `jobs.claim_token` (a sequence value, unique per claim; migration 0016) and `attempts` counts claims (never decremented).
 2. **The handler runs in its own session/transaction**, inside a SAVEPOINT, with the same contract as before (it must
@@ -99,4 +103,3 @@ transaction and has no lease; new workers simply claim through leases). `ROR_JOB
 gap between two heartbeats a stalled process could have (a stop-the-world pause longer than the lease makes the
 job be requeued; the fencing token still prevents double completion). The invariants doc
 (`.superpowers/teams/README.md`) mentions "claim/handler/complete in one transaction": update it to this amendment.
-

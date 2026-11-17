@@ -10,7 +10,9 @@ echo "== generated reference"; run python "$ROOT/scripts/docs/gen_reference.py" 
 echo "== links"; run python "$ROOT/scripts/docs/check_links.py"
 echo "== code refs"; run python "$ROOT/scripts/docs/check_refs.py"
 echo "== markdown lint"
-targets=("$ROOT/docs" "$ROOT/deploy")  # root + component READMEs are added once they exist
+# docs/superpowers/plans (historical plan files, kept as written) and docs/stylesheets are not linted.
+targets=("$ROOT/deploy")
+for d in "$ROOT"/docs/*; do case "$d" in */superpowers|*/stylesheets) ;; *) targets+=("$d");; esac; done
 for f in README.md backend/README.md frontend/README.md; do if [ -f "$f" ]; then targets+=("$ROOT/$f"); fi; done
 run pymarkdown --config "$ROOT/.pymarkdown.json" scan -r "${targets[@]}"
 echo "== line cap (500)"

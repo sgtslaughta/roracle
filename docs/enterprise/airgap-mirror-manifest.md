@@ -39,7 +39,6 @@ Tags are exact as referenced in the repo. **The repo pins no image digests**, wi
 
 CSI (including the ceph-csi-operator subchart: `csi.rookUseCsiOperator=false`), toolbox and monitoring are disabled by the Terraform values, so cephcsi, csi-operator and sidecar images are not needed. cert-manager (already mirrored) issues the RGW certificate. Confirm the tags against the mirrored charts (`helm show values`) before pinning.
 
-
 ### Build and CI
 
 | Image | Tag | Used by | Digest |

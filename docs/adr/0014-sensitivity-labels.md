@@ -3,10 +3,12 @@
 Status: Accepted (2026-11-16)
 
 ## Context
+
 Admins need handling markers on documents and notes that restrict LLM use, agent access and export,
 without introducing a second access-control system. Visibility and shares stay the only grant.
 
 ## Decision
+
 - **R1 Storage.** Table `labels` (migration `0012`). `documents.label_id` is NOT NULL (FK `RESTRICT`),
   `annotations.label_id` is nullable (null = inherit the document label), `connectors.label_id` is
   nullable (null = global default). The migration seeds `General` (rank 0, `#496580`, no gates, default)
@@ -54,6 +56,7 @@ without introducing a second access-control system. Visibility and shares stay t
   governed solely by visibility and shares; labels can only restrict.
 
 ## Consequences
+
 - One subquery per visibility check for PATs; gate edits take effect immediately without reindexing.
 - Migration `0012` locks `documents` while it backfills and enqueues one `acl_sync` job per document
   (see the operations runbook).

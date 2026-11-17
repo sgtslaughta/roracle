@@ -137,7 +137,7 @@ Admin audit viewing is in [admin audit](../admin/audit.md).
 
 ## Error mapping
 
-A tool error is a normal MCP result with `isError: true` and one text block. The text is the HTTP-style `detail`, **without** the status code. Structured details are flattened to `code (key=value, ...)`, lists to `; `-joined messages. Match on text only as a hint.
+A tool error is a normal MCP result with `isError: true` and one text block. The text is the HTTP-style `detail`, **without** the status code. Structured details are flattened to `code (key=value, ...)`, lists to semicolon-joined messages. Match on text only as a hint.
 
 | Text (examples) | Cause |
 |---|---|

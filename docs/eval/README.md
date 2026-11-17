@@ -4,6 +4,7 @@
 is the output of `roracle eval compare` for ONE feature; a default flips on only when its report says **PASS**.
 
 ## Gold sets
+
 - **Fixture** (YAML/JSON, `backend/tests/eval/fixture.yaml`): a synthetic corpus with principals and labels; `roracle eval ci --fixture
   ... --floors tests/eval/floors.json --out ...` seeds it into a scratch index and fails on any ACL violation or a metric under the floors
   (GitLab job `eval`, no GPU, no network).
@@ -17,11 +18,13 @@ is the output of `roracle eval compare` for ONE feature; a default flips on only
   cutover or a rebuild, `ROR_EVAL_ON_REINDEX`) use it.
 
 ## A/B report (what produces the files here)
-```
+
+```text
 uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|multihop|global> [--judge] \
   --baseline "k=v,..." --candidate "k=v,..." [--candidate-index <shadow index>] [--latency-budget-ms N] \
   --out docs/eval/<date>-<feature>.md
 ```
+
 - Both configurations run on the same corpus; overrides are `KEY=VAL` of the eval-only keys (`eval/cli.py::EVAL_KEYS`: `rerank_url`, `rerank_api`, `rerank_model`,
   `rerank_timeout_s`, `rerank_max_chars`, `rerank_max_batch`, `rerank_blend`, `chat_candidates`, `context_notes`, `context_model`,
   `raptor`, `router_llm`, `agentic_retrieval`, `agentic_max_steps`, `agentic_max_subqueries`, `agentic_timeout_s`,
@@ -38,6 +41,7 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   Recall@10 gain 0.05 and `fact` nDCG@10 loss <= 0.005.
 
 ## Reading the files
+
 - `PENDING` = the command is recorded but the run has not been made on a >= 200-query reference set. The feature stays off.
 - A recorded run that did not pass is kept in the file next to its diagnosis (see `2026-11-16-rerank.md`).
 - Files: rerank, context notes, RAPTOR, router, agentic. The compare command overwrites the file with the gate table; keep
@@ -46,6 +50,7 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   compare). Performance budgets are a separate gate: `docs/perf/README.md`.
 
 ## Recorded SciFact evidence (BEIR, 300 queries, 1,200 query-principal pairs, 0 ACL violations)
+
 - Baseline, library search: [`scifact/baseline-search.md`](scifact/baseline-search.md); chat path: [`scifact/baseline-chat.md`](scifact/baseline-chat.md).
 - Reranker (TEI bge-reranker-v2-m3, depth 200, scores replaced): chat [`scifact/rerank-chat-200.md`](scifact/rerank-chat-200.md) (FAIL),
   search [`scifact/rerank-search-200.md`](scifact/rerank-search-200.md) (INSUFFICIENT); diagnosis and the title+text / blend variants:

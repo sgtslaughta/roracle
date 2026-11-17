@@ -3,9 +3,11 @@
 Status: Accepted (2026-11-15)
 
 ## Context
+
 Document-level security and native RRF need paid Elastic tiers. Clients never query Elastic directly.
 
 ## Decision
+
 - Run Elastic Basic. Every chunk/note document stores `owner_id`, `visibility`, `org_unit_path`,
   `share_users[]`, `share_groups[]`.
 - The API builds a mandatory filter per request:
@@ -14,5 +16,6 @@ Document-level security and native RRF need paid Elastic tiers. Clients never qu
 - Rank fusion (RRF) is computed in the API.
 
 ## Consequences
+
 - One query builder owns access control; it gets dedicated tests including "no leak" cases.
 - Sharing changes require re-indexing the affected document's ACL fields (cheap update-by-query).
