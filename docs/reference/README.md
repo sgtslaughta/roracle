@@ -6,6 +6,7 @@ Reference for integrators and operators. Generated pages are rewritten by `scrip
 
 - [HTTP API guide](api.md): authentication, tokens, pagination, rate limits, streaming, uploads, versioning, endpoint map and curl examples
 - [Errors](errors.md): error body shapes, status codes and input rejections
+- [MCP guide](mcp.md): endpoint, PAT and OAuth auth, scope and tool matrix, label gates, handoffs, proposals, limits, audit and error mapping
 
 ## Generated
 
@@ -16,4 +17,4 @@ Reference for integrators and operators. Generated pages are rewritten by `scrip
 
 ## Planned
 
-MCP guide, jobs, metrics, audit events, Helm values.
+Jobs, metrics, audit events, Helm values.

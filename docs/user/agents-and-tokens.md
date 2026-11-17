@@ -23,7 +23,7 @@ Tokens can be created and revoked only while you are signed in to the web app. A
 | Read only | Search the library, read papers, passages and notes, list your collections, ask questions, export BibTeX, load handoffs and read their parts |
 | Read and write | All of the above, and: upload papers, create handoffs, add notes to handoffs, propose notes, replies and label changes, save drafts, run validation and citation checks on drafts |
 
-The full list of tools, with their access level, is in the [MCP tool reference](../reference/mcp-tools.md). A longer integration guide, reference/mcp.md, is written later in this documentation set.
+The full list of tools, with their access level, is in the [MCP tool reference](../reference/mcp-tools.md). The integration contract is the [MCP guide](../reference/mcp.md).
 
 The limits that apply to every token:
 

@@ -2,7 +2,7 @@
 
 # MCP tool reference
 
-18 tools, mounted at `POST /mcp`. "Scope" is the PAT scope the tool enforces (`write` = `_need_write`; others need `read`). Every call is audited as `mcp.<tool>`.
+18 tools, mounted at `POST /mcp`. "Scope" is the PAT scope the tool enforces (`write` = `_need_write`; others need `read`). A call that passes authentication and argument validation is audited as `mcp.<tool>`; see the [MCP guide](mcp.md#audit).
 
 ## `append_to_handoff`
 
@@ -213,7 +213,7 @@ Search the research library (hybrid keyword + semantic). Returns documents the c
 Upload a document (base64 content; needs a write token; size-capped, larger files use POST /documents). `label` is a sensitivity label name (default: the library default; choosing a lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}.
 
 - Scope: `write`
-- Label gates: chosen label may not be lower than the library default (`mcp/tools_write.py:upload`)
+- Label gates: chosen label must rank at least the library default; only an admin on an interactive JWT may go lower, never a PAT (`mcp/tools_write.py:upload, labels/service.py:86`)
 
 | Parameter | Required | Schema |
 |---|---|---|

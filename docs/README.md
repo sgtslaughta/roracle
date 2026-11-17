@@ -10,7 +10,7 @@ rOracle is an air-gapped research-paper RAG service. Pick your audience, or jump
 | rOracle admins | [admin/](admin/README.md) |
 | Operators / SRE | [enterprise/](enterprise/README.md) (ops), [reference/](reference/README.md) |
 | Security / compliance | [enterprise/](enterprise/README.md) (security), [decisions/](decisions/README.md) |
-| Integrators / agent developers | [reference/](reference/README.md), [agent integration](enterprise/agent-integration.md) |
+| Integrators / agent developers | [reference/](reference/README.md), [MCP guide](reference/mcp.md) |
 | Developers | [developer/](developer/README.md), [architecture/](architecture/README.md), [adr/](adr/README.md) |
 
 Terms are defined in the [glossary](glossary.md).
@@ -20,7 +20,7 @@ Terms are defined in the [glossary](glossary.md).
 - Install: [deployment guide](enterprise/deployment-guide.md)
 - First login: [Keycloak setup](enterprise/keycloak-setup.md) (operator side), [getting started](user/getting-started.md)
 - Upload a paper: [user guide](user/README.md)
-- Integrate an agent: [agent integration](enterprise/agent-integration.md), [MCP tools](reference/mcp-tools.md), [HTTP API guide](reference/api.md)
+- Integrate an agent: [agent integration how-to](enterprise/agent-integration.md), [MCP guide](reference/mcp.md), [MCP tools](reference/mcp-tools.md), [HTTP API guide](reference/api.md)
 - Upgrade: [deployment guide](enterprise/deployment-guide.md)
 - Handle an incident: [operations runbook](enterprise/operations-runbook.md)
 
@@ -61,6 +61,7 @@ Later tasks append a link line under the matching heading when they add a page.
 - [Reference index](reference/README.md)
 - [HTTP API guide](reference/api.md): auth, pagination, rate limits, SSE, uploads, curl examples
 - [Errors](reference/errors.md): error bodies and status codes
+- [MCP guide](reference/mcp.md): endpoint, auth, scopes, label gates, handoffs, proposals, limits, audit, errors
 - [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md) (generated)
 
 ### Architecture

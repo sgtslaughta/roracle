@@ -59,7 +59,10 @@ GATES = {
         "exclude_llm applied in ES and Postgres; PAT block_agents",
         "mcp/tools_write.py:_ask, chat/retrieve.py:147",
     ),
-    "upload": ("chosen label may not be lower than the library default", "mcp/tools_write.py:upload"),
+    "upload": (
+        "chosen label must rank at least the library default; only an admin on an interactive JWT may go lower, never a PAT",
+        "mcp/tools_write.py:upload, labels/service.py:86",
+    ),
     "load_handoff": (
         "block_agents sources withheld from every loader; exclude_llm text withheld for agents (counted in `withheld`); handoff notes are not label-gated (free text from creator/agents)",
         "handoff.py:view, labels/textgate.py:gated_docs",
@@ -263,7 +266,7 @@ def gen_mcp(app) -> str:
         HEADER + "# MCP tool reference\n",
         (
             f'{len(tools)} tools, mounted at `POST /mcp`. "Scope" is the PAT scope the tool enforces '
-            "(`write` = `_need_write`; others need `read`). Every call is audited as `mcp.<tool>`.\n"
+            "(`write` = `_need_write`; others need `read`). A call that passes authentication and argument validation is audited as `mcp.<tool>`; see the [MCP guide](mcp.md#audit).\n"
         ),
     ]
     for t in tools:
