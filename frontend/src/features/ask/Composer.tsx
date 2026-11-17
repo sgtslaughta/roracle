@@ -4,6 +4,8 @@ import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
 import { ContextChips } from "./ContextChips";
+import { PLACEHOLDER } from "./quickPrompts";
+import { QuickPrompts } from "./QuickPrompts";
 import { loadHistory, pushHistory } from "./promptHistory";
 import { ScopeSelect } from "./ScopeSelect";
 import { registerComposer, setDraft, useDraft } from "./useAskContext";
@@ -30,12 +32,14 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
   /** recall position in the prompt history (null = not cycling) and the draft typed before cycling */
   const cursor = useRef<{ i: number; draft: string } | null>(null);
 
+  const caret = useRef<number | null>(null); // where to put the selection once a template has rendered
   useLayoutEffect(() => { registerComposer(area.current); return () => registerComposer(null); }, []);
   useLayoutEffect(() => {
     const a = area.current;
     if (!a) return;
     a.style.height = "auto";
     a.style.height = `${Math.min(a.scrollHeight, 180)}px`;
+    if (caret.current !== null) { a.setSelectionRange(caret.current, caret.current + PLACEHOLDER.length); caret.current = null; }
   }, [draft]);
 
   const submit = (e?: FormEvent) => {
@@ -47,6 +51,8 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     setDraft("");
     onSend(q);
   };
+  const send = (q: string) => { if (!streaming && !busy) { if (uid) pushHistory(uid, q); onSend(q); } };
+  const fill = (t: string) => { caret.current = Math.max(0, t.indexOf(PLACEHOLDER)); setDraft(t); area.current?.focus(); };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); return; }
@@ -70,6 +76,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     <form className="composer" onSubmit={submit}>
       <div className="cwrap">
         <ContextChips />
+        {!streaming && !draft && <QuickPrompts onSend={send} onFill={fill} />}
         <textarea
           ref={area} rows={1} aria-label="Question" maxLength={MAX_Q} value={draft} onChange={(e) => { cursor.current = null; setDraft(e.target.value); }} onKeyDown={onKey}
           placeholder="Ask about your documents, or about what you're reading"
