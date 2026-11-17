@@ -15,10 +15,12 @@ from roracle.search_signals import signals_for
 _VECTORS = ["embedding", "summary_embedding"]
 
 
-def _reusable(x: dict, key: str, target: dict) -> list[float] | None:
-    """The source chunk's stored vector when it came from the target model and has the target dims."""
+def _reusable(x: dict, key: str, target: dict, sha: str) -> list[float] | None:
+    """The source chunk's stored vector when it came from the target model, has the target dims and was embedded
+    from exactly this prompt (`prompt_sha`): a changed title/summary/note or prompt version is re-embedded."""
     v = x.get(key)
-    return v if v and x.get("embedding_model") == target["model"] and len(v) == target["dims"] else None
+    fresh = x.get("embedding_model") == target["model"] and x.get("prompt_sha") == sha
+    return v if v and fresh and len(v) == target["dims"] else None
 
 
 def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Settings | None = None) -> None:
@@ -61,8 +63,15 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
         and (summaries.get(_uuid(x["version_id"])) or "").strip()
     }
     sum_prompts = {i: doc_prompt(x["title"], summaries[_uuid(x["version_id"])]) for i, x in sums.items()}
-    vectors = {i: v for i, x in enumerate(srcs) if (v := _reusable(x, "embedding", target))}
-    sv = {i: v for i, x in sums.items() if (v := _reusable(x, "summary_embedding", target))}
+    shas = [prompt_sha(p) for p in prompts]
+    vectors = {i: v for i, x in enumerate(srcs) if (v := _reusable(x, "embedding", target, shas[i]))}
+    # the head chunk's prompt embeds title + summary (unless a context note replaced the summary): only then
+    # does its sha vouch for the summary vector; otherwise that one vector per version is re-embedded
+    sv = {
+        i: v
+        for i, x in sums.items()
+        if not (x.get("context") or "").strip() and (v := _reusable(x, "summary_embedding", target, shas[i]))
+    }
     need = [("c", i, p) for i, p in enumerate(prompts) if i not in vectors]
     need += [("s", i, p) for i, p in sum_prompts.items() if i not in sv]
     # chunk and summary prompts go out as ONE stream of requests, `embed_concurrency` in flight
@@ -73,7 +82,7 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
         (vectors if kind == "c" else sv)[i] = v
     check_lease()  # last cooperative checkpoint before the page is written
     actions = []
-    for i, (h, x, p) in enumerate(zip(hits, srcs, prompts, strict=True)):
+    for i, (h, x) in enumerate(zip(hits, srcs, strict=True)):
         acl, title = acls[x["doc_id"]]
         doc = {k: val for k, val in x.items() if k not in _VECTORS}
         doc.update(acl, title=title)  # ACL/tags/title from the fresh Postgres read, never from the source
@@ -85,7 +94,7 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
             "unit"
         ):  # head chunk: abstract + votes/cited/searchable
             doc.update({**hfields, **sigs.get(x["version_id"], {})})
-        doc.update(embedding=vectors[i], embedding_model=target["model"], prompt_sha=prompt_sha(p))
+        doc.update(embedding=vectors[i], embedding_model=target["model"], prompt_sha=shas[i])
         if i in sv:
             doc["summary_embedding"] = sv[i]
         actions.append({"_op_type": "index", "_index": target["index"], "_id": h["_id"], "_source": doc})

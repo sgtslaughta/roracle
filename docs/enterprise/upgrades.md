@@ -120,7 +120,7 @@ If a copy slice fails permanently the cutover is refused and the old index stays
 
 1. Upgrade as in section 1. The new fields are additive: `ensure_index` adds them to the mapping of the active index, and papers ingested from now on fill them at once.
 2. Read the current model and dimensions: `GET /api/admin/reindex` (`active`).
-3. Start a same-model generation: `POST /api/admin/reindex {"model": "<current model>", "dims": <current dims>}`. A same-model generation copies the stored vectors (no embedding calls), writes the search fields from Postgres (venue, abstract, journal ISSNs in `issn`, `ids_present`, page count, added date, votes, citation upper bounds) and marks the new index with `_meta.search_fields`. Follow it with `GET /api/admin/reindex` as in section 5; plan for double vector storage.
+3. Start a same-model generation: `POST /api/admin/reindex {"model": "<current model>", "dims": <current dims>}`. A same-model generation copies the stored vectors whose prompt is unchanged (same `prompt_sha`; only chunks whose title, summary or context note changed since indexing are embedded), writes the search fields from Postgres (venue, abstract, journal ISSNs in `issn`, `ids_present`, page count, added date, votes, citation upper bounds) and marks the new index with `_meta.search_fields`. Follow it with `GET /api/admin/reindex` as in section 5; plan for double vector storage.
 4. At cutover the `chunks` alias moves to the new index. API processes check the marker at most every 30 seconds, so the new search turns on within 30 seconds of the swap, with no restart.
 5. After verifying search, free the space: `DELETE /api/admin/reindex/old`.
 
@@ -129,7 +129,7 @@ Until the cutover:
 - `GET /api/search` with only the parameters 0.2 knew (`q`, the include filters `tags`, `author`, `file_type`, `org_unit`, `collection`, `label`, and the sorts `relevance`, `newest`, `votes`, `title`) runs the previous search and adds `"upgrading": true` to the response. The web app then shows "Some filters will be available when the search index upgrade finishes." and disables the new controls.
 - A request with any new parameter, and `GET /api/search/facets/{name}`, answer `503 {"detail": "search index upgrade in progress"}`.
 
-Journal and has-identifier results are only correct for papers written by that reindex or ingested after it. Papers ingested before identifiers were extracted get them from `roracle reparse-refs` (section 4, "After 0019"); run it **before** the reindex, or run another same-model reindex after it, so their journals and identifiers reach the index.
+Journal and has-identifier results are only correct for papers written by that reindex or ingested after it. Papers ingested before identifiers were extracted get them from `roracle reparse-refs` (section 4, "After 0019"); run it **before** the reindex, or run another same-model reindex after it, so their journals and identifiers reach the index. The same holds for any later `reparse-refs`: it refreshes citation counts in the index at once, but a paper's journal ISSNs (`issn`), identifier filters (`ids_present`, `has_doi`) and `has_refs` only change in the index after the next same-model reindex.
 
 ## Release notes
 

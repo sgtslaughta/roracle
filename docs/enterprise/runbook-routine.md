@@ -124,7 +124,9 @@ runs four steps (purge, job pruning, gc, reconcile); trigger one on demand with 
 ## Rebuild the search index from scratch
 
 Elastic holds no unique data. `POST /api/admin/reindex {"model": "<current model>", "dims": N}` (admin JWT, audited, `202 {job_id}`;
-`GET /api/admin/reindex` shows progress) rebuilds into the next index generation; with the same model it is a plain rebuild.
+`GET /api/admin/reindex` shows progress) rebuilds into the next index generation; with the same model it copies each chunk's stored vector when
+the chunk's prompt is unchanged (its `prompt_sha` matches) and embeds only the chunks whose title, summary, context note
+or prompt version changed.
 Search stays on the old generation until the cutover swaps the read alias.
 
 ## Clean up `tmp/` upload leftovers

@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from roracle import reembed
 from roracle.ingest.chunking import Chunk
+from roracle.ingest.embed import chunk_prompt, prompt_sha
 from roracle.models import Document, DocumentVersion
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
 
@@ -53,7 +54,8 @@ def old_index(es, cfg, db_session, user, blob):
     db_session.flush()
     chunks = [Chunk(i, t, t, [], [1], [{"page": 1}]) for i, t in enumerate(TEXTS)]
     vecs = [[0.5] * DIMS, [0.25] * DIMS]
-    index_chunks(es, v, d, chunks, vecs, acl_fields(db_session, d), OLD, title="Quokka")
+    shas = [prompt_sha(chunk_prompt("Quokka", t, None, None)) for t in TEXTS]  # what ingest stamped
+    index_chunks(es, v, d, chunks, vecs, acl_fields(db_session, d), OLD, title="Quokka", prompt_shas=shas)
     db_session.commit()
     name = index_name(OLD, 1)
     es.update_by_query(  # strip what a pre-change ingest never wrote
@@ -102,3 +104,24 @@ def test_different_model_embeds_every_chunk(es, cfg, db_session, session_factory
     head = es.get(index=gen2, id=f"{old_index.id}:0")["_source"]
     assert head["venue"] == "Nature" and head["doc_head"] is True
     assert db_session.scalar(select(DocumentVersion.id)) is not None
+
+
+def test_same_model_reembeds_stale_prompts(es, cfg, db_session, session_factory, old_index):
+    """A summary written after ingest changes every chunk prompt: the stored vectors (and the stored summary
+    vector) are stale, so the same-model copy embeds them instead of re-stamping them fresh."""
+    name = index_name(OLD, 1)
+    es.update(index=name, id=f"{old_index.id}:0", doc={"summary_embedding": [0.75] * DIMS}, refresh=True)
+    old_index.summary = "Sum B."
+    db_session.commit()
+    llm, gen2 = _reindex(es, cfg, db_session, session_factory, OLD)
+    assert llm.models  # embedded, not copied
+    src = {
+        h["_id"]: h["_source"]
+        for h in es.search(index=gen2, query={"match_all": {}},
+                           source={"includes": ["embedding", "summary_embedding", "prompt_sha"],
+                                   "exclude_vectors": False})["hits"]["hits"]
+    }  # fmt: skip
+    assert src[f"{old_index.id}:1"]["embedding"] == pytest.approx([1.0] * DIMS)
+    assert src[f"{old_index.id}:0"]["summary_embedding"] == pytest.approx([1.0] * DIMS)
+    want = prompt_sha(chunk_prompt("Quokka", TEXTS[1], "Sum B.", None))
+    assert src[f"{old_index.id}:1"]["prompt_sha"] == want

@@ -7,13 +7,14 @@ import sys
 from sqlalchemy import String, cast, exists, select, text
 from sqlalchemy.orm import Session
 
-from roracle.citations import backfill_for, match_ids, resolve_references
+from roracle.citations import _targets, backfill_for, match_ids, resolve_references
 from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
 from roracle.ingest.parse import grobid_metadata, merge_page_ids
 from roracle.ingest.pipeline import docling_key
 from roracle.models import Document, DocumentVersion, Job
 from roracle.queue import check_lease, enqueue, payload_uuid
+from roracle.search_signals import enqueue_signals
 from roracle.storage import BlobStore
 
 KIND = "reparse_refs"
@@ -50,9 +51,12 @@ def handle_reparse_refs(session: Session, payload: dict, *, settings: Settings, 
     if refs:  # a failed/empty GROBID answer must not wipe the references we already have
         v.references = refs
     session.flush()
+    old_targets = _targets(session, v.id)
     resolve_references(session, v)
     if match_ids(v.meta) != before:  # edges INTO this document only depend on its matchable ids
         backfill_for(session, d)
+    # as handle_citations: ES `cited_by_global` of every target gained or lost (and of d) stays an upper bound (R2)
+    enqueue_signals(session, old_targets | _targets(session, v.id) | {d.id})
 
 
 def add_parser(sub) -> None:
