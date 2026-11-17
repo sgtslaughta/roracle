@@ -326,7 +326,10 @@ included (`visible_documents` and the Elasticsearch ACL filter both add it).
 **Ruling: the reranker may score `exclude_llm` passages.** The cross-encoder reranker is non-generative and only
 returns scores, like the embedding model, so the gate does not treat it as an LLM. In practice the reranker
 sees `exclude_llm` text only on paths that do not set `exclude_llm`, mainly library search, where the human
-caller can already read the document. Chat and MCP `ask` filter `exclude_llm` chunks out before the rerank
-step, so the reranker never receives them there.
+caller can already read the document. Library search by PAT callers also reranks `exclude_llm` text, because
+the passages are withheld only after ranking. Chat and MCP `ask` filter `exclude_llm` chunks out before the
+rerank step, so the reranker does not receive them there, except in the short window before a label raise has
+synced to Elasticsearch (the filter uses the chunk's stored label id). The Postgres re-check (`_live`, which
+applies the current label) then drops the passage before any LLM sees it.
 Elasticsearch ACL filters always run before reranking, so it never receives text the caller may not see. Keep
 the reranker endpoint inside the same trust boundary as the API (see [security](../enterprise/security.md)).

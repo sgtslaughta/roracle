@@ -22,7 +22,7 @@ All names are the keys of the handler map in `worker.py`.
 
 Other kinds in the map (`acl_sync`, `evidence_scan`, `maintenance`, `reconcile_tags`, `lsh_backfill`, `eval_run`,
 `eval_generate`, `rebuild_units`, `rebuild_watch`, `reembed`) are not part of a normal ingest. A failed `ingest`
-job is retried with backoff `10 * 2**attempts` seconds and fails for good at 5 attempts (`MAX_ATTEMPTS`). The
+job is retried with backoff `10 * 2**(attempts - released)` seconds and fails for good at 5 attempts (`MAX_ATTEMPTS`). The
 handler also keeps its own start counter: more than 5 starts (`MAX_STARTS`) fails the version as "ingest crashed
 repeatedly". An error raised as `NonRetryable` fails at once, and its message is shown to the uploader.
 
@@ -122,8 +122,9 @@ sequenceDiagram
     A->>P: same blob_sha256, not rejected or cancelled, readable by caller
     A-->>C: 409 duplicate with document_id, if found
   end
-  A->>P: ref blob row, create document and version 1, enqueue ingest
+  A->>P: ref blob row (upsert, before the object is written)
   A->>S: promote tmp/uuid to blobs/xx/sha256 (server-side copy)
+  A->>P: create document and version 1, enqueue ingest, commit
   A-->>C: 201 document_id, version_id, sha256
 ```
 
@@ -285,7 +286,7 @@ sequenceDiagram
   participant E as Elasticsearch
   W->>W: Docling HybridChunker, max 480 tokens, stage chunked
   opt ROR_CONTEXT_NOTES true and ROR_CONTEXT_MODEL set
-    loop batches of ROR_CONTEXT_CONCURRENCY chunks
+    loop batches of min(32, ROR_CONTEXT_CONCURRENCY) chunks
       W->>W: lease check, re-read label from Postgres
       Note over W: exclude_llm raised, no more calls, heading path used
       W->>L: chat with stable document window, one call per chunk
