@@ -46,6 +46,11 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Admin
 
 - [Admin guide index](admin/README.md)
+- [Users and groups](admin/users-groups.md): Keycloak, admin role, org units, directory, revoking tokens
+- [Sensitivity labels](admin/labels.md): label set, gates, defaults, lowering, tags and drift repair
+- [Connectors](admin/connectors.md): S3, folder and website sources, schedules, credentials, runs
+- [Quotas and limits](admin/quotas-limits.md): upload size, per-user quota, rate limit, connector caps
+- [Audit log](admin/audit.md): viewer, recorded events, export, retention
 
 ### Reference
 
