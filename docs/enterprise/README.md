@@ -1,5 +1,7 @@
 # rOracle Enterprise Documentation
 
+Operations and security documentation. Back to the [documentation index](../README.md); terms are in the [glossary](../glossary.md).
+
 | Document | For | Covers |
 |---|---|---|
 | [Deployment guide](deployment-guide.md) | Platform engineers | Topology, prerequisites, sizing, install, configuration, HA, upgrades |
