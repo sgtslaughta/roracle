@@ -24,7 +24,7 @@ from roracle.chat.answer import build_messages, split_notes, stream_answer
 from roracle.chat.global_answer import route_question, stream_prepare
 from roracle.chat.retrieve import Viewer, _uids, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
-from roracle.db import get_session
+from roracle.db import get_session, get_stream_session
 from roracle.labels.textgate import replay_history
 from roracle.models import Chat, ChatMessage, DocumentVersion
 
@@ -121,6 +121,50 @@ async def _frames(gen: Iterator[str]) -> AsyncIterator[str]:
             await anyio.to_thread.run_sync(gen.close)
 
 
+def _versions(session: Session, passages: list) -> dict[str, int]:
+    vids = [UUID(x.version_id) for x in passages]
+    if not vids:
+        return {}
+    rows = session.execute(
+        select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+    )
+    return {str(i): n for i, n in rows}
+
+
+def _release(prep, ss: Session, own: bool):
+    def go() -> None:
+        prep.release()
+        if own:
+            ss.close()
+
+    return go
+
+
+def _fact_fallback(
+    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
+):
+    """Inside a global stream whose map phase produced nothing usable: the ordinary retrieval + prompt, on the
+    stream's own session. Returns (messages, passages, versions, notes)."""
+    pins, excludes, scope = list(chat.pins), list(chat.excludes), chat.scope
+
+    def run():
+        ps = retrieve_for_chat(
+            ss, es, llm, settings, p, body.content, body.viewer, scope, pins, excludes,
+            include_notes=body.include_notes,
+        )  # fmt: skip
+        ps, notes = split_notes(ps)
+        out = (
+            build_messages(body.content, ps, history, HISTORY, notes),
+            ps,
+            _versions(ss, [*ps, *notes]),
+            notes,
+        )
+        ss.commit()
+        return out
+
+    return run
+
+
 @router.post("/{chat_id}/messages")
 def post_message(
     chat_id: UUID,
@@ -130,6 +174,7 @@ def post_message(
     settings: Cfg,
     es: Annotated[Elasticsearch, Depends(get_es)],
     llm: Annotated[object, Depends(get_llm)],
+    ss: Annotated[Session, Depends(get_stream_session)],
 ) -> StreamingResponse:
     chat = owned_chat(session, p, chat_id)
     _check_model(settings, body.model)
@@ -180,18 +225,15 @@ def post_message(
         passages, notes = split_notes(passages)
         hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
         messages = [] if prep else build_messages(body.content, passages, history, HISTORY, notes)
-        vids = [UUID(x.version_id) for x in (*passages, *notes)]
-        versions = {
-            str(i): n
-            for i, n in session.execute(
-                select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
-            )
-        }
+        versions = _versions(session, [*passages, *notes])
+        fact = None
+        if prep:  # the global stream gets its OWN session (independent of the request's teardown timing)
+            fact = _fact_fallback(ss, es, llm, settings, p, body, chat, history)
         gen = stream_answer(
-            session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded, meta,
-            settings.global_reduce_tokens if prep else None,
-            stream_prepare(session, es, llm, settings, p, body.content, prep, hist) if prep else None,
-            prep.release if prep else None,
+            ss if prep else session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded,
+            meta, settings.global_reduce_tokens if prep else None,
+            stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact) if prep else None,
+            _release(prep, ss, ss is not session) if prep else None,
         )  # fmt: skip
     except BaseException:
         if prep:

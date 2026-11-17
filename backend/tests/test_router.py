@@ -115,3 +115,16 @@ def test_single_document_questions_never_go_global(q):
 )  # fmt: skip
 def test_library_questions_still_go_global(q):
     assert router.classify(None, s(), q) == "global"
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        "In 2020, what were the main themes across all the documents?",
+        "Since 2015 which papers discuss attention across all the papers?",
+        'Which papers discuss "transformer attention" across all the papers?',
+        "Which papers discuss the trial design across all the papers?",
+    ],
+)
+def test_veto_does_not_over_match(q):
+    assert router.classify(None, s(), q) == "global"

@@ -39,3 +39,9 @@ def wait_for_db(url: str, seconds: float, sleep: Callable[[float], None] = time.
                     f"database {make_url(url).render_as_string()} not reachable after {seconds}s: {type(e).__name__}"
                 ) from e
             sleep(5)
+
+
+def get_stream_session(request: Request) -> Session:
+    """A session for work that outlives the request handler (a streamed answer): created lazily (no connection until
+    used) and closed by its owner. Tests override this with their own session."""
+    return request.app.state.session_factory()

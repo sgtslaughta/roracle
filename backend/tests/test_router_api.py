@@ -12,8 +12,10 @@ from test_chat_stream import chunk, hit, sse
 
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
-from roracle.auth import get_app_settings
+from roracle.auth import Principal, get_app_settings
+from roracle.chat import global_admit
 from roracle.chat import global_answer as ga
+from roracle.db import get_stream_session
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
 GLOBAL_Q = "What are the main themes across all the documents?"
@@ -21,7 +23,14 @@ GLOBAL_Q = "What are the main themes across all the documents?"
 
 class RouterLLM:
     def __init__(self, session=None, delay=0.0):
-        self.maps, self.reduces, self.in_tx, self.session, self.delay = [], [], [], session, delay
+        self.maps, self.reduces, self.in_tx, self.session, self.delay, self.mode = (
+            [],
+            [],
+            [],
+            session,
+            delay,
+            None,
+        )
         self.embeddings = SimpleNamespace(
             create=lambda model, input: SimpleNamespace(
                 data=[SimpleNamespace(index=i, embedding=[0.1] * 768) for i in range(len(input))]
@@ -37,6 +46,10 @@ class RouterLLM:
             self.maps.append(kw)
             self.in_tx.append(self.session.in_transaction() if self.session else None)
             time.sleep(self.delay)
+            if self.mode == "fail":
+                raise RuntimeError("model down")
+            if self.mode == "none":
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="NONE"))])
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content="SECTION: 0\nfinding"))]
             )
@@ -46,7 +59,7 @@ class RouterLLM:
 
 @pytest.fixture(autouse=True)
 def fresh_slots(monkeypatch):
-    monkeypatch.setattr(ga, "SLOTS", ga.Slots())
+    monkeypatch.setattr(global_admit, "SLOTS", global_admit.Slots())
 
 
 @pytest.fixture
@@ -72,7 +85,9 @@ def test_sse_meta_global_route_and_docs_considered(client, as_ana, ana, db_sessi
     assert ev[0] == ("meta", {"route": "global", "global": {"docs_considered": 4}})  # meta is the FIRST frame
     assert [e for e, _ in ev].count("progress") >= 1 and ev[1][0] == "progress"
     assert llm.in_tx == [False] * 4  # C1: no DB transaction/connection is held while the map calls run
-    assert ga.SLOTS.users == {} and ga.SLOTS.used == 0  # admission released at the end of the stream
+    assert (
+        global_admit.SLOTS.users == {} and global_admit.SLOTS.used == 0
+    )  # admission released at the end of the stream
     cites = next(d for e, d in ev if e == "citations")["items"]
     assert len(llm.maps) == 4 and len(llm.reduces) == 1
     assert llm.reduces[0]["max_tokens"] == 1200
@@ -115,7 +130,9 @@ def test_mcp_ask_returns_route(app, as_ana, ana, db_session, setup):
 
 def test_busy_user_gets_fact_path_with_reason(client, as_ana, ana, db_session, setup):
     llm, _ = setup()
-    ga.SLOTS.users[str(ana)] = time.monotonic() + 60  # this user already has a global question in flight
+    global_admit.SLOTS.users[str(ana)] = (
+        time.monotonic() + 60
+    )  # this user already has a global question in flight
     cid = client.post("/chats", headers=as_ana, json={}).json()["id"]
     ev = sse(client.post(f"/chats/{cid}/messages", headers=as_ana, json={"content": GLOBAL_Q}))
     assert ev[0] == ("meta", {"route": "fact", "global": {"skipped": "busy"}}) and llm.maps == []
@@ -147,9 +164,16 @@ def test_disconnect_before_first_frame_releases_admission_and_saves_the_turn(
     p = Principal(ana, "ana", "ana", (), False)
     s = settings.model_copy(update={"router": True})
     r = chats.post_message(
-        __import__("uuid").UUID(cid), chats.MessageIn(content=GLOBAL_Q), p, db_session, s, FakeES([]), llm
+        __import__("uuid").UUID(cid),
+        chats.MessageIn(content=GLOBAL_Q),
+        p,
+        db_session,
+        s,
+        FakeES([]),
+        llm,
+        db_session,
     )
-    assert ga.SLOTS.users == {}  # no hits: fact path, nothing held
+    assert global_admit.SLOTS.users == {}  # no hits: fact path, nothing held
     llm2, _ = setup()
     r = chats.post_message(
         __import__("uuid").UUID(cid),
@@ -159,15 +183,18 @@ def test_disconnect_before_first_frame_releases_admission_and_saves_the_turn(
         s,
         FakeES(hits_of(db_session)),
         llm2,
+        db_session,
     )
-    assert str(ana) in ga.SLOTS.users  # admitted, stream not started
+    assert str(ana) in global_admit.SLOTS.users  # admitted, stream not started
 
     async def gone(_msg):
         raise OSError("client disconnected")
 
     with pytest.raises(OSError):
         anyio_run(r.stream_response(gone))
-    assert ga.SLOTS.users == {} and llm2.maps == []  # closed before any work: cleanup ran, no LLM spent
+    assert (
+        global_admit.SLOTS.users == {} and llm2.maps == []
+    )  # closed before any work: cleanup ran, no LLM spent
     from sqlalchemy import select
 
     from roracle.models import ChatMessage
@@ -217,7 +244,14 @@ def test_time_to_first_sse_byte_is_independent_of_map_time(client, as_ana, ana, 
         async def first(cid=cid):
             t0 = time.perf_counter()
             r = chats.post_message(
-                __import__("uuid").UUID(cid), chats.MessageIn(content=GLOBAL_Q), p, db_session, s, es, llm
+                __import__("uuid").UUID(cid),
+                chats.MessageIn(content=GLOBAL_Q),
+                p,
+                db_session,
+                s,
+                es,
+                llm,
+                db_session,
             )
             f = await r.body_iterator.__anext__()
             dt = time.perf_counter() - t0
@@ -244,3 +278,102 @@ def test_mcp_global_budget_is_capped(app, as_ana, ana, db_session, setup, monkey
     assert (
         not err and out["route"] == "global" and seen == [5.0]
     )  # min(global_timeout_s=5, global_mcp_budget_s=45)
+
+
+def _assistant(db):
+    from sqlalchemy import select
+
+    from roracle.models import ChatMessage
+
+    return db.scalars(select(ChatMessage).where(ChatMessage.role == "assistant")).all()
+
+
+def _ask(client, headers, q=GLOBAL_Q):
+    cid = client.post("/chats", headers=headers, json={}).json()["id"]
+    r = client.post(f"/chats/{cid}/messages", headers=headers, json={"content": q})
+    out = []
+    for block in r.text.strip().split("\n\n"):
+        if block.startswith(":"):  # keepalive comment
+            continue
+        ev, data = block.split("\n")
+        out.append((ev.removeprefix("event: "), json.loads(data.removeprefix("data: "))))
+    return out
+
+
+@pytest.mark.parametrize("mode", ["fail", "slow"])
+def test_failed_or_timed_out_map_falls_back_to_the_fact_path_in_the_stream(
+    client, as_ana, ana, db_session, setup, app, settings, mode
+):
+    """N1: an outage / timeouts must never be reported as "nothing found"; the same stream answers via the fact path."""
+    llm, _ = setup(delay=0.6 if mode == "slow" else 0.0)
+    llm.mode = "fail" if mode == "fail" else None
+    s = settings.model_copy(update={"router": True, "global_timeout_s": 0.4 if mode == "slow" else 5.0})
+    app.dependency_overrides[get_app_settings] = lambda: s
+    ev = _ask(client, as_ana)
+    names = [e for e, _ in ev]
+    why = "error" if mode == "fail" else "timeout"
+    assert ev[0] == ("meta", {"route": "global", "global": {"docs_considered": 4}})
+    assert ("meta", {"route": "fact", "global": {"fallback": why}}) in ev
+    assert names.index("progress") < names.index("token") and names[-1] == "done" and "error" not in names
+    (msg,) = _assistant(db_session)
+    assert (
+        msg.status == "complete"
+        and msg.content == "Themes: [1] and [2]."
+        and "None of the documents" not in msg.content
+    )
+    assert (
+        [c["page"] for c in msg.citations]
+        and llm.reduces
+        and llm.reduces[0]["messages"][-1]["content"].count("<passage") >= 1
+    )
+
+
+def test_all_none_is_a_true_negative_and_is_saved(client, as_ana, ana, db_session, setup):
+    llm, _ = setup()
+    llm.mode = "none"
+    ev = _ask(client, as_ana)
+    assert not any(e == "meta" and d.get("route") == "fact" for e, d in ev[1:])
+    (msg,) = _assistant(db_session)
+    assert msg.status == "complete" and msg.content.startswith("None of the documents") and llm.reduces == []
+
+
+def test_no_fallback_available_is_an_error_not_a_false_answer(db_session, ana, setup, settings):
+    from roracle.chat import global_answer as ga2
+    from roracle.chat.answer import stream_answer
+    from roracle.models import Chat
+
+    llm, _ = setup()
+    llm.mode = "fail"
+    chat = Chat(owner_id=ana, title="t")
+    db_session.add(chat)
+    db_session.flush()
+    p = Principal(ana, "ana", "ana", (), False)
+    s = settings.model_copy(update={"router": True, "global_timeout_s": 5.0})
+    es = FakeES(hits_of(db_session))
+    prep, meta = ga2.route_question(db_session, es, llm, s, p, GLOBAL_Q)
+    gen = stream_answer(
+        db_session, llm, chat.id, "m", [], [], {}, None, [], [], meta, 1200,
+        ga2.stream_prepare(db_session, es, llm, s, p, GLOBAL_Q, prep, [], None), prep.release,
+    )  # fmt: skip
+    frames = list(gen)
+    assert frames[-1].startswith("event: error") and not any("None of the documents" in f for f in frames)
+    (msg,) = _assistant(db_session)
+    assert msg.status == "failed" and global_admit.SLOTS.users == {}
+
+
+def test_global_stream_uses_its_own_session(client, as_ana, ana, db_session, setup, app, session_factory):
+    """The stream does not depend on the request session's teardown timing: it opens and closes its own."""
+    llm, _ = setup()
+    db_session.commit()  # the stream session is a different connection: it only sees committed data
+    made = []
+
+    def own():
+        made.append(session_factory())
+        return made[-1]
+
+    app.dependency_overrides[get_stream_session] = own
+    ev = _ask(client, as_ana)
+    assert ev[-1][0] == "done" and ev[0][1]["route"] == "global"
+    assert len(made) == 1 and made[0] is not db_session and llm.in_tx == [False] * 4
+    assert [m.status for m in _assistant(db_session)] == ["complete"]
+    assert made[0].in_transaction() is False and not made[0].get_bind().pool.checkedout() > 1

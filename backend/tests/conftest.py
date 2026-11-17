@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 from roracle.api.app import create_app
 from roracle.auth import JwksCache, get_jwks
 from roracle.config import Settings
-from roracle.db import get_session, make_session_factory
+from roracle.db import get_session, get_stream_session, make_session_factory
 from roracle.models import Base, Blob, Document, User
 from roracle.storage import BlobStore, stage
 
@@ -74,6 +74,7 @@ def app(settings, db_session):
     """App whose get_session yields the test's db_session (the fixture owns the transaction)."""
     app = create_app(settings)
     app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_stream_session] = lambda: db_session  # one transaction owner in tests
     return app
 
 

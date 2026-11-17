@@ -32,10 +32,14 @@ _MULTI = re.compile(
     re.IGNORECASE,
 )
 _SINGLE = re.compile(  # a singular target: one named/deictic document is a fact question, never a library sweep
-    r"\b(?i:(?:this|that|the|his|her|their|my|our|a|one)\s+(?:\w+\s+)?(?:paper|study|article|document|report|trial|"
-    r"preprint|thesis|chapter|pdf|file|manuscript))\b"
-    r"|\b[A-Z][a-z]+(?:\s+(?:et\s+al\.?|and\s+[A-Z][a-z]+))?,?\s+\(?(?:19|20)\d\d[a-z]?\)?"
-    r"|[\"“«][^\"”»]{6,}[\"”»]"
+    r"\b(?i:(?:this|that|his|her|their|my|our)\s+(?:\w+\s+)?(?:paper|study|article|document|report|trial|preprint|"
+    r"thesis|chapter|pdf|file|manuscript))\b"
+    r"|\b(?i:(?:the|a|one)\s+(?:\w+\s+)?(?:paper|study|article|document|preprint|thesis|pdf|manuscript))\b"
+    # author-year ("Smith 2021", "Smith et al. 2021"); never a sentence opener such as "In 2020," or "Since 2015"
+    r"|\b(?!(?:In|Since|During|Before|After|From|By|Until|Between|Around|Over|For|Of|As|Throughout|Early|Late|Mid|"
+    r"Between|Within|Through|Circa|Back|Up|Back)\b)[A-Z][a-z]+(?:\s+(?:et\s+al\.?|and\s+[A-Z][a-z]+))?,?\s+"
+    r"\(?(?:19|20)\d\d[a-z]?\)?"
+    r"|[\"“«](?:[^\"”»\s]+\s+){3,}[^\"”»]+[\"”»]"  # a quoted TITLE: 4+ words (a quoted search phrase is shorter)
 )
 SYSTEM = (
     'Classify the user question for a research library. Reply with JSON only: {"route": "fact"|"multihop"|"global"}. '

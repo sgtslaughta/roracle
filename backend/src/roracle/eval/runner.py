@@ -79,7 +79,7 @@ def default_rank(
                 len(docs) >= global_answer.MIN_DOCS
             ):  # the global path's candidate documents as the ranked list
                 if answers is not None:  # judged run: sampled pairs also run map + reduce (M2)
-                    answers[(str(p.user_id), q)] = docs
+                    answers[(str(p.user_id), p.via, q)] = docs
                 return global_answer.ranked(docs)
             raw.clear()
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
@@ -155,7 +155,7 @@ def run_set(
                     key=lambda x: hashlib.sha1(f"{x[0].query_key}|{x[0].principal}".encode()).digest()
                 )
                 for r, _, top, p, text in eligible[: settings.eval_judge_sample]:
-                    docs = answers.get((str(p.user_id), text))
+                    docs = answers.get((str(p.user_id), p.via, text))
                     g = _global_answer(session, es, llm, settings, p, text, docs) if docs else None
                     j = judge_fn(p, text, g["passages"] if g and g["passages"] else top)
                     judged[(r.query_key, r.principal)] = (

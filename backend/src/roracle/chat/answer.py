@@ -195,8 +195,8 @@ class AnswerStream:
                     {**({"excluded_by_label": self.excluded} if self.excluded else {}), **(self.meta or {})},
                 )
             if self.prepare:  # e.g. global map phase: no DB connection held while the model calls run
-                self.messages, passages, versions, self.canned = yield from self.prepare()
-                self.set_items(passages, versions)
+                self.messages, passages, versions, self.canned, notes = yield from self.prepare()
+                self.set_items(passages, versions, notes)
             if self.canned is not None:
                 self.parts.append(self.canned)
                 yield frame("token", {"text": self.canned})
