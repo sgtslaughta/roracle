@@ -230,7 +230,7 @@ a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed 
   **`failed`** = `{target, slices: [{i, error}]}` when a slice failed permanently (and nothing is running), `old` = leftover generations.
 - **A failed slice refuses the cutover** (the read alias never moves onto an incomplete index; the last finishing slice and the cutover job both check).
   Fix the cause (embedding endpoint, ES), then `DELETE /admin/reindex/old` to drop the half-built generation and start again with `POST /admin/reindex`.
-- **Cutover** order: restore the target's refresh interval and replicas, refresh it, then a convergence pass against Postgres (ACL/tag/title drift
+- **Cutover** order: restore the target's refresh interval and replicas, refresh it, then a resumable convergence phase against Postgres (`converge` jobs of ~60 s each, checkpointed by stage and id) (ACL/tag/title drift
   of every live document through `acl_hash`; chunks of every soft-deleted document removed; superseded versions demoted; orphan documents
   purged), then the alias swap, then `reconcile_tags` and two catch-up rounds per slice (300 s apart). The pass reads Postgres for every live document:
   expect minutes per million documents before the swap, with no ES writes when everything is in sync.
@@ -238,7 +238,11 @@ a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed 
 ### Job leases, drain and worker shutdown
 Jobs run under a **lease** (`ROR_JOB_LEASE_S`, 90 s, renewed every lease/3 by the worker): a crashed or stuck worker's job is requeued after the lease
 (plus up to 30 s sweep), spending an attempt; a worker that lost its lease discards its result. On SIGTERM a running job gets `ROR_JOB_DRAIN_S` (chart 120 s),
-then is **released** back to the queue without spending an attempt (stages and batches resume where they stopped); keep
+then is **released** back to the queue without spending an attempt (counted in `released`; after 200 releases the job FAILS with a clear
+error instead of looping). Ingest stages, rebuild pages and the re-embed copy/convergence resume at their last checkpoint (the pre-swap convergence is
+sliced to ~60 s with a doc-id cursor); `eval_run` (a judged run) and a single long LLM batch are NOT resumable: they restart from the beginning, so do not
+scale workers down or roll them while one runs (the worker HPA's CPU signal scales down exactly the pods waiting on ES/LLM: chart default is a 1 h scale-down
+stabilisation, one pod per 10 min; prefer queue-depth scaling with KEDA and disable the CPU HPA). Keep
 `worker.terminationGracePeriodSeconds` >= drain + 30 (chart 150). A job that defers itself more than 200 times (for example a busy per-owner lock) fails instead of looping.
 - Stuck job triage: `SELECT id, kind, status, attempts, released, lease_until, last_error FROM jobs WHERE status='running';` (an expired `lease_until` is
   swept at the next idle worker loop).

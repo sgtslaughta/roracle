@@ -114,8 +114,10 @@ worker:
     requests: {cpu: "4", memory: 8Gi}
     limits: {memory: 8Gi}
   tmpSize: 20Gi
-  # CPU HPA; for queue-depth scaling use KEDA/external metrics on the `jobs` table instead.
-  autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70}
+  # Workers are I/O-bound (ES, LLM, embeddings): CPU is a poor signal, and a CPU HPA scales down exactly the pods that
+  # wait on a long job. Prefer KEDA/external metrics on queue depth (`SELECT count(*) FROM jobs WHERE status='queued'`)
+  # and set `enabled: false`. With the CPU HPA kept, scale-down is slow: one pod per 10 min after a 1 h stabilisation.
+  autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70, scaleDownStabilizationSeconds: 3600}
   pdb: {enabled: true, minAvailable: 1}
   terminationGracePeriodSeconds: 150    # = ROR_JOB_DRAIN_S + 30: running jobs are released at the deadline and resume per stage/batch
   runAsUser: 10001
