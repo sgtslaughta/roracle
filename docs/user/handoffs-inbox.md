@@ -9,7 +9,7 @@ A handoff is a short code (such as `K7MX-4PQ2`) with a link (`/h/K7MX-4PQ2`). It
 Three things to know first:
 
 - **A handoff is a snapshot.** There is no live mode. The papers, passages and chat transcript are frozen when you create it. Later changes to a chat or a collection do not appear in it.
-- **Access is checked every time it is opened.** Who may load it, which papers they may see and what text is withheld are worked out again for each person on each load. This applies to the list of papers, the passages and the citations. The chat transcript text, the brief, the goal, the title and any notes are shown as written, and notes are not checked against labels. Share a handoff that contains a chat only with people who may see everything the chat discusses.
+- **Access is checked every time it is opened.** Who may load it, which papers they may see and what text is withheld are worked out again for each person on each load. This applies to the list of papers, the passages and the citations. In a chat transcript, an assistant reply that cites a paper with a **Block agents** label (or, for an agent loading with a token, an **Exclude from AI** label) is replaced by a "withheld" notice. Other transcript text, the brief, the goal, the title and any notes are shown as written, and notes are not checked against labels. Share a handoff that contains a chat only with people who may see everything the chat discusses.
 - **It expires.** By default after 7 days. You can revoke it earlier.
 
 ### Creating a handoff
