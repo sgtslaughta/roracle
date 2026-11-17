@@ -47,6 +47,10 @@ Later tasks append a link line under the matching heading when they add a page.
 - [Architecture overview](architecture/overview.md): context, containers, components
 - [Ingest data flow](architecture/ingest.md): upload and connector stages, one sequence diagram each
 - [Retrieval and chat data flow](architecture/retrieval-chat.md): search, chat modes, citations, `exclude_llm`
+- [Access control](architecture/access-control.md): identity, visibility, ACL filter, R19 re-check, label gates
+- [Jobs and queue](architecture/jobs-queue.md): Postgres queue, leases, retries, job kinds, drain
+- [Search index lifecycle](architecture/search-index-lifecycle.md): aliases, re-embed, rebuild, cache, ES 8 to 9
+- [Storage](architecture/storage.md): object layout, blob GC, tmp lifecycle, Ceph or S3
 
 ### Enterprise (operations and security)
 
