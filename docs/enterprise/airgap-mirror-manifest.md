@@ -18,7 +18,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:79b4f1de4c15e6eca824723086a51e5934406d614d410cc11be77748cafac537` |
 | `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` | MinIO `Tenant` | pin in mirror (quay.io returned 401) |
 | `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` | `minio-policy` hook Job | pin in mirror (quay.io returned 401) |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
@@ -52,7 +52,7 @@ Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 G
 | `cloudnative-pg` operator | >= 1.26 (barman-cloud plugin method) | platform |
 | `plugin-barman-cloud` | version compatible with the CNPG release; pin in mirror | platform |
 | `cert-manager` | any supported release (required by the plugin); pin in mirror | platform |
-| `eck-operator` | release that supports Elasticsearch 8.15.3; pin in mirror | platform |
+| `eck-operator` | release whose support matrix lists Elasticsearch 9.5.x (ECK 3.x line; verify against the operator's docs before mirroring); pin in mirror | platform |
 | `minio-operator` | release supporting the `Tenant` CRD and the MinIO image above; pin in mirror | platform |
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 
@@ -71,7 +71,7 @@ Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator
 ## Python (PyPI mirror via `UV_INDEX_URL`)
 
 Runtime: fastapi, uvicorn[standard], sqlalchemy ≥ 2, psycopg[binary] ≥ 3, alembic, pydantic-settings,
-pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch ≥ 8, openai (client for
+pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch (9.x client, matching the 9.5 server), openai (client for
 the OpenAI-spec endpoint), mcp (official SDK), datasketch (MinHash), docling-core (chunker),
 tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), bleach/nh3
 (sanitizing), pyyaml, pypandoc-binary (wheel bundling the pinned pandoc binary for draft builds; hash-locked in

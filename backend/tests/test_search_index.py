@@ -20,9 +20,8 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def es():
-    c = Elasticsearch("http://localhost:9200")
-    return c
+def es(settings):
+    return Elasticsearch(settings.elastic_url)
 
 
 @pytest.fixture
@@ -156,10 +155,8 @@ def test_summary_vector_only_on_chunk_zero(es, model, db_session, document, blob
         summary_vector=[0.5] * 4,
     )  # fmt: skip
     es.indices.refresh(index=index_name(model))
-    srcs = {
-        h["_source"]["chunk_id"].split(":")[1]: h["_source"]
-        for h in es.search(index=index_name(model))["hits"]["hits"]
-    }
+    got = es.search(index=index_name(model), fields=["summary_embedding"])["hits"]["hits"]  # not in `_source`
+    srcs = {h["_source"]["chunk_id"].split(":")[1]: h.get("fields", {}) for h in got}
     assert srcs["0"]["summary_embedding"] == [0.5] * 4 and "summary_embedding" not in srcs["1"]
 
 

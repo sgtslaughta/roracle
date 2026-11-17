@@ -35,9 +35,13 @@ def _stage(db_session, v):
 
 def _chunks(es, cfg, v):
     es.indices.refresh(index=index_name(cfg.embed_model))
-    return es.search(index="chunks", query={"term": {"version_id": str(v.id)}}, size=100, sort=["chunk_id"])[
-        "hits"
-    ]["hits"]
+    return es.search(
+        index="chunks",
+        query={"term": {"version_id": str(v.id)}},
+        size=100,
+        sort=["chunk_id"],
+        fields=["embedding"],  # vectors are not part of `_source` on ES >= 9.2 (exclude_source_vectors)
+    )["hits"]["hits"]
 
 
 @pytest.mark.integration
@@ -55,7 +59,11 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     src = hits[0]["_source"]
     assert src["owner_id"] == str(user.id) and src["visibility"] == "shared"
     assert src["share_users"] == [] and src["org_unit"] == "/" and src["is_latest"] is True
-    assert src["title"] == "A Study of Retrieval" and src["pages"] == [1] and len(src["embedding"]) == DIMS
+    assert (
+        src["title"] == "A Study of Retrieval"
+        and src["pages"] == [1]
+        and len(hits[0]["fields"]["embedding"]) == DIMS
+    )
     jobs = db_session.scalars(select(Job).where(Job.kind == "citations")).all()  # R6
     assert [j.payload for j in jobs] == [{"version_id": str(v.id)}]
 
