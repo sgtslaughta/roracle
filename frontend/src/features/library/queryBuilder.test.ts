@@ -28,11 +28,24 @@ describe("searchTerms", () => {
 describe("round trip", () => {
   it.each([
     'graph "neural network" -survey', '-"related work" transformers', 'state-of-the-art "unclosed', '"a" "b" "c', 'x"y "p q" z"w',
-    '"c d"e', 'a - b', '-foo"bar "baz" -"q r"', '--x y', '"" -"" z',
+    '"c d"e', 'a - b', '-foo"bar "baz" -"q r"', '--x y', '"" -"" z', 'x"y z', 'a"b c', '-a"b c', '"p" -x a "c d', '-"c d',
   ])("keeps meaning of %s", (q) => {
     const p = splitQuery(q);
     expect(splitQuery(joinQuery(p))).toEqual(p);
   });
   it("strips quotes from phrase entries", () =>
     expect(splitQuery(joinQuery({ words: "a", phrases: ['x "y" z'], excluded: [] }))).toEqual({ words: "a", phrases: ["x y z"], excluded: [] }));
+});
+
+describe("round trip fuzz", () => {
+  it("splitQuery(joinQuery(splitQuery(q))) equals splitQuery(q) for 3000 seeded random strings", () => {
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const alphabet = ["a", "b", "-", '"', " "];
+    for (let n = 0; n < 3000; n++) {
+      const q = Array.from({ length: Math.floor(rnd() * 13) }, () => alphabet[Math.floor(rnd() * alphabet.length)]).join("");
+      const p = splitQuery(q);
+      expect(splitQuery(joinQuery(p)), JSON.stringify(q)).toEqual(p);
+    }
+  });
 });

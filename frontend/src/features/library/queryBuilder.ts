@@ -18,18 +18,18 @@ export function splitQuery(q: string): QueryParts {
 
 const unq = (s: string) => squash(s.replaceAll('"', " "));
 
-/** Words, then phrases, then exclusions. Words holding a stray quote go last so they cannot re-pair with a phrase quote. */
+/**
+ * Words, then phrases, then exclusions. Only a word that starts with `"` or `-"` could open a quote pair, and
+ * splitQuery yields at most one (a trailing unbalanced quote); then the structured parts go first so nothing
+ * after it holds a quote. Word order and characters are never changed.
+ */
 export function joinQuery(p: QueryParts): string {
   const ex = (e: string) => (/\s/.test(e) ? `-"${e}"` : `-${e}`);
-  const toks = squash(p.words).split(" ").filter(Boolean);
-  const build = (words: string[], stray: string[]) =>
-    [
-      ...words,
-      ...p.phrases.map(unq).filter(Boolean).map((s) => `"${s}"`),
-      ...p.excluded.map(unq).filter(Boolean).map(ex),
-      ...stray,
-    ].join(" ");
-  const joined = build(toks.filter((t) => !t.includes('"')), toks.filter((t) => t.includes('"')));
-  // if quote-bearing words would still re-pair and change the query, drop their quotes instead
-  return splitQuery(joined).words === toks.join(" ") ? joined : build(toks.map((t) => t.replaceAll('"', "")).filter(Boolean), []);
+  const words = squash(p.words);
+  const rest = [
+    ...p.phrases.map(unq).filter(Boolean).map((s) => `"${s}"`),
+    ...p.excluded.map(unq).filter(Boolean).map(ex),
+  ];
+  const opens = words.split(" ").some((t) => t.startsWith('"') || t.startsWith('-"'));
+  return (opens ? [...rest, words] : [words, ...rest]).filter(Boolean).join(" ");
 }
