@@ -25,7 +25,7 @@ The maintenance job runs every `ROR_MAINTENANCE_INTERVAL_S` (default 86400 secon
 1. **Soft delete** (`DELETE /api/documents/{id}`, owner or admin; drafts use the drafts endpoints). Postgres sets
    `deleted_at`, so the document disappears from every Postgres-backed read at once (R19). An `acl_sync` job is
    queued and the chunks and summary units are removed from Elasticsearch immediately (`delete_by_query` on the
-   document id). If that ES call fails it is logged and the purge removes them later. The action is audited as
+   document id). If that ES call fails it is logged; the purge removes them later **only when purge is enabled** (`ROR_RETENTION_DELETED_DAYS` > 0, default off), and `acl_sync` skips deleted documents, so otherwise the chunks stay in ES ([known limits](known-limits.md#retrieval-and-label-timing)). The action is audited as
    `document.delete`.
 2. **Quota.** The per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES`) still counts a soft-deleted document's version
    sizes until it is purged ([known limits](known-limits.md#quota-and-observability)).

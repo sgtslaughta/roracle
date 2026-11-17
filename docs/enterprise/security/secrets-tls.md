@@ -36,7 +36,8 @@ Preconditions enforced at plan time (module `secrets`):
 - `secret_data.llm_api_key` is required while `models.llm_key_used` is true.
 - With external S3, the Postgres backup and ES snapshot identities must be set **and differ from the app's access key**, so the app identity cannot write or delete backups (unless backups are switched off in `backups_enabled`).
 - S3 credentials must be present (external) or `object_store=rook-ceph` used.
-- Passwords are limited to `[A-Za-z0-9._~-]` so they are safe in URLs.
+
+The `secret_data` variable documents a password charset of `[A-Za-z0-9._~-]` (for example `openssl rand -hex 32`); it is not enforced by a precondition, and the generated URLs are `urlencode`d.
 
 With `object_store=rook-ceph`, the S3 keys of the app live in their own Secret (`secret_names.s3`) created by the
 Ceph module in every mode, and the PG backup and ES snapshot identities are created automatically.

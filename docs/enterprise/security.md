@@ -38,7 +38,7 @@ Keycloak RS256 JWTs behind an mTLS proxy; services never trust identity headers.
 ## 3. Authorization
 
 One SQL visibility function, mirrored by the Elasticsearch filter and re-checked in Postgres (R19); unreadable is 404.
-Agents only propose notes and labels; a write-scope PAT can still submit drafts over REST. Handoffs are frozen at
+Agents only propose notes and labels, but a write-scope PAT can use every route that has no human-only guard: submit drafts, change a document's visibility or shares, delete or transfer it, upload, tag, share chats ([known limits](security/known-limits.md#agents-and-the-mcp-mount)). Handoffs are frozen at
 creation and re-checked on every load. [Details](security/access-control.md#3-authorization).
 
 ## 4. Untrusted content handling

@@ -30,7 +30,7 @@ back, so the log records completed actions. Exceptions are called out: `admin.de
 | `pat.create` | The token's owner (JWT) | Token id | `scopes` | `POST /api/me/tokens` |
 | `pat.revoke` | The token's owner (JWT) | Token id | none | `DELETE /api/me/tokens/{id}`, only when it was not already revoked |
 | `admin.revoke_pats` | Admin | The user id whose tokens were revoked | none | `DELETE /api/admin/users/{id}/pats` |
-| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A **successful** REST request authenticated with a PAT. Not written for 429, 403 `insufficient scope`, any handler error, or MCP calls |
+| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A **successful** REST request authenticated with a PAT. Not written for 429, 403 `insufficient scope`, handler errors, or MCP calls. Exception: when a handler commits before failing (the `block_export` 403 commits its audit row), the `pat.use` row is kept too |
 | `mcp.<tool>` | The token's user (PAT or OAuth access token) | Tool-specific, cut at 200 characters (below) | `{"error": true}` on an HTTP-style error, `{"error": "internal"}` on an unexpected exception (best effort) | Every MCP tool call, resource read and prompt that passes authentication and argument validation |
 | `proposal.approve` | The human who approved | Proposal id | `annotation_id`, `client` (the agent's client name) | A person approves an agent's note proposal |
 | `proposal.reject` | The human who rejected | Proposal id | `client` | A person rejects it |
