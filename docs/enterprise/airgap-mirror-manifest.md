@@ -18,7 +18,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:79b4f1de4c15e6eca824723086a51e5934406d614d410cc11be77748cafac537` |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (`elasticsearch.version`; external ES must be 9.x: the 9.x client sends `compatible-with=9`) | ECK `Elasticsearch` (+ init containers) | `sha256:79b4f1de4c15e6eca824723086a51e5934406d614d410cc11be77748cafac537` |
 | `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` | MinIO `Tenant` | pin in mirror (quay.io returned 401) |
 | `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` | `minio-policy` hook Job | pin in mirror (quay.io returned 401) |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
@@ -93,6 +93,8 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 | Tokenizer files | matching the embedding model | for chunk sizing in workers (no network) |
 | Reranker | `BAAI/bge-reranker-v2-m3` @ HF commit `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`, served by TEI (below) | `deploy/game-01/reranker.sh pull` writes `SHA256SUMS`. LFS sha256: `model.safetensors` `d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286`, `sentencepiece.bpe.model` `cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865`, `tokenizer.json` `69564b696052886ed0ac63fa393e928384e0f8caada38c1f4864a9bfbf379c15`; plus `config.json`, `special_tokens_map.json`, `tokenizer_config.json` (sum them at pull) |
 | Chat | site allowlist | ≥ 32k context recommended |
+| Summary / planner / router small models | `ROR_SUMMARY_MODEL` (default `qwen2.5:3b`); `ROR_AGENTIC_PLANNER_MODEL` (dev `qwen2.5:3b`); optional `ROR_ROUTER_MODEL`, `ROR_RAPTOR_MODEL`, `ROR_EVAL_JUDGE_MODEL` | any model on the OpenAI-spec endpoint; empty settings fall back as in `deployment-guide.md` 5.1 |
+| Context-note model (optional) | an Ollama variant of the notes model with `PARAMETER num_ctx 16384` (`deploy/game-01/README.md`) | built on the inference host from a mirrored base model; nothing downloads at runtime |
 | Document parsing | granite-docling (VLM) or Docling's bundled layout/OCR/table models | bake model files into the docling-serve image |
 | GROBID models | bundled in image | |
 

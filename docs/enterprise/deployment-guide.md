@@ -239,10 +239,58 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_DRAFT_GOTENBERG_URL`, `ROR_BUILD_TIMEOUT_S`, `ROR_BUILD_MAX_PDF_BYTES`, `ROR_BUILD_CONCURRENCY`, `ROR_LATEX_BUILDER` | empty, `120`, `104857600`, `2`, `disabled` | Paper-draft PDF build (`POST /drafts/{id}/build`, synchronous). Markdown goes through the bundled pandoc (pypandoc-binary wheel, run with `--sandbox`, rlimits, empty env, stdout cap) and a Python AST sanitizer, then to a **separate Chromium-enabled Gotenberg** (never the ingest instance): command `gotenberg --api-disable-download-from --webhook-disable --pdfengines-disable-routes --libreoffice-disable-routes --api-timeout=120s`, own namespace, deny-all egress NetworkPolicy (ingress from api only), no secrets, read-only root FS. `ROR_BUILD_TIMEOUT_S` is one deadline for the whole build (both pandoc passes and the Gotenberg response stream). `ROR_BUILD_CONCURRENCY` (default `2`; chart: `config.ROR_BUILD_CONCURRENCY`, and `ROR_DRAFT_GOTENBERG_URL` is auto-filled to the in-chart `parsers.draftgotenberg` Service, enabled by default, port 3000, no egress, ingress from the api only) caps simultaneous builds per api process because builds are CPU-heavy; beyond it the route returns 503 `build service busy`; the cap is read once at first use, so changing it needs an api restart. Empty URL = build returns 503 `build service not configured`. The response is streamed and aborted past `ROR_BUILD_MAX_PDF_BYTES`; it must start with `%PDF-`. `ROR_LATEX_BUILDER=disabled` = `format: latex` drafts return 501; the optional service contract is in `latex-builder.md` |
 | `ROR_DRAFT_MAX_BYTES`, `ROR_WRITING_MAX_CITATIONS`, `ROR_WRITING_VALIDATE_BUDGET_S`, `ROR_WRITING_MODEL` | `2097152`, `200`, `10`, empty | Paper drafts. `ROR_DRAFT_MAX_BYTES`: Markdown cap in UTF-8 bytes per save (over = 413). `ROR_WRITING_MAX_CITATIONS`: distinct citation keys per draft (over = blocking validation finding, fail closed). `ROR_WRITING_VALIDATE_BUDGET_S`: wall-clock budget in seconds for the deterministic checks (exceeded = blocking finding, fail closed). `ROR_WRITING_MODEL`: chat model for the style check and citation judge; empty = the first of `ROR_CHAT_MODELS`. Published PDFs name only `everyone`-visible searchable references; others render as "Restricted reference" |
 
+### 5.1 Retrieval-quality, indexing and scale settings
+
+Defaults are the code defaults (`backend/src/roracle/config.py`). In Helm put any of them under `config:` (or `api.extraEnv` /
+`worker.extraEnv`); the chart already sets `ROR_DB_*`, `ROR_JOB_*`, `ROR_API_THREADS`, `ROR_ES_*` and `ROR_VECTOR_INDEX_TYPE` in `values.yaml`.
+Features marked **off** stay off until a PASS report in `docs/eval/` (ADR-0015).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROR_VECTOR_INDEX_TYPE`, `ROR_VECTOR_RESCORE_OVERSAMPLE` | `int8_hnsw`, `3.0` | Vector index type of NEW indices (`int4_hnsw`, `bbq_hnsw`; bbq only after the eval gate; oversample 1-10 applies to bbq). An existing index keeps its own |
+| `ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_ES_REFRESH_INTERVAL` | `1`, `1`, `5s` | Index settings applied when an index is created (sizing: `capacity-planning.md`) |
+| `ROR_ES_EXCLUDE_SOURCE_VECTORS`, `ROR_ES_HNSW_FILTER_HEURISTIC` | `true`, `acorn` | Vectors out of `_source` (ES >= 9.2); filtered kNN heuristic `acorn` or `fan_out` |
+| `ROR_EMBED_DIMS`, `ROR_EMBED_TOKENIZER` | `768`, `sentence-transformers/all-MiniLM-L6-v2` | Dimensions of the bootstrap embedding model; tokenizer used for chunk sizing in workers |
+| `ROR_SUMMARY_MODEL` | `qwen2.5:3b` | Ingest summaries; also the default for `ROR_RAPTOR_MODEL` |
+| `ROR_LLM_TIMEOUT_S`, `ROR_DOCLING_TIMEOUT_S`, `ROR_GROBID_TIMEOUT_S` | `120`, `300`, `120` | Client timeouts of the inference, docling and GROBID calls |
+| `ROR_OIDC_ALLOWED_CLIENTS` | `roracle-web,roracle-mcp` | Keycloak `azp` values accepted for access tokens |
+| `ROR_SEARCH_RERANK_DEPTH`, `ROR_RERANK_BLEND` | `50`, `0.3` | `/search` rerank depth (chat/MCP use `ROR_RERANK_DEPTH`); weight of the min-max reranker score against the fused score (`1.0` = replace). The reranker input is `title + text` |
+| `ROR_EMBED_CACHE_SIZE`, `ROR_EMBED_CACHE_TTL_S`, `ROR_SEARCH_CACHE_S` | `10000`, `600`, `60` | In-process caches: query embeddings (0 = off), `/search` first stage for paging (0 = off) |
+| `ROR_EVAL_JUDGE_MODEL`, `ROR_EVAL_JUDGE_SAMPLE`, `ROR_EVAL_ON_REINDEX` | empty (first chat model), `100`, `true` | Eval LLM judge model and pairs per run; enqueue `eval_run` on the reference set after a cutover or rebuild |
+| `ROR_CONTEXT_NOTES` (off), `ROR_CONTEXT_MODEL` | `false`, empty | Contextual chunk notes. An empty model = no notes. Needs an Ollama variant with `num_ctx >= 16384` (`deploy/game-01/README.md`) |
+| `ROR_CONTEXT_DOC_CHARS`, `ROR_CONTEXT_MAX_CHUNKS`, `ROR_CONTEXT_MAX_TOKENS`, `ROR_CONTEXT_CONCURRENCY` | `24000`, `400`, `120`, `8` | Document window sent per note; notes per document (later chunks get the heading path); cap per note; notes in flight per document |
+| `ROR_RAPTOR` (off), `ROR_RAPTOR_MODEL`, `ROR_RAPTOR_SECTION_CHARS`, `ROR_RAPTOR_MAX_SECTIONS` | `false`, empty, `12000`, `64` | Per-document section/document summary units; model empty = `ROR_SUMMARY_MODEL` |
+| `ROR_ROUTER` (off; admin runtime override), `ROR_ROUTER_LLM`, `ROR_ROUTER_MODEL`, `ROR_ROUTER_TIMEOUT_S` | `false`, `false`, empty, `1.5` | Query router. Heuristic only unless `ROR_ROUTER_LLM`; an ambiguous question then costs one small-model call (empty model = `ROR_SUMMARY_MODEL`) |
+| `ROR_GLOBAL_MAX_DOCS`, `ROR_GLOBAL_CONCURRENCY`, `ROR_GLOBAL_MAX_CONCURRENT`, `ROR_GLOBAL_MAX_ADMITTED` | `40`, `8`, `16`, `4` | Global answers: documents per question, map calls in parallel per question, in-flight map calls per process, questions admitted per process (one per user); busy = the normal fact path |
+| `ROR_GLOBAL_CALL_TIMEOUT_S`, `ROR_GLOBAL_TIMEOUT_S`, `ROR_GLOBAL_MCP_BUDGET_S` | `20`, `90`, `45` | Per map call, whole map phase, MCP `ask` budget |
+| `ROR_GLOBAL_DOC_CHARS`, `ROR_GLOBAL_MAP_TOKENS`, `ROR_GLOBAL_REDUCE_TOKENS` | `6000`, `200`, `1200` | Text per map call, cap per finding, cap on the reduce answer |
+| `ROR_AGENTIC_RETRIEVAL` (off; admin runtime override), `ROR_AGENTIC_PLANNER_MODEL` | `false`, empty | Query decomposition loop for multi-hop questions in chat and MCP `ask`. **Use a small fast planner model** (dev: `qwen2.5:3b`); empty = the first chat model, which is slower. Budget: added p95 <= 1 s per planning round |
+| `ROR_AGENTIC_MAX_STEPS`, `ROR_AGENTIC_MAX_SUBQUERIES`, `ROR_AGENTIC_TIMEOUT_S`, `ROR_AGENTIC_CALL_TIMEOUT_S` | `3`, `4`, `30`, `1.5` | Planning rounds, sub-queries per round, deadline of the loop, one planner call (slower = dropped, the loop stops) |
+| `ROR_AGENTIC_MAX_PARALLEL`, `ROR_AGENTIC_MAX_ADMITTED`, `ROR_AGENTIC_ANSWER_RESERVE_S` | `4`, `4`, `20` | Sub-query retrievals in flight per process (each takes a pooled DB connection), loops admitted per process (one per user), time kept for the MCP answer |
+| `ROR_EMBED_CONCURRENCY`, `ROR_REEMBED_SLICES` | `4`, `4` (1-16) | Embedding requests in flight (re-embed, rebuild, ingest) and parallel slice chains of a re-embed. Rule of thumb: `slices x concurrency` ~ embedding replicas x per-replica concurrency. Batch embedding calls retry 429/5xx with backoff; interactive queries never retry |
+| `ROR_DB_POOL_SIZE`, `ROR_DB_MAX_OVERFLOW`, `ROR_DB_POOL_TIMEOUT_S` | `8`, `4`, `10` | API connection pool (max `pool + overflow` per process) and the wait for a free connection |
+| `ROR_WORKER_DB_POOL_SIZE`, `ROR_WORKER_DB_MAX_OVERFLOW` | `3`, `1` | Worker pool; plus one separate connection for the lease heartbeat |
+| `ROR_DB_DISABLE_PREPARED` | `false` | Set by the chart with the PgBouncer pooler (no server-side prepared statements) |
+| `ROR_JOB_LEASE_S`, `ROR_JOB_DRAIN_S` | `90`, `0` (chart `120`) | Job lease (renewed every lease/3; a crashed worker's job is requeued after it) and the time a running job gets after SIGTERM before it is released (no attempt spent). Keep `worker.terminationGracePeriodSeconds` >= drain + 30 (chart 150) |
+| `ROR_API_THREADS` | `256` | Worker threads per API pod: one per in-flight sync route or answer stream |
+| `ROR_READ_ALIAS`, `ROR_MUTATE_ALIAS` | `chunks`, `chunks-all` | Only to isolate a scratch index (perf harness): both or neither, and they must differ. Never change on a live system |
+| `ROR_EMBED_INDEX` | empty | Set by the re-embed cutover / eval overrides; do not set it |
+
+### 5.2 GPU host services (reranker, context-note model, planner)
+- **Reranker (TEI)**: `deploy/game-01/reranker.sh` (pull on a connected host, `install` on the GPU host, `run`, `health`) serves
+  `BAAI/bge-reranker-v2-m3` with `ghcr.io/huggingface/text-embeddings-inference:89-1.9` on `127.0.0.1:28080`, offline (`HF_HUB_OFFLINE=1`,
+  model mounted read-only). Point the app at it with `ROR_RERANK_URL=http://<host>/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3`
+  (an SSH tunnel or mesh address; TEI has no authentication, put a proxy in front if it is reachable beyond that and set `ROR_RERANK_API_KEY`). Budget:
+  p95 <= 800 ms for 200 passages. Failure or timeout keeps the fused order (`roracle_rerank_fallback_total{reason}`). It is OFF
+  until the eval gate passes (ADR-0015 outcomes).
+- **Context-note model**: an Ollama variant of the notes model with `PARAMETER num_ctx 16384` (the default 4096 silently truncates
+  the document window); recipe in `deploy/game-01/README.md`. Set `ROR_CONTEXT_MODEL` to its name.
+- **Planner model** for `ROR_AGENTIC_PLANNER_MODEL`: any small fast chat model on the same OpenAI-spec endpoint (dev: `qwen2.5:3b`).
+
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
 Postgres, not env. Admins can override `chat_models`, `chat_default_model`, `chat_passages`, `chat_note_min_upvotes`, `chat_note_min_ratio`, `rerank_depth`,
 `near_dup_threshold`, `near_dup_summary_threshold`, `max_upload_bytes`, `upload_quota_bytes`,
-`rate_limit_per_minute` and `pats_enabled` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
+`rate_limit_per_minute`, `pats_enabled`, `router` and `agentic_retrieval` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
 the env value; `null` removes the override). Changes apply to new requests and jobs without a restart.
 
 ## 6. High availability
