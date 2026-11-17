@@ -153,6 +153,46 @@ def test_reconcile_tags_enqueued_before_cutover_and_after_catchup(
     assert n >= 4  # end of copy, cutover, two catch-up rounds
 
 
+def test_eval_enqueued_once_by_the_final_catchup_not_by_a_timer(
+    db_session, session_factory, es, base, document, vid
+):
+    from roracle.models_eval import EvalSet
+
+    ref = EvalSet(name="ref", is_reference=True)
+    db_session.add(ref)
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
+    base = base.model_copy(update={"eval_on_reindex": True})
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    seen = []
+    for _ in range(50):
+        j = db_session.scalar(
+            select(Job).where(Job.kind == "reembed", Job.status == "queued").order_by(Job.id)
+        )
+        if j is None:
+            break
+        seen.append(
+            (
+                j.payload["phase"],
+                j.payload.get("round"),
+                db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "eval_run")),
+            )
+        )
+        j.status = "done"
+        db_session.flush()
+        reembed.handle_reembed(
+            db_session, j.payload, es=es, llm=FakeLlm(2), session_factory=session_factory, settings=base
+        )
+        db_session.commit()
+    evs = db_session.scalars(select(Job).where(Job.kind == "eval_run")).all()
+    assert len(evs) == 1 and evs[0].payload["trigger"] == "reindex"
+    assert evs[0].run_after <= datetime.now(UTC)  # no fixed delay
+    assert [n for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)] == [0] * len(
+        [1 for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)]
+    )
+
+
 def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     es.put(f"{vid}:0", document.id)

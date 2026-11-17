@@ -527,6 +527,14 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
             )
     elif payload["round"] == 1:
         enqueue(session, "reembed", {**payload, "cursor": None, "round": 2}, run_after_s=CATCHUP_DELAY_S)
+    elif last:  # the settled index: the final catch-up round of the last slice triggers the auto eval
+        _enqueue_eval(session, settings)
+
+
+def _enqueue_eval(session: Session, settings: Settings) -> None:
+    ref = session.scalar(select(EvalSet.id).where(EvalSet.is_reference.is_(True)))
+    if settings.eval_on_reindex and ref is not None:
+        enqueue(session, "eval_run", {"set_id": str(ref), "trigger": "reindex", "judge": True})
 
 
 def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> None:
@@ -550,11 +558,6 @@ def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> Non
             ]
         )
     enqueue(session, "reconcile_tags", {})  # converge ACL/tags of every document from Postgres
-    ref = session.scalar(select(EvalSet.id).where(EvalSet.is_reference.is_(True)))
-    if settings.eval_on_reindex and ref is not None:
-        # catch-up round 1 runs at +1x the delay and round 2 at >= +2x: evaluate the settled index
-        payload_eval = {"set_id": str(ref), "trigger": "reindex", "judge": True}
-        enqueue(session, "eval_run", payload_eval, run_after_s=3 * CATCHUP_DELAY_S)
     for i in range(payload["slice"]["n"]):  # catch-up runs per slice too
         enqueue(
             session,
