@@ -31,7 +31,9 @@ from roracle.labels.textgate import gated_docs
 from roracle.models import Collection, CollectionItem
 from roracle.notes.community import attach_notes
 from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
+from roracle.search_acl import acl_filter
 from roracle.search_cache import PAGE_CACHE, PAGE_CACHE_MAX, cache_key, rehydrate, slim
+from roracle.search_index import active_index
 from roracle.search_index import file_type as ext_of
 
 router = APIRouter()
@@ -259,6 +261,39 @@ def rank_for_search(
     return [x for r in rows for x in r.passages]
 
 
+QUICK_DOCS = 10
+
+
+def _quick(session: Session, es: Elasticsearch, settings: Settings, p: Principal, q: str) -> dict:
+    """Palette search: ONE ACL-filtered BM25 on titles (no embed, no kNN, no rerank), then the Postgres
+    visibility re-check (R19) like every other path. At most QUICK_DOCS documents."""
+    policy = Policy.load(session)
+    release_before_io(session)
+    body = {
+        "size": 2 * QUICK_DOCS,
+        "collapse": {"field": "doc_id"},  # one hit per document
+        "_source": ["doc_id"],
+        "query": {
+            "bool": {
+                "must": [{"multi_match": {"query": q, "fields": ["title"]}}],
+                "filter": [acl_filter(p, policy), {"term": {"is_latest": True}}],
+            }
+        },
+    }
+    try:
+        hits = es.search(index=active_index(settings), **body)["hits"]["hits"]
+    except NotFoundError:
+        return _empty(1)
+    ids: list[UUID] = []
+    for h in hits:  # ES order = score order; one entry per document
+        d = UUID(h["_source"]["doc_id"])
+        if d not in ids:
+            ids.append(d)
+    by_id = {r.doc.id: r for r in _load(session, p, ids[: 2 * QUICK_DOCS])}
+    rows = [by_id[i] for i in ids if i in by_id][:QUICK_DOCS]
+    return {"total": len(rows), "page": 1, "results": [_hit(r) for r in rows], "facets": {}}
+
+
 def _empty(page: int) -> dict:
     return _response([], [], {}, "relevance", page, 1)
 
@@ -284,7 +319,10 @@ def search(
     size: Annotated[int, Query(ge=1, le=50)] = 20,
     notes: bool = True,
     after: Annotated[str | None, Query(max_length=100)] = None,
+    mode: Literal["full", "quick"] = "full",
 ) -> dict:
+    if mode == "quick" and q.strip():
+        return _quick(session, es, settings, p, q.strip())
     cursor = None
     if after:  # keyset paging of the browse list (empty q, newest-first); `next` in the response
         try:

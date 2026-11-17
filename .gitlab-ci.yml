@@ -144,6 +144,7 @@ frontend:
     - pnpm exec vitest run
     - pnpm build
     - pnpm check:dist
+    - pnpm check:size   # gzip bundle budget (scripts/check-size.mjs)
 
 # One tool per image (no downloads in air-gap): helm+python here, kubeconform in its own job via artifacts.
 helm:

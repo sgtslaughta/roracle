@@ -22,7 +22,7 @@ export function parseSearch(search: string): Record<string, unknown> {
 }
 
 /** `extra.size` is an API-only parameter: it is sent to the backend but never shown in the browser URL. */
-export function stringifySearch(s: Record<string, unknown>, extra: { size?: number; notes?: boolean } = {}): string {
+export function stringifySearch(s: Record<string, unknown>, extra: { size?: number; notes?: boolean; mode?: "quick" } = {}): string {
   const sp = new URLSearchParams();
   for (const k of ORDER) {
     const v = s[k];
@@ -32,6 +32,7 @@ export function stringifySearch(s: Record<string, unknown>, extra: { size?: numb
     } else if (v != null && v !== "") sp.set(k, String(v));
   }
   if (extra.size) sp.set("size", String(extra.size));
+  if (extra.mode) sp.set("mode", extra.mode);
   if (extra.notes !== undefined) sp.set("notes", String(extra.notes));
   const str = sp.toString();
   return str ? `?${str}` : "";
