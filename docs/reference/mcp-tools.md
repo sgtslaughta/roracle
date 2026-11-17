@@ -9,7 +9,7 @@
 Append a note to a handoff you can load (needs a write token).
 
 - Scope: `write`
-- Label gates: requires the handoff to be loadable by the caller (`mcp/tools_write.py:append_to_handoff`)
+- Label gates: requires the handoff to be loadable by the caller; notes are not label-gated (`handoff.py:append_note`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -44,7 +44,7 @@ Verify each citation (@doc:/@psg: key + its sentence) of a draft you author agai
 Create a handoff (needs a write token) so a person or another agent can continue this work. Documents the caller cannot see are dropped; `dropped` counts requested ids not kept (unknown ids included). Returns code, display, url, uri, dropped.
 
 - Scope: `write`
-- Label gates: documents the caller cannot see are dropped (`dropped`) (`handoff.py:create`)
+- Label gates: documents the caller cannot see are dropped (`dropped`), block_agents docs for every caller (`agent_visible`) (`handoff.py:_visible_doc_ids`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -83,7 +83,7 @@ Get a document's metadata, summary, tags, votes and versions by id.
 One page of a handoff's `transcript` or `notes` (20 items per page).
 
 - Scope: `read`
-- Label gates: same as load_handoff (transcript/notes withheld by label) (`handoff.py:get_part`)
+- Label gates: transcript: block_agents sources withheld for every loader, exclude_llm text withheld for agents; notes: not label-gated (free text from creator/agents) (`handoff.py:get_part`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -128,7 +128,7 @@ No parameters.
 Load a handoff (code, XXXX-XXXX, /h/ URL or roracle://handoff/ URI): brief, goal, documents, passages, notes and `parts` page counts for get_handoff_part. Content you cannot see is counted in `withheld`.
 
 - Scope: `read`
-- Label gates: block_agents sources withheld from every loader; exclude_llm text withheld for agents; counted in `withheld` (`handoff.py:235, labels/textgate.py:29`)
+- Label gates: block_agents sources withheld from every loader; exclude_llm text withheld for agents (counted in `withheld`); handoff notes are not label-gated (free text from creator/agents) (`handoff.py:view, labels/textgate.py:gated_docs`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -173,7 +173,7 @@ Propose a sensitivity label (by name) for a document you can read, or for one of
 Propose a reply to a note you can read (needs a write token); a human approves it first. Returns {proposal_id, status}.
 
 - Scope: `write`
-- Label gates: target note must be readable; a human approves first (`mcp/tools_notes.py:reply_to_annotation`)
+- Label gates: target note must be readable (`get_readable`: PAT block_agents note gate applies); a human approves first (`notes/access.py:readable_notes, mcp/tools_notes.py:reply_to_annotation`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -200,7 +200,7 @@ Save Markdown as a new version of a draft you may edit (needs a write token), or
 Search the research library (hybrid keyword + semantic). Returns documents the caller may see, each with matching passages and chunk_ids usable with get_passages. `collection` is an id from list_collections; `limit` is 1..50 documents.
 
 - Scope: `read`
-- Label gates: PAT: block_agents docs are absent; exclude_llm/block_agents docs return `withheld`, no passages; notes via strict gate (`search_acl.py:15, api/routes/search.py:398, notes/community.py:168`)
+- Label gates: block_agents docs absent from results (ES acl filter, PAT); exclude_llm docs return metadata with `withheld: <label>` and no passages; notes via strict gate (`search_acl.py:acl_filter, api/routes/search.py:search (gated_docs), notes/community.py:attach_notes`)
 
 | Parameter | Required | Schema |
 |---|---|---|
@@ -228,7 +228,7 @@ Upload a document (base64 content; needs a write token; size-capped, larger file
 Check a draft you may read against its writing profile (structure, limits, notation, acronyms, cross-references, units, AI disclosure, citation keys, LLM style). Returns {version, profile, ok, blocking, warnings}; each finding is {rule, message, line}. Blocking findings must be fixed.
 
 - Scope: `write`
-- Label gates: exclude_llm drafts refused for agents (`require_text`) (`writing/validate.py:14`)
+- Label gates: exclude_llm drafts refused for agents (`require_text`) (`writing/validate.py:validate`)
 
 | Parameter | Required | Schema |
 |---|---|---|

@@ -39,24 +39,44 @@ SECRET_WORDS = ("password", "secret", "api_key", "access_key")
 # Per-tool label gates, hand-read from the call sites (evidence in the second column).
 # The generator fails if a registered tool has no entry, so new tools force a review.
 GATES = {
-    "search": ("PAT: block_agents docs are absent; exclude_llm/block_agents docs return `withheld`, no passages; notes via strict gate",
-               "search_acl.py:15, api/routes/search.py:398, notes/community.py:168"),
+    "search": (
+        'block_agents docs absent from results (ES acl filter, PAT); exclude_llm docs return metadata with `withheld: <label>` and no passages; notes via strict gate',
+        'search_acl.py:acl_filter, api/routes/search.py:search (gated_docs), notes/community.py:attach_notes',
+    ),
     "get_document": ("PAT: `withheld` carries the label name when the text is hidden", "api/routes/documents_read.py:134"),
     "get_passages": ("PAT: block_agents docs filtered; exclude_llm/block_agents text replaced by a withheld marker; R19 Postgres re-check", "mcp/server.py:_passages, labels/textgate.py:28"),
     "list_collections": ("none; `max_label` is the most sensitive label among visible docs", "mcp/server.py:_collections"),
     "ask": ("exclude_llm applied in ES and Postgres; PAT block_agents", "mcp/tools_write.py:_ask, chat/retrieve.py:147"),
     "upload": ("chosen label may not be lower than the library default", "mcp/tools_write.py:upload"),
-    "load_handoff": ("block_agents sources withheld from every loader; exclude_llm text withheld for agents; counted in `withheld`", "handoff.py:235, labels/textgate.py:29"),
-    "get_handoff_part": ("same as load_handoff (transcript/notes withheld by label)", "handoff.py:get_part"),
-    "create_handoff": ("documents the caller cannot see are dropped (`dropped`)", "handoff.py:create"),
-    "append_to_handoff": ("requires the handoff to be loadable by the caller", "mcp/tools_write.py:append_to_handoff"),
+    "load_handoff": (
+        'block_agents sources withheld from every loader; exclude_llm text withheld for agents (counted in `withheld`); handoff notes are not label-gated (free text from creator/agents)',
+        'handoff.py:view, labels/textgate.py:gated_docs',
+    ),
+    "get_handoff_part": (
+        'transcript: block_agents sources withheld for every loader, exclude_llm text withheld for agents; notes: not label-gated (free text from creator/agents)',
+        'handoff.py:get_part',
+    ),
+    "create_handoff": (
+        'documents the caller cannot see are dropped (`dropped`), block_agents docs for every caller (`agent_visible`)',
+        'handoff.py:_visible_doc_ids',
+    ),
+    "append_to_handoff": (
+        'requires the handoff to be loadable by the caller; notes are not label-gated',
+        'handoff.py:append_note',
+    ),
     "list_annotations": ("PAT: block_agents notes/docs hidden; exclude_llm note bodies withheld", "notes/access.py:64, notes/service.py:260"),
     "propose_annotation": ("nothing published until the owner approves; target must be readable incl. the agent gate", "notes/proposals.py:73"),
     "propose_label": ("nothing changes until a human approves; lowering needs an admin; `reason` not stored", "notes/proposals.py:121"),
-    "reply_to_annotation": ("target note must be readable; a human approves first", "mcp/tools_notes.py:reply_to_annotation"),
+    "reply_to_annotation": (
+        'target note must be readable (`get_readable`: PAT block_agents note gate applies); a human approves first',
+        'notes/access.py:readable_notes, mcp/tools_notes.py:reply_to_annotation',
+    ),
     "export_bibtex": ("block_export labels excluded (`exportable_clause`); unreadable docs omitted", "bibtex.py:83"),
     "save_draft": ("PAT: block_agents draft behaves as non-existent", "writing/drafts.py:33"),
-    "validate_draft": ("exclude_llm drafts refused for agents (`require_text`)", "writing/validate.py:14"),
+    "validate_draft": (
+        'exclude_llm drafts refused for agents (`require_text`)',
+        'writing/validate.py:validate',
+    ),
     "check_citations": ("exclude_llm draft or cited docs blocked for agents", "writing/cite_check.py:205"),
 }
 
