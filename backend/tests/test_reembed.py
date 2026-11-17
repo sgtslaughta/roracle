@@ -185,7 +185,7 @@ def test_start_rejects_second_running_job(db_session, es, base):
 def test_status_reports_progress(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     assert reembed.status(db_session, es, base) == {
-        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "old": [],
+        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "failed": None, "old": [],
     }  # fmt: skip
     for n in range(2):
         es.put(f"{vid}:{n}", document.id)

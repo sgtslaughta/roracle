@@ -478,3 +478,18 @@ def test_dedupe_busy_requeues_without_spending_an_attempt_or_an_ingest_start(
         assert (j.status, j.attempts, j.released) == ("queued", 1, 1)  # job budget: attempts - released == 0
         assert j.run_after > s.scalar(text("SELECT now()"))
         assert s.get(DocumentVersion, v.id).ingest_attempts == 0  # the ingest start was given back too
+
+
+def test_requeue_later_is_capped_so_a_deferral_loop_cannot_spin_forever(session_factory, db_session):
+    jid = add(session_factory, "ingest")
+
+    def defer(session, payload):
+        raise queue.RequeueLater(1)
+
+    with session_factory() as s:
+        s.execute(text("UPDATE jobs SET released = :n WHERE id = :i"), {"n": queue.MAX_REFUNDS, "i": jid})
+        s.commit()
+    assert run_once(session_factory, {"ingest": defer})
+    with session_factory() as s:
+        j = s.get(Job, jid)
+        assert j.status == "failed" and "deferred too many" in j.last_error

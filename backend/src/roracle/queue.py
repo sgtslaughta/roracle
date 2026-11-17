@@ -95,15 +95,22 @@ class RequeueLater(Exception):
         self.delay_s = delay_s
 
 
+MAX_REFUNDS = (
+    200  # a job can be deferred / released this often for free; then it fails (no infinite free loop)
+)
+
+
 def _requeue_later(sf, jid: int, token: int, delay_s: float) -> None:
     with sf() as s:
         s.execute(
             text(
-                "UPDATE jobs SET status = 'queued', released = released + 1, lease_until = NULL, updated_at = now(),"
+                "UPDATE jobs SET status = CASE WHEN released >= :cap THEN 'failed' ELSE 'queued' END,"
+                " last_error = CASE WHEN released >= :cap THEN 'deferred too many times' ELSE last_error END,"
+                " released = released + 1, lease_until = NULL, updated_at = now(),"
                 " run_after = now() + make_interval(secs => :d)"
                 " WHERE id = :id AND status = 'running' AND claim_token = :n"
             ),
-            {"d": delay_s, "id": jid, "n": token},
+            {"d": delay_s, "id": jid, "n": token, "cap": MAX_REFUNDS},
         )
         s.commit()
 

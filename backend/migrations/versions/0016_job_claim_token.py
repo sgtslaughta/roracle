@@ -4,6 +4,11 @@
 token reusable). `claim_token` comes from a sequence; `released` counts refunds (shutdown release, deferral) and the
 retry budget is `attempts - released`. Re-runnable (IF NOT EXISTS).
 
+Rolling upgrade: run the migration, then roll the workers WITH the drain (ROR_JOB_DRAIN_S). A job claimed by a
+pre-0016 worker has claim_token NULL; a new worker's lease sweep still reclaims it after the lease expires (the
+sweep does not use the token), but the old worker's complete()/fail() are unfenced until it exits, so do not run
+old and new workers side by side longer than the drain.
+
 Revision ID: 0016
 Revises: 0015
 """

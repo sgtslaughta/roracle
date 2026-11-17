@@ -1,5 +1,6 @@
 import hashlib
 import os
+from types import SimpleNamespace
 from types import SimpleNamespace as NS
 
 import httpx
@@ -88,3 +89,79 @@ def test_bytes_round_trip():
     v = [0.5, -1.25, 3.0]
     assert list(from_bytes(to_bytes(v))) == v
     assert len(to_bytes(v)) == 12
+
+
+# ---- task 10.11 fix round (I3): retries, throttle, cancel on first hard error -------------------------
+class _Status(Exception):
+    def __init__(self, code, retry_after=None):
+        super().__init__(str(code))
+        self.status_code = code
+        self.response = SimpleNamespace(headers={"retry-after": str(retry_after)} if retry_after else {})
+
+
+def _client(script):
+    """`script(call_no, input)` returns a list of vectors or raises."""
+    calls = []
+
+    def create(model, input):
+        calls.append(list(input))
+        out = script(len(calls), input)
+        return SimpleNamespace(data=[SimpleNamespace(index=i, embedding=v) for i, v in enumerate(out)])
+
+    return SimpleNamespace(embeddings=SimpleNamespace(create=create)), calls
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    from roracle.ingest import embed as emb
+
+    seen = []
+    monkeypatch.setattr(emb, "_sleep", seen.append)
+    monkeypatch.setitem(emb._pause, "until", 0.0)
+    return seen
+
+
+def test_429_is_retried_honouring_retry_after_then_succeeds(sleeps):
+    def script(n, inp):
+        if n == 1:
+            raise _Status(429, retry_after=3)
+        return [[1.0]] * len(inp)
+
+    client, calls = _client(script)
+    assert embed(client, "m", ["a", "b"], 1) == [[1.0], [1.0]]
+    assert len(calls) == 2 and 3.0 <= max(sleeps) <= 3.0 * 1.25 + 0.01
+
+
+def test_5xx_backs_off_exponentially_and_gives_up_after_the_retry_budget(sleeps):
+    from roracle.ingest import embed as emb
+
+    client, calls = _client(lambda n, inp: (_ for _ in ()).throw(_Status(503)))
+    with pytest.raises(_Status):
+        embed(client, "m", ["a"], 1)
+    assert len(calls) == emb.RETRIES + 1
+    assert sleeps == sorted(sleeps) and len(sleeps) == emb.RETRIES  # growing waits
+
+
+def test_a_client_error_is_not_retried(sleeps):
+    client, calls = _client(lambda n, inp: (_ for _ in ()).throw(_Status(400)))
+    with pytest.raises(_Status):
+        embed(client, "m", ["a"], 1)
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_first_hard_error_cancels_the_requests_not_yet_started(sleeps):
+    import threading
+
+    gate = threading.Event()
+
+    def script(n, inp):
+        if inp[0] == "t0":
+            raise _Status(400)
+        gate.wait(0.2)  # the other workers are busy while the failure lands
+        return [[1.0]] * len(inp)
+
+    client, calls = _client(script)
+    texts = [f"t{i}" for i in range(32 * 40)]  # 40 requests, 4 workers
+    with pytest.raises(_Status):
+        embed(client, "m", texts, 1, batch=32, concurrency=4)
+    assert len(calls) < 12  # nowhere near 40: queued requests were cancelled

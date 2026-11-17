@@ -69,6 +69,7 @@ class FakeEs:
         self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
         self.indices = FakeIndices(self)
         self.mutations = []
+        self.drift_docs: list[str] = []  # doc ids the fake reports as acl-drifted
         self.index_settings, self.settings_calls, self.refreshes, self.merges = {}, [], [], []
         self.created: dict[str, dict] = {}
         self.after_bulk = lambda: None  # hook: a concurrent change landing right after our write
@@ -93,6 +94,8 @@ class FakeEs:
 
     def search(self, index, size=10, sort=None, search_after=None, query=None, **kw):
         docs = self.data[index]
+        if query and "should" in query.get("bool", {}):  # acl drift query of the pre-swap convergence
+            return {"hits": {"hits": [{"fields": {"doc_id": [d]}} for d in self.drift_docs]}}
         if query and "ids" in query:
             ids = [i for i in query["ids"]["values"] if i in docs]
             return {"hits": {"hits": [{"_id": i} for i in ids]}}

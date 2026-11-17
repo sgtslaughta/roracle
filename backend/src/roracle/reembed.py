@@ -17,6 +17,7 @@ catchup  twice, 300 s apart: copy chunks present in the old index but missing in
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 from elasticsearch import Elasticsearch, NotFoundError, helpers
@@ -24,20 +25,22 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime, search_index
-from roracle.acl_sync import read_acl, read_acl_many
+from roracle.acl_sync import drifted, read_acl, read_acl_many
 from roracle.config import Settings
 from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
-from roracle.models import DocumentVersion, Job
+from roracle.models import Document, DocumentVersion, Job
 from roracle.models_eval import EvalSet
 from roracle.queue import NonRetryable, check_lease, enqueue
 from roracle.search_index import MUTATE_ALIAS
 
 log = logging.getLogger(__name__)
 
+RECONCILE_BATCH = 500  # documents per drift query in the pre-swap convergence
 BATCH = 1000  # chunks per job page: embedding-bound, not job-bound
 HEX = "0123456789abcdef"
 CATCHUP_DELAY_S = 300
+COPY_REFRESH = "30s"  # target refresh interval while copying
 _VECTORS = ["embedding", "summary_embedding"]
 
 
@@ -77,6 +80,9 @@ def start(session: Session, es: Elasticsearch, settings: Settings, model: str, d
     gens = [int(n[len(prefix) :]) for n in used if re.fullmatch(re.escape(prefix) + r"\d+", n)]
     target = {"model": model, "dims": dims, "index": search_index.index_name(model, max(gens, default=0) + 1)}
     n = max(1, min(16, settings.reembed_slices))
+    started = session.scalar(
+        select(func.now())
+    ).isoformat()  # the convergence pass looks at changes since here
     ids = [
         enqueue(
             session,
@@ -90,6 +96,7 @@ def start(session: Session, es: Elasticsearch, settings: Settings, model: str, d
                 "total": None,
                 "round": 0,
                 "slice": {"i": i, "n": n},
+                "started_at": started,
             },
         )
         for i in range(n)
@@ -119,7 +126,30 @@ def status(session: Session, es: Elasticsearch, settings: Settings) -> dict[str,
     return {
         "active": {"index": search_index.active_index(eff), "model": eff.embed_model, "dims": eff.embed_dims},
         "running": running,
+        "failed": _failed_pass(session, eff),
         "old": _old(session, es, settings),
+    }
+
+
+def _failed_pass(session: Session, eff: Settings) -> dict | None:
+    """The newest re-embed pass that ended with a permanently failed slice (its cutover was refused), while nothing is
+    running and its target is not the active index: {target, slices: [{i, error}]}. Start a new re-embed to retry."""
+    if running_job(session) is not None:
+        return None
+    last = session.scalar(
+        select(Job).where(Job.kind == "reembed", Job.status == "failed").order_by(Job.id.desc())
+    )
+    if last is None or last.payload["target"]["index"] == search_index.active_index(eff):
+        return None
+    tgt = last.payload["target"]["index"]
+    bad = session.scalars(
+        select(Job)
+        .where(Job.kind == "reembed", Job.status == "failed", Job.payload["target"]["index"].astext == tgt)
+        .order_by(Job.id)
+    )
+    return {
+        "target": last.payload["target"],
+        "slices": [{"i": (j.payload.get("slice") or {"i": 0})["i"], "error": j.last_error} for j in bad],
     }
 
 
@@ -147,12 +177,14 @@ def drop_old(session: Session, es: Elasticsearch, settings: Settings) -> list[st
 def _ensure_target(
     es: Elasticsearch, target: dict, settings: Settings | None = None, bulk: bool = False
 ) -> None:
-    """Create the target inside `chunks-all` (mutations reach it at once). `bulk`: for the copy phase it is created
-    with refresh_interval -1 and no replicas; `_restore_target` puts the configured values back before cutover."""
+    """Create the target inside `chunks-all` (mutations reach it at once). `bulk`: for the copy phase it refreshes every
+    COPY_REFRESH instead of the configured interval, so mutations (ACL, deletes, is_latest) see copied chunks within
+    that long. Replicas stay configured (the copy is embedding-bound; a red target would stall every mutation through
+    `chunks-all`). `_restore_target` puts the configured interval back before cutover."""
     if not es.indices.exists(index=target["index"]):
         st = search_index.index_settings(settings)
         if bulk:
-            st["index"].update(refresh_interval="-1", number_of_replicas=0)
+            st["index"].update(refresh_interval=COPY_REFRESH)
         es.indices.create(
             index=target["index"],
             mappings=search_index._mapping(target["dims"], settings),
@@ -163,7 +195,7 @@ def _ensure_target(
 
 def _restore_target(es: Elasticsearch, target: dict, settings: Settings) -> None:
     """Idempotent: configured refresh interval and replicas back on the target, one refresh so every copied chunk is
-    searchable, and a best-effort (asynchronous) force-merge of the many small segments of the bulk copy."""
+    searchable, and a best-effort (asynchronous) merge down to a few segments."""
     st = search_index.index_settings(settings)["index"]
     es.indices.put_settings(
         index=target["index"],
@@ -176,7 +208,7 @@ def _restore_target(es: Elasticsearch, target: dict, settings: Settings) -> None
     )
     es.indices.refresh(index=target["index"])
     try:
-        es.indices.forcemerge(index=target["index"], max_num_segments=1, wait_for_completion=False)
+        es.indices.forcemerge(index=target["index"], max_num_segments=5, wait_for_completion=False)
     except Exception:
         log.warning("force-merge of %s not started", target["index"], exc_info=True)
 
@@ -267,7 +299,7 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
         if i in sv:
             doc["summary_embedding"] = sv[i]
         actions.append({"_op_type": "index", "_index": target["index"], "_id": h["_id"], "_source": doc})
-    # no refresh: the target runs with refresh_interval -1 during the copy (cutover refreshes once)
+    # no explicit refresh: the target refreshes every COPY_REFRESH (and the cutover once more)
     _, errors = helpers.bulk(es, actions, refresh=False, raise_on_error=False)
     if errors:
         raise RuntimeError(f"re-embed bulk failed for {len(errors)} chunks: {errors[0]}")
@@ -280,8 +312,8 @@ def _dbq(es, index: str, query: dict) -> None:
 
 def _verify(es, sf, index: str, source: str, hits: list[dict], acls: dict) -> None:
     """Converge what changed between our reads and our write (target-only resurrection, stale ACL).
-    The target is not refreshed during the copy (refresh_interval -1), so the target is refreshed ONCE, and only
-    when something actually has to be corrected: update/delete_by_query only see refreshed chunks."""
+    The target refreshes every COPY_REFRESH, so it is refreshed here ONLY when something has to be corrected:
+    update/delete_by_query only see refreshed chunks. What lands later is converged by `_converge` before the swap."""
     srcs = [h["_source"] for h in hits]
     ids = [h["_id"] for h in hits]
     got = es.search(index=source, query={"ids": {"values": ids}}, source=False, size=len(ids))
@@ -343,6 +375,64 @@ def _last_slice(session: Session, payload: dict) -> bool:
     return other is None
 
 
+def _pass_has_failed_slice(session: Session, payload: dict) -> bool:
+    """A copy slice of THIS pass (the target index is unique per start) ended `failed`: its range is missing from the
+    target, so the read alias must never move to it."""
+    return (
+        session.scalar(
+            select(Job.id)
+            .where(
+                Job.kind == "reembed",
+                Job.status == "failed",
+                Job.payload["target"]["index"].astext == payload["target"]["index"],
+                Job.payload["phase"].astext == "copy",
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _converge(es, sf, target: dict, started_at: str | None) -> None:
+    """Right before the swap, with the target refreshed: make it agree with Postgres about everything that changed
+    while it was being copied (mutations only reach refreshed chunks). All of it is bounded by the corpus, but cheap
+    when in sync (one ES search per RECONCILE_BATCH documents, writes only for drifted ones).
+    1. ACL/tags/title drift of every live document (acl_hash vs Postgres) -> `sync_acl`
+    2. documents soft-deleted since the pass started -> their target chunks are deleted
+    3. documents that got a newer version since the pass started -> older versions marked not latest
+    A hard purge in the last COPY_REFRESH before its page's verify is the one thing left (the purge job's own
+    delete_by_query sees the page after the next refresh); `reconcile` / purge GC handle it."""
+    idx, after = target["index"], None
+    while True:
+        check_lease()
+        with sf() as s:
+            q = select(Document.id).where(Document.deleted_at.is_(None))
+            if after is not None:
+                q = q.where(Document.id > after)
+            ids = list(s.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)))
+            items = read_acl_many(s, ids)
+        for d in sorted(drifted(es, items, index=idx)):
+            search_index.sync_acl(es, d, lambda d=d: read_acl(sf, uuid.UUID(d)))
+        if len(ids) < RECONCILE_BATCH:
+            break
+        after = ids[-1]
+    if not started_at:
+        return
+    started_at = datetime.fromisoformat(started_at)
+    with sf() as s:
+        gone = [str(i) for i in s.scalars(select(Document.id).where(Document.deleted_at >= started_at))]
+        newer = s.execute(
+            select(DocumentVersion.document_id, func.max(DocumentVersion.version))
+            .where(DocumentVersion.created_at >= started_at, DocumentVersion.stage == "searchable")
+            .group_by(DocumentVersion.document_id)
+        ).all()
+    for d in gone:
+        check_lease()
+        _dbq(es, idx, {"term": {"doc_id": d}})
+    for d, n in newer:
+        search_index.mark_previous_versions(es, d, n)
+
+
 def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> None:
     phase, target, src = payload["phase"], payload["target"], payload["source"]
     sl = payload.get("slice") or {"i": 0, "n": 1}
@@ -381,6 +471,10 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
         enqueue(session, "reembed", {**payload, "cursor": hits[-1]["sort"][0]})
         return
     last = _last_slice(session, payload)  # this slice is done; the pass is done when the others are too
+    if last and phase == "copy" and _pass_has_failed_slice(session, payload):
+        log.error("re-embed into %s: a slice failed permanently, cutover refused", target["index"])
+        _restore_target(es, target, settings)  # leave the abandoned target in normal shape
+        return
     if last:
         enqueue(
             session, "reconcile_tags", {}
@@ -398,9 +492,12 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
 
 def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> None:
     target, src, alias = payload["target"], payload["source"], settings.read_alias
+    if _pass_has_failed_slice(session, payload):  # belt and braces: never swap onto an incomplete index
+        raise NonRetryable("a copy slice failed permanently; cutover refused")
     _restore_target(
         es, target, settings
     )  # FIRST and idempotent: whatever fails below, the index is back to normal
+    _converge(es, sf, target, payload.get("started_at"))  # mutations that raced the copy, before readers move
     before = runtime.effective(session, settings)
     if (before.embed_model, before.embed_dims) != (target["model"], target["dims"]):
         clear_summary_embeddings(sf)  # slow, derived cache of the old model: BEFORE the swap (R2-I)
@@ -454,6 +551,6 @@ def handle_reembed(
         except NonRetryable:
             if (
                 payload["phase"] == "copy"
-            ):  # permanent failure: do not leave the target at refresh -1 / 0 replicas
+            ):  # permanent failure: tidy the abandoned target (it never lost its replicas, only a 30 s refresh)
                 _restore_target(es, payload["target"], settings)
             raise

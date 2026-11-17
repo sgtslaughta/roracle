@@ -110,45 +110,54 @@ def notes_for(
     doc_text: str,
     chunks: list,
 ) -> list[str]:
-    """One note per chunk, in chunk order. The chunks are walked in windows of CHECK_EVERY: before each window the
-    label is re-read from Postgres (an `exclude_llm` raise stops further LLM calls within <= CHECK_EVERY chunks;
-    calls already in flight finish) and the job lease is checked; inside a window up to `context_concurrency` calls
-    are in flight (same document prefix: the server's prefix cache stays hot). Database access stays on this thread."""
+    """One note per chunk, in chunk order. The chunks go out in batches of `context_concurrency` calls (same document
+    prefix: the server's prefix cache stays hot); before each batch the label is re-read from Postgres and the lease
+    checked, so an `exclude_llm` raise stops further LLM calls after at most one batch. Notes of the batch that was in
+    flight when a raise is seen are discarded, never cached. Database access stays on this thread."""
     key = cache_key(v.id)
     cache = _load(store, key)
     fresh: dict[str, str] = {}
-    out: list[str] = []
+    step = max(1, min(CHECK_EVERY, settings.context_concurrency))  # one submitted batch = one label check
+    prev: list[str] = []  # shas of the batch generated just before the current check
+
+    def drop(shas: list[str]) -> None:  # notes generated while a raise landed are neither used nor cached
+        for sha in shas:
+            cache.pop(sha, None)
+            fresh.pop(sha, None)
+
     try:
         with ThreadPoolExecutor(
             max_workers=max(1, settings.context_concurrency), thread_name_prefix="ctx"
         ) as pool:
-            for lo in range(0, len(chunks), CHECK_EVERY):
-                window_chunks = chunks[lo : lo + CHECK_EVERY]
-                shas = [_sha(c.text) for c in window_chunks]
+            for lo in range(0, len(chunks), step):
+                batch = chunks[lo : lo + step]
+                shas = [_sha(c.text) for c in batch]
                 need = [
                     j
-                    for j, (c, sha) in enumerate(zip(window_chunks, shas, strict=True))
+                    for j, (c, sha) in enumerate(zip(batch, shas, strict=True))
                     if sha not in cache and lo + j < settings.context_max_chunks
                 ]  # cached notes are reused even after a later label raise (same as summaries, R9)
-                if need:
-                    check_lease()
-                    excluded = _excluded(session, d)
-                    if not excluded:
-                        futs = {
-                            j: pool.submit(_note, llm, settings, doc_text, window_chunks[j], len(chunks))
-                            for j in need
-                        }
-                        error = None
-                        for j, f in futs.items():  # keep every finished note even if a sibling call failed
-                            try:
-                                fresh[shas[j]] = cache[shas[j]] = f.result()
-                            except Exception as e:  # noqa: BLE001  # first failure is re-raised after the loop
-                                error = error or e
-                        if error is not None:
-                            raise error
-                for c, sha in zip(window_chunks, shas, strict=True):
-                    out.append(cache[sha] if sha in cache else heading_note(c))
+                if not need:
+                    continue
+                check_lease()
+                if _excluded(session, d):
+                    drop(prev)
+                    prev = []
+                    continue
+                futs = {j: pool.submit(_note, llm, settings, doc_text, batch[j], len(chunks)) for j in need}
+                error = None
+                for j, f in futs.items():  # keep every finished note even if a sibling call failed
+                    try:
+                        fresh[shas[j]] = cache[shas[j]] = f.result()
+                    except Exception as e:  # noqa: BLE001  # first failure is re-raised after the loop
+                        error = error or e
+                prev = [shas[j] for j in need]
+                if error is not None:
+                    raise error
+        if prev and _excluded(session, d):  # a raise during the last batch
+            drop(prev)
     finally:
         if fresh:  # keep progress on a mid-document failure; heading fallbacks are never cached
             store.put_bytes(key, json.dumps(cache).encode(), "application/json")
+    out = [cache[sha] if (sha := _sha(c.text)) in cache else heading_note(c) for c in chunks]
     return out

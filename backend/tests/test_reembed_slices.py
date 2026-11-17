@@ -113,10 +113,10 @@ def test_target_is_created_bulk_friendly_and_restored_before_the_alias_swap(
     reembed.start(db_session, es, s, "new", 2)
     db_session.commit()
     drain(db_session, session_factory, es, FakeLlm(2), s)
+    assert es.created["chunks-new-1"]["refresh_interval"] == reembed.COPY_REFRESH
     assert (
-        es.created["chunks-new-1"]["refresh_interval"] == "-1"
-        and es.created["chunks-new-1"]["number_of_replicas"] == 0
-    )
+        es.created["chunks-new-1"]["number_of_replicas"] == 1
+    )  # never 0: mutations hit the target all along
     assert es.index_settings["chunks-new-1"] == {"refresh_interval": "7s", "number_of_replicas": 1}
     assert "chunks-new-1" in es.refreshes and es.merges == ["chunks-new-1"]
     swap_index = next(i for i, c in enumerate(es.indices.alias_calls) if c)

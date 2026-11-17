@@ -113,9 +113,13 @@ def test_label_raised_mid_job_stops_calls(db_session, vd):
 
     llm, store = SpyLLM(raise_label), Store()
     out = context.notes_for(db_session, llm, CFG, store, v, d, "doc", chunks(100))
-    # the label is re-read every CHECK_EVERY chunks: at most one window of calls after the raise, then headings only
-    assert len(llm.calls) <= context.CHECK_EVERY and out[context.CHECK_EVERY :] == ["Intro > Methods"] * 68
-    assert len(json.loads(store.data[f"derived/{v.id}/context-v1.json"])) == len(llm.calls)
+    # the label is re-read before every submitted batch: at most one batch of calls after the raise, then headings only
+    step = min(context.CHECK_EVERY, CFG.context_concurrency)
+    assert len(llm.calls) <= step
+    assert (
+        out == ["Intro > Methods"] * 100
+    )  # the batch in flight when the raise landed is discarded, not used
+    assert store.data == {}  # ... and never cached
 
 
 def test_progress_kept_on_failure(db_session, vd):

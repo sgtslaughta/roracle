@@ -68,8 +68,10 @@ def read_acl_many(session: Session, doc_ids: Collection[UUID]) -> dict[str, tupl
 DRIFT_QUERY_DOCS = 200  # docs per search: keeps the bool clause count (3 per doc) far below max_clause_count
 
 
-def drifted(es: Elasticsearch, items: dict[str, tuple[dict, str]]) -> set[str]:
-    """Doc ids with at least one chunk/unit whose `acl_hash` differs from Postgres (or has none)."""
+def drifted(
+    es: Elasticsearch, items: dict[str, tuple[dict, str]], index: str = search_index.MUTATE_ALIAS
+) -> set[str]:
+    """Doc ids with at least one chunk/unit whose `acl_hash` differs from Postgres (or has none), in `index`."""
     found: set[str] = set()
     keys = list(items)
     for i in range(0, len(keys), DRIFT_QUERY_DOCS):
@@ -85,7 +87,7 @@ def drifted(es: Elasticsearch, items: dict[str, tuple[dict, str]]) -> set[str]:
         ]
         try:
             r = es.search(
-                index=search_index.MUTATE_ALIAS,
+                index=index,
                 query={"bool": {"should": should, "minimum_should_match": 1}},
                 collapse={"field": "doc_id"},
                 source=False,
