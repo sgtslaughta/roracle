@@ -1,6 +1,6 @@
 import { SearchX } from "lucide-react";
 import { openDoc } from "@/features/reader/useReaderStore";
-import { ARRAY_KEYS, type LibrarySearch } from "@/lib/searchParams";
+import { ARRAY_KEYS, DEFAULT_COLUMNS, type LibrarySearch } from "@/lib/searchParams";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
 import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { FacetRail } from "./FacetRail";
@@ -10,7 +10,11 @@ import { QuerySentence, useSentenceNames } from "./QuerySentence";
 import { SortSelect } from "./SortSelect";
 import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
+import { ColumnPicker } from "./ColumnPicker";
+import { CompactRow } from "./CompactRow";
 import { Pager } from "./Pager";
+import { ResultTable } from "./ResultTable";
+import { ViewSwitch } from "./ViewSwitch";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
 
@@ -47,6 +51,7 @@ export function SearchPage() {
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
   const collName = useCollectionName();
+  const view = search.view ?? "list";
   const names = useSentenceNames(search.cites);
 
   return (
@@ -61,6 +66,8 @@ export function SearchPage() {
         <div className="sortrow">
           <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
           <FiltersButton facets={data?.facets} search={search} nav={nav} />
+          <ViewSwitch value={view} onChange={(v) => nav.patch({ view: v }, true)} />
+          {view === "table" && <ColumnPicker columns={search.cols ?? DEFAULT_COLUMNS} onChange={(cols) => nav.patch({ cols })} />}
           <SortSelect value={search.sort} onChange={nav.setSort} />
         </div>
       </div>
@@ -70,8 +77,12 @@ export function SearchPage() {
         <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>
         <div>
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
-          <ol className="results">
-            {data?.results.map((hit) => (
+          {view === "table" && data && !!data.results.length && (
+            <ResultTable hits={data.results} columns={search.cols ?? DEFAULT_COLUMNS} sort={search.sort ?? "relevance"} onSort={nav.setSort} onOpen={openDoc} />
+          )}
+          <ol className={view === "compact" ? "results compact" : "results"} hidden={view === "table" && !!data?.results.length}>
+            {view === "compact" && data?.results.map((hit) => <CompactRow key={hit.doc_id} hit={hit} onOpen={openDoc} />)}
+            {view === "list" && data?.results.map((hit) => (
               <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.patch({ tags: [...new Set([...(search.tags ?? []), t])], tags_not: undefined })} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
             ))}
             {data && !data.results.length && (

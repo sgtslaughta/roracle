@@ -9,7 +9,7 @@ export type Names = { collection(id: string): string; label(id: string): string;
 const SCOPE_TEXT = { title: "in the title", authors: "in the authors", abstract: "in the abstract", fulltext: "in the full text" } as const;
 export const SORT_TEXT: Record<Sort, string> = {
   relevance: "relevance", newest: "recently added", published_desc: "newest published", published_asc: "oldest published", votes: "most votes",
-  cited: "most cited", title: "title A–Z", author: "first author A–Z", venue: "venue A–Z", pages: "page count",
+  cited: "most cited", title: "title A–Z", first_author: "first author A–Z", venue: "venue A–Z", pages: "page count",
 };
 const HAS = [["has_doi", "a DOI"], ["has_abstract", "an abstract"], ["has_refs", "references"]] as const;
 

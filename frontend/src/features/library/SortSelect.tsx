@@ -3,7 +3,7 @@ import { SORTS, type LibrarySearch, type Sort } from "@/lib/searchParams";
 
 const SORT_LABEL: Record<Sort, string> = {
   relevance: "Relevance", newest: "Recently added", votes: "Most useful", title: "Title", published_desc: "Newest published", published_asc: "Oldest published",
-  cited: "Most cited", pages: "Shortest", venue: "Venue", author: "Author",
+  cited: "Most cited", pages: "Shortest", venue: "Venue", first_author: "Author",
 };
 
 export function SortSelect({ value, onChange, labelClass = "vis" }: { value: LibrarySearch["sort"]; onChange: (s: Sort) => void; labelClass?: string }) {

@@ -105,7 +105,7 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
     cited: (r) => -citedBy(r.d.id).length,
     pages: (r) => r.d.pages.length,
     venue: (r) => r.d.venue,
-    author: (r) => r.d.authors[0] ?? "",
+    first_author: (r) => r.d.authors[0] ?? "",
   };
   const k = key[sort] ?? key.relevance;
   kept.sort((a, b) => (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0));

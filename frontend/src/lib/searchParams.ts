@@ -5,7 +5,7 @@ export type NotKey = `${FacetKey}_not`;
 export const NOT_KEYS = FACET_KEYS.map((k) => `${k}_not`) as NotKey[];
 export const ARRAY_KEYS: readonly (FacetKey | NotKey)[] = [...FACET_KEYS, ...NOT_KEYS];
 
-export const SORTS = ["relevance", "newest", "votes", "title", "published_desc", "published_asc", "cited", "pages", "venue", "author"] as const;
+export const SORTS = ["relevance", "newest", "votes", "title", "published_desc", "published_asc", "cited", "pages", "venue", "first_author"] as const;
 export type Sort = (typeof SORTS)[number];
 export const SCOPES = ["anywhere", "title", "authors", "abstract", "fulltext"] as const;
 export type Scope = (typeof SCOPES)[number];

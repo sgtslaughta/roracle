@@ -18,7 +18,7 @@ export function useLibraryNav() {
   return {
     search,
     toggle,
-    patch: (p: Partial<LibrarySearch>) => go((s) => ({ ...s, ...p })),
+    patch: (p: Partial<LibrarySearch>, keepPage = false) => go((s) => ({ ...s, ...p }), keepPage),
     clear: () => go((s) => ({ q: s.q, in: s.in, sort: s.sort, view: s.view, cols: s.cols })),
     setSort: (sort: LibrarySearch["sort"]) => go((s) => ({ ...s, sort })),
     setPage: (page: number) => go((s) => ({ ...s, page }), true),

@@ -21,7 +21,7 @@ describe("query sentence", () => {
       q: "graph", in: "fulltext", author: ["smith"], author_not: ["lee"], year_min: 2018, year_max: 2024, venue: ["neurips"], venue_not: ["icml"],
       tags: ["ml"], tags_not: ["cv"], cited_min: 1, cites: "00000000-0000-0000-0000-000000000001", votes_min: 2, pages_min: 20, pages_max: 40,
       has_doi: "yes", has_abstract: "no", has_refs: "yes", collection: ["c1"], collection_not: ["c2"], owner: "mine", org_unit: ["/research"],
-      org_unit_not: ["/ops"], file_type: ["pdf"], file_type_not: ["docx"], label: ["L1"], label_not: ["L9"], added_min: "2025-01-01", added_max: "2025-06-30", sort: "author",
+      org_unit_not: ["/ops"], file_type: ["pdf"], file_type_not: ["docx"], label: ["L1"], label_not: ["L9"], added_min: "2025-01-01", added_max: "2025-06-30", sort: "first_author",
     };
     const c = buildSentence(s, names);
     expect(c).toHaveLength(26);
