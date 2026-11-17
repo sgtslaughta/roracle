@@ -3,14 +3,15 @@ kubeconfig_path    = "~/.kube/config"
 kubeconfig_context = "prod-cluster"
 
 mirror_registry = "registry.internal.example"
-ha              = true # 3 PG, 3 ES, 4x4 MinIO, HPA + PDB, topology spread (chart defaults)
+ha              = true # 3 PG, 3 ES, Ceph RGW, HPA + PDB, topology spread (chart defaults)
 
 charts = {
   cnpg                  = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
   barman                = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
   cert_manager          = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
   eck                   = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
-  minio_operator        = { repository = "oci://registry.internal.example/charts", version = "7.0.0" }
+  rook_ceph             = { repository = "oci://registry.internal.example/charts", version = "v1.18.0" }
+  rook_ceph_cluster     = { repository = "oci://registry.internal.example/charts", version = "v1.18.0" }
   kube_prometheus_stack = { enabled = true, repository = "oci://registry.internal.example/charts", version = "70.0.0" }
   loki                  = { enabled = true, repository = "oci://registry.internal.example/charts", version = "6.30.0" }
   otel_collector        = { enabled = true, repository = "oci://registry.internal.example/charts", version = "0.120.0" }
@@ -25,12 +26,24 @@ secrets_mode = "existing" # all names in secret_names (defaults) must exist in t
 
 # Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
 operator_images = {
-  cnpg           = { tag = "1.26.0" }
-  barman         = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
-  cert_manager   = { tag = "v1.17.0" }
-  eck            = { tag = "2.16.0" }
-  minio_operator = { tag = "v7.0.0" }
+  cnpg         = { tag = "1.26.0" }
+  barman       = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
+  cert_manager = { tag = "v1.17.0" }
+  eck          = { tag = "2.16.0" }
+  rook_ceph    = { tag = "v1.18.0" } # docker.io/rook/ceph mirrored as <mirror>/rook/ceph
 }
+
+# Object storage: Rook-Ceph RGW (needs >= 3 nodes with RAW disks: README, Ceph prerequisites). Ceph image quay.io/ceph/ceph mirrored as <mirror>/ceph/ceph.
+object_store = "rook-ceph"
+ceph = {
+  image         = { tag = "v19.2.3" }
+  device_filter = "^sd[b-d]$" # or `nodes = [{ name = "worker-1", devices = [{ name = "nvme1n1" }] }]`; never all devices
+  mon_count     = 3
+  data_pool     = { mode = "erasure", data_chunks = 2, coding_chunks = 1 } # needs >= 3 hosts; "replicated" with replicas = 3 otherwise
+  rgw           = { instances = 2 }                                        # tls_secret = "rgw-tls" + s3.ca_secret for HTTPS
+}
+# existing secrets mode: build Secret roracle-secrets ROR_S3_ACCESS_KEY/SECRET_KEY from the OBC Secret roracle-app (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY),
+# roracle-pg-backup-s3 (ACCESS_KEY_ID/ACCESS_SECRET_KEY) from roracle-pg-backup, roracle-es-s3 (s3.client.default.*) from roracle-es-snapshot.
 
 protect_data = true # default: prevent_destroy on the release (uninstall would delete data-tier PVCs)
 
@@ -74,7 +87,7 @@ network = {
   oidc_cidrs     = ["10.71.0.0/24"]
 }
 
-storage = { postgres = "500Gi", elasticsearch = "1Ti", minio = "1Ti", class = "fast-ssd" }
+storage = { postgres = "500Gi", elasticsearch = "1Ti", class = "fast-ssd" }
 
 # Optional in-cluster GPU inference instead of the external endpoints above (set models.*_url = "" to use it):
 # inference = { enabled = true, llm = { image = "registry.internal.example/vllm/vllm-openai:v0.x", model_path = "/models/<dir>" },

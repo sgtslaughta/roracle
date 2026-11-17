@@ -34,8 +34,8 @@ component remains, unless `allow_placeholders = true` (dry runs only: the placeh
 | Name | Where | What to set |
 |---|---|---|
 | `mirror_registry` | `variables.tf` | image registry host/path; replaces `MIRROR.example.com` in `deploy/observability/*.values.yaml` and becomes `global.imageRegistry` |
-| `charts.cnpg` / `barman` / `cert_manager` / `eck` / `minio_operator` | `variables.tf` `charts` | `repository` (e.g. `oci://registry/charts`), `version` pinned in the mirror; `chart` if renamed |
-| `operator_images.<chart>` (`repository`, `tag`) | `variables.tf` | operator images: default `<mirror_registry>/<upstream path>` + tag `0.0.0-PLACEHOLDER`, pushed to the chart values (cnpg, barman, cert-manager, eck incl. `config.containerRegistry`, minio operator). Operands/sidecars differ per chart (barman is wired for chart 0.9.0: `image.registry` + `sidecarImage.registry`, tags `operator_images.barman.tag`/`.sidecar_tag`): verify the value keys against the mirrored chart and extend with `charts.<key>.values`. Alternative: containerd/CRI registry mirroring, then set these to the upstream names |
+| `charts.cnpg` / `barman` / `cert_manager` / `eck` / `rook_ceph` / `rook_ceph_cluster` | `variables.tf` `charts` | `repository` (e.g. `oci://registry/charts`), `version` pinned in the mirror; `chart` if renamed |
+| `operator_images.<chart>` (`repository`, `tag`) | `variables.tf` | operator images: default `<mirror_registry>/<upstream path>` + tag `0.0.0-PLACEHOLDER`, pushed to the chart values (cnpg, barman, cert-manager, eck incl. `config.containerRegistry`, rook-ceph operator). Operands/sidecars differ per chart (barman is wired for chart 0.9.0: `image.registry` + `sidecarImage.registry`, tags `operator_images.barman.tag`/`.sidecar_tag`): verify the value keys against the mirrored chart and extend with `charts.<key>.values`. Alternative: containerd/CRI registry mirroring, then set these to the upstream names |
 | `pull_secret` | `variables.tf` | mirror credentials; the Secret is created in the app, every operator and the inference namespace and referenced by the charts |
 | `charts.kube_prometheus_stack` / `loki` / `otel_collector` | same (disabled by default) | as above, set `enabled = true`; Loki also needs `loki_s3_credentials` and its `s3.example.com` endpoint (override via `charts.loki.values`) |
 | `app_chart.repository` / `.version` | `variables-app.tf` | only when installing the chart from an OCI mirror instead of the local path |
@@ -45,8 +45,7 @@ component remains, unless `allow_placeholders = true` (dry runs only: the placeh
 
 ## Secrets: create vs existing
 
-`secrets_mode = "create"` (default): Terraform builds the app Secret (`ROR_DATABASE_URL`, `ROR_ELASTIC_URL`, S3 and LLM keys), CNPG/ES basic-auth Secrets, MinIO config and
-the three MinIO users from sensitive `secret_data`. The values **are stored in Terraform state**; pass them via `TF_VAR_secret_data` and protect the state.
+`secrets_mode = "create"` (default): Terraform builds the app Secret (`ROR_DATABASE_URL`, `ROR_ELASTIC_URL`, S3 and LLM keys), CNPG/ES basic-auth Secrets from sensitive `secret_data`; S3 keys come from `secret_data.s3_*` (external) or the Ceph ObjectBucketClaim Secrets (rook-ceph). The values **are stored in Terraform state**; pass them via `TF_VAR_secret_data` and protect the state.
 `secrets_mode = "existing"`: nothing is created and no secret value touches state; the Secrets named in `secret_names` (defaults in `variables-app.tf`, layout in
 deployment guide 4.2) must exist in the app namespace first (External Secrets, Vault, `kubectl`). Recommended for production.
 The chart has no confidential OIDC client secret (the web client is public); other keys can go into `secret_data.extra` (added to the app Secret) and be consumed from the extra values file via `api.extraEnv`/`worker.extraEnv` `valueFrom.secretKeyRef`. In create mode `secret_data.llm_api_key` is required while `models.llm_key_used=true` (the chart secretKeyRef is not optional) and credentials for the bundled MinIO users are checked.
@@ -70,7 +69,7 @@ Note: the placeholder gate is replaced on every plan (`plantimestamp()`), so pla
 
 ## State backend
 
-Default is local state. `backend.tf` holds commented examples: S3-compatible (MinIO outside this cluster, `use_lockfile`) and the Kubernetes Secret backend.
+Default is local state. `backend.tf` holds commented examples: S3-compatible (an S3 outside this cluster, `use_lockfile`) and the Kubernetes Secret backend.
 State contains secrets in `create` mode: restrict access, encrypt at rest, never commit it. Do not host state on the tenant this stack deploys.
 Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs Terraform >= 1.10. `*.tfvars` (except `environments/*example*`) are git-ignored; `.terraform.lock.hcl` is committed.
 
@@ -84,7 +83,7 @@ Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs
 ## Destroy cautions
 
 - Uninstalling the `roracle` release deletes the data-tier CRs: CNPG PVCs are garbage-collected with the `Cluster`, ECK deletes its PVCs
-  (`volumeClaimDeletePolicy` default `DeleteOnScaledownAndClusterDeletion`), only MinIO StatefulSet PVCs survive until the namespace goes. The chart sets no
+  (`volumeClaimDeletePolicy` default `DeleteOnScaledownAndClusterDeletion`), the Ceph OSDs and buckets (rook-ceph) live outside the release (`preservePoolsOnDelete`, bucket class `Retain`). The chart sets no
   `helm.sh/resource-policy: keep`. Whether the PersistentVolume (and disk) is then reclaimed follows the StorageClass `reclaimPolicy`: use `Retain` for production.
   **A targeted `terraform destroy -target=module.app` and `state rm` of the namespaces do NOT protect the data.**
 - Guard: `protect_data = true` (default) puts `lifecycle { prevent_destroy = true }` on the release, so any plan that would destroy or replace it errors.
@@ -93,7 +92,7 @@ Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs
   Disposable environments set `protect_data = false`.
   **Warning:** flipping `protect_data` with a plain apply destroys and re-creates (uninstalls, then installs) the release in either direction, deleting the data tier: always `state mv` first.
   A `moved` block maps the pre-0.1 address `helm_release.roracle` to `protected[0]`, so states from the first commit keep their release when `protect_data = true`.
-- Before any deliberate teardown: backups and snapshots (and replicate the backup buckets off-cluster: bundled backups live on the same MinIO that would be destroyed), StorageClass `Retain`.
+- Before any deliberate teardown: backups and snapshots (and replicate the backup buckets off-cluster: with rook-ceph the backup buckets live in the same Ceph cluster: replicate them (RGW multisite / `rclone`) or use `external` S3 in another site), StorageClass `Retain`.
 - Operator namespaces are created by Terraform; destroying operators before their CRs are gone leaves orphaned finalizers. Terraform destroys app before operators.
 - In `existing` mode the Secrets are not Terraform-owned and survive destroy.
 
@@ -104,11 +103,22 @@ A failed install (e.g. a hook failed, timeout) leaves the `helm_release` in stat
 **Never apply a tainted release of the unprotected variant (`protect_data = false`) that holds data**: Terraform replaces it, i.e. uninstalls the release and
 deletes the data-tier CRs and PVCs. With `protect_data = true` the next plan errors on `prevent_destroy` instead (untaint, then apply).
 
-## MinIO images (production)
+## Object storage: Rook-Ceph or external S3
 
-The chart defaults `quay.io/minio/{minio,mc}` are no longer pullable (community images ended Oct 2025). `minio_mode = "tenant"` therefore needs
-`minio_images = { server = {repository, tag}, mc = {repository, tag} }` pointing at images you control; the placeholder gate refuses apply without them
-(see [airgap-mirror-manifest.md](../../docs/enterprise/airgap-mirror-manifest.md)). Alternative: `minio_mode = "external"`.
+`object_store = "external"` (default; small installs, dev, kind): set `s3.endpoint` (+ `s3.ca_secret` for a private CA) and `secret_data.s3_access_key/s3_secret_key`
+(optional `s3_pg_backup`, `s3_es_snapshot`; they default to the app identity). Buckets (`s3.bucket`, `pg_backup_bucket`, `es_snapshot_bucket`) must exist; backups and snapshots
+are enabled by the chart defaults. Terraform never deploys MinIO: the community images ended in Oct 2025 (see the [mirror manifest](../../docs/enterprise/airgap-mirror-manifest.md)).
+
+`object_store = "rook-ceph"` (production example in `environments/prod.example.tfvars`): the operator layer installs `rook-ceph` + `rook-ceph-cluster` (placeholder-gated charts and
+images `docker.io/rook/ceph:v1.18.0`, `quay.io/ceph/ceph:v19.2.3`; CSI, toolbox and monitoring off), `modules/ceph` claims the three buckets with ObjectBucketClaims, waits
+(`kubectl wait`, so `kubectl` must be on the runner) until they are Bound, reads the generated credentials into the app Secrets and adds a NetworkPolicy from api/worker/migrate to RGW.
+Variables: `ceph.device_filter` / `ceph.nodes` (OSD devices: **never** all devices; empty is a gated placeholder), `mon_count` (3), `data_pool` (erasure `data_chunks`+`coding_chunks`, default 2+1, or replicated), `metadata_replicas` (3),
+`rgw.instances` / `rgw.tls_secret` (HTTPS; add `s3.ca_secret`), `resources` (mon/mgr/osd). In `secrets_mode = "existing"` the OBC Secrets (`roracle-app`, `roracle-pg-backup`, `roracle-es-snapshot` in the app namespace) must be mapped into your Secrets (see the comment in prod.example).
+
+Ceph prerequisites: >= 3 nodes with **raw, unformatted disks** (no partitions or filesystems), kernel with RBD/LVM support, around 4-6 GiB RAM per OSD plus 1-2 GiB per mon and 2-4 GiB per RGW,
+a low-latency network between nodes, and (for erasure 2+1) at least 3 failure domains. For fewer nodes or no spare disks use `external`.
+Backups: the PG/ES backup buckets sit in the same Ceph cluster, which the former bundled MinIO did as well; for disaster recovery replicate them off-cluster (RGW multisite sync or a scheduled `rclone`/`rgw` replication to a second site), or point `s3.*_bucket` at an external S3 in another site.
+This path is validated only by `terraform validate/plan` and `helm template` (the kind rehearsal has no raw disks); treat the first real install as a rehearsal.
 
 ## Optional inference module
 
@@ -140,16 +150,16 @@ Timings (16 CPU host, warm Docker cache): up 41 s (images mirrored, backend/web 
 verify 3 s, destroy 140 s, down 5 s; whole cycle about 5 min (cold: add upstream pulls and the backend/web image builds).
 
 Verified: operator charts fetched from the mirror as OCI (`helm_release` against `oci://localhost:5055/charts`, plain HTTP on localhost) and operator images
-from the mirror (cnpg, barman plugin + sidecar, cert-manager, ECK, MinIO operator); gate refuses apply with `MIRROR.example.com` and creates nothing, while
+from the mirror (cnpg, barman plugin + sidecar, cert-manager, ECK); gate refuses (also `object_store=rook-ceph` without mirror values or OSD devices); apply with `MIRROR.example.com` and creates nothing, while
 `allow_placeholders=true` passes it (separate throwaway state, gate resource only); all pods Ready; migrate job succeeded; API `/healthz` and `/readyz`
 (db, Elasticsearch, S3) 200; web served; every container image outside kube-system comes from the mirror; `terraform destroy` with `protect_data=true` is
 refused by `prevent_destroy` with the data tier intact; then `state mv` protected -> unprotected and destroy with `protect_data=false` removes everything.
 Profile: `environments/kind.tfvars` + `environments/kind-values.yaml` (1 replica, small requests, ES 1.5 GiB limit, observability and inference off).
 
 Known gaps (not faked):
-- **MinIO tenant is not rehearsed.** `quay.io/minio/minio` and `quay.io/minio/mc` (chart defaults) now answer 401, so a mirror cannot be populated from them.
-  The MinIO Operator itself runs; the app uses `minio_mode = "external"` with a `bitnamilegacy/minio` stand-in (`test/s3-stub.yaml`; pod CIDR `10.244.0.0/16` as `network.s3_cidrs`).
-  PG/ES backups and snapshots (`postgres.backup`, `elasticsearch.snapshot`) are off, so the barman plugin and cert-manager are installed but unused. Production needs a MinIO image source you control.
+- **Object storage is external, Rook-Ceph is not rehearsed** (Ceph needs raw disks; kind has none). The app uses `object_store = "external"` with a `bitnamilegacy/minio` stand-in
+  (`test/s3-stub.yaml`; dev/CI-only image, never shipped; pod CIDR `10.244.0.0/16` as `network.s3_cidrs`). The rook-ceph path is validated by `terraform validate/plan` and `helm template` only.
+  PG/ES backups and snapshots (`postgres.backup`, `elasticsearch.snapshot`) are off, so the barman plugin and cert-manager are installed but unused.
 - Parsers docling, grobid, clamav and the draft gotenberg are off (memory); only ingest gotenberg runs. No ingress controller (Ingress off), no Keycloak, no LLM: auth and chat are not exercised.
 - containerd mirror hosts also redirect quay.io, ghcr.io and docker.elastic.co to the registry, but the node still has internet: image origin is proven by the pod specs (all `localhost:5055/...`), not by network isolation.
 - Destroy leaves operator CRDs behind (Helm never deletes CRDs of installed charts; terraform prints a warning per CRD): delete by hand on a reused cluster. `down` removes the whole cluster.

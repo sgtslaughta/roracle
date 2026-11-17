@@ -23,7 +23,14 @@ locals {
     ROR_RERANK_MODEL    = var.models.rerank_model != "" ? var.models.rerank_model : (local.inference_enabled ? var.inference.rerank.served_name : "")
     ROR_PUBLIC_BASE_URL = var.ingress.host == "" ? "" : "https://${var.ingress.host}"
   }
-  config = { for k, v in merge(local.config_raw, var.models.extra_env) : k => v if v != "" }
+  s3_endpoint = local.ceph_on ? module.ceph[0].endpoint : var.s3.endpoint
+  s3_https    = startswith(local.s3_endpoint, "https://")
+  s3_hostport = trimprefix(trimprefix(local.s3_endpoint, "https://"), "http://")
+  s3_ca       = var.s3.ca_secret != null ? [var.s3.ca_secret] : []
+  config = { for k, v in merge(local.config_raw, var.models.extra_env, {
+    ROR_S3_ENDPOINT = local.s3_endpoint
+    ROR_S3_BUCKET   = var.s3.bucket
+  }) : k => v if v != "" }
 
   # Dev profile (ha=false): single instances, small requests. Prod (ha=true): chart defaults.
   dev = !var.ha
@@ -42,8 +49,6 @@ locals {
       nodeSets  = [{ name = "default", count = 1, roles = ["master", "data", "ingest"] }]
       resources = { requests = { cpu = "1", memory = "2Gi" }, limits = { memory = "2Gi" } }
     }
-    minio = { servers = 1, volumesPerServer = 4
-    resources = { requests = { cpu = "500m", memory = "1Gi" }, limits = { memory = "2Gi" } } }
     parsers = {
       gotenberg      = { replicas = 1 }
       draftgotenberg = { replicas = 1 }
@@ -77,33 +82,32 @@ locals {
       appCredentialsSecret = var.secret_names.pg_app
       backup = {
         credentialsSecret = { name = var.secret_names.pg_backup }
-        endpointCA        = { name = var.minio_mode == "tenant" ? var.secret_names.pg_backup_ca : "" }
+        destinationPath   = "s3://${var.s3.pg_backup_bucket}/"
+        endpointURL       = local.s3_endpoint
+        endpointCA        = length(local.s3_ca) == 0 ? {} : local.s3_ca[0]
       }
     }
     elasticsearch = {
       mode          = var.elasticsearch_mode
       storage       = { size = var.storage.elasticsearch, storageClass = var.storage.class }
       appUserSecret = var.secret_names.es_app
-      snapshot      = { credentialsSecret = var.secret_names.es_snapshot }
-    }
-    minio = {
-      mode                = var.minio_mode
-      storage             = { size = var.storage.minio, storageClass = var.storage.class }
-      image               = var.minio_images.server == null ? {} : var.minio_images.server
-      policyJob           = { image = var.minio_images.mc == null ? {} : var.minio_images.mc }
-      configurationSecret = var.secret_names.minio_config
-      users = {
-        app        = var.secret_names.minio_app
-        pgBackup   = var.secret_names.minio_pg_backup
-        esSnapshot = var.secret_names.minio_es_snap
+      snapshot = {
+        credentialsSecret = var.secret_names.es_snapshot
+        bucket            = var.s3.es_snapshot_bucket
+        endpoint          = local.s3_hostport
+        protocol          = local.s3_https ? "https" : "http"
+        extraCASecret     = length(local.s3_ca) == 0 ? {} : local.s3_ca[0]
       }
     }
+    # object storage is always external to the chart: rook-ceph RGW (object_store) or your own S3; no bundled MinIO tenant
+    minio    = { mode = "external" }
+    caBundle = { extraSecrets = local.s3_ca }
     networkPolicy = {
-      operatorNamespaces       = { eck = var.namespaces.eck, cnpg = var.namespaces.cnpg, minio = var.namespaces.minio }
+      operatorNamespaces       = { eck = var.namespaces.eck, cnpg = var.namespaces.cnpg }
       monitoringNamespace      = var.namespaces.monitoring
       ingressNamespaceSelector = { "kubernetes.io/metadata.name" = var.network.ingress_namespace }
       kubeAPI                  = { cidrs = var.network.kube_api_cidrs, ports = [443, 6443] }
-      s3Cidrs                  = var.network.s3_cidrs
+      s3Cidrs                  = var.network.s3_cidrs # external S3; rook-ceph RGW is allowed by modules/ceph (NetworkPolicy)
       externalCIDRs = {
         postgres      = { cidrs = var.network.postgres_cidrs, ports = [5432] }
         elasticsearch = { cidrs = var.network.elastic_cidrs, ports = [9200] }

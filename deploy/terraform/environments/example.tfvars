@@ -5,24 +5,22 @@ kubeconfig_path    = "~/.kube/config"
 kubeconfig_context = "dev-cluster"
 
 mirror_registry = "registry.internal.example" # replaces MIRROR.example.com everywhere
-ha              = false                       # 1 PG, 1 ES node, 1 MinIO server (4 drives), no HPA/PDB, small resources
+ha              = false                       # 1 PG, 1 ES node, external S3, no HPA/PDB, small resources
 
 # Operators: pin chart repo + version from your mirror (see README placeholder table).
 charts = {
-  cnpg           = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
-  barman         = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
-  cert_manager   = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
-  eck            = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
-  minio_operator = { repository = "oci://registry.internal.example/charts", version = "7.0.0" }
+  cnpg         = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
+  barman       = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
+  cert_manager = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
+  eck          = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
 }
 
 # Operator images from the mirror (repository defaults to <mirror_registry>/<upstream path>; tag is a gated placeholder).
 operator_images = {
-  cnpg           = { tag = "1.26.0" }
-  barman         = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
-  cert_manager   = { tag = "v1.17.0" }
-  eck            = { tag = "2.16.0" }
-  minio_operator = { tag = "v7.0.0" }
+  cnpg         = { tag = "1.26.0" }
+  barman       = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
+  cert_manager = { tag = "v1.17.0" }
+  eck          = { tag = "2.16.0" }
 }
 
 protect_data = false # WARNING: never flip on a live install with a plain apply (re-creates the release, deletes data); disposable dev: allows `terraform destroy` (see README Destroy cautions)
@@ -62,17 +60,18 @@ network = {
   oidc_cidrs     = ["10.71.0.0/24"]
 }
 
-storage = { postgres = "20Gi", elasticsearch = "50Gi", minio = "50Gi" }
+storage = { postgres = "20Gi", elasticsearch = "50Gi" }
 
 # Secrets (create mode): override via TF_VAR_secret_data in CI. Example shape only.
 # secret_data = {
 #   db_password       = "..."    # openssl rand -hex 32
 #   es_app_password   = "..."
-#   minio_root_user   = "..."
-#   minio_root_pass   = "..."
-#   minio_app         = { access = "...", secret = "..." }
-#   minio_pg_backup   = { access = "...", secret = "..." }
-#   minio_es_snapshot = { access = "...", secret = "..." }
+#   s3_access_key     = "..."    # object_store=external; optional s3_pg_backup / s3_es_snapshot = { access, secret }
+#   s3_secret_key     = "..."
 #   llm_api_key       = "..."    # required unless models.llm_key_used = false
 # }
 # pull_secret = { server = "registry.internal.example", username = "...", password = "..." }
+
+# Object storage: an S3 you operate (small installs). For Ceph see environments/prod.example.tfvars.
+object_store = "external"
+s3           = { endpoint = "https://s3.internal.example:9000" }

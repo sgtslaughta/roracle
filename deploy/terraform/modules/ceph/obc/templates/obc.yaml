@@ -1,0 +1,11 @@
+{{- range $key, $bucket := .Values.buckets }}
+---
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: {{ $.Values.prefix }}-{{ $key | replace "_" "-" }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  bucketName: {{ $bucket }}
+  storageClassName: {{ $.Values.storageClass }}
+{{- end }}

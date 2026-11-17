@@ -7,7 +7,7 @@ terraform {
 }
 
 variable "releases" {
-  description = "Enabled charts keyed cnpg|barman|cert_manager|eck|minio_operator|kube_prometheus_stack|loki|otel_collector."
+  description = "Enabled charts keyed cnpg|barman|cert_manager|eck|rook_ceph|rook_ceph_cluster|kube_prometheus_stack|loki|otel_collector."
   type = map(object({
     repository = string
     chart      = string
@@ -51,24 +51,26 @@ variable "loki_s3_enabled" {
 }
 
 locals {
+  late = ["barman", "rook_ceph_cluster"]
   # Helm release names; kps/otel match the service names hard-wired in deploy/observability/*.values.yaml.
   release_name = {
     cnpg                  = "cnpg"
     barman                = "plugin-barman-cloud"
     cert_manager          = "cert-manager"
     eck                   = "eck-operator"
-    minio_operator        = "minio-operator"
+    rook_ceph             = "rook-ceph"
+    rook_ceph_cluster     = "rook-ceph-cluster"
     kube_prometheus_stack = "kps"
     loki                  = "loki"
     otel_collector        = "otel"
   }
   # CRDs that must exist before the application chart renders its CRs.
   crds = {
-    cnpg           = ["clusters.postgresql.cnpg.io"]
-    barman         = ["objectstores.barmancloud.cnpg.io"]
-    cert_manager   = ["certificates.cert-manager.io"]
-    eck            = ["elasticsearches.elasticsearch.k8s.elastic.co"]
-    minio_operator = ["tenants.minio.min.io"]
+    cnpg         = ["clusters.postgresql.cnpg.io"]
+    barman       = ["objectstores.barmancloud.cnpg.io"]
+    cert_manager = ["certificates.cert-manager.io"]
+    eck          = ["elasticsearches.elasticsearch.k8s.elastic.co"]
+    rook_ceph    = ["cephclusters.ceph.rook.io", "cephobjectstores.ceph.rook.io", "objectbucketclaims.objectbucket.io"]
   }
   wanted_crds = toset(flatten([for k, v in local.crds : v if contains(keys(var.releases), k)]))
   namespaces  = toset([for r in var.releases : r.namespace])
@@ -114,7 +116,7 @@ resource "kubernetes_secret_v1" "loki_s3" {
 }
 
 resource "helm_release" "base" {
-  for_each = { for k, v in var.releases : k => v if k != "barman" }
+  for_each = { for k, v in var.releases : k => v if !contains(local.late, k) }
 
   name        = local.release_name[each.key]
   repository  = each.value.repository
@@ -129,9 +131,10 @@ resource "helm_release" "base" {
   depends_on = [kubernetes_secret_v1.loki_s3, kubernetes_secret_v1.pull] # loki reads Secret loki-s3
 }
 
-# The barman-cloud plugin needs the CNPG operator and cert-manager (webhook certificates) first.
-resource "helm_release" "barman" {
-  for_each = { for k, v in var.releases : k => v if k == "barman" }
+# Installed after the base releases: the barman-cloud plugin needs the CNPG operator and cert-manager (webhook certificates);
+# rook-ceph-cluster needs the rook-ceph operator and its CRDs.
+resource "helm_release" "late" {
+  for_each = { for k, v in var.releases : k => v if contains(local.late, k) }
 
   name        = local.release_name[each.key]
   repository  = each.value.repository
@@ -153,7 +156,7 @@ data "kubernetes_resource" "crd" {
   metadata {
     name = each.key
   }
-  depends_on = [helm_release.base, helm_release.barman]
+  depends_on = [helm_release.base, helm_release.late]
 }
 
 resource "terraform_data" "ready" {

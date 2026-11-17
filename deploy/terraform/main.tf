@@ -45,6 +45,21 @@ module "operators" {
   depends_on          = [module.platform]
 }
 
+module "ceph" {
+  count              = var.deploy_app && local.ceph_on ? 1 : 0
+  source             = "./modules/ceph"
+  namespace          = var.namespaces.app
+  ceph_namespace     = var.namespaces.rook_ceph
+  store_name         = var.ceph.store_name
+  storage_class      = local.ceph_bucket_class
+  buckets            = { app = var.s3.bucket, pg_backup = var.s3.pg_backup_bucket, es_snapshot = var.s3.es_snapshot_bucket }
+  tls                = var.ceph.rgw.tls_secret != ""
+  kubeconfig_path    = var.kubeconfig_path
+  kubeconfig_context = var.kubeconfig_context
+  timeout            = var.ceph.obc_timeout
+  depends_on         = [module.operators, module.platform] # operators = CRDs + RGW chart installed
+}
+
 module "secrets" {
   count         = var.deploy_app && var.secrets_mode == "create" ? 1 : 0
   source        = "./modules/secrets"
@@ -53,10 +68,10 @@ module "secrets" {
   data          = var.secret_data
   fullname      = local.app_fullname
   postgres_mode = var.postgres_mode
-  minio_tenant  = var.minio_mode == "tenant"
+  s3            = local.s3_creds
   llm_key_used  = var.models.llm_key_used
   elastic_mode  = var.elasticsearch_mode
-  depends_on    = [module.platform]
+  depends_on    = [module.platform, module.ceph]
 }
 
 module "inference" {

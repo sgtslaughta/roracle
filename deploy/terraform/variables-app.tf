@@ -82,7 +82,7 @@ variable "models" {
 }
 
 variable "ha" {
-  description = "true = chart HA defaults (3 PG, 3 ES, 4x4 MinIO, HPA, PDB). false = single-instance dev profile with small resources."
+  description = "true = chart HA defaults (3 PG, 3 ES, Ceph or external S3, HPA, PDB). false = single-instance dev profile with small resources."
   type        = bool
   default     = false
 }
@@ -101,8 +101,8 @@ variable "storage" {
   type = object({
     postgres      = optional(string, "100Gi")
     elasticsearch = optional(string, "200Gi")
-    minio         = optional(string, "250Gi")
-    class         = optional(string, "")
+    # object storage capacity is the Ceph OSD devices (rook-ceph) or the external S3
+    class = optional(string, "")
   })
   default = {}
 }
@@ -123,24 +123,6 @@ variable "elasticsearch_mode" {
     condition     = contains(["eck", "external"], var.elasticsearch_mode)
     error_message = "eck | external"
   }
-}
-
-variable "minio_mode" {
-  type    = string
-  default = "tenant"
-  validation {
-    condition     = contains(["tenant", "external"], var.minio_mode)
-    error_message = "tenant | external"
-  }
-}
-
-variable "minio_images" {
-  description = "MinIO server and mc (policy hook Job) images for minio_mode=tenant. REQUIRED for tenant (the gate refuses apply otherwise): MinIO stopped publishing community images in Oct 2025 and quay.io/minio/{minio,mc} are no longer pullable, so the chart defaults cannot be mirrored. repository is relative to global.imageRegistry."
-  type = object({
-    server = optional(object({ repository = string, tag = string }))
-    mc     = optional(object({ repository = string, tag = string }))
-  })
-  default = {}
 }
 
 variable "network" {
@@ -174,37 +156,29 @@ variable "secrets_mode" {
 variable "secret_names" {
   description = "Secret names consumed by the chart (created in create mode, expected in existing mode)."
   type = object({
-    app             = optional(string, "roracle-secrets")
-    pg_app          = optional(string, "roracle-pg-app")
-    pg_backup       = optional(string, "roracle-pg-backup-s3")
-    pg_backup_ca    = optional(string, "roracle-minio-ca")
-    es_app          = optional(string, "roracle-es-app")
-    es_snapshot     = optional(string, "roracle-es-s3")
-    minio_config    = optional(string, "roracle-minio-config")
-    minio_app       = optional(string, "roracle-minio-app")
-    minio_pg_backup = optional(string, "roracle-minio-pg")
-    minio_es_snap   = optional(string, "roracle-minio-es")
+    app         = optional(string, "roracle-secrets")
+    pg_app      = optional(string, "roracle-pg-app")
+    pg_backup   = optional(string, "roracle-pg-backup-s3")
+    es_app      = optional(string, "roracle-es-app")
+    es_snapshot = optional(string, "roracle-es-s3")
   })
   default = {}
 }
 
 variable "secret_data" {
-  description = "Credentials for create mode. Charset of minio_root_* and passwords: [A-Za-z0-9._~-] (openssl rand -hex 32). database_url/elastic_url override the generated URLs (external modes). extra goes into the app Secret (e.g. other model API keys)."
+  description = "Credentials for create mode. Charset of passwords: [A-Za-z0-9._~-] (openssl rand -hex 32). database_url/elastic_url override the generated URLs (external modes). extra goes into the app Secret (e.g. other model API keys)."
   type = object({
-    db_password       = optional(string, "")
-    es_app_password   = optional(string, "")
-    minio_root_user   = optional(string, "")
-    minio_root_pass   = optional(string, "")
-    minio_app         = optional(object({ access = string, secret = string }))
-    minio_pg_backup   = optional(object({ access = string, secret = string }))
-    minio_es_snapshot = optional(object({ access = string, secret = string }))
-    llm_api_key       = optional(string, "")
-    rerank_api_key    = optional(string, "")
-    database_url      = optional(string, "")
-    elastic_url       = optional(string, "")
-    s3_access_key     = optional(string, "")
-    s3_secret_key     = optional(string, "")
-    extra             = optional(map(string), {})
+    db_password     = optional(string, "")
+    es_app_password = optional(string, "")
+    llm_api_key     = optional(string, "")
+    rerank_api_key  = optional(string, "")
+    database_url    = optional(string, "")
+    elastic_url     = optional(string, "")
+    s3_access_key   = optional(string, "")
+    s3_secret_key   = optional(string, "")
+    s3_pg_backup    = optional(object({ access = string, secret = string })) # external: defaults to s3_access_key/s3_secret_key
+    s3_es_snapshot  = optional(object({ access = string, secret = string }))
+    extra           = optional(map(string), {})
   })
   default   = {}
   sensitive = true

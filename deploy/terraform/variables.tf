@@ -32,7 +32,7 @@ variable "namespaces" {
     cnpg          = optional(string, "cnpg-system")
     cert_manager  = optional(string, "cert-manager")
     eck           = optional(string, "elastic-system")
-    minio         = optional(string, "minio-operator")
+    rook_ceph     = optional(string, "rook-ceph")
     monitoring    = optional(string, "monitoring")
     observability = optional(string, "observability")
     inference     = optional(string, "roracle-inference")
@@ -69,7 +69,7 @@ variable "pull_secret" {
 # ---- Operator layer ----
 variable "charts" {
   description = <<-EOT
-    Per-chart overrides, keys: cnpg, barman, cert_manager, eck, minio_operator, kube_prometheus_stack, loki, otel_collector.
+    Per-chart overrides, keys: cnpg, barman, cert_manager, eck, rook_ceph, rook_ceph_cluster, kube_prometheus_stack, loki, otel_collector.
     Any attribute left null falls back to the default in locals.tf (repository oci://MIRROR.example.com/charts, version 0.0.0-PLACEHOLDER).
     `values` = extra YAML string merged after the built-in values (e.g. file("my-cnpg.yaml")).
   EOT
@@ -98,7 +98,7 @@ variable "loki_s3_credentials" {
 
 variable "operator_images" {
   description = <<-EOT
-    Operator image overrides for the air-gap mirror, keys: cnpg, barman, cert_manager (repository = prefix, -controller/-webhook/-cainjector/-startupapicheck appended), eck, minio_operator.
+    Operator image overrides for the air-gap mirror, keys: cnpg, barman, cert_manager (repository = prefix, -controller/-webhook/-cainjector/-startupapicheck appended), eck, rook_ceph.
     Defaults: repository "<mirror_registry>/<upstream path>", tag "0.0.0-PLACEHOLDER" (gated). barman: images render <mirror_registry>/cloudnative-pg/plugin-barman-cloud[-sidecar]:<tag> via image.registry/sidecarImage.registry (chart 0.9.0 keys; the repository override is ignored for barman). Chart value keys are the common ones; verify against the mirrored chart and use charts.<key>.values to adjust (e.g. the barman sidecar image).
   EOT
   type = map(object({
