@@ -21,6 +21,9 @@ _GLOBAL = re.compile(
     r"\b(?:(?:main|key|major|common|recurring|overall) (?:themes?|trends?|topics?|findings|conclusions|takeaways)"
     r"|(?:across|throughout|among) (?:all|the|my|our) (?:the )?(?:documents?|papers?|library|corpus|collection|sources|files)"
     r"|(?:in|of|from) (?:all|the whole|the entire|the full) (?:the )?(?:documents?|papers?|library|corpus|collection)"
+    r"|(?:in|of|from|across|throughout) (?:my|our|this|the) (?:whole |entire |full )?(?:library|collection|corpus)"
+    r"|(?:what|which) (?:do|are|is) (?:all|most|the|my|our) (?:\w+ )?(?:documents|papers|sources) (?:say|agree|conclude|cover)"
+    r"|(?:everything|all) (?:i|we) (?:have|know) (?:about|on)"
     r"|(?:summari[sz]e|overview of|survey of) (?:all|everything|the (?:whole|entire|full))"
     r"|which (?:documents|papers|sources) (?:discuss|mention|cover|address)"
     r"|how many (?:documents|papers))\b",

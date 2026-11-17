@@ -35,7 +35,7 @@ from roracle.retrieval import Passage, embed_query, expand_units
 log = logging.getLogger(__name__)
 MIN_DOCS = 3
 UNITS = ("document", "section", "chunk")
-NO_FINDINGS = "None of the documents you can access addresses this question."
+NO_FINDINGS = "None of the {n} most relevant documents you can access address this question."
 REDUCE_SYSTEM = (
     "You are rOracle, a research assistant. Answer the question across the library from the numbered per-document "
     "findings only. Cite every claim with [n] markers matching the findings; each [n] is one document. If the "
@@ -298,15 +298,23 @@ def stream_prepare(
             return [msgs[0], *history, *msgs[1:]], passages, versions, None, []
         why = fallback_reason(stats, bool(notes))
         if not why:
-            return [], [], {}, NO_FINDINGS, []  # every document answered NONE: a true negative
+            return [], [], {}, NO_FINDINGS.format(n=len(prep.docs)), []  # every document answered NONE
         if fallback is None:
             raise RuntimeError(f"global answer unavailable ({why})")
-        yield frame("meta", {"route": "fact", "global": {"fallback": why}})
-        return _fact(fallback)
+        msgs, passages, versions, notes, excluded = _fact(fallback)
+        yield frame(
+            "meta",
+            {
+                "route": "fact",
+                "global": {"fallback": why},
+                **({"excluded_by_label": excluded} if excluded else {}),
+            },
+        )
+        return msgs, passages, versions, None, notes, None  # None: the reduce token cap does not apply
 
     return run
 
 
 def _fact(fallback):
-    msgs, passages, versions, notes = fallback()
-    return msgs, passages, versions, None, notes
+    msgs, passages, versions, notes, *rest = fallback()
+    return msgs, passages, versions, notes, (rest[0] if rest else [])

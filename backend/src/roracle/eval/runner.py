@@ -55,7 +55,7 @@ def visible_ids(session: Session, p: Principal, doc_ids: set[str], path: str) ->
 def _global_answer(session, es, llm, settings: Settings, p: Principal, q: str, docs) -> dict:
     t0 = time.perf_counter()
     msgs, passages = global_answer.reduce_inputs(session, es, llm, settings, p, q, docs)
-    text = global_answer.NO_FINDINGS
+    text = global_answer.NO_FINDINGS.format(n=len(docs))
     if passages:
         r = llm.chat.completions.create(
             model=settings.chat_model_list[0],
@@ -166,7 +166,10 @@ def run_set(
                 for r, _, top, p, text in eligible[: settings.eval_judge_sample]:
                     docs = answers.get((str(p.user_id), p.via, text))
                     g = _global_answer(session, es, llm, settings, p, text, docs) if docs else None
-                    j = judge_fn(p, text, g["passages"] if g and g["passages"] else top)
+                    if g and g["passages"]:  # judge the reduce answer that was actually produced
+                        j = judge_mod.judge_text(session, llm, settings, p, g["answer"], g["passages"])
+                    else:
+                        j = judge_fn(p, text, top)
                     judged[(r.query_key, r.principal)] = (
                         {**j, "global": {k: v for k, v in g.items() if k != "passages"}} if g else j
                     )

@@ -158,8 +158,8 @@ class AnswerStream:
         return next(self._gen)
 
     def close(self) -> None:
+        self._persist("interrupted", safe=True)  # while the stream session is still open
         self._gen.close()
-        self._persist("interrupted", safe=True)
         self._cleanup()
 
     def _persist(self, status: str, safe: bool = False) -> UUID | None:
@@ -195,7 +195,11 @@ class AnswerStream:
                     {**({"excluded_by_label": self.excluded} if self.excluded else {}), **(self.meta or {})},
                 )
             if self.prepare:  # e.g. global map phase: no DB connection held while the model calls run
-                self.messages, passages, versions, self.canned, notes = yield from self.prepare()
+                self.messages, passages, versions, self.canned, notes, *cap = yield from self.prepare()
+                if (
+                    cap
+                ):  # a 6th element overrides the token cap (the global fact fallback drops the reduce cap)
+                    self.max_tokens = cap[0]
                 self.set_items(passages, versions, notes)
             if self.canned is not None:
                 self.parts.append(self.canned)

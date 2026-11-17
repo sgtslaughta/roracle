@@ -222,3 +222,25 @@ def test_admitted_question_cap_sends_the_next_user_to_the_fact_path(db_session, 
     prep, meta = ga.route_question(db_session, GES(hits), LLM(), c, other, q)
     assert first and prep is None and meta == {"route": "fact", "global": {"skipped": "busy"}}
     first.release()
+
+
+def test_fallback_carries_excluded_by_label_and_drops_the_reduce_cap(db_session, cfg, me, user):
+    _, hits = world(db_session, user.id, 4)
+    p, _ = ga.route_question(
+        db_session, GES(hits), LLM(), cfg, me, "What are the main themes across all the documents?"
+    )
+    ex = [{"doc_id": "d", "label": "secret"}]
+    run = ga.stream_prepare(
+        db_session, GES(hits), SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kw: (_ for _ in ()).throw(RuntimeError("down"))))),
+        cfg, me, "q", p, [], lambda: (["m"], [], {}, [], ex),
+    )  # fmt: skip
+    g, frames = run(), []
+    try:
+        while True:
+            frames.append(next(g))
+    except StopIteration as e:
+        out = e.value
+    p.release()
+    assert out == (["m"], [], {}, None, [], None)
+    assert any('"fallback": "error"' in f and '"excluded_by_label"' in f for f in frames)

@@ -154,13 +154,14 @@ def _fact_fallback(
     ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
 ):
     """Inside a global stream whose map phase produced nothing usable: the ordinary retrieval + prompt, on the
-    stream's own session. Returns (messages, passages, versions, notes)."""
+    stream's own session. Returns (messages, passages, versions, notes, excluded)."""
     pins, excludes, scope = list(chat.pins), list(chat.excludes), chat.scope
 
     def run():
+        excluded: list[dict] = []
         ps = retrieve_for_chat(
             ss, es, llm, settings, p, body.content, body.viewer, scope, pins, excludes,
-            include_notes=body.include_notes,
+            include_notes=body.include_notes, excluded=excluded,
         )  # fmt: skip
         ps, notes = split_notes(ps)
         out = (
@@ -168,6 +169,7 @@ def _fact_fallback(
             ps,
             _versions(ss, [*ps, *notes]),
             notes,
+            excluded,
         )
         ss.commit()
         return out

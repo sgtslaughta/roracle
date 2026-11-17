@@ -334,7 +334,12 @@ def test_all_none_is_a_true_negative_and_is_saved(client, as_ana, ana, db_sessio
     ev = _ask(client, as_ana)
     assert not any(e == "meta" and d.get("route") == "fact" for e, d in ev[1:])
     (msg,) = _assistant(db_session)
-    assert msg.status == "complete" and msg.content.startswith("None of the documents") and llm.reduces == []
+    assert (
+        msg.status == "complete"
+        and msg.content.startswith("None of the ")
+        and "most relevant documents" in msg.content
+        and llm.reduces == []
+    )
 
 
 def test_no_fallback_available_is_an_error_not_a_false_answer(db_session, ana, setup, settings):

@@ -254,6 +254,35 @@ def test_disconnect_saves_interrupted(db_session, user):
     assert (m.status, m.content, m.citations) == ("interrupted", "Alpha ", [])
 
 
+def test_close_persists_before_cleanup_closes_the_session(db_session, user):
+    chat = Chat(owner_id=user.id)
+    db_session.add(chat)
+    db_session.commit()
+    seen = []
+    cleanup = lambda: seen.append(db_session.scalars(select(ChatMessage)).all() != [])  # noqa: E731
+    gen = stream_answer(db_session, FakeStreamLLM(), chat.id, "m", [], [P(1)], cleanup=cleanup)
+    next(gen)
+    gen.close()
+    assert seen == [True]  # the interrupted row existed when cleanup (the session close) ran
+
+
+def test_prepare_may_drop_the_token_cap(db_session, user):
+    chat = Chat(owner_id=user.id)
+    db_session.add(chat)
+    db_session.commit()
+    llm = FakeStreamLLM()
+    seen = []
+    orig = llm.chat.completions.create
+    llm.chat.completions.create = lambda **kw: (seen.append(kw), orig(**kw))[1]
+
+    def prep():
+        return [], [], {}, None, [], None
+        yield
+
+    list(stream_answer(db_session, llm, chat.id, "m", [], [], max_tokens=1200, prepare=prep))
+    assert "max_tokens" not in seen[0]
+
+
 def test_disconnect_after_citations_marker(db_session, user):
     chat = Chat(owner_id=user.id)
     db_session.add(chat)

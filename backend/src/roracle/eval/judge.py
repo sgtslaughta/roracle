@@ -129,7 +129,16 @@ def judge_pair(
     session: Session, llm, settings: Settings, p: Principal, question: str, passages: list[Passage]
 ) -> dict[str, Any]:
     """Answer + judge for one (query, principal) on the chat path's passages."""
-    text = answer(session, llm, settings, p, question, passages)
+    return judge_text(
+        session, llm, settings, p, answer(session, llm, settings, p, question, passages), passages
+    )
+
+
+def judge_text(
+    session: Session, llm, settings: Settings, p: Principal, text: str, passages: list[Passage]
+) -> dict[str, Any]:
+    """Judge an ALREADY generated answer (the global reduce) against the passages it cites."""
+    assert_llm_safe(session, p, passages)
     return judge(llm, settings.eval_judge_model or settings.chat_model_list[0], claims(text), passages)
 
 

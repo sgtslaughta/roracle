@@ -114,6 +114,20 @@ def test_judge_pair_end_to_end_with_offline_models(db_session, world, settings):
     assert (out["claims"], out["faithfulness"], out["citation_support"]) == (1, 1.0, 1.0)
 
 
+def test_judge_text_judges_the_given_answer_without_regenerating(db_session, world, settings):
+    w = world
+    p = Principal(w["ana"].id, "ana", "ana", (), False)
+    llm = ScriptLLM(default='{"supported": true}')
+    out = judge.judge_text(
+        db_session, llm, settings, p, "The reduce said spectral gaps bound mixing [1].",
+        [passage(w["pub"], text="Spectral gaps bound mixing times.")],
+    )  # fmt: skip
+    assert (out["claims"], out["faithfulness"]) == (1, 1.0)
+    assert (
+        len(llm.calls) == 1 and "reduce said" in llm.calls[0]["messages"][-1]["content"]
+    )  # only the verdict call
+
+
 def _run(db, w, g, **kw):
     rid = runner.run_set(
         db, None, None, SETTINGS, g, trigger="ci", rank=lambda p, q, raw: [passage(w["pub"])], **kw
