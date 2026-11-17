@@ -63,6 +63,7 @@ export interface DocumentDetail {
   authors: string[];
   year: number | null;
   venue: string | null;
+  ids?: Record<string, string>;
   org_unit: string;
   visibility: Visibility;
   label?: Label;

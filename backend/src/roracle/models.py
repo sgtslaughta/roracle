@@ -141,7 +141,7 @@ class DocumentCoauthor(Base):
 # Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
 # claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
 # (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
-BULK_KINDS = ("rebuild_units", "reconcile_tags")
+BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs")
 
 
 def bulk_sql(*, bulk: bool) -> str:
