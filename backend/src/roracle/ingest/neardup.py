@@ -300,15 +300,15 @@ def find_sibling_duplicate(
             or_(DocumentVersion.stage != "searchable", DocumentVersion.created_at >= since),
         )
     )
-    match = []
+    match, band_first = [], []
     if version.minhash:
-        match.append(
-            DocumentVersion.id.in_(
-                select(VersionLsh.version_id).where(
-                    tuple_(VersionLsh.band, VersionLsh.hash).in_(bands(version.minhash))
-                )
+        in_bands = DocumentVersion.id.in_(
+            select(VersionLsh.version_id).where(
+                tuple_(VersionLsh.band, VersionLsh.hash).in_(bands(version.minhash))
             )
         )
+        match.append(in_bands)
+        band_first.append(in_bands.desc())  # band matches first: the summary-only branch never crowds them out
     if version.summary_embedding:
         match.append(DocumentVersion.summary_embedding.is_not(None))
     if not match:
@@ -317,7 +317,7 @@ def find_sibling_duplicate(
         version,
         session.scalars(
             q.where(or_(*match))
-            .order_by(DocumentVersion.created_at.desc(), DocumentVersion.id)
+            .order_by(*band_first, DocumentVersion.created_at.desc(), DocumentVersion.id)
             .limit(MAX_CANDIDATES)
         ),
         threshold,
