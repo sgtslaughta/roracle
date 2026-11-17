@@ -100,7 +100,7 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     onProgress: (g) => patch(chatId, (p) => ({ ...p, progress: `Searching sub-question ${Math.min(g.done + 1, g.of)}/${g.of} (round ${g.step})…` })),
     onCitations: (items) => { flush(); patch(chatId, (p) => ({ ...p, citations: items })); },
     onReading: (part, of) => patch(chatId, (p) => ({ ...p, progress: `Reading part ${part} of ${of}…` })),
-    onSummarizing: (s) => patch(chatId, (p) => ({ ...p, note: `Summarizing ${s.title} (v${s.version})` })),
+    onSummarizing: (s) => patch(chatId, (p) => ({ ...p, note: `Summarizing ${s.title} (v${s.version})${s.partial ? `: read ${s.partial.read} of ${s.partial.of} parts, so the summary is partial` : ""}` })),
     onExcluded: (items) => patch(chatId, (p) => ({ ...p, excluded: items })),
     onDone: (messageId) => {
       const ex = turns.get()[chatId]?.excluded;

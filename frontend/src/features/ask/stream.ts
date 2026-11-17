@@ -42,7 +42,7 @@ export interface StreamHandlers {
   /** summary of one document: map-reduce part `part` of `of` is being read */
   onReading?(part: number, of: number): void;
   /** the open paper being summarized (shown as a note in the turn) */
-  onSummarizing?(s: { title: string; version: number }): void;
+  onSummarizing?(s: { title: string; version: number; partial?: { read: number; of: number } }): void;
   onDone(messageId: string): void;
   onError(detail: string): void;
 }
@@ -63,8 +63,9 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     else if (event === "reading") { if (typeof p.part === "number" && typeof p.of === "number") h.onReading?.(p.part, p.of); }
     else if (event === "meta") {
       if (Array.isArray(p.excluded_by_label)) h.onExcluded?.(p.excluded_by_label as ExcludedByLabel[]);
-      const s = p.summarize as { title?: unknown; version?: unknown } | undefined;
-      if (s && typeof s.title === "string") h.onSummarizing?.({ title: s.title, version: Number(s.version ?? 1) });
+      const s = p.summarize as { title?: unknown; version?: unknown; partial?: { read?: unknown; of?: unknown } } | undefined;
+      const pt = s?.partial && typeof s.partial.read === "number" && typeof s.partial.of === "number" ? { read: s.partial.read, of: s.partial.of } : undefined;
+      if (s && typeof s.title === "string") h.onSummarizing?.({ title: s.title, version: Number(s.version ?? 1), partial: pt });
     }
     else if (event === "done") { if (typeof p.message_id === "string") { finished = true; h.onDone(p.message_id); } }
     else if (event === "error") { finished = true; h.onError(p.detail === "inference failed" ? "The model couldn't finish this answer." : String(p.detail ?? "Something went wrong.")); }

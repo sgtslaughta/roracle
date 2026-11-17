@@ -364,3 +364,23 @@ def test_stale_token_never_frees_a_newer_admission():
     assert "u" in s.users and t2 != t1
     s.leave("u", t2)
     assert s.users == {}
+
+
+def test_failed_map_part_is_skipped_and_flagged_partial(run, db_session, ana, monkeypatch):
+    import httpx
+
+    a, chunks = long_doc(db_session, ana, title="Flaky")
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise httpx.ReadTimeout("slow part")
+        return "part summary"
+
+    monkeypatch.setattr(summarize, "_map", flaky)
+    llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=300)
+    assert len(llm.streams) == 1  # the turn still answers
+    metas = [d["summarize"] for e, d in ev if e == "meta" and "summarize" in d]
+    assert metas and metas[0]["partial"]["read"] == metas[0]["partial"]["of"] - 1
+    assert "say the summary is partial" in llm.streams[0]["messages"][-1]["content"]
