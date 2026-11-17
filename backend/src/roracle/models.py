@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -181,6 +182,20 @@ class Job(Base):
     last_error: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
+
+
+class VersionLsh(Base):
+    """LSH bands of a version's MinHash (16 x 8 rows): near-duplicate candidates by equality, no scan."""
+
+    __tablename__ = "version_lsh"
+
+    band: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    hash: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    __table_args__ = (Index("ix_version_lsh_version_id", "version_id"),)
 
 
 class Vote(Base):

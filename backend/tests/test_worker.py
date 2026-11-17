@@ -12,6 +12,7 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "connector_tick",
         "maintenance",
         "reconcile_tags",
+        "lsh_backfill",
         "reembed",
         "rebuild_units",
         "rebuild_watch",

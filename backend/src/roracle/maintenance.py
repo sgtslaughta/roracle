@@ -201,6 +201,24 @@ def handle_reconcile_tags(session: Session, payload: dict, *, es: Elasticsearch)
         enqueue(session, "reconcile_tags", {"after": str(ids[-1])})
 
 
+LSH_BATCH = 500
+
+
+def handle_lsh_backfill(session: Session, payload: dict) -> None:
+    """One-off (enqueued by migration 0014e): write the LSH bands of every version that has a MinHash, in id order,
+    LSH_BATCH per job. The ingest keeps using the exhaustive check while this job exists."""
+    from roracle.ingest.neardup import write_bands
+
+    q = select(DocumentVersion.id, DocumentVersion.minhash).where(DocumentVersion.minhash.is_not(None))
+    if payload.get("after"):
+        q = q.where(DocumentVersion.id > payload_uuid(payload, "after"))
+    rows = session.execute(q.order_by(DocumentVersion.id).limit(LSH_BATCH)).all()
+    for vid, mh in rows:
+        write_bands(session, vid, mh)
+    if len(rows) == LSH_BATCH:
+        enqueue(session, "lsh_backfill", {"after": str(rows[-1][0])})
+
+
 def _scheduled(session: Session, *statuses: str) -> bool:
     return bool(
         session.scalar(

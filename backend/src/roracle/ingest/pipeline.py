@@ -19,7 +19,7 @@ from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.context import notes_for
 from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, from_bytes, prompt_sha, to_bytes
-from roracle.ingest.neardup import find_near_duplicate, minhash
+from roracle.ingest.neardup import find_near_duplicate, minhash, write_bands
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.raptor import build_units
@@ -101,9 +101,15 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
     return doc
 
 
-def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf) -> bool:
+def _dedupe(
+    session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf, es=None
+) -> bool:
     """True if the version was parked for a near-dup decision."""
-    update_version(sf, v.id, minhash=minhash(text))
+    mh = minhash(text)
+    update_version(sf, v.id, minhash=mh)
+    with sf() as s:  # LSH bands first: a concurrent upload of the same paper then finds this one
+        write_bands(s, v.id, mh)
+        s.commit()
     session.refresh(v)
     settings = runtime.effective(session, settings)
     match = find_near_duplicate(
@@ -112,6 +118,8 @@ def _dedupe(session: Session, v: DocumentVersion, d: Document, text: str, settin
         v,
         settings.near_dup_threshold,
         settings.near_dup_summary_threshold,
+        es=es,
+        settings=settings,
     )
     if match is not None:
         update_version(sf, v.id, near_dup_of=match.id, stage="review")
@@ -356,7 +364,7 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         )
         session.refresh(v)
     if v.stage == "summarized":
-        if _dedupe(session, v, d, document_text(doc), settings, sf):
+        if _dedupe(session, v, d, document_text(doc), settings, sf, es):
             return
         session.refresh(v)
     _index(session, v, d, doc, settings, es, llm, sf, store)
