@@ -13,7 +13,7 @@ To sign out, open the round avatar at the top right and choose **Sign out**. The
 
 Which papers you can see depends on your account's groups (your org unit) and on each paper's visibility. See [collections and sharing](collections-sharing.md#who-can-see-a-document) and the [glossary](../glossary.md#access).
 
-<!-- screenshot: getting-started-signed-in: the Library right after sign-in, showing top bar, sidebar and results -->
+![The Library right after sign-in, showing top bar, sidebar and results](../assets/screens/getting-started-signed-in.png)
 
 ## The layout
 
@@ -28,7 +28,7 @@ The sidebar shows a number on **My uploads** when an upload needs your attention
 
 Settings (from the avatar menu) holds your access tokens and handoffs. The bell lists notifications; choosing one marks it read and takes you to what it is about.
 
-<!-- screenshot: getting-started-layout: the app shell with the reader open on the right -->
+![The app shell with the reader open on the right](../assets/screens/getting-started-layout.png)
 
 ## Theme
 
@@ -40,7 +40,7 @@ Press `Ctrl+K` (or `Cmd+K` on a Mac), or click the command button, to open the c
 
 It offers every sidebar page, Settings, Notifications, Admin (admins only), **New chat** and **Switch theme**.
 
-<!-- screenshot: command-menu: the command menu with a few paper titles matching a typed query -->
+![The command menu with a few paper titles matching a typed query](../assets/screens/command-menu.png)
 
 ## Keyboard shortcuts
 

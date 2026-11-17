@@ -11,7 +11,7 @@ The work is split between two places:
 | Seed the SciFact mirror, run from a terminal, **compare** with a gate verdict | `roracle eval ...` on the command line |
 | Fixture check in the pipeline | `roracle eval ci` |
 
-<!-- screenshot: admin-eval: the Eval tab with the sets table, the run controls and the trend chart -->
+![The Eval tab with the sets table, the run controls and the trend chart](../assets/screens/admin-eval.png)
 
 ## Gold sets
 

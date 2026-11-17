@@ -2,7 +2,7 @@
 
 The Library is the start page. With nothing typed it lists the newest papers you can see. Type in the search box to search the text of papers.
 
-<!-- screenshot: library-results: Library search results with passages, tags, votes and the filter rail -->
+![Library search results with passages, tags, votes and the filter rail](../assets/screens/library-results.png)
 
 ## Searching
 
@@ -57,7 +57,7 @@ How they combine:
 
 Selected filters appear as chips above the results. Click a chip to remove it, or use **Clear all**. Changing a filter returns you to page 1. The address in your browser holds the query, filters, sort and page, so you can bookmark or share a search.
 
-<!-- screenshot: library-filters: the filter rail with a collection, a tag and a year selected, and the active-filter chips -->
+![The filter rail with a collection, a tag and a year selected, and the active-filter chips](../assets/screens/library-filters.png)
 
 ## Votes
 
@@ -67,7 +67,7 @@ Each paper has up and down arrows with a score (up minus down).
 - Click the down arrow to say it is not useful. A menu asks why; the owner sees your reason. The choices are **Outdated**, **Wrong or misleading**, **Low quality** and **Superseded by a newer document**. Choosing the last one asks which paper replaces it, from the other papers on the same results page; it is not offered where there are none, such as in the reader.
 - Votes nudge ranking: a well-liked paper ranks a little higher and a disliked one a little lower (the effect is at most 15 percent).
 
-<!-- screenshot: vote-reasons: the downvote reason menu open on a result card -->
+![The downvote reason menu open on a result card](../assets/screens/vote-reasons.png)
 
 ## Related
 

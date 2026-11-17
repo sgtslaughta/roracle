@@ -4,7 +4,7 @@ Every paper carries a sensitivity label set up by your admins: a name, a colour 
 
 A label can switch on rules, called gates. Which gates a label has is decided by your admins, so two labels can behave very differently. The sections below say what each gate means to you as a reader.
 
-<!-- screenshot: labels-badges: a result card and the reader header showing sensitivity badges -->
+![A result card and the reader header showing sensitivity badges](../assets/screens/labels-badges.png)
 
 ## What each gate means to you
 
@@ -34,7 +34,7 @@ For a note, the author and admins see the same pencil on the note. The same rule
 
 If someone else changes the label of your paper, you get a notification.
 
-<!-- screenshot: labels-change-dialog: the Change label dialog with a lower label greyed out -->
+![The Change label dialog with a lower label greyed out](../assets/screens/labels-change-dialog.png)
 
 ## Asking for a lower label
 

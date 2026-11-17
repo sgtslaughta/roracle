@@ -4,7 +4,7 @@ rOracle keeps a record of admin actions, label changes, access-token use and oth
 
 ## The viewer
 
-<!-- screenshot: admin-audit: the Audit log with both filters and an expanded details cell -->
+![The Audit log with both filters and an expanded details cell](../assets/screens/admin-audit.png)
 
 Entries come newest first, 50 at a time. **Load older entries** fetches the next page.
 

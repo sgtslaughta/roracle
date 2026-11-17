@@ -30,7 +30,7 @@ const seed = (): DataState => ({
   ],
   revoked: [],
 });
-const dataOf = () => (state.adminData ??= seed());
+export const dataOf = () => (state.adminData ??= seed());
 
 const view = (d: DataState): SettingsMap =>
   Object.fromEntries(Object.entries(ENV).map(([k, v]) => [k, k in d.overrides ? { value: d.overrides[k], source: "override" as const } : { value: v, source: "env" as const }]));

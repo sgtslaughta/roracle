@@ -27,7 +27,7 @@ function seed(): Proposal[] {
   ];
 }
 
-const all = () => (state.proposals ??= seed());
+export const all = () => (state.proposals ??= seed());
 
 function decide(id: string, edits: ApproveBody | null): Proposal | Response {
   const p = all().find((x) => x.id === id);

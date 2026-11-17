@@ -10,7 +10,7 @@ A collection is your own named list of papers, for example a literature review. 
 - Pick one, or type a name under **New collection** and choose **Create and add**. If the name matches one of yours (ignoring case), the paper goes into that one instead of creating a duplicate.
 - Adding the same paper twice does nothing.
 
-<!-- screenshot: collections-add: the Add to collection dialog with two collections and the new-collection field -->
+![The Add to collection dialog with two collections and the new-collection field](../assets/screens/collections-add.png)
 
 ### Using a collection
 
@@ -52,7 +52,7 @@ Notes:
 - **My org unit** needs your account to belong to a usable org unit; otherwise the choice fails with "cannot determine org unit; choose another visibility".
 - Uploading with Shared visibility keeps the paper visible to you only until you add people here ([uploads](uploads.md)).
 
-<!-- screenshot: sharing-dialog: the Sharing dialog with visibility Shared and two users and one group -->
+![The Sharing dialog with visibility Shared and two users and one group](../assets/screens/sharing-dialog.png)
 
 ## Transferring and deleting
 

@@ -2,7 +2,7 @@
 
 **Drafts** is where you write a paper in rOracle, check it against your organisation's rules, and publish it into the library. Drafts are often started by an agent working for you ([agents and tokens](agents-and-tokens.md)), but you can write one yourself. Terms are in the [glossary](../glossary.md#writing-and-evaluation).
 
-<!-- screenshot: drafts-list: the Drafts page with one draft in review and one in progress -->
+![The Drafts page with one draft in review and one in progress](../assets/screens/drafts-list.png)
 
 ## What a draft is
 
@@ -80,7 +80,7 @@ Your admins can switch any rule to blocking, warning or off in a profile. If the
 
 **Acknowledge…** records why you accept a citation that is not "supported" (a reason of 1 to 500 characters). Only a person can acknowledge; an agent cannot. An acknowledgement belongs to that exact sentence, so editing the sentence clears it, and **Remove acknowledgement** undoes it. The result reads "All citations pass" when every citation is resolved and either supported or acknowledged. If the model or search is unavailable, the check fails and stores nothing.
 
-<!-- screenshot: drafts-checks: the Checks tab with blocking findings, a warning and citation items -->
+![The Checks tab with blocking findings, a warning and citation items](../assets/screens/drafts-checks.png)
 
 ## AI disclosure
 
@@ -121,7 +121,7 @@ What happens next depends on the profile:
 
 In the published PDF, a citation to a paper that is not visible to everyone appears as "Restricted reference", with its number kept. After publishing you can keep editing; saving and submitting again adds another version.
 
-<!-- screenshot: drafts-submit-dialog: the Submit draft dialog with AI assistance, visibility and label fields -->
+![The Submit draft dialog with AI assistance, visibility and label fields](../assets/screens/drafts-submit-dialog.png)
 
 ## Related
 

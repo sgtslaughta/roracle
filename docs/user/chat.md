@@ -2,7 +2,7 @@
 
 **Ask** answers a question from the papers you are allowed to see and cites every claim. Open it from the sidebar, with **Ask about this** in the reader, or with **New chat** in the command menu. Answers only use passages from the library. If the passages do not contain the answer, the answer says so.
 
-<!-- screenshot: ask-answer: an answer with numbered markers in the text and the source margin beside it -->
+![An answer with numbered markers in the text and the source margin beside it](../assets/screens/ask-answer.png)
 
 ## Asking a question
 
@@ -30,7 +30,7 @@ Chat looks at what you are reading, so you can ask "what does this paper say abo
 - **Pins and excludes.** The same list lets you **Pin** a paper (its best passage is always included in later answers) or **Exclude** it (it is left out of later answers). Pinning a paper removes it from the excludes and the other way round. A chat holds up to 50 pins and 200 excludes. Only the chat's owner can set them; people a chat is shared with do not see them.
 - **Community notes.** Notes other readers wrote on a paper can be passed to the model as untrusted commentary. They are never cited as a numbered source ([notes](notes-annotations.md)).
 
-<!-- screenshot: ask-context-chips: the question box with two reading chips, one ignored, and a quote chip -->
+![The question box with two reading chips, one ignored, and a quote chip](../assets/screens/ask-context-chips.png)
 
 Everything is checked against your own access every time. A paper you cannot see, or an older version that is no longer available to you, is never used. Admin-set visibility, labels and your group decide what is in scope ([collections and sharing](collections-sharing.md#who-can-see-a-document)).
 
@@ -49,7 +49,7 @@ Other things to know:
 - In **Passages read**, a passage from another reader's note is marked "Community note". Notes are context only and are never numbered sources.
 - **Passages read** (under a finished answer, "Show the N passages read") lists every passage the model saw, best first with a relevance score. It shows the first 20; **Show all** lists the rest. This is wider than the cited sources: it shows what the model had, not only what it used.
 
-<!-- screenshot: ask-passages-read: the Passages read list with Quote, Pin and Exclude buttons -->
+![The Passages read list with Quote, Pin and Exclude buttons](../assets/screens/ask-passages-read.png)
 
 ## Global and agentic answers
 
@@ -95,7 +95,7 @@ Under a finished answer:
 - **Export** downloads the chat as Markdown. If a cited paper's label blocks export, its reference and the answer text derived from it are replaced by a "withheld" line for anyone but the owner or an admin ([labels](labels.md#what-each-gate-means-to-you)).
 - A chat that was deleted or never shared with you shows "This chat isn't available".
 
-<!-- screenshot: ask-share-dialog: the Share this chat dialog with a group chip and a user ID chip -->
+![The Share this chat dialog with a group chip and a user ID chip](../assets/screens/ask-share-dialog.png)
 
 ## Keyboard shortcuts
 

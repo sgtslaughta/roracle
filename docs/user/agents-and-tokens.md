@@ -14,7 +14,7 @@ An **agent** here is an AI assistant or script (a coding agent, a notebook, your
 
 Tokens can be created and revoked only while you are signed in to the web app. A token cannot create, list or revoke tokens, so a leaked token cannot make new ones.
 
-<!-- screenshot: tokens-create: the New access token dialog with read and write selected -->
+![The New access token dialog with read and write selected](../assets/screens/tokens-create.png)
 
 ## What each access level allows
 
@@ -45,7 +45,7 @@ Every call a token makes is recorded in the audit log under its name, so your ad
 
 A token also stops working when you have not signed in to rOracle for a while. By default that is 30 days since your last sign-in; the agent then gets "token owner session stale, sign in again". Sign in to the web app again to restore it. Your admins can also switch access tokens off for the whole site, in which case every token is rejected.
 
-<!-- screenshot: tokens-list: the token table with one active, one expired and one revoked token -->
+![The token table with one active, one expired and one revoked token](../assets/screens/tokens-list.png)
 
 ## Connect an MCP client
 

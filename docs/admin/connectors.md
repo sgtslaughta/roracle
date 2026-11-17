@@ -2,7 +2,7 @@
 
 A connector is a source that rOracle pulls papers from, on a schedule or on demand: an S3 bucket, a folder on the server or a website. Everything a connector brings in goes through the same processing as an upload. Manage them in **Admin, Connectors** (the first tab of the admin area).
 
-<!-- screenshot: admin-connectors: the connector list with kind, enabled, schedule and last run -->
+![The connector list with kind, enabled, schedule and last run](../assets/screens/admin-connectors.png)
 
 The list shows each connector's name, kind, an **Enabled** tick, its schedule and the status of its last run. A connector's name opens its detail page. The row has **Run now**, **Edit** and **Delete**. Names must be unique (`409` otherwise).
 
@@ -10,7 +10,7 @@ The list shows each connector's name, kind, an **Enabled** tick, its schedule an
 
 **New connector** opens a form. The kind cannot be changed afterwards.
 
-<!-- screenshot: admin-connector-form: the New connector dialog for an S3 bucket -->
+![The New connector dialog for an S3 bucket](../assets/screens/admin-connector-form.png)
 
 | Field | Meaning |
 |---|---|
@@ -94,7 +94,7 @@ A run ends **ok**, **partial** or **failed**. It is partial when any item failed
 
 On the detail page, **Runs** lists the history, newest first, with status, times and counts. **View log** shows the run's log as plain text: the last 500 lines are kept, and the page shows the last 200 KB. Log lines come from remote systems and are never interpreted. API: `GET /api/admin/connectors/{cid}/runs` and `GET /api/admin/connectors/{cid}/runs/{run_id}`.
 
-<!-- screenshot: admin-connector-runs: a connector's detail page with run history and an open log -->
+![A connector's detail page with run history and an open log](../assets/screens/admin-connector-runs.png)
 
 ## Deleting
 

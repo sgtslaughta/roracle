@@ -6,7 +6,7 @@ Fourteen settings can be changed while rOracle runs, without a restart and witho
 
 In the web app open **Admin, Settings**. Each row shows the effective value, a **Source** (`env` or `override`) and its own **Save** button.
 
-<!-- screenshot: admin-settings-table: the Settings tab with env and override rows -->
+![The Settings tab with env and override rows](../assets/screens/admin-settings-table.png)
 
 - Edit the value and press **Save** for that row. Only that setting is sent.
 - **Reset to env** appears on rows whose source is `override`. It deletes the override, and the environment value applies again.

@@ -2,7 +2,7 @@
 
 **My uploads** is where you add papers and follow each file until it can be searched.
 
-<!-- screenshot: uploads-list: My uploads with files in different stages and the filter buttons -->
+![My uploads with files in different stages and the filter buttons](../assets/screens/uploads-list.png)
 
 ## Adding files
 
@@ -55,7 +55,7 @@ After a file is parsed, rOracle compares its text with papers you can see. If it
 
 Adding a new version needs you to own the existing paper (or be an admin); otherwise choose **No, keep separate** or cancel. If the existing paper has since been deleted, the choice fails and you can keep the file separate instead.
 
-<!-- screenshot: uploads-near-dup: an upload row asking "Is it the same document?" with the four buttons -->
+![An upload row asking "Is it the same document?" with the four buttons](../assets/screens/uploads-near-dup.png)
 
 ## Needs a title
 
@@ -63,7 +63,7 @@ rOracle takes the title from the file's metadata or its first heading. If it fin
 
 A finished paper that still has no title shows "This file has no title" with **Add title**, and the reader offers the same to the owner.
 
-<!-- screenshot: uploads-needs-title: an upload row waiting for a title with the title field -->
+![An upload row waiting for a title with the title field](../assets/screens/uploads-needs-title.png)
 
 ## Related
 

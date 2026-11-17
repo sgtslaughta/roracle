@@ -6,7 +6,7 @@ Three limits are yours to set from the admin area: the size of one upload, how m
 
 The three limits are runtime settings. **Admin, Settings** lists them with their current value and a **Source** of `env` (the deployment's value) or `override` (set here).
 
-<!-- screenshot: admin-settings-limits: the Settings table showing max_upload_bytes, upload_quota_bytes and rate_limit_per_minute -->
+![The Settings table showing max_upload_bytes, upload_quota_bytes and rate_limit_per_minute](../assets/screens/admin-settings-limits.png)
 
 - Change the value and press **Save**. **Reset to env** deletes the override and the environment value applies again.
 - Values are checked against bounds, and a bad value is refused with a message.

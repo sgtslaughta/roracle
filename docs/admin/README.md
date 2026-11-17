@@ -19,7 +19,7 @@ For rOracle administrators: the people, labels, sources and limits that shape wh
 
 Admins see an **Admin** entry in the web app. It opens `/admin` with one tab per section. Anyone else gets "Admins only" and no admin request is sent. A signed-in admin lands on **Connectors**.
 
-<!-- screenshot: admin-nav: the Admin page with its section tabs -->
+![The Admin page with its section tabs](../assets/screens/admin-nav.png)
 
 | Tab | What it is for | Where it is covered |
 |---|---|---|

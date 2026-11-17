@@ -1,0 +1,9 @@
+{
+  "name": "roracle-docs-screenshots",
+  "private": true,
+  "type": "module",
+  "description": "Captures docs/assets/screens/*.png from the frontend in MSW mock mode",
+  "dependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

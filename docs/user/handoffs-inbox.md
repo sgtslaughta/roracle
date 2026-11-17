@@ -39,7 +39,7 @@ For **Named people or groups**, add groups (org-unit paths starting with `/`) an
 
 After **Create handoff link** you get the code and two buttons: **Copy link** and **Copy agent prompt** ("Using the rOracle MCP server, load handoff K7MX-4PQ2 and continue: your goal"). Paste the prompt into your agent. The link is relative to your rOracle address unless your site has a public address configured.
 
-<!-- screenshot: handoff-dialog: the Continue in an agent dialog with audience and expiry fields -->
+![The Continue in an agent dialog with audience and expiry fields](../assets/screens/handoff-dialog.png)
 
 ### What gets redacted when someone loads it
 
@@ -65,7 +65,7 @@ If it cannot be opened you see one of:
 
 Agents can add short notes to a handoff they can load (up to 200 per handoff) if their token has write access. People cannot add notes in the app.
 
-<!-- screenshot: handoff-landing: the handoff page showing goal, brief, documents with labels and a withheld count -->
+![The handoff page showing goal, brief, documents with labels and a withheld count](../assets/screens/handoff-landing.png)
 
 ### Managing your handoffs
 
@@ -75,7 +75,7 @@ Open **Settings** from the avatar menu and choose the **Handoffs** tab. It lists
 - **Edit**: change the title, goal, brief, audience, the people and groups, or the expiry. For a handoff already shared with named people, leave both fields empty to keep the list; adding anyone replaces it. **Keep current** leaves the expiry; otherwise it counts days from now. Edits apply the next time someone loads it. The papers, passages and transcript do not change.
 - **Revoke**: the link stops working for everyone, agents included. It cannot be undone.
 
-<!-- screenshot: settings-handoffs: the Handoffs tab in Settings with active, expired and revoked rows -->
+![The Handoffs tab in Settings with active, expired and revoked rows](../assets/screens/settings-handoffs.png)
 
 ## Agent proposals
 
@@ -92,7 +92,7 @@ Label proposals show the current and proposed labels. Raising a label is allowed
 
 For what happens to approved notes, see [notes and annotations](notes-annotations.md).
 
-<!-- screenshot: agent-proposals: the Agent proposals page with a pending note and a label change -->
+![The Agent proposals page with a pending note and a label change](../assets/screens/agent-proposals.png)
 
 ## Notifications
 
@@ -115,7 +115,7 @@ You may see:
 
 Some events, such as a label change on your paper, a deleted paper or a transferred paper, show the generic text "Something changed."
 
-<!-- screenshot: notifications-bell: the bell popover with unread items and the Notifications page -->
+![The bell popover with unread items](../assets/screens/notifications-bell.png)
 
 ## Related
 

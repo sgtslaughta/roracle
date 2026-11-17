@@ -2,7 +2,7 @@
 
 Notes let you write on a paper for yourself, for named people or groups, or for everyone who can see the paper. They live on the reader's **Notes** tab and, when anchored, also appear as highlights on the page.
 
-<!-- screenshot: reader-notes: the Notes tab showing a finding with evidence, a question and replies -->
+![The Notes tab showing a finding with evidence, a question and replies](../assets/screens/reader-notes.png)
 
 ## Note kinds
 

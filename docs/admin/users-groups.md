@@ -38,7 +38,7 @@ The terms are in the [glossary](../glossary.md#access).
 
 **Admin, Users** lists everyone who has signed in. A person who has never opened rOracle does not appear, and cannot be found by the pickers below either.
 
-<!-- screenshot: admin-users: the Users table with the search box and the Groups list -->
+![The Users table with the search box and the Groups list](../assets/screens/admin-users.png)
 
 - **Search users** matches the user name or the email.
 - The table shows the user, their groups (the first two, with the rest in a menu), whether they are an admin and their last sign-in, 20 users per page.

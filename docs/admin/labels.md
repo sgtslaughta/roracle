@@ -2,7 +2,7 @@
 
 Labels mark how a paper or note must be handled. They only ever restrict: access still comes from visibility and shares ([glossary](../glossary.md#labels)). You define the label set in **Admin, Labels**. What each gate means for a researcher is on the [user page](../user/labels.md); this page is about running the set.
 
-<!-- screenshot: admin-labels: the Labels list with badges, gate checkboxes and the Default tag -->
+![The Labels list with badges, gate checkboxes and the Default tag](../assets/screens/admin-labels.png)
 
 ## The label set
 
@@ -14,7 +14,7 @@ Labels mark how a paper or note must be handled. They only ever restrict: access
 
 **New label** opens a dialog for name, colour and description, and a **Default label for new documents** tick. The new label becomes the most sensitive one and starts with the same gates as the label below it. **Edit** on a row changes name, colour, description and default. Gates are not in the dialog: switch them in the list.
 
-<!-- screenshot: admin-label-form: the New label dialog -->
+![The New label dialog](../assets/screens/admin-label-form.png)
 
 API: `POST /api/admin/labels` (`201`), `PATCH /api/admin/labels/{label_id}`, `DELETE /api/admin/labels/{label_id}` (`204`).
 
@@ -62,7 +62,7 @@ Raising a label (to a more sensitive one) is open to the paper's owner and to ad
 - The change is recorded as `document.label` (or `annotation.label`) with the old and new label ids and the reason, and the owner gets a notification when somebody else made the change. See [audit](audit.md#what-is-recorded).
 - Adding a new version of a paper never lowers its label.
 
-<!-- screenshot: admin-label-lower: the Change label dialog asking an admin for a reason -->
+![The Change label dialog asking an admin for a reason](../assets/screens/admin-label-lower.png)
 
 After a label change the search index follows: the API updates the paper's access fields in Elasticsearch and queues an `acl_sync` job. Until the index has converged, Postgres stays the authority and re-checks the label ([access control](../architecture/access-control.md)).
 

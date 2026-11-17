@@ -2,7 +2,7 @@
 
 Opening a paper from search results, a citation, a note or the command menu opens the reader on the right of the window. The page you were on stays where it was. You can also open a paper by its link; if you cannot see the paper, the reader says it is not available and that you may need to request access from its owner.
 
-<!-- screenshot: reader-split: the reader open beside the Library in split view -->
+![The reader open beside the Library in split view](../assets/screens/reader-split.png)
 
 ## Tabs, versions and the toolbar
 
@@ -30,7 +30,7 @@ The expand button at the right of the tab row cycles the reader through three wi
 
 `Esc` steps back the other way: full screen to three-quarter, three-quarter to split, and from split it closes the reader. `Esc` does nothing while you type in a field and closes an open dialog or menu first. While you are picking a passage for a note, `Esc` cancels that instead. The width you last chose is remembered in this browser, so the next paper opens at the same level.
 
-<!-- screenshot: reader-focus: the reader in three-quarter width with the workspace dimmed behind it -->
+![The reader in three-quarter width with the workspace dimmed behind it](../assets/screens/reader-focus.png)
 
 ## Identifiers
 
@@ -38,7 +38,7 @@ Under the title the reader lists the paper's persistent identifiers, when known:
 
 DOI, arXiv, PMID, PMCID, ACL and OpenReview ids are also used to link citations to papers in the library (see below). ISBN, ISSN and eISSN identify a book or a journal, not a paper, so they are shown but never used for matching.
 
-<!-- screenshot: reader-identifiers: the identifiers panel under a paper title with copy buttons -->
+![The identifiers panel under a paper title with copy buttons](../assets/screens/reader-identifiers.png)
 
 ## References tab
 
@@ -50,7 +50,7 @@ rOracle links a reference to a library paper by matching identifiers first, then
 
 **Cited by** lists the papers in the library that cite this one (again, only those you can see), with an **Open** button for each. If none do, it says "Nothing in the library cites this yet". The "Cited by N here" figure on result cards is the same count.
 
-<!-- screenshot: reader-references: the References tab with in-library and not-in-library entries -->
+![The References tab with in-library and not-in-library entries](../assets/screens/reader-references.png)
 
 ## Sources in answers (the citation margin)
 
