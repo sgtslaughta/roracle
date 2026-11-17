@@ -68,7 +68,7 @@ resource "helm_release" "protected" {
   version     = local.remote ? var.chart.version : null
   values      = local.values
   timeout     = var.timeout_s # chart hooks (migrate, minio-policy, ES snapshot repo) wait on operator-managed services
-  wait        = true
+  wait        = false         # hooks still block; wait=true deadlocks: post-install migrate (cnpg) only runs after helm saw api/worker Ready
   atomic      = false
   max_history = 10
 
@@ -86,7 +86,7 @@ resource "helm_release" "unprotected" {
   version     = local.remote ? var.chart.version : null
   values      = local.values
   timeout     = var.timeout_s
-  wait        = true
+  wait        = false # hooks still block; wait=true deadlocks: post-install migrate (cnpg) only runs after helm saw api/worker Ready
   atomic      = false
   max_history = 10
 }
