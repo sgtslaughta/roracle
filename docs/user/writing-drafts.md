@@ -98,7 +98,7 @@ Set `used: true` if AI tools helped write the draft, and then a description of h
 
 The **PDF** tab has **Build PDF**, which makes a preview you can read and **Download PDF**. The preview is not stored; building again gives a fresh one. It can take up to two minutes; if too many builds are running you get "build service busy", and a site without the PDF service set up shows "build service not configured". Only the owner and co-authors can build, and if the draft's label blocks export only the owner can.
 
-**LaTeX.** A draft whose front matter says `format: latex` cannot be built in this release: building and submitting fail with "LaTeX builds are not enabled". Use Markdown. ([LaTeX builder contract](../enterprise/latex-builder.md) describes the optional service for sites that add one.)
+**LaTeX.** A draft whose front matter says `format: latex` cannot be built in this release: building and submitting fail with "LaTeX builds are not enabled". Use Markdown. ([LaTeX builder contract](../enterprise/latex-builder.md) describes the contract such a service would follow; no builder other than "disabled" exists today.)
 
 ## Co-authors
 

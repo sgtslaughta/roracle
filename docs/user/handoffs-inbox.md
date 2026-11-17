@@ -9,7 +9,7 @@ A handoff is a short code (such as `K7MX-4PQ2`) with a link (`/h/K7MX-4PQ2`). It
 Three things to know first:
 
 - **A handoff is a snapshot.** There is no live mode. The papers, passages and chat transcript are frozen when you create it. Later changes to a chat or a collection do not appear in it.
-- **Access is checked every time it is opened.** Who may load it, which papers they may see and what text is withheld are worked out again for each person on each load, so a handoff never gives anyone more than they could see anyway.
+- **Access is checked every time it is opened.** Who may load it, which papers they may see and what text is withheld are worked out again for each person on each load. This applies to the list of papers, the passages and the citations. The chat transcript text, the brief, the goal, the title and any notes are shown as written, and notes are not checked against labels. Share a handoff that contains a chat only with people who may see everything the chat discusses.
 - **It expires.** By default after 7 days. You can revoke it earlier.
 
 ### Creating a handoff
@@ -45,7 +45,7 @@ After **Create handoff link** you get the code and two buttons: **Copy link** an
 
 Whoever opens it, each person (or agent) gets a version cut down to what they may see:
 
-- **Papers you cannot see** are dropped. The recipient is told only a count: "N sources withheld: you don't have access". Titles and ids of hidden papers are never shown.
+- **Papers you cannot see** are dropped. The recipient is told only a count: "N sources withheld: you don't have access". The paper list never shows their titles or ids, but a chat transcript, the brief or a note may still mention them in its text.
 - **Papers labelled Block agents** are dropped for everyone, including admins and the person who made the handoff ([labels](labels.md#what-each-gate-means-to-you)).
 - **Text of papers labelled Exclude from AI** is withheld when an agent loads the handoff with an access token. The paper is still listed, flagged as text withheld.
 - **Passages and chat citations** are re-checked per loader. A passage from an older version of a paper the loader can see still shows. Citations to community notes are never carried in a handoff.
@@ -88,7 +88,7 @@ Agents with a write token cannot change your library directly. They can only **p
 - **Reject** discards it. It moves to the Rejected tab.
 - **Approve selected** and **Approve all** (in the page header) approve several at once without edits, in batches of 100. A message says how many were approved and why any failed; the failed ones stay selected so you can retry.
 
-Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "Document no longer available". Agents never choose a label for a note; it inherits the paper's.
+Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner or an admin; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "Document no longer available". Agents never choose a label for a new note; it inherits the paper's (they can only propose a **Note label change** for an existing one).
 
 For what happens to approved notes, see [notes and annotations](notes-annotations.md).
 

@@ -31,14 +31,15 @@ The limits that apply to every token:
 - **It sees what you see, minus more.** Papers labelled **Block agents** are invisible to tokens, admins' tokens included. The text of papers labelled **Exclude from AI** is never given to a token ([labels](labels.md#what-each-gate-means-to-you)). Group-based access follows the groups you had when you created the token, and only those you still have.
 - **It proposes, you decide.** Anything an agent wants to add to your library as notes or labels becomes a proposal you approve or reject ([agent proposals](handoffs-inbox.md#agent-proposals)). It cannot approve its own proposals, acknowledge citations in a draft, or lower a label on its own.
 - **Uploads stay private by default** and use your default label; an agent cannot choose a label below the default. A file uploaded by an agent is capped at 25 MiB by default (a larger file needs a normal upload).
-- **Drafts are yours to submit.** An agent can write and check a draft; only you submit it ([writing drafts](writing-drafts.md)).
+- **Drafts.** An agent can write and check a draft, and no agent tool submits one; you submit from the web app ([writing drafts](writing-drafts.md)). A token is refused (403, "withheld by label") when it validates, citation-checks or builds a draft whose label is **Exclude from AI**.
+- **Human-only actions.** Approving proposals, acknowledging citations and managing tokens need you signed in; a token cannot do them.
 - **A read-only token cannot change anything**, through MCP or the web API.
 
 Every call a token makes is recorded in the audit log under its name, so your admins can see which agent did what.
 
 ## The token list
 
-**Settings, Access tokens** shows each token's **Name**, **Prefix** (the first characters, so you can tell tokens apart), **Access**, **Expires**, **Last used** (updated at most once a minute) and **State** (Active, Expired or Revoked). The row menu has **Copy prefix** and **Revoke**.
+**Settings, Access tokens** shows each token's **Name**, **Prefix** (the first characters, so you can tell tokens apart), **Access** (Read or Read and write), **Expires**, **Last used** (updated at most once a minute) and **State** (Active, Expired or Revoked). The row menu has **Copy prefix** and **Revoke**.
 
 **Revoke** stops the token at once: agents using it are signed out. It cannot be undone; create a new token instead.
 
