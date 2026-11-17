@@ -18,7 +18,7 @@ Terms are defined in the [glossary](glossary.md).
 ## Start here by task
 
 - Install: [deployment guide](enterprise/deployment-guide.md)
-- First login: [Keycloak setup](enterprise/keycloak-setup.md) (operator side); user guide is planned
+- First login: [Keycloak setup](enterprise/keycloak-setup.md) (operator side), [getting started](user/getting-started.md)
 - Upload a paper: [user guide](user/README.md)
 - Integrate an agent: [agent integration](enterprise/agent-integration.md), [MCP tools](reference/mcp-tools.md)
 - Upgrade: [deployment guide](enterprise/deployment-guide.md)
@@ -38,6 +38,10 @@ Later tasks append a link line under the matching heading when they add a page.
 - [Sensitivity labels](user/labels.md): what each gate means, changing a label
 - [Collections and sharing](user/collections-sharing.md): collections, visibility, sharing
 - [Uploads](user/uploads.md): adding papers, duplicates, near-duplicates, titles
+- [Chat](user/chat.md): questions, reader-aware context, citations, excludes and pins, sharing
+- [Writing drafts](user/writing-drafts.md): profiles, checks, PDF build, AI disclosure, review, co-authors
+- [Handoffs, inbox and notifications](user/handoffs-inbox.md): handoffs, agent proposals, notifications
+- [Agents and tokens](user/agents-and-tokens.md): access tokens and connecting an MCP client
 
 ### Admin
 

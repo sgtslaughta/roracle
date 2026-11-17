@@ -11,6 +11,7 @@ Opening a paper from search results, a citation, a note or the command menu open
 - **Ask about this** starts a question about the paper in Ask.
 - The thumbs control votes on the paper ([votes](library-search.md#votes)).
 - **Copy link** copies a link to this version and page. People without access are asked to request it.
+- **Continue in agent** hands this paper to an agent ([handoffs](handoffs-inbox.md#creating-a-handoff)).
 - **Add to collection** ([collections](collections-sharing.md)).
 - **Add note** ([notes](notes-annotations.md)).
 - The download button saves the original file. For papers whose label blocks export, see [labels](labels.md#what-each-gate-means-to-you).
@@ -53,7 +54,7 @@ rOracle links a reference to a library paper by matching identifiers first, then
 
 ## Sources in answers (the citation margin)
 
-In Ask, each answer has small numbered citation markers in the text and a margin beside it with one card per source: number, paper title, page and a short quote. Hovering a marker or card highlights its partner. Clicking either opens the paper in the reader on that page with the passage highlighted. A source you cannot see, or that was removed, shows as "Source not available". The margin shows the first 12 sources and a "+N more sources" menu for the rest. Chat itself is described on its own page, which is not published yet.
+In Ask, each answer has small numbered citation markers in the text and a margin beside it with one card per source: number, paper title, page and a short quote. Hovering a marker or card highlights its partner. Clicking either opens the paper in the reader on that page with the passage highlighted. A source you cannot see, or that was removed, shows as "Source not available". The margin shows the first 12 sources and a "+N more sources" menu for the rest. Chat itself is described in [chat](chat.md).
 
 ## Notes tab
 

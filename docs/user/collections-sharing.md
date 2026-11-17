@@ -19,7 +19,7 @@ A collection is your own named list of papers, for example a literature review. 
 - The sidebar three-dot menu on a collection offers **Show in Library**, **Rename…**, **Delete…** and **Copy name**. Deleting removes the collection for you; the papers stay in the library.
 - The count next to a collection only counts papers you can currently see. If a paper in it is deleted or you lose access, it quietly drops out of the count.
 
-To pass a whole collection to an agent, use **Continue in agent** on the Library while filtered to that single collection. See handoffs, which are not published yet.
+To pass a whole collection to an agent, use **Continue in agent** on the Library while filtered to that single collection. See [handoffs](handoffs-inbox.md#creating-a-handoff).
 
 ## Who can see a document
 
@@ -59,7 +59,7 @@ Notes:
 The three-dot **Manage** menu in the reader (owner and admins) has:
 
 - **Transfer ownership…**: the new owner controls the paper, including sharing, labels and deletion.
-- **Delete document…**: removes it from the library for everyone at once. It is kept for a retention period set by your admins, then purged. If an admin deletes your paper you are notified.
+- **Delete document…**: removes it from the library for everyone at once. Deleted papers are purged only if your admins have set a retention period; by default they are never purged. The app has no way to restore a deleted paper. If an admin deletes your paper you are notified.
 
 ## Related
 

@@ -58,6 +58,8 @@ Shortcuts that are plain letters or `/` do nothing while you are typing in a tex
 | Up and Down arrows, `Enter` | Command menu | Move through and choose an item |
 | Up and Down arrows, `Home`, `End` | Row menus (the three-dot menus) | Move between menu items |
 | `Enter` | The "Add a tag" field | Add the tag |
+| `Enter`, `Shift+Enter`, Up and Down arrows | Chat question box | Send, new line, recall earlier questions ([chat shortcuts](chat.md#keyboard-shortcuts)) |
+| `Enter` | Group and people fields in sharing dialogs | Add the typed value as a chip ([chat shortcuts](chat.md#keyboard-shortcuts)) |
 
 `Esc` closes an open dialog or menu first; only when none is open does it step the reader back. It is also ignored while you type in a field.
 

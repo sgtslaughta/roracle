@@ -1,6 +1,6 @@
 # User guide
 
-For researchers: how to find, read, annotate, label and upload papers in rOracle. These pages describe what you see and do in the web app. Terms such as visibility, labels and handoffs are defined in the [glossary](../glossary.md).
+For researchers: how to find, read, annotate, label, upload and ask about papers, write drafts and work with agents in rOracle. These pages describe what you see and do in the web app. Terms such as visibility, labels and handoffs are defined in the [glossary](../glossary.md).
 
 ## Pages
 
@@ -11,8 +11,10 @@ For researchers: how to find, read, annotate, label and upload papers in rOracle
 - [Sensitivity labels](labels.md): what a label means to you and how to change one
 - [Collections and sharing](collections-sharing.md): your private collections, who can see a document
 - [Uploads](uploads.md): adding papers, duplicates, near-duplicates, titles
-
-Chat, drafts, handoffs and agent tokens have their own pages in this section: chat, writing drafts, handoffs inbox, and agents and tokens. They are not published yet.
+- [Chat](chat.md): asking questions, reader-aware context, citations, excludes and pins, sharing
+- [Writing drafts](writing-drafts.md): profiles, checks, citations, PDF build, AI disclosure, review, co-authors
+- [Handoffs, inbox and notifications](handoffs-inbox.md): handing work to an agent, agent proposals, the bell
+- [Agents and tokens](agents-and-tokens.md): creating and revoking access tokens, connecting an MCP client
 
 ## Where things are
 
@@ -22,6 +24,10 @@ Chat, drafts, handoffs and agent tokens have their own pages in this section: ch
 | Jump to a page or paper by name | `Ctrl+K` or `Cmd+K` ([shortcuts](getting-started.md#keyboard-shortcuts)) |
 | Add a paper | My uploads ([uploads](uploads.md)) |
 | Mark a paper sensitive | Pencil next to the label in the reader ([labels](labels.md)) |
-| Decide on notes your agents suggested | Agent proposals in the sidebar |
+| Ask a question about the library | Ask in the sidebar ([chat](chat.md)) |
+| Write and publish a paper | Drafts in the sidebar ([writing drafts](writing-drafts.md)) |
+| Decide on notes your agents suggested | Agent proposals in the sidebar ([inbox](handoffs-inbox.md#agent-proposals)) |
+| Give an agent a piece of work | Continue in agent ([handoffs](handoffs-inbox.md#creating-a-handoff)) |
+| Let an agent use rOracle as you | Settings, Access tokens ([tokens](agents-and-tokens.md)) |
 
 If something here does not match what you see, tell your rOracle admin: the app and these pages are versioned together.

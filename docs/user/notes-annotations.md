@@ -61,7 +61,7 @@ A finding note has an **Evidence** panel. Choose **Add evidence** to record how 
 
 ## Notes your agents suggest
 
-Notes proposed by your agents never appear on a paper until you approve them on **Agent proposals**. Approved agent notes are marked **Agent-assisted**. You can edit the text and visibility before approving; the visibility defaults to private. See agents and tokens (not published yet).
+Notes proposed by your agents never appear on a paper until you approve them on **Agent proposals**. Approved agent notes are marked **Agent-assisted**. You can edit the text and visibility before approving; the visibility defaults to private. See [agent proposals](handoffs-inbox.md#agent-proposals) and [agents and tokens](agents-and-tokens.md).
 
 ## Community notes
 
