@@ -6,6 +6,7 @@ import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { ActiveFilters } from "./ActiveFilters";
 import { FacetRail } from "./FacetRail";
 import { FiltersButton } from "./FiltersButton";
+import { QueryBar } from "./QueryBar";
 import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
@@ -69,6 +70,7 @@ export function SearchPage() {
           </select></span>
         </div>
       </div>
+      <QueryBar search={search} nav={nav} />
       <ActiveFilters search={search} onRemove={(k, v) => nav.patch({ [k]: (search[k] ?? []).filter((x) => x !== v) })} onClear={nav.clear} />
       <div className="sbody">
         <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>

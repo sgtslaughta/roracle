@@ -35,3 +35,15 @@
 @media (prefers-reduced-motion: no-preference) {
   .ybar { transition: fill .15s; }
 }
+
+.qbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.qbar-input { flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; }
+.qbar-input:focus-within { outline: 2px solid var(--primary); outline-offset: 1px; }
+.qbar-input input { flex: 1; min-width: 0; border: 0; background: transparent; outline: 0; font-size: 13px; }
+.qbar-input svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.refine-pop { width: min(340px, calc(100vw - 32px)); }
+.refine { display: grid; gap: 10px; padding: 6px; font-size: 13px; }
+.refine label { display: grid; gap: 4px; }
+.refine .sel { height: auto; min-height: 32px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
+.refine-err { margin: 0; color: var(--destructive, #b3261e); font-size: 12px; }
+.qbar-form { flex: 1 1 280px; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
