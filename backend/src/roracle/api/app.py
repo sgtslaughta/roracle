@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -54,12 +55,31 @@ from roracle.mcp.auth import BearerAuth
 from roracle.mcp.server import build_mcp
 from roracle.metrics import http_middleware
 
+log = logging.getLogger(__name__)
+
+
+def _ensure_tmp_lifecycle(settings: Settings) -> None:
+    if not settings.s3_endpoint:
+        return
+    from botocore.config import Config
+
+    from roracle.storage import blob_store_from, ensure_tmp_lifecycle
+
+    cfg = Config(
+        s3={"addressing_style": "path"}, connect_timeout=3, read_timeout=5, retries={"max_attempts": 1}
+    )
+    try:
+        ensure_tmp_lifecycle(blob_store_from(settings, config=cfg))
+    except Exception:
+        log.warning("tmp/ lifecycle check failed", exc_info=True)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # every sync route and every streamed answer holds one worker thread: anyio's default of 40 tokens would
     # stall /search, MCP and the readiness checks behind ~40 concurrent chats
     anyio.to_thread.current_default_thread_limiter().total_tokens = app.state.settings.api_threads
+    await anyio.to_thread.run_sync(_ensure_tmp_lifecycle, app.state.settings)
     async with app.state.mcp.session_manager.run():
         yield
     http_pool.close()
