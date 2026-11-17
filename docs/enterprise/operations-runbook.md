@@ -143,7 +143,8 @@ Search stays on the old generation until the cutover swaps the read alias.
 ### Clean up `tmp/` upload leftovers
 
 API uploads stage in the blob bucket under `tmp/<uuid>` and are deleted after the copy to `blobs/`. A crash
-mid-upload leaves an object or an incomplete multipart upload behind. The bucket lifecycle rule (`tmp/`, 1 day)
+mid-upload leaves an object or an incomplete multipart upload behind. The API ensures the bucket lifecycle rule `roracle-tmp-expire` (`tmp/`, 1 day, incl. stale multipart uploads) at startup
+(idempotent; on `AccessDenied` it only logs a warning and the operator sets it). The rule
 removes objects; check it with `mc ilm rule ls <alias>/<bucket>` and add it if missing (`mc ilm rule add --prefix
 tmp/ --expire-days 1 <alias>/<bucket>`). Incomplete multipart uploads: MinIO discards stale ones after 24 h;
 on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplete <alias>/<bucket>/tmp/` and
@@ -201,7 +202,7 @@ Everything here is admin-only and reads private data through the production path
   (`POST /admin/eval/sets/{id}/generate` -> `eval_generate` job; an admin reviews the drafts), run a set (`POST /admin/eval/runs` -> `eval_run`
   job on the worker), read the trend (`GET /admin/eval/runs?set_id=`). One set is the **reference set** (`PATCH /admin/eval/sets/{id} {"is_reference": true}`).
   Curate it to >= 200 active queries with >= 3 principals (>= 1 non-admin): below that every gate verdict is INSUFFICIENT.
-- **Automatic runs**: after a re-embed cutover's catch-up and after a rebuild into the active index an `eval_run` is queued on the
+- **Automatic runs**: when the final catch-up round of a re-embed finishes (no fixed delay) and after a rebuild into the active index an `eval_run` is queued on the
   reference set (`ROR_EVAL_ON_REINDEX=true`); results land in the trend. A run with any ACL violation is `failed`: treat it as a
   security finding.
 - **Reading the trend**: compare `p_ndcg@10`, `p_recall@10/100` and the judge keys (`faithfulness`, `citation_support`) between runs of the same set;
@@ -212,13 +213,13 @@ Everything here is admin-only and reads private data through the production path
 ### Rebuild derived index fields and shadow indices
 Context notes and RAPTOR units are index-time. `roracle rebuild --what context[,raptor] [--into chunks-<slug>-shadow]` (or
 `POST /admin/retrieval/rebuild {"what": [...], "into": "..."}`) enqueues `rebuild_units` jobs of 25 latest searchable, non-deleted versions each, plus a
-`rebuild_watch` job that queues the eval run when the batch is done (not for a shadow). `rebuild_units` is claimed after every other job kind, so
+`rebuild_watch` job that queues the eval run when the batch is done (not for a shadow). `rebuild_units` and `reconcile_tags` are claimed only when no user job is due, so
 a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed runs, and a re-embed is refused while rebuild jobs are pending.
 - **Shadow workflow** (judge a feature before it touches search): `roracle rebuild --what context --into chunks-<model-slug>-shadow` creates the shadow index
   (it joins `chunks-all`, so ACL syncs and deletes reach it, but never the read alias `chunks`); `roracle eval compare ... --candidate-index
   chunks-<model-slug>-shadow` judges it; on a PASS set `ROR_CONTEXT_NOTES=true` (and `ROR_CONTEXT_MODEL`) and rebuild into the ACTIVE index (omit
-  `--into`); finally `roracle rebuild --drop chunks-<model-slug>-shadow` (refuses the active index and re-embed generations).
-- Requires the notes model for `context` (`ROR_CONTEXT_MODEL`, else the job fails fast). Each version is idempotent; a broken version is skipped and the
+  `--into`); finally `roracle rebuild --drop chunks-<model-slug>-shadow` (refuses the active index, the read-alias holder, re-embed generations and any moment a rebuild or re-embed job is queued or running).
+- Requires the notes model for `context` (`ROR_CONTEXT_MODEL`; refused up front, exit 2 / 422, and a job that still sees it unset fails). Each version is idempotent; a broken version is skipped and the
   job fails at the end naming the count, the rest are done. Progress: `SELECT status, count(*) FROM jobs WHERE kind='rebuild_units' GROUP BY 1;`.
 
 ### Re-embed at scale (slices, failure, convergence)

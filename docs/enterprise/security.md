@@ -395,7 +395,7 @@ runbook). `search_acl.acl_filter` adds `must_not terms label_id` for PAT princip
 All of these are OFF by default except the admin APIs and the quick search mode; none widens what a caller can read.
 
 ### LLM gate coverage (`exclude_llm` / `block_agents`)
-No `exclude_llm` document text reaches a generative model through any path added here, and a PAT principal never gets `block_agents`
+No `exclude_llm` document text reaches a generative model through any path added here once its label is seen (a label raised during a notes job can still have one batch of at most `ROR_CONTEXT_CONCURRENCY` calls in flight; the result is discarded, never cached), and a PAT principal never gets `block_agents`
 documents:
 
 | Path | Where the gate sits |
@@ -419,7 +419,7 @@ cited document (units expand to source passages; a global answer cites documents
   (`admin.<name>`). Gold queries, gold document ids, ranked results and judge text can reveal that private documents exist, so the eval API is
   admin-only; runs evaluate every named principal through the production path, and a run fails on any hit the principal may not see.
 - **`GET /search?mode=quick`** (command palette): one Elasticsearch title search under the caller's ACL filter, then the Postgres visibility re-check;
-  no embedding or LLM call; takes only `q` (any filter, paging or cursor is a `422`).
+  no embedding or LLM call; takes only `q` (filters, `after` or `page` > 1 are a `422`; `sort`/`size`/`notes` are ignored).
 - Interactive embedding failures (`/search`, chat, MCP `ask`) are a prompt `503 inference unavailable`: no retries and no shared pause, so a throttled endpoint
   cannot stall other requests. Batch work (ingest, re-embed, rebuild) retries with backoff.
 - **Admission caps** (global answers and agentic loops): one per user, a per-process maximum; excess requests take the plain path.

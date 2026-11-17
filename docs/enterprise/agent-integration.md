@@ -37,7 +37,7 @@ Example client configuration (generic MCP JSON):
 | `get_document(doc_id)` | read | Metadata, versions, summary, tags, votes |
 | `get_passages(chunk_ids, context?)` | read | Exact passages (<= 50 ids, `context` 0-2 neighbours), page + bbox |
 | `list_collections()` | read | The user's collections |
-| `ask(question, collection?)` | read | Cited answer from visible passages: `{answer, citations}`. With the router on it adds `route` (`fact`/`multihop`/`global`; a global answer cites documents); with the agentic loop on and a multi-hop question it adds `subqueries` (the searches the planner ran, all under your own access). Both fields are absent when the features are off |
+| `ask(question, collection?)` | read | Cited answer from visible passages: `{answer, citations}`. With the router on it adds `route` (`fact`/`multihop`/`global`; a global answer cites documents); with the agentic loop on and a multi-hop question that was admitted (not busy) it adds `subqueries` (the searches the planner ran, all under your own access). Both fields are absent when the features are off |
 | `load_handoff(code)` | read | Handoff manifest (brief, docs, passages, notes, `parts`, `withheld`) |
 | `get_handoff_part(code, part?, page?)` | read | `transcript` or `notes`, 20 items per page |
 | `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, dropped}` |

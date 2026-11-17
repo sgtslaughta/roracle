@@ -1,6 +1,6 @@
 # Eval: LLM contextual chunk notes (index-time)
 
-**Verdict: PENDING** (SciFact reference baseline still ingesting; no numbers recorded). `context_notes` stays
+**Verdict: PENDING** (no own-corpus run yet; no numbers recorded). `context_notes` stays
 `false` in `config.py` until this report holds a PASS (plan: default flip rule, Task 5).
 
 ## Reproduce

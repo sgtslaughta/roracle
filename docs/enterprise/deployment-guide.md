@@ -247,7 +247,7 @@ Features marked **off** stay off until a PASS report in `docs/eval/` (ADR-0015).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ROR_VECTOR_INDEX_TYPE`, `ROR_VECTOR_RESCORE_OVERSAMPLE` | `int8_hnsw`, `3.0` | Vector index type of NEW indices (`int4_hnsw`, `bbq_hnsw`; bbq only after the eval gate; oversample 1-10 applies to bbq). An existing index keeps its own |
+| `ROR_VECTOR_INDEX_TYPE`, `ROR_VECTOR_RESCORE_OVERSAMPLE` | `int8_hnsw`, `3.0` | Vector index type of NEW indices (`int4_hnsw`, `bbq_hnsw`; bbq only after the eval gate; oversample > 1 and < 10 applies to bbq). An existing index keeps its own |
 | `ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_ES_REFRESH_INTERVAL` | `1`, `1`, `5s` | Index settings applied when an index is created (sizing: `capacity-planning.md`) |
 | `ROR_ES_EXCLUDE_SOURCE_VECTORS`, `ROR_ES_HNSW_FILTER_HEURISTIC` | `true`, `acorn` | Vectors out of `_source` (ES >= 9.2); filtered kNN heuristic `acorn` or `fan_out` |
 | `ROR_EMBED_DIMS`, `ROR_EMBED_TOKENIZER` | `768`, `sentence-transformers/all-MiniLM-L6-v2` | Dimensions of the bootstrap embedding model; tokenizer used for chunk sizing in workers |

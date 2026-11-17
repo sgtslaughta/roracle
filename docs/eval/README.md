@@ -22,8 +22,10 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   --baseline "k=v,..." --candidate "k=v,..." [--candidate-index <shadow index>] [--latency-budget-ms N] \
   --out docs/eval/<date>-<feature>.md
 ```
-- Both configurations run on the same corpus; overrides are `KEY=VAL` of the eval-only keys (`rerank_*`, `chat_candidates`,
-  `context_notes`, `context_model`, `raptor`, `router_llm`, `agentic_*`; `eval/cli.py::EVAL_KEYS`) or of the admin runtime settings
+- Both configurations run on the same corpus; overrides are `KEY=VAL` of the eval-only keys (`eval/cli.py::EVAL_KEYS`: `rerank_url`, `rerank_api`, `rerank_model`,
+  `rerank_timeout_s`, `rerank_max_chars`, `rerank_max_batch`, `rerank_blend`, `chat_candidates`, `context_notes`, `context_model`,
+  `raptor`, `router_llm`, `agentic_retrieval`, `agentic_max_steps`, `agentic_max_subqueries`, `agentic_timeout_s`,
+  `agentic_call_timeout_s`, `agentic_planner_model`; never `rerank_api_key`, which follows the process env) or of the admin runtime settings
   (`router`, `rerank_depth`, ...). Index-time features (context notes, RAPTOR) are built into a **shadow index** with
   `roracle rebuild --what ... --into chunks-<slug>-shadow` and compared with `--candidate-index` (runbook, "Rebuild and shadow
   indices").
@@ -32,7 +34,7 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   see: Postgres `visible_documents`, plus `llm_allowed` on the chat path) which fails the run. `--judge` answers and judges a
   deterministic sample of non-PAT chat pairs (`ROR_EVAL_JUDGE_SAMPLE`, model `ROR_EVAL_JUDGE_MODEL`) for faithfulness and citation support.
 - Gate constants (`eval/gate.py`): `MIN_QUERIES` 200, `MIN_SCOPE_QUERIES` 50, `MIN_PRINCIPALS` 3, passage nDCG@10 gain 0.02 **or**
-  Recall@10 gain 0.02 with a CI lower bound > 0, Recall@100 loss <= 0.005, judge loss <= 0.02; `global` scope: document-level
+  Recall@10 gain 0.02 (either gain counts only with a CI lower bound > 0), Recall@100 loss <= 0.005 (the `global` scope guards document Recall@40 instead), judge loss <= 0.02; `global` scope: document-level
   Recall@10 gain 0.05 and `fact` nDCG@10 loss <= 0.005.
 
 ## Reading the files
@@ -42,3 +44,9 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   latency notes and PENDING context in the PR description.
 - Trend: `GET /admin/eval/runs` and the Eval page show the stored runs per set (runs of `trigger` cli, ci, admin, model_change, reindex,
   compare). Performance budgets are a separate gate: `docs/perf/README.md`.
+
+## Recorded SciFact evidence (BEIR, 300 queries, 1,200 query-principal pairs, 0 ACL violations)
+- Baseline, library search: [`scifact/baseline-search.md`](scifact/baseline-search.md); chat path: [`scifact/baseline-chat.md`](scifact/baseline-chat.md).
+- Reranker (TEI bge-reranker-v2-m3, depth 200, scores replaced): chat [`scifact/rerank-chat-200.md`](scifact/rerank-chat-200.md) (FAIL),
+  search [`scifact/rerank-search-200.md`](scifact/rerank-search-200.md) (INSUFFICIENT); diagnosis and the title+text / blend variants:
+  [`scifact/rerank-diagnosis.md`](scifact/rerank-diagnosis.md). Summary and verdict: [`2026-11-16-rerank.md`](2026-11-16-rerank.md).

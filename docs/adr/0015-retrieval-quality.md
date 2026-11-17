@@ -68,7 +68,7 @@ caller's own visibility at the moment of asking.
   `context_doc_chars`, so changing the model or prompt requires bumping `CONTEXT_PROMPT_VERSION`. Notes are
   untrusted output about their own document and never enter a retrieval `_source` list or an LLM prompt.
 - Rebuild and re-embed are mutually exclusive (same advisory lock; re-embed refuses while `rebuild_units` are
-  pending). `rebuild_units` is claimed after all other job kinds so a backfill never delays ingest.
+  pending). `rebuild_units` and `reconcile_tags` are claimed only when no user job is due, so a backfill never delays ingest.
   `ROR_CONTEXT_MAX_CHUNKS` (400) bounds notes per document; later chunks get the heading path.
 
 ## Outcomes (2026-11-17)
@@ -87,8 +87,9 @@ report in `docs/eval/` (decision 2), and none has one yet. The gate itself (`eva
 | 6 Router + global map-reduce | Delivered (heuristic router, optional small-model call, per-document map, bounded fan-out and admission). | OFF (`ROR_ROUTER=false`) | `docs/eval/2026-11-16-router.md` PENDING |
 | 6 Agentic decomposition | Delivered for chat and MCP `ask`; the eval runner runs it for the candidate. Ledger ruling: budget = added p95 <= 1.0 s per planning round, <= 3 rounds, measured with `ROR_AGENTIC_PLANNER_MODEL` (a small fast model, dev `qwen2.5:3b`). | OFF (`ROR_AGENTIC_RETRIEVAL=false`) | `docs/eval/2026-11-17-agentic.md` PENDING |
 
-PENDING reports hold the exact compare command; each needs a reference set with at least 200 active queries
-(`is_reference`), until then every gate verdict is INSUFFICIENT and no flag may flip.
+PENDING = no run yet on the own-corpus reference set (a rebuilt shadow index for notes/RAPTOR, or generated questions for
+router/agentic); the report holds the exact compare command. A verdict is INSUFFICIENT whenever the set has fewer than
+200 active queries or fewer than 3 principals, and no flag may flip without a PASS.
 
 ### Elasticsearch 9.5.6, vector storage and filtered search (performance work, Task 10)
 - **Decision (user):** Elasticsearch **9.5.6** on a fresh cluster with a rebuild from Postgres + MinIO (no 8.19 hop; the chart
@@ -104,7 +105,7 @@ PENDING reports hold the exact compare command; each needs a reference set with 
 
 ### Performance budgets (Task 10) and their measured state
 Budgets live in `docs/perf/budgets.yaml`; measured vs budget at 1,000,000 documents / 1,000,000 chunks, with every
-extrapolation labelled, in `docs/perf/report-2026-11-17.md`: all 12 measured budgets pass (claim is governed by p99 per
+extrapolation labelled, in `docs/perf/report-2026-11-17.md`: all 12 rows of the report pass (11 budgets in `budgets.yaml` plus the Postgres-time sub-budget; rebuild is modelled) (claim is governed by p99 per
 ruling; browse at 10M documents and Elasticsearch at 10M chunks are extrapolated; ingest throughput per worker cannot be
 measured without docling and an LLM). The measurements found Postgres JIT (chart default `jit: off`), the HNSW worst case of
 random vectors, API CPU per process, and a reconcile-gate gap (all fixed or documented there). A budget gate runs nightly
