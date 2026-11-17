@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from roracle.access import readable_documents, visible_documents
@@ -73,25 +73,35 @@ def _citers(session: Session, p: Principal, target: UUID) -> list[str] | None:
 
 
 def _colls(session: Session, p: Principal) -> dict[str, tuple[str, list[str]]]:
+    """The caller's collections for facet counts, at most SCOPE_IDS_MAX item ids in all (they go to ES as terms
+    lists): a collection that does not fit is left out of the counts (no bucket), never an error."""
     cs = session.execute(
-        select(Collection.id, Collection.name)
+        select(Collection.id, Collection.name, func.count(CollectionItem.document_id))
+        .outerjoin(CollectionItem, CollectionItem.collection_id == Collection.id)
         .where(Collection.owner_id == p.user_id)
+        .group_by(Collection.id, Collection.name)
         .order_by(Collection.name, Collection.id)  # ponytail: collections have no created_at column
         .limit(COLLS_MAX)
     ).all()
-    docs: dict[UUID, list[str]] = {c.id: [] for c in cs}
+    kept, budget = [], SCOPE_IDS_MAX
+    for c in cs:
+        if c[2] <= budget:
+            kept.append(c)
+            budget -= c[2]
+    docs: dict[UUID, list[str]] = {c.id: [] for c in kept}
     for cid, did in session.execute(
         select(CollectionItem.collection_id, CollectionItem.document_id).where(
             CollectionItem.collection_id.in_(list(docs))
         )
     ):
         docs[cid].append(str(did))
-    return {str(c.id): (c.name, docs[c.id]) for c in cs}
+    return {str(c.id): (c.name, docs[c.id]) for c in kept}
 
 
-def resolve_scope(session: Session, p: Principal, f: SearchParams) -> DocScope | None:
-    """None = no result: a collection the caller does not own, or `cites` not visible / absent."""
-    scope = DocScope(colls=_colls(session, p))
+def resolve_scope(session: Session, p: Principal, f: SearchParams, facets: bool = True) -> DocScope | None:
+    """None = no result: a collection the caller does not own, or `cites` not visible / absent. `facets=False`
+    (the find box) skips loading the collections for facet counts."""
+    scope = DocScope(colls=_colls(session, p) if facets else {})
     if f.collection:
         cids = _uuids(f.collection)
         if len(cids) != len(set(f.collection)) or _owned(session, p, cids) != set(cids):

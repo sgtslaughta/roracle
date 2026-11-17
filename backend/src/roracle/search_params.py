@@ -98,7 +98,7 @@ class SearchParams(BaseModel):
         self.label, self.label_not = _uuids(self.label), _uuids(self.label_not)
         self.journal = [v for v in self.journal if ISSN_RE.match(v)]
         self.journal_not = [v for v in self.journal_not if ISSN_RE.match(v)]
-        for k in FACETS:
+        for k in (*FACETS, "has_id"):  # same value included and excluded: exclusion wins
             out = set(getattr(self, f"{k}_not"))
             if out:
                 setattr(self, k, [v for v in getattr(self, k) if v not in out])

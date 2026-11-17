@@ -26,4 +26,6 @@ def issns(meta: dict | None) -> list[str]:
 
 
 def id_kinds(meta: dict | None) -> list[str]:
-    return sorted({"issn" if k == "eissn" else k for k in ids_of(meta) if k in (*ID_KINDS, "eissn")})
+    """Identifier kinds present; "issn" only for a well-formed (canonical) print or electronic ISSN (R15)."""
+    kinds = {k for k in ids_of(meta) if k in ID_KINDS and k != "issn"}
+    return sorted(kinds | ({"issn"} if issns(meta) else set()))

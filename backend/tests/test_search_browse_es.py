@@ -405,3 +405,19 @@ def test_journal_facet_and_has_id(client, as_ana, ana, bob, db_session, es, wire
     assert get(client, as_ana, "/search/facets/journal", find="natu") == {"values": want}
     assert get(client, as_ana, "/search/facets/journal", find="0028") == {"values": want}
     assert get(client, as_ana, "/search/facets/journal", find=".*") == {"values": []}
+
+
+def test_query_total_capped_when_candidate_window_full(
+    client, as_ana, ana, db_session, es, wired, session_factory, monkeypatch
+):
+    """The query path reads "N+" when its Postgres-re-checked candidate window was full (ACL only, R2-safe)."""
+    docs = [seed(db_session, ana, title=f"Deep {t}") for t in "abc"]
+    for d, v in docs:
+        put(es, wired, db_session, d, v)
+    sync(es, wired, db_session, session_factory, [d for d, _ in docs])
+    monkeypatch.setattr("roracle.search_ranked.MAX_DOCS", 2)
+    r = get(client, as_ana, q="deep")
+    assert (r["total"], r["total_capped"]) == (2, True)
+    monkeypatch.setattr("roracle.search_ranked.MAX_DOCS", 3)
+    r = get(client, as_ana, q="deep")
+    assert (r["total"], r["total_capped"]) == (3, False)

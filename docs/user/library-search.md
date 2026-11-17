@@ -63,7 +63,7 @@ The **List**, **Compact** and **Table** switch changes how results are shown; th
 Results are 20 to a page. The line under the title reads "Showing 1–20 of 1,234 papers".
 
 - Without a query the count covers everything you can see, up to 10,000; above that it reads "10,000+".
-- A query, the **Most cited** sort and the "cited by at least" filter look at the best 200 papers. When there are more the count reads "200+".
+- A query, the **Most cited** sort and the "cited by at least" filter look at the best 200 papers. When more papers match than that, the count ends in "+" (for example "200+").
 - On the last page you can reach, the note "Refine the search to see more papers." asks you to narrow the search.
 
 ## Sorting

@@ -39,6 +39,7 @@ class _Stage:
         self.p, self.policy, self.f, self.scope, self.pq = p, policy, f, scope, pq
         self.knn = not head_only(f.in_)
         self.qvec = None
+        self.capped = False
         if self.knn:
             release_before_io(session)  # no pooled connection held idle across the embed call
             self.qvec = embed_query(llm, settings, embed_text(pq), p.user_id)
@@ -72,14 +73,15 @@ class _Stage:
         hits: list[DocHit] = group_by_document(passages, {k: (v[0], v[1]) for k, v in votes.items()})
         by_id = {str(r.doc.id): r for r in _load(self.session, self.p, ids, votes=votes)}
         out = []
-        for h in hits[:MAX_DOCS]:
+        for h in hits[: MAX_DOCS + 1]:  # one past the window: is there a VISIBLE candidate beyond it?
             if (r := by_id.get(h.doc_id)) is None:
                 continue
             live = [x for x in h.passages if x.version_id == str(r.ver.id)]
             if live:  # only stale snippets: a newer version became latest after the first stage ran
                 r.score, r.passages = h.score, live
                 out.append(r)
-        return out
+        self.capped = len(out) > MAX_DOCS  # Postgres-visible rows only, nothing citation-derived (R2)
+        return out[:MAX_DOCS]
 
 
 def _facets(st: _Stage, universe: list[Row]) -> dict[str, list[dict]]:
@@ -116,7 +118,7 @@ def ranked(
     pq: ParsedQuery,
 ) -> dict:
     """`{rows, total, total_capped, next, facets}` of one query page. `total` counts the kept candidates
-    (≤ MAX_DOCS), never an ES count."""
+    (≤ MAX_DOCS), never an ES count; `total_capped` when a visible candidate lay beyond the window."""
     if f.after:
         raise HTTPException(422, "after applies to browsing (empty q) only: use page")
     if (
@@ -130,7 +132,7 @@ def ranked(
     nn = [*pl_nn, *tx_nn]
     st = _Stage(session, es, llm, settings, http, p, policy, f, scope, pq)
     rows = st.rows([*fac_flt, *flt], [*fac_nn, *nn], light=False)
-    universe = rows
+    capped, universe = st.capped, rows
     if fac_flt or fac_nn:  # facet universe: every non-facet clause, no facet clause (light: ids only)
         universe = st.rows(flt, nn, light=True)
         seen = {r.doc.id for r in universe}
@@ -144,7 +146,7 @@ def ranked(
     return {
         "rows": rows[start : start + f.size],
         "total": len(rows),
-        "total_capped": False,
+        "total_capped": capped,
         "next": None,
         "facets": _facets(st, universe),
     }

@@ -30,6 +30,12 @@ def test_id_kinds_legacy_doi_and_eissn():
     assert id_kinds(None) == []
 
 
+def test_id_kinds_malformed_issn_is_no_journal():
+    """R15: a malformed ISSN contributes nothing, so has_id=issn never matches a journal-less paper."""
+    assert id_kinds({"ids": {"issn": "12345678", "eissn": "junk", "pmid": "1"}}) == ["pmid"]
+    assert id_kinds({"ids": {"issn": "junk", "eissn": "1476-4687"}}) == ["issn"]
+
+
 def test_journal_values_validated_and_exclusion_wins():
     f = SearchParams(journal=["0028-0836", "nope"], journal_not=["0028-0836"])
     assert f.journal == [] and f.journal_not == ["0028-0836"]
@@ -41,3 +47,8 @@ def test_has_id_clauses(principal):
     )
     assert {"terms": {"ids_present": ["arxiv", "pmid"]}} in flt
     assert {"terms": {"ids_present": ["doi"]}} in nn
+
+
+def test_has_id_exclusion_wins():
+    f = SearchParams(has_id=["doi", "arxiv"], has_id_not=["doi"])
+    assert f.has_id == ["arxiv"] and f.has_id_not == ["doi"]

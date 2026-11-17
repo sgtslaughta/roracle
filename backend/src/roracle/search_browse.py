@@ -135,8 +135,9 @@ def browse(
             raise HTTPException(422, "malformed after cursor")
     else:
         start = (f.page - 1) * f.size
-        if start + size > BROWSE_WINDOW:
+        if start + f.size > BROWSE_WINDOW:
             raise HTTPException(422, "use after to page this deep")
+        size = body["size"] = min(size, BROWSE_WINDOW - start)  # the last window page fetches no spare hits
         body["from_"] = start
     release_before_io(session)
     try:

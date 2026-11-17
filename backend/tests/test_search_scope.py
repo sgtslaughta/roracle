@@ -84,3 +84,18 @@ def test_cites_visible_but_unsearchable_is_none(db_session, ana, bob):
         db_session, bob, title="ingesting", stage="embedded"
     )  # everyone-visible, no searchable version
     assert resolve_scope(db_session, _p(ana), SearchParams(cites=d.id)) is None
+
+
+def test_collection_facet_ids_are_capped(db_session, ana, monkeypatch):
+    """Facet counts load at most SCOPE_IDS_MAX collection items in all; a collection that does not fit gets no
+    bucket (never an error), and the find box loads none."""
+    a, b, c = (seed(db_session, ana, title=t)[0] for t in "abc")
+    ca, cb, cc = (
+        _coll(db_session, ana, [a], "a"),
+        _coll(db_session, ana, [a, b], "b"),
+        _coll(db_session, ana, [c], "c"),
+    )
+    monkeypatch.setattr("roracle.search_scope.SCOPE_IDS_MAX", 2)
+    s = resolve_scope(db_session, _p(ana), SearchParams())
+    assert set(s.colls) == {str(ca.id), str(cc.id)} and str(cb.id) not in s.colls
+    assert resolve_scope(db_session, _p(ana), SearchParams(), facets=False).colls == {}

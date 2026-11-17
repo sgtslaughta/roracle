@@ -189,7 +189,7 @@ def facet_find(
         raise HTTPException(503, UPGRADING)
     policy = Policy.load(session)
     try:
-        scope = resolve_scope(session, p, f)
+        scope = resolve_scope(session, p, f, facets=False)
     except BadInput as e:
         raise HTTPException(422, str(e)) from None
     if scope is None:

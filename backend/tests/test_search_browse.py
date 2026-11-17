@@ -72,7 +72,7 @@ def test_jwt_principal_has_no_agent_gate(client, as_ana, ana, admin, db_session,
 
 
 def test_paging_limits(client, as_ana, res):
-    assert client.get("/search", headers=as_ana, params={"page": 1000, "size": 10}).status_code == 422
+    assert client.get("/search", headers=as_ana, params={"page": 1001, "size": 10}).status_code == 422
     assert client.get("/search", headers=as_ana, params={"page": 999, "size": 10}).status_code == 200
     assert client.get("/search", headers=as_ana, params={"after": "junk"}).status_code == 422
     cur = make_sort_cursor([1, "x", 3])
@@ -94,3 +94,12 @@ def test_sort_cursor_roundtrip_and_rejects():
 @pytest.mark.parametrize("sort", list(Sort.__args__))
 def test_every_sort_ends_with_tiebreak(sort):
     assert ES_SORTS[sort][-2:] == [{"added_at": {"order": "desc"}}, {"doc_id": {"order": "asc"}}]
+
+
+def test_last_window_page_is_served(client, as_ana, res):
+    """The UI offers page ceil(total/size) up to BROWSE_WINDOW/size: its ES request shrinks to fit the window."""
+    r = client.get("/search", headers=as_ana, params={"page": 1000, "size": 10})
+    assert r.status_code == 200
+    first = res.calls[0]
+    assert first["from_"] == 9990 and first["size"] == 10
+    assert client.get("/search", headers=as_ana, params={"page": 500, "size": 20}).status_code == 200
