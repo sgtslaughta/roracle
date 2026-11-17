@@ -20,6 +20,7 @@ from roracle.maintenance import (
 from roracle.notes.evidence import handle_evidence_scan
 from roracle.queue import Handler, run_forever, set_heartbeat_factory, set_lease
 from roracle.reembed import handle_reembed
+from roracle.search_signals import handle_search_signals
 from roracle.storage import blob_store_from
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         ),
         "connector_tick": partial(handle_connector_tick, settings=settings),
         "citations": handle_citations,
+        "search_signals": partial(
+            handle_search_signals, es=clients.es(settings), session_factory=session_factory
+        ),
         "evidence_scan": partial(handle_evidence_scan, settings=settings, store=blob_store_from(settings)),
         "acl_sync": partial(handle_acl_sync, es=clients.es(settings), session_factory=session_factory),
         "maintenance": partial(

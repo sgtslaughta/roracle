@@ -14,6 +14,7 @@ from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.models import DocCitation, Document, DocumentVersion
 from roracle.queue import payload_uuid
+from roracle.search_signals import enqueue_signals
 
 FUZZY_MIN = 92
 
@@ -144,6 +145,14 @@ def backfill_for(session: Session, document: Document) -> int:
     return n
 
 
+def _targets(session: Session, version_id: UUID) -> set[UUID]:
+    return set(
+        session.scalars(
+            select(DocCitation.target_document_id).where(DocCitation.src_version_id == version_id)
+        )
+    )
+
+
 def handle_citations(session: Session, payload: dict) -> None:
     """Job `citations` {version_id}: runs inside run_once's SAVEPOINT; never commits (R6/R9)."""
     v = session.get(DocumentVersion, payload_uuid(payload, "version_id"))
@@ -152,8 +161,10 @@ def handle_citations(session: Session, payload: dict) -> None:
     d = session.get(Document, v.document_id)
     if d is None or d.deleted_at is not None:
         return
+    old = _targets(session, v.id)
     resolve_references(session, v)
     backfill_for(session, d)
+    enqueue_signals(session, old | _targets(session, v.id) | {d.id})
 
 
 def best_targets(p: Principal, targets: Sequence[UUID] | None = None, sources: Sequence[UUID] | None = None):

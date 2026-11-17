@@ -20,6 +20,7 @@ from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
 from roracle.search_index import MUTATE_ALIAS, run_update_by_query
+from roracle.search_signals import enqueue_signals
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ def put_vote(doc_id: UUID, body: VoteBody, p: Who, session: Session_) -> dict:
                 index_elements=[Vote.user_id, Vote.document_id], set_={**vals, "created_at": func.now()}
             )
         )
+    enqueue_signals(session, [doc_id])
     session.commit()
     return vote_summary(session, doc_id, p.user_id)
 
