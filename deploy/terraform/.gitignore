@@ -5,6 +5,7 @@
 !environments/*.example.tfvars
 !environments/example.tfvars
 !environments/kind.tfvars
+!environments/kind-ceph.tfvars
 crash.log
 *.tfplan
 test/.tools/
