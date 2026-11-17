@@ -36,6 +36,16 @@ class FakeBuilder:
         return b"%PDF-1.4 fake"
 
 
+@pytest.fixture(autouse=True)
+def _null_es(app):
+    """No real Elasticsearch in these route tests (a test may still override `get_es` itself)."""
+    from es_fakes import NullEs
+
+    from roracle.api.routes.library import get_es
+
+    app.dependency_overrides[get_es] = NullEs
+
+
 @pytest.fixture
 def built(monkeypatch):
     calls = []

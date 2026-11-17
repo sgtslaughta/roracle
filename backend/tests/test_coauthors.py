@@ -15,6 +15,16 @@ from roracle.models_writing import Draft
 pytestmark = pytest.mark.usefixtures("_blob_store_override", "built")
 
 
+@pytest.fixture(autouse=True)
+def _null_es(app):
+    """No real Elasticsearch in these route tests (a test may still override `get_es` itself)."""
+    from es_fakes import NullEs
+
+    from roracle.api.routes.library import get_es
+
+    app.dependency_overrides[get_es] = NullEs
+
+
 def publish(client, db, h, owner, co, vis="org_unit"):
     i = mk(client, h)
     client.put(f"/drafts/{i}/coauthors", headers=h, json={"users": [str(co)], "groups": ["/Elsewhere"]})
