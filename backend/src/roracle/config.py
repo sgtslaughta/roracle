@@ -74,6 +74,20 @@ class Settings(AliasConfig):
     llm_timeout_s: float = 120.0
     embed_model: str = "embeddinggemma"
     embed_dims: int = 768
+    # Elasticsearch index settings (applied when an index is CREATED; an existing index keeps its own)
+    vector_index_type: Literal["int8_hnsw", "int4_hnsw", "bbq_hnsw"] = (
+        "int8_hnsw"  # bbq only after an eval gate
+    )
+    vector_rescore_oversample: float = Field(
+        3.0, gt=1.0, lt=10.0
+    )  # bbq_hnsw: candidates rescored with float vectors
+    es_shards: int = Field(1, ge=1)  # ~30-50 GB per shard (docs/enterprise/capacity-planning.md)
+    es_replicas: int = Field(1, ge=0)
+    es_refresh_interval: str = "5s"
+    es_exclude_source_vectors: bool = True  # vectors stay out of _source (rehydrated for reindex); ES >= 9.2
+    es_hnsw_filter_heuristic: Literal["acorn", "fan_out"] = (
+        "acorn"  # filtered kNN: ACORN traverses matching nodes only
+    )
     embed_tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2"
     summary_model: str = "qwen2.5:3b"
     docling_url: str = "http://localhost:5001"

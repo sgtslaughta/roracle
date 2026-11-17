@@ -42,14 +42,38 @@ def active_index(settings: Any) -> str:
     return settings.embed_index or index_name(settings.embed_model)
 
 
-def _mapping(dims: int) -> dict[str, Any]:
+def vector_index_options(settings: Any = None) -> dict[str, Any]:
+    """Explicit `index_options` (never rely on the server default: ES 9.1+ silently picks bbq_hnsw for >= 384 dims).
+    bbq_hnsw adds float rescoring of `vector_rescore_oversample` x k candidates; int8 stays the default."""
+    kind = getattr(settings, "vector_index_type", "int8_hnsw")
+    opts: dict[str, Any] = {"type": kind}
+    if kind == "bbq_hnsw":
+        opts["rescore_vector"] = {"oversample": getattr(settings, "vector_rescore_oversample", 3.0)}
+    return opts
+
+
+def index_settings(settings: Any = None) -> dict[str, Any]:
+    """Settings for a NEW index: shards/replicas, refresh interval, ACORN filtered kNN, vectors out of `_source`."""
+    g = lambda k, d: getattr(settings, k, d)
+    index: dict[str, Any] = {
+        "number_of_shards": g("es_shards", 1),
+        "number_of_replicas": g("es_replicas", 1),
+        "refresh_interval": g("es_refresh_interval", "5s"),
+        "dense_vector": {"hnsw_filter_heuristic": g("es_hnsw_filter_heuristic", "acorn")},
+    }
+    if g("es_exclude_source_vectors", True):
+        index["mapping"] = {"exclude_source_vectors": True}
+    return {"index": index}
+
+
+def _mapping(dims: int, settings: Any = None) -> dict[str, Any]:
     kw = {"type": "keyword"}
     vec = {
         "type": "dense_vector",
         "dims": dims,
         "index": True,
         "similarity": "cosine",
-        "index_options": {"type": "int8_hnsw"},
+        "index_options": vector_index_options(settings),
     }
     return {
         "properties": {
@@ -87,13 +111,15 @@ def _mapping(dims: int) -> dict[str, Any]:
     }
 
 
-def _adopt_plain_index(es: Elasticsearch, name: str, dims: int, alias: str = ALIAS) -> None:
+def _adopt_plain_index(
+    es: Elasticsearch, name: str, dims: int, alias: str = ALIAS, settings: Any = None
+) -> None:
     """A concrete index called `chunks` (pre-alias deployment) blocks the read alias: copy it into `name`,
     then drop it and add both aliases in ONE atomic update_aliases. Idempotent (same `_id`s)."""
     if not es.indices.exists(index=alias) or es.indices.exists_alias(name=alias):
         return
     if not es.indices.exists(index=name):
-        es.indices.create(index=name, mappings=_mapping(dims))
+        es.indices.create(index=name, mappings=_mapping(dims, settings), settings=index_settings(settings))
     r = (
         es.reindex(source={"index": alias}, dest={"index": name}, refresh=True, wait_for_completion=True)
         or {}
@@ -156,12 +182,14 @@ def ensure_index(
     """Create the index and add it to `chunks-all`. The read alias is (re)pointed here only when no
     `session_factory` is given (tests) or `name` is the Postgres-persisted active index."""
     name = name or index_name(model)
-    _adopt_plain_index(es, name, dims, alias)
+    _adopt_plain_index(es, name, dims, alias, settings)
     if not create and not es.indices.exists(index=name):
         raise NonRetryable(f"index {name!r} no longer exists")  # shadow dropped mid-rebuild: never re-created
     if not es.indices.exists(index=name):
         try:
-            es.indices.create(index=name, mappings=_mapping(dims))
+            es.indices.create(
+                index=name, mappings=_mapping(dims, settings), settings=index_settings(settings)
+            )
         except BadRequestError as e:
             if e.error != "resource_already_exists_exception":
                 raise
@@ -331,7 +359,10 @@ def cached_vectors(
                 query={
                     "bool": {"filter": [{"term": {"doc_id": str(doc_id)}}, {"terms": {"prompt_sha": batch}}]}
                 },
-                source=["prompt_sha", "embedding"],
+                source={
+                    "includes": ["prompt_sha", "embedding"],
+                    "exclude_vectors": False,
+                },  # ES >= 9.2 hides them
                 collapse={"field": "prompt_sha"},
                 size=10000,
             )

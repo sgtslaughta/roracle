@@ -125,11 +125,12 @@ def drop_old(session: Session, es: Elasticsearch, settings: Settings) -> list[st
     return old
 
 
-def _ensure_target(es: Elasticsearch, target: dict) -> None:
+def _ensure_target(es: Elasticsearch, target: dict, settings: Settings | None = None) -> None:
     if not es.indices.exists(index=target["index"]):  # created inside chunks-all: mutations reach it at once
         es.indices.create(
             index=target["index"],
-            mappings=search_index._mapping(target["dims"]),
+            mappings=search_index._mapping(target["dims"], settings),
+            settings=search_index.index_settings(settings),
             aliases={MUTATE_ALIAS: {}},
         )
 
@@ -254,7 +255,7 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
     phase, target, src = payload["phase"], payload["target"], payload["source"]
     if phase == "catchup" and _alias_indices(es, settings.read_alias) != {target["index"]}:
         raise AliasMismatch  # read alias drifted after cutover: fail loudly, never copy blindly
-    _ensure_target(es, target)
+    _ensure_target(es, target, settings)
     if payload["total"] is None:
         payload["total"] = es.count(index=src)["count"]
     cursor = payload["cursor"]

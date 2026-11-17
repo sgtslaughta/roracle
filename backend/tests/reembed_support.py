@@ -25,7 +25,7 @@ class FakeIndices:
     def exists_alias(self, name, index=None):
         return name in self.es.aliases and (index is None or index in self.es.aliases[name])
 
-    def create(self, index, mappings=None, aliases=None):
+    def create(self, index, mappings=None, aliases=None, settings=None):
         self.es.data[index] = {}
         for a in aliases or {}:
             self.es.aliases.setdefault(a, set()).add(index)

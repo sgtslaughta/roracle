@@ -47,7 +47,10 @@ def create_shadow(es: Elasticsearch, settings: Settings, name: str) -> str:
             raise ValueError(f"{name!r} exists but is not a chunk index")
         return name
     es.indices.create(
-        index=name, mappings=search_index._mapping(settings.embed_dims), aliases={MUTATE_ALIAS: {}}
+        index=name,
+        mappings=search_index._mapping(settings.embed_dims, settings),
+        settings=search_index.index_settings(settings),
+        aliases={MUTATE_ALIAS: {}},
     )
     return name
 
