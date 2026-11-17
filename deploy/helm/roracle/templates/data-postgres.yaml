@@ -2,13 +2,10 @@
 {{- $pg := .Values.postgres }}
 {{- $name := printf "%s-pg" (include "roracle.fullname" .) }}
 {{- $bk := $pg.backup }}
-{{- $ep := default (ternary (include "roracle.minioEndpoint" .) "" (eq .Values.minio.mode "tenant")) $bk.endpointURL }}
+{{- $ep := $bk.endpointURL }}
 {{- if $bk.enabled }}
 {{- $_ := required "postgres.backup.credentialsSecret.name is required when backup is enabled" $bk.credentialsSecret.name }}
-{{- $_ := required "postgres.backup.endpointURL is required (or use minio.mode=tenant)" $ep }}
-{{- end }}
-{{- if and $bk.enabled (not $bk.endpointURL) (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert (not $bk.endpointCA.name) }}
-{{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
+{{- $_ := required "postgres.backup.endpointURL is required when backup is enabled" $ep }}
 {{- end }}
 {{- /* Connection budget: every api/worker pod holds up to pool+overflow connections at full autoscale. */}}
 {{- $apiMax := ternary .Values.api.autoscaling.maxReplicas .Values.api.replicas .Values.api.autoscaling.enabled | int }}

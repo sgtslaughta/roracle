@@ -7,10 +7,10 @@ Audience: security reviewers, ISSOs, platform engineers. Companion to the
 
 | Asset | Where | Sensitivity |
 |---|---|---|
-| Documents (originals, derived PDFs, chunks, vectors) | MinIO, Elastic | Per-document visibility; may be export-controlled |
+| Documents (originals, derived PDFs, chunks, vectors) | object store, Elastic | Per-document visibility; may be export-controlled |
 | Metadata, ACLs, chats, notes, drafts, audit log | Postgres | Reveals research activity |
 | Credentials: JWT signing keys (Keycloak), PAT hashes, service secrets | Keycloak, Postgres, secret store | High |
-| Evidence packages (agent-produced data, notebooks) | MinIO | Untrusted content |
+| Evidence packages (agent-produced data, notebooks) | S3 object store | Untrusted content |
 
 Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/worker → data services;
 (4) api/worker → inference endpoint; (5) worker → parsing sidecars processing **untrusted files**.
@@ -95,8 +95,8 @@ through image or link URLs.
 
 ## 5. Data protection
 
-- TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/MinIO).
-- Encryption at rest via storage class / MinIO SSE (KMS-backed where available).
+- TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/S3 object store).
+- Encryption at rest via storage class / S3 object store SSE (KMS-backed where available).
 - Soft delete → purge after retention; purge (default `0` = off) removes chunks,
   vectors, rows and `derived/<version>/` objects; blob objects are removed by GC once unreferenced and a day old.
   On a versioned bucket noncurrent versions persist until a noncurrent-expiry rule removes them (see the runbook). Backups age out per backup policy.
@@ -144,7 +144,7 @@ IP-level protection also set limits on the ingress (e.g. nginx `limit-rps`/`limi
 The size cap is enforced while streaming (413, upload aborted); after authorisation, quota and duplicate checks the
 object is server-side copied to `blobs/<sha[:2]>/<sha>` (skipped when that content already exists) and `tmp/` is
 deleted. Any error aborts the multipart upload. Orphans from a crashed pod are expired by a bucket lifecycle rule
-on `tmp/` (1 day, installed by the chart's `minio-policy` hook; add the same rule on external S3).
+on `tmp/` (1 day) and abort incomplete multipart uploads after 1 day. Terraform `object_store=rook-ceph` sets this on the app bucket (OBC lifecycle); on external S3 it is an operator duty (`aws s3api put-bucket-lifecycle-configuration`, see the Terraform README, "External S3 commands").
 
 ## 9. Connectors
 
@@ -217,10 +217,10 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
 
 ## 11. Data-tier network and credential controls (Helm chart)
 
-- NetworkPolicies for bundled Postgres/ES/MinIO are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`; MinIO 9000 from app, CNPG, ES, peers and the MinIO operator. Egress is limited to peers, MinIO, DNS and (instance managers/MinIO) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
-- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) (`ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE`).
-- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. MinIO users are limited to one bucket each (app, Postgres backups, ES snapshots); backup buckets are created with object lock and get a GOVERNANCE default retention (`minio.backupRetentionDays`).
-- Backups should be replicated to a separate site; a single-cluster MinIO does not protect against loss of the cluster.
+- NetworkPolicies for the bundled Postgres and ES are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`. Object storage is always external to the chart: egress for api/worker/migrate and the CNPG/ES data tier goes only to `networkPolicy.s3` (CIDRs and/or an in-cluster peer, e.g. the Rook-Ceph RGW pods). Other egress is limited to peers, DNS and (instance managers) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
+- TLS in the data tier: ES uses an operator-issued certificate; the object store should be HTTPS (Terraform requires TLS on Rook-Ceph RGW: cert-manager issued or supplied). Trust reaches the app through an interim CA bundle (see deployment guide, section 8) (`ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE`) built from the ECK CA and `caBundle.extraSecrets` (the S3 CA).
+- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. Object-store identities are separate per bucket: with Terraform rook-ceph each bucket has its own Ceph user (app bucket: OBC user; PG backup and ES snapshot: dedicated writers with a bucket policy that denies version deletion, lock bypass and policy/lifecycle changes), the backup buckets are created with S3 object lock and a default retention (GOVERNANCE, 30 d), and the app identity has no grant on them. The Ceph admin user `roracle-admin` (bucket owner, creates the buckets) is the break-glass identity: as owner it can still bypass GOVERNANCE retention, so guard its Secret `rook-ceph-object-user-<store>-roracle-admin` (RBAC) and prefer COMPLIANCE mode only after you accept that nobody can shorten it. On external S3 you must do the same (Terraform requires separate backup identities; bucket creation with object lock, retention and policy are operator duties, see the Terraform README, "External S3 commands").
+- Backups should be replicated to a separate site; a single-cluster object store (including the backup buckets on the same Ceph cluster) does not protect against loss of the cluster.
 
 ## 12. Web tier, pod baseline and secrets (Helm chart)
 
@@ -256,14 +256,14 @@ Cross-Origin-Opener-Policy: same-origin
 | worker | gotenberg / docling / grobid / clamav | 3000 / 5001 / 8070 / 3310 | parsers have no egress |
 | api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
 | api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |
-| api, worker | MinIO (bundled, or `s3Cidrs`) | 9000 | |
+| api, worker, migrate, CNPG/ES pods | object store (`networkPolicy.s3`: CIDRs and/or in-cluster peer) | 443 / 9000 (configurable; Rook-Ceph RGW 443) | empty = denied |
 | api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4318 (configurable) | empty = denied |
 | worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
 | all pods | DNS (`networkPolicy.dns`) | 53 | |
 | `monitoringNamespace` | api/worker | 8000 (api), 8001 (worker) | only if `scrape.enabled` (default true; `/metrics` on both) |
 
 Data tier (always rendered for bundled modes): see section 11 (ES 9200 from app pods and the ECK operator, 9300 between ES pods;
-Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring; MinIO 9000 from app, CNPG, ES, peers, MinIO operator).
+Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring). With Rook-Ceph, Terraform adds an ingress policy in the Ceph namespace: RGW accepts only the app namespace and the Ceph namespace.
 Policies match after DNAT: use pod/node/LB CIDRs, never Service ClusterIPs. `kubeAPI.cidrs` empty means 443/6443 to any destination for the
 instance managers: set it in production.
 
@@ -274,7 +274,7 @@ with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate d
 
 | Exception | Why |
 |---|---|
-| MinIO and Elasticsearch pods: root filesystem not read-only | operator-managed pods; their data paths are PVCs |
+| Elasticsearch pods (and Ceph daemons): root filesystem not read-only | operator-managed pods; their data paths are PVCs |
 | ES `node.store.allow_mmap: false` | avoids ECK's privileged `vm.max_map_count` sysctl init container (slower; drop when nodes are tuned) |
 | ClamAV: signature DB seeded into an emptyDir; `/init-unprivileged` entrypoint | non-root + read-only FS; the default `/init` needs root |
 | GROBID: `-XX:-UseContainerSupport -Xmx4608m` | JDK crash on cgroup v2; heap must be explicit |
@@ -282,15 +282,14 @@ with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate d
 ### Secrets handling
 
 - Credentials are only referenced by Secret name (`existingSecret`, operator Secrets); the chart renders no secret values.
-- No secret on any command line: the MinIO hook passes root credentials through the `MC_HOST_local` env alias and user secrets on stdin; the ES hook reads curl config from stdin; no `set -x`.
-- MinIO root user/password are restricted to `[A-Za-z0-9._~-]` because `mc` does not URL-decode the alias credentials.
+- No secret on any command line: the ES hook reads curl config from stdin; no `set -x`. The Terraform bucket-setup Job reads the admin keys from Rook's Secret through `secretKeyRef`, never from arguments.
 - The app Postgres password is in two Secrets (CNPG basic-auth and `ROR_DATABASE_URL`) because CNPG's generated URI lacks the `+psycopg` driver: rotate both.
 - `ROR_ELASTIC_URL` carries the `roracle_app` credentials as userinfo, so it lives in the app Secret.
 
 ### TLS trust (interim)
 
-ES and MinIO issue TLS certificates from private CAs. An init container concatenates certifi's
-bundle with the ECK CA, `kube-root-ca.crt` and `caBundle.extraSecrets` into an emptyDir mounted over certifi's `cacert.pem`
+ES issues its TLS certificate from a private CA and the S3 endpoint may use one too. An init container concatenates certifi's
+bundle with the ECK CA and `caBundle.extraSecrets` (the S3 CA) into an emptyDir mounted over certifi's `cacert.pem`
 (`caBundle.certifiPath`, coupled to the image's Python layout) and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE` (httpx/openai) plus `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3) to that file. Verification is always on; there is no `verify=False` path. Credentials can be supplied as `ROR_ELASTIC_USERNAME/PASSWORD` and `ROR_DATABASE_PASSWORD` secret keys instead of URL userinfo.
 
 ### ClamAV fail-closed configuration

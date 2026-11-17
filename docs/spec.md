@@ -239,3 +239,6 @@ mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one Sem
 | 11 | Production | Helm, HA, observability, backups, hardening, load tests against latency targets |
 | 13 | Retrieval quality | **Runs before 12.** Eval harness (gold sets, per-principal Recall@k/MRR/nDCG, LLM judge, CI, admin trend), cross-encoder rerank, contextual chunk notes, per-document summary units, query router + global map-reduce, eval-gated agentic retrieval |
 | 12 | Documentation | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
+| 14 | Infrastructure as code | Terraform onto existing Kubernetes wrapping the Helm charts; placeholder-gated air-gap mirrors; sizing profiles; kind apply rehearsal in CI-able script |
+
+Plan 14 runs after 13 and before 12 (Documentation), which stays last so it can document the IaC.

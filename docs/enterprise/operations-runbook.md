@@ -28,7 +28,7 @@ Metrics come from `/metrics` on the api (also the DB-backed `roracle_jobs*` gaug
 ### Suggested alerts
 
 Queue oldest job > 15 min; failed jobs > 50/h; search p95 > 1 s for 10 min; TTFT p95 > 4 s;
-Elastic yellow > 15 min / red immediately; Postgres replication lag > 60 s; MinIO drive offline;
+Elastic yellow > 15 min / red immediately; Postgres replication lag > 60 s; Ceph `HEALTH_WARN`/`HEALTH_ERR` or an OSD down (with Rook-Ceph) / your S3 provider's health;
 ClamAV signatures older than 3 days; 5xx rate > 1%; PAT use bursts; rerank fallbacks > 5% of requests for 10 min.
 
 ## 2. Routine procedures
@@ -123,7 +123,7 @@ runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|
   `0` (default) = off: the endpoint then does nothing. Also deletes the version's `derived/<version_id>/` objects
   (docling JSON, rendition). Irreversible; restore from backup only. On a versioned bucket, noncurrent versions
   of purged `blobs/` and `derived/` objects remain until a noncurrent-expiry rule removes them (the chart
-  sets one only for `tmp/`; add `mc ilm rule add --prefix blobs/ --noncurrent-expire-days N` for real erasure). A document
+  sets one only for `tmp/`; add a `NoncurrentVersionExpiration` rule for `blobs/` and `derived/` with `aws s3api put-bucket-lifecycle-configuration` for real erasure). A document
   whose purge fails (e.g. ES error) is logged and skipped; the rest of the batch proceeds.
   If the periodic job ever ends `failed`, restart a worker to recreate it.
 - **gc**: deletes `blobs/` objects and `blobs` rows that no document version or evidence row references and
@@ -145,10 +145,7 @@ Search stays on the old generation until the cutover swaps the read alias.
 API uploads stage in the blob bucket under `tmp/<uuid>` and are deleted after the copy to `blobs/`. A crash
 mid-upload leaves an object or an incomplete multipart upload behind. The API ensures the bucket lifecycle rule `roracle-tmp-expire` (`tmp/`, 1 day, incl. stale multipart uploads) at startup
 (idempotent; on `AccessDenied` it only logs a warning and the operator sets it). The rule
-removes objects; check it with `mc ilm rule ls <alias>/<bucket>` and add it if missing (`mc ilm rule add --prefix
-tmp/ --expire-days 1 <alias>/<bucket>`). Incomplete multipart uploads: MinIO discards stale ones after 24 h;
-on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplete <alias>/<bucket>/tmp/` and
-`mc rm --incomplete --recursive --force <alias>/<bucket>/tmp/`. Never touch `blobs/`.
+removes objects; check it with `aws s3api get-bucket-lifecycle-configuration --bucket <bucket> --endpoint-url <s3>` and add it if missing (`aws s3api put-bucket-lifecycle-configuration`: a rule with `Filter.Prefix=tmp/` and `Expiration.Days=1`, plus `AbortIncompleteMultipartUpload.DaysAfterInitiation=1`; Terraform rook-ceph sets both on the app bucket, external S3 is an operator duty). Stale incomplete multipart uploads are only removed by that abort rule (not automatically on RGW or AWS). Manual: `aws s3api list-multipart-uploads --bucket <bucket> --prefix tmp/` and `aws s3api abort-multipart-upload`. Never touch `blobs/`.
 
 ### Rotate secrets
 - DB / S3 / Elastic credentials: update secret → `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
@@ -283,15 +280,15 @@ Also: after ECK CA rotation restart api/worker; update ClamAV signatures by refr
 
 | Store | Mechanism (chart defaults) | RPO | Restore |
 |---|---|---|---|
-| Postgres | CNPG WAL archiving to MinIO via barman-cloud plugin; `archive_timeout` forced to 5 min; immediate base backup at install + daily 02:00 (`postgres.backup.schedule`); retention 30d | <= 5 min (when WAL is being produced) | PITR in place via `postgres.recovery` (3.1) |
-| Elasticsearch | SLM `roracle-daily` 01:30 to repo `roracle-s3`, expire 30d (min 7, max 60) | <= 24 h; index is rebuildable from Postgres + MinIO | snapshot restore (3.2) or rebuild |
-| MinIO | versioning; backup buckets with GOVERNANCE retention; site replication to a DR site (manual setup) | near-zero with replication, else loss of the cluster = loss of originals | 3.3 |
+| Postgres | CNPG WAL archiving to S3 object store via barman-cloud plugin; `archive_timeout` forced to 5 min; immediate base backup at install + daily 02:00 (`postgres.backup.schedule`); retention 30d | <= 5 min (when WAL is being produced) | PITR in place via `postgres.recovery` (3.1) |
+| Elasticsearch | SLM `roracle-daily` 01:30 to repo `roracle-s3`, expire 30d (min 7, max 60) | <= 24 h; index is rebuildable from Postgres + S3 object store | snapshot restore (3.2) or rebuild |
+| Object store | backup buckets with S3 object lock + default retention + writer-only policy (Terraform rook-ceph creates them; external S3: operator duty, Terraform README "External S3 commands"); Ceph replication (RGW multisite) or `rclone` to a DR site (manual setup) | near-zero with replication, else loss of the cluster = loss of originals | 3.3 |
 | Keycloak | your Keycloak policy | | |
 
-RTO target <= 4 h. Order: Postgres -> MinIO (if lost) -> Elastic -> scale api/worker up. Alert on WAL archive age (Grafana panel, 300 s line).
-After the first install verify that a base backup exists (`kubectl get backup`; else trigger one with the command in section 2, Release upgrade): the immediate backup can run before the `minio-policy` hook has created the MinIO user. WAL archiving retries automatically.
+RTO target <= 4 h. Order: Postgres -> S3 object store (if lost) -> Elastic -> scale api/worker up. Alert on WAL archive age (Grafana panel, 300 s line).
+After the first install verify that a base backup exists (`kubectl get backup`; else trigger one with the command in section 2, Release upgrade): the immediate backup can run before the backup bucket exists or its writer identity is usable (with rook-ceph the bucket-setup Job runs before the release; with external S3 the bucket and identity are yours). WAL archiving retries automatically.
 
-A single-cluster MinIO also holds the backups: without replication to another site, a cluster loss loses data and backups together.
+A single-cluster object store also holds the backups: without replication to another site, a cluster loss loses data and backups together.
 
 ### 3.1 Postgres PITR (in place, Helm-managed name)
 
@@ -304,7 +301,7 @@ Under the default-deny NetworkPolicy only the Helm-managed cluster `<fullname>-p
 5. Verify: `kubectl cnpg status <fullname>-pg`, row counts of `documents`, `jobs`; trigger a base backup `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` and confirm it completes (`kubectl get backup`).
 6. Keep `postgres.backup.serverName` (the new archive path) in your values permanently; set `postgres.recovery.enabled=false` again so a later cluster re-creation does not replay old backups. Scale api/worker back up.
 
-Each further restore needs another new `serverName` (`-r2`, ...). Rows written after the target time are lost; blobs in MinIO newer than the target are orphans (the GC job removes objects without a `blobs` row). Migrations run on the upgrade when restoring across versions.
+Each further restore needs another new `serverName` (`-r2`, ...). Rows written after the target time are lost; blobs in S3 object store newer than the target are orphans (the GC job removes objects without a `blobs` row). Migrations run on the upgrade when restoring across versions.
 
 ### 3.2 Elasticsearch restore
 
@@ -318,19 +315,20 @@ curl -s -u elastic:$PW "$ES/_cluster/health?wait_for_status=yellow&timeout=30m"
 ```
 On a rebuilt cluster re-run the hook (`helm upgrade`) first so repository `roracle-s3` exists. Documents ingested after the snapshot are missing:
 re-queue them with the stage-reset statement of "Re-embed after embedding prompt/model change" (stops workers), or run `POST /admin/reindex` with the current model to rebuild into a fresh generation. After restoring a pre-cutover snapshot, verify that `chunks` points at the index PG records as `embed_index` (`GET /admin/reindex`); if not, run a reindex.
-Elastic holds no unique data, so when no usable snapshot exists use that same procedure to rebuild everything from Postgres + MinIO (search is down until versions are searchable again).
+Elastic holds no unique data, so when no usable snapshot exists use that same procedure to rebuild everything from Postgres + S3 object store (search is down until versions are searchable again).
 
-### 3.3 MinIO
+### 3.3 Object storage (S3: Rook-Ceph RGW or external)
 
-- Lost objects/versions: restore the previous version (`mc undo` / `mc cp --version-id`) from the versioned bucket.
-- Cluster loss: point `config.ROR_S3_ENDPOINT` (and `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint`) at the DR site, which holds the replicated `roracle` bucket via site replication. Credentials/policies are not replicated unless you replicate IAM: create the `minio.users.*` there.
-- Backup buckets (`roracle-pg-backup`, `roracle-es-snapshots`) are replicated the same way; GOVERNANCE retention blocks deletion by normal users for `minio.backupRetentionDays`.
+- Lost objects/versions (app bucket is not versioned unless you enable it): restore from the replicated copy, or from a noncurrent version if versioning is on (`aws s3api list-object-versions --bucket roracle --prefix <key>`, then `aws s3api copy-object` with `--copy-source <bucket>/<key>?versionId=<id>`).
+- Cluster loss: point `config.ROR_S3_ENDPOINT` (and `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint`) at the DR site, which holds the replicated buckets (Ceph RGW multisite, or `rclone sync` jobs). Identities and bucket policies are not replicated: recreate the per-bucket users and re-run the bucket setup (object lock, retention, policy) there.
+- Backup buckets (`roracle-pg-backup`, `roracle-es-snapshots`) are replicated the same way; with object lock, versions cannot be deleted by the writer identities for `ceph.object_lock.retention_days` (writer keys cannot read lock/versioning configuration: run these checks with the admin keys; verify: `aws s3api get-object-lock-configuration --bucket roracle-pg-backup --endpoint-url <s3>`). Storage cost of the locked buckets is about 2x the retention window (noncurrent versions are kept until retention+1 d): size the OSDs for it. Pre-GA check (see the rehearsal in the Terraform README): barman-cloud and the ES S3 repository work against the locked buckets (Content-MD5, delete markers during retention cleanup).
+- Ceph: `radosgw-admin bucket stats --bucket <name>`, `radosgw-admin sync status` (multisite), `ceph health detail` from the Rook toolbox. TLS: the RGW certificate is valid for 1 year (renewed 30 days before expiry); after each renewal restart RGW (`kubectl -n rook-ceph rollout restart deploy -l app=rook-ceph-rgw`; Rook does not necessarily reload a changed certificate Secret: verify with `openssl s_client`). The self-signed CA lives 10 years; after a CA renewal re-run `terraform apply` so the app namespace copy (`roracle-s3-ca`) is refreshed, then restart api/worker.
 
 ### 3.4 Quarterly drill checklist
 
 - [ ] Restore Postgres PITR (3.1) to a time 1 h ago in a scratch namespace/release; compare row counts of `documents`, `jobs`.
 - [ ] Restore the latest ES snapshot into a scratch ES; run a known query, compare hit counts.
-- [ ] Verify MinIO replication status (`mc admin replicate status`) and open a replicated object.
+- [ ] Verify object-store replication (`radosgw-admin sync status` for Ceph multisite, or the last `rclone` job result) and open a replicated object.
 - [ ] Point a scratch api/worker at the restored stores; smoke test upload, search, chat, citation.
 - [ ] Record elapsed time against RTO 4 h and WAL archive age against RPO 5 min; file gaps.
 
@@ -380,3 +378,4 @@ Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, n
 | `GET /me/notifications`, `POST /me/notifications/read` | Caller's inbox (any user); admins also receive `ops.job_failed`; kinds also include `proposal.new`, `note.reply`, `note.on_document` (public notes only). |
 
 Paging: `/admin/users` and `/admin/review` use offset `page=`; the other lists use keyset `before_id=`.
+
