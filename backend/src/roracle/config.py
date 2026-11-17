@@ -160,9 +160,12 @@ class Settings(AliasConfig):
     db_max_overflow: int = Field(4, ge=0)
     worker_db_pool_size: int = Field(3, ge=1)  # worker process: claim session + stage-update session
     worker_db_max_overflow: int = Field(1, ge=0)
+    db_disable_prepared: bool = (
+        False  # True behind PgBouncer transaction pooling (set by the chart with the pooler)
+    )
     db_pool_timeout_s: float = 10.0  # wait for a pooled connection before failing the request (503-ish)
     api_threads: int = Field(
-        200, ge=10
+        256, ge=10
     )  # anyio worker-thread tokens: one per in-flight sync route or SSE stream
     rate_limit_per_minute: int = 0  # per-token, per replica; 0 = off (ratelimit.py)
     connector_fs_roots: Annotated[list[str], NoDecode] = []  # fs connectors may only read under these

@@ -114,3 +114,43 @@ def test_100_blocked_streams_do_not_block_healthz(settings):
 
     status, took = asyncio.run(go())
     assert status == 200 and took < 1.0
+
+
+def test_disable_prepared_sets_prepare_threshold_none(settings):
+    on = settings.model_copy(update={"db_disable_prepared": True})
+    engine = api_session_factory(on).kw["bind"]
+    seen = {}
+    real = engine.dialect.connect
+
+    def spy(*a, **k):
+        seen.update(k)
+        return real(*a, **k)
+
+    engine.dialect.connect = spy
+    with engine.connect() as c:
+        c.exec_driver_sql("SELECT 1")
+    assert seen.get("prepare_threshold", "missing") is None
+    off = api_session_factory(settings).kw["bind"]
+    assert "prepare_threshold" not in off.dialect.create_connect_args(off.url)[1]
+
+
+def test_reduce_inputs_never_commits_a_worker_session(settings, monkeypatch):
+    """eval_run runs reduce_inputs inside the job transaction: only flagged request sessions release early."""
+    from roracle.chat import global_answer
+
+    monkeypatch.setattr(global_answer, "map_docs", lambda *a, **k: [])
+    monkeypatch.setattr(global_answer, "build", lambda *a, **k: ([], []))
+
+    class Spy:
+        def __init__(self, info):
+            self.info, self.commits = info, 0
+
+        def commit(self):
+            self.commits += 1
+
+    job = Spy({})
+    global_answer.reduce_inputs(job, None, None, settings, None, "q", [])
+    assert job.commits == 0
+    request = Spy({"release_before_io": True})
+    global_answer.reduce_inputs(request, None, None, settings, None, "q", [])
+    assert request.commits == 2

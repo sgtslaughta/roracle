@@ -321,3 +321,20 @@ def test_one_policy_load_and_one_msearch_per_chat_turn(db_session, settings, me,
     run(db_session, es, settings, me, v, excludes=[str(other.id)])
     assert len(loads) == 1  # gates, corpus search, tab search all share one Policy
     assert len(es.calls) == 4  # corpus search (BM25 + kNN) and tab search (BM25 + kNN): 2 msearch round trips
+
+
+def test_chat_turn_on_a_flagged_request_session_rechecks_after_the_commit(db_session, settings, me, other):
+    """Request sessions release the connection before ES/embedding; R19 then runs in the next transaction and still
+    drops what the user may not see. Inside the (faked) ES call no pooled connection is checked out."""
+    mine, mv = seed(db_session, me.user_id, title="Mine")
+    secret, sv = seed(db_session, other.id, title="Secret", visibility="private")
+    db_session.commit()
+    db_session.info["release_before_io"] = True
+    pool = db_session.get_bind().pool
+    es = FakeES([hit(secret, sv), hit(mine, mv)])
+    seen = []
+    real = es.search
+    es.search = lambda **kw: seen.append(pool.checkedout()) or real(**kw)
+    out = run(db_session, es, settings, me)
+    assert ids(out) == [str(mine.id)]
+    assert seen and set(seen) == {0}

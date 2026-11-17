@@ -14,6 +14,10 @@
   Threads are cheap (stack only); the DB pool, not the thread count, bounds database load: a request waiting for a
   connection fails after `ROR_DB_POOL_TIMEOUT_S`.
 
+- **Rule for new code:** no session writes before `release_before_io`; anything written earlier in the request is
+  committed even if the request later fails. Worker/eval sessions are never flagged (`global_answer.reduce_inputs` and
+  every shared retrieval helper go through `release_before_io`, never a bare `commit`).
+
 ## Formula
 ```
 clients     = api_max_replicas x (ROR_DB_POOL_SIZE + ROR_DB_MAX_OVERFLOW)
@@ -23,15 +27,20 @@ pooled      : pooler.instances x defaultPoolSize + reserved     <= max_connectio
               clients                                            <= pooler.instances x maxClientConn
 ```
 Chart defaults (`values.yaml`): API 10 x 12 = 120, workers 12 x 4 = 48, reserved 15 -> 183 <= `max_connections` 200.
-`helm template` fails with the numbers when the budget is exceeded (so CI catches a values change). Each backend costs
-about 10 MB of RAM, so raising `max_connections` needs `shared_buffers`/memory headroom; past ~300 enable the pooler.
+`helm template` fails with the numbers when the budget is exceeded (so CI catches a values change). Each idle backend costs
+about 10 MB of RAM; active ones add up to `work_mem` (16 MB) per sort/hash node, so budget `work_mem x concurrently
+active queries` besides `shared_buffers` (2 GB of the 8 Gi limit). Past ~300 connections enable the pooler.
+External Postgres: the chart cannot see `max_connections`; `NOTES.txt` prints the worst-case client count to compare.
+One-off Jobs (migrate, eval/CLI) come out of `postgres.reservedConnections`.
 
 ## PgBouncer (CNPG Pooler)
 `postgres.pooler.enabled=true` renders a `Pooler` (transaction mode, `max_prepared_statements=200`, NetworkPolicies).
 Point `ROR_DATABASE_URL` in `secrets.existingSecret` at `<release>-pg-pooler-rw`; the migrate Job keeps the direct
-`<release>-pg-rw` service. Transaction pooling is safe here: the only advisory locks are `pg_advisory_xact_lock`, and
+`<release>-pg-rw` service. With the pooler on the chart sets `ROR_DB_DISABLE_PREPARED=true` (psycopg `prepare_threshold=None`), so the app never
+uses server-side prepared statements and works with any PgBouncer; `max_prepared_statements` (needs PgBouncer >= 1.21
+and a CNPG operator that passes the parameter through) is only a safety net. Transaction pooling is safe here: the only advisory locks are `pg_advisory_xact_lock`, and
 `SET LOCAL` is transaction-scoped. Workers hold a connection for a whole job transaction (until Task 10.3 lands the
-lease model), so size `defaultPoolSize` >= concurrently running jobs + API concurrency.
+lease model), so size `defaultPoolSize` x instances (default 40 x 2 = 80) must cover workers 12 x 4 = 48 plus API concurrency.
 
 ## Other Postgres settings
 `shared_buffers` 2GB (25% of 8Gi), `work_mem` 16MB (values.yaml). Migration `0014d` sets aggressive per-table

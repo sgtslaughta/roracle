@@ -100,11 +100,15 @@ spec:
         {{- include "roracle.appPeer" . | nindent 8 }}
       ports: [{port: 5432, protocol: TCP}]
     - from:
+        {{- include "roracle.nsPeer" $np.operatorNamespaces.cnpg | nindent 8 }}
+      ports: [{port: 8000, protocol: TCP}]
+    - from:
         {{- include "roracle.nsPeer" $np.monitoringNamespace | nindent 8 }}
       ports: [{port: 9127, protocol: TCP}]
   egress:
     - to: [{podSelector: {matchLabels: {{ toJson $pgSel }}}}]
       ports: [{port: 5432, protocol: TCP}]
+    {{- include "roracle.npKubeApi" .Values | nindent 4 }}
     {{- include "roracle.npDns" .Values | nindent 4 }}
 ---
 {{- end }}

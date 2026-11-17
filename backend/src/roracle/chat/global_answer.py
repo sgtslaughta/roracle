@@ -226,11 +226,12 @@ def reduce_inputs(
     session: Session, es, llm, settings: Settings, p: Principal, question: str, docs: list[DocUnits],
     *, timeout: float | None = None,
 ) -> tuple[list[dict], list[Passage]]:  # fmt: skip
-    """Blocking map + build (MCP, eval). Release the DB connection first; the map phase never holds one."""
-    session.commit()
+    """Blocking map + build (MCP, eval). Request sessions release their DB connection first (the map phase never
+    holds one); worker/eval sessions stay in the job transaction (`release_before_io` is a no-op for them)."""
+    release_before_io(session)
     notes = map_docs(llm, settings, question, docs, timeout=timeout)
     out = build(session, es, settings, p, question, notes, docs)
-    session.commit()
+    release_before_io(session)
     return out
 
 

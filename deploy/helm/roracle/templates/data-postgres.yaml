@@ -11,12 +11,9 @@
 {{- fail "postgres.backup.endpointCA.name is required: create a Secret from kube-root-ca.crt (key ca.crt) to trust the MinIO auto-cert" }}
 {{- end }}
 {{- /* Connection budget: every api/worker pod holds up to pool+overflow connections at full autoscale. */}}
-{{- $api := .Values.api }}
-{{- $wk := .Values.worker }}
-{{- $apiMax := ternary $api.autoscaling.maxReplicas $api.replicas $api.autoscaling.enabled | int }}
-{{- $wkMax := ternary $wk.autoscaling.maxReplicas $wk.replicas $wk.autoscaling.enabled | int }}
-{{- $c := .Values.config }}
-{{- $clients := add (mul $apiMax (add (int $c.ROR_DB_POOL_SIZE) (int $c.ROR_DB_MAX_OVERFLOW))) (mul $wkMax (add (int $c.ROR_WORKER_DB_POOL_SIZE) (int $c.ROR_WORKER_DB_MAX_OVERFLOW))) | int }}
+{{- $apiMax := ternary .Values.api.autoscaling.maxReplicas .Values.api.replicas .Values.api.autoscaling.enabled | int }}
+{{- $wkMax := ternary .Values.worker.autoscaling.maxReplicas .Values.worker.replicas .Values.worker.autoscaling.enabled | int }}
+{{- $clients := include "roracle.pgClients" . | int }}
 {{- $maxConn := int (default 100 $pg.parameters.max_connections) }}
 {{- if $pg.pooler.enabled }}
 {{- $server := add (mul (int $pg.pooler.instances) (int $pg.pooler.defaultPoolSize)) (int $pg.reservedConnections) }}

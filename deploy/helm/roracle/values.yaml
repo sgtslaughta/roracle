@@ -163,6 +163,7 @@ postgres:
     limits: {memory: 8Gi}
   # postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters). max_connections is checked
   # against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory.
+  # NB: a `parameters` override without max_connections leaves PostgreSQL's own default (100), which the guard then uses.
   parameters: {max_connections: "200", shared_buffers: 2GB, work_mem: 16MB}
   reservedConnections: 15  # superuser_reserved (3) + CNPG/monitoring/replication + migrate Job + operator headroom
   # PgBouncer (CNPG Pooler, transaction mode). When enabled, point ROR_DATABASE_URL at <release>-pg-pooler-rw and keep the
