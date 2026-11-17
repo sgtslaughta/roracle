@@ -14,6 +14,11 @@ from roracle.eval.stats import BOOTSTRAP_N, BOOTSTRAP_SEED, paired_bootstrap
 from roracle.eval.store import PairView, RunView
 
 MIN_QUERIES = 200
+MIN_SCOPE_QUERIES = (
+    50  # ledger M3: a single kind needs >= 50 queries; the whole reference set still >= MIN_QUERIES
+)
+DOC_RECALL10_GAIN = 0.05  # `global` scope: doc-level d_recall@10 replaces the passage criterion
+FACT_NDCG_MAX_LOSS = 0.005  # `global` scope: the fact scope must not regress
 MIN_PRINCIPALS = 3  # distinct, at least one non-admin
 NDCG_GAIN = 0.02
 RECALL10_GAIN = 0.02
@@ -96,10 +101,13 @@ def verdict(
         short.append(
             f"runs differ in set or path ({base.set_name}/{base.path} vs {cand.set_name}/{cand.path})"
         )
-    in_scope = lambda r: {p.query_key for p in r.pairs if scope == "all" or p.kind == scope}
+    in_scope = lambda r, sc=scope: {p.query_key for p in r.pairs if sc == "all" or p.kind == sc}
     queries = in_scope(cand) & in_scope(base)
-    if len(queries) < MIN_QUERIES:
-        short.append(f"{len(queries)} {scope} queries in both runs (need {MIN_QUERIES})")
+    whole = in_scope(cand, "all") & in_scope(base, "all")
+    if len(whole) < MIN_QUERIES:
+        short.append(f"{len(whole)} all queries in both runs (need {MIN_QUERIES})")
+    if scope != "all" and len(queries) < MIN_SCOPE_QUERIES:
+        short.append(f"{len(queries)} {scope} queries in both runs (need {MIN_SCOPE_QUERIES})")
     pr = _principals(cand)
     if len(pr) < MIN_PRINCIPALS or all(pr.values()):
         short.append(
@@ -111,11 +119,18 @@ def verdict(
     def d(key: str) -> dict[str, Any] | None:
         return deltas.get(key)
 
-    gains = [
-        (key, thr)
-        for key, thr in (("p_ndcg@10", NDCG_GAIN), ("p_recall@10", RECALL10_GAIN))
-        if (m := d(key)) and m["delta"] >= thr and m["lo"] > 0
-    ]
+    crit = (
+        (("d_recall@10", DOC_RECALL10_GAIN),)
+        if scope == "global"
+        else (("p_ndcg@10", NDCG_GAIN), ("p_recall@10", RECALL10_GAIN))
+    )
+    gains = [(key, thr) for key, thr in crit if (m := d(key)) and m["delta"] >= thr and m["lo"] > 0]
+    if scope == "global":  # the router must not cost fact questions anything
+        fact = metric_deltas(base, cand, "fact").get("p_ndcg@10")
+        if fact is None:
+            short.append("no fact queries in both runs to guard p_ndcg@10")
+        elif fact["delta"] < -FACT_NDCG_MAX_LOSS:
+            fails.append(f"fact p_ndcg@10 {fact['delta']:+.4f} (loss > {FACT_NDCG_MAX_LOSS})")
     if (m := d("p_recall@100")) is None:
         short.append("p_recall@100 missing")
     elif m["delta"] < -RECALL100_MAX_LOSS:
@@ -132,7 +147,8 @@ def verdict(
         fails.append(f"latency p95 {p95} ms over budget {latency_budget_ms} ms")
 
     if not gains:  # a missing gain is only a FAIL when the set was big enough to show one
-        msg = f"no gain: need p_ndcg@10 >= +{NDCG_GAIN} or p_recall@10 >= +{RECALL10_GAIN} with CI lower bound > 0"
+        need = " or ".join(f"{k} >= +{t}" for k, t in crit)
+        msg = f"no gain: need {need} with CI lower bound > 0"
         (short if short else fails).append(msg)
     if fails:
         return Verdict("FAIL", fails + short, deltas)

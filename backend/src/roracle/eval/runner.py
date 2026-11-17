@@ -18,6 +18,8 @@ from roracle import runtime
 from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import rank_for_search
 from roracle.auth import Principal
+from roracle.chat import global_answer
+from roracle.chat import router as query_router
 from roracle.chat.retrieve import MAX_K, MIN_K, rank_for_chat
 from roracle.config import Settings
 from roracle.eval import judge as judge_mod
@@ -51,6 +53,13 @@ def visible_ids(session: Session, p: Principal, doc_ids: set[str], path: str) ->
 
 def default_rank(session: Session, es, llm, settings: Settings, path: str) -> Rank:
     def chat(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
+        if settings.router and query_router.classify(llm, settings, q) == "global":
+            docs = global_answer.candidates(session, es, llm, settings, p, q, raw=raw)
+            if (
+                len(docs) >= global_answer.MIN_DOCS
+            ):  # the global path's candidate documents as the ranked list
+                return global_answer.ranked(docs)
+            raw.clear()
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:

@@ -26,6 +26,7 @@ from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
+from roracle.chat.global_answer import route_question
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.service import label_by_name
@@ -56,24 +57,35 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     s = dep(app, get_app_settings, session)
     llm = dep(app, search_routes.get_llm)
     scope = f"collection:{collection}" if collection else "all"
+    plan, meta = None, {}  # `route` is reported only when the router is on
     try:
-        passages = retrieve_for_chat(
-            session=session,
-            es=dep(app, library.get_es),
-            llm=llm,
-            settings=s,
-            p=p,
-            question=question,
-            viewer=Viewer(),
-            scope=scope,
-            pins=[],
-            excludes=[],
+        if s.router:
+            plan, meta = route_question(
+                session, dep(app, library.get_es), llm, s, p, question, scope == "all"
+            )
+        passages = (
+            plan.passages
+            if plan
+            else retrieve_for_chat(
+                session=session,
+                es=dep(app, library.get_es),
+                llm=llm,
+                settings=s,
+                p=p,
+                question=question,
+                viewer=Viewer(),
+                scope=scope,
+                pins=[],
+                excludes=[],
+            )
         )  # gate (a): retrieve_for_chat applies exclude_llm in ES and Postgres
         passages, notes = split_notes(passages)
         if not passages:
-            return {"answer": NO_PASSAGES, "citations": []}
+            return {"answer": NO_PASSAGES, "citations": [], **meta}
         r = llm.chat.completions.create(
-            model=s.chat_model_list[0], messages=build_messages(question, passages, [], 0, notes)
+            model=s.chat_model_list[0],
+            messages=plan.messages if plan else build_messages(question, passages, [], 0, notes),
+            **({"max_tokens": s.global_reduce_tokens} if plan else {}),
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
@@ -92,6 +104,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     )
     return {
         "answer": text,
+        **meta,
         "citations": [{**c, "label": label_json(policy.get(labels[UUID(c["doc_id"])]))} for c in cites],
     }
 

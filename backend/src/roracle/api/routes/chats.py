@@ -21,6 +21,7 @@ from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.chat.access import owned_chat
 from roracle.chat.answer import build_messages, split_notes, stream_answer
+from roracle.chat.global_answer import route_question
 from roracle.chat.retrieve import Viewer, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
 from roracle.db import get_session
@@ -135,16 +136,31 @@ def post_message(
     canned = None
     passages = []
     excluded: list[dict] = []
+    meta: dict | None = None
+    plan = None
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
     else:
         try:
-            passages = retrieve_for_chat(
-                session, es, llm, settings, p, body.content, body.viewer, chat.scope,
-                list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
-                excluded=excluded,
-            )  # fmt: skip
+            if settings.router:
+                plan, meta = route_question(
+                    session,
+                    es,
+                    llm,
+                    settings,
+                    p,
+                    body.content,
+                    chat.scope == "all" and not body.viewer.tabs and not body.viewer.selection,
+                )
+            if plan:
+                passages = plan.passages
+            else:
+                passages = retrieve_for_chat(
+                    session, es, llm, settings, p, body.content, body.viewer, chat.scope,
+                    list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
+                    excluded=excluded,
+                )  # fmt: skip
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         except (openai.APIError, httpx.HTTPError):
@@ -158,7 +174,11 @@ def post_message(
         chat.title = body.content[:80]
     session.commit()
     passages, notes = split_notes(passages)
-    messages = build_messages(body.content, passages, history, HISTORY, notes)
+    if plan:
+        hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
+        messages = [plan.messages[0], *hist, *plan.messages[1:]]
+    else:
+        messages = build_messages(body.content, passages, history, HISTORY, notes)
     vids = [UUID(x.version_id) for x in (*passages, *notes)]
     versions = {
         str(i): n
@@ -166,7 +186,20 @@ def post_message(
             select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
         )
     }
-    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded)
+    gen = stream_answer(
+        session,
+        llm,
+        chat.id,
+        model,
+        messages,
+        passages,
+        versions,
+        canned,
+        notes,
+        excluded,
+        meta,
+        settings.global_reduce_tokens if plan else None,
+    )
     return ClosingStreamingResponse(
         _frames(gen),
         media_type="text/event-stream",

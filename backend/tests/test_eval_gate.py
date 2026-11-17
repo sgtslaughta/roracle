@@ -38,7 +38,13 @@ def mkrun(
     for i in range(n):
         for pr in pri:
             d = noise(i) if noise else 0.0
-            scores = {"p_ndcg@10": ndcg + d, "p_recall@10": r10 + d, "p_recall@100": r100, "p_mrr": 0.5}
+            scores = {
+                "p_ndcg@10": ndcg + d,
+                "p_recall@10": r10 + d,
+                "p_recall@100": r100,
+                "p_mrr": 0.5,
+                "d_recall@10": r10 + d,
+            }
             j = {"faithfulness": faith, "citation_support": cite} if judge else None
             pairs.append(PairView(f"q{i}", pr, ["fact", "multihop", "global"][i % 3], scores, j))
     m = {
@@ -162,8 +168,8 @@ def test_scope_uses_only_that_kind():
     assert gate.verdict(base, cand, scope="global").status == "PASS"
     assert gate.verdict(base, cand, scope="fact").status == "FAIL"  # no gain on fact queries
     assert gate.verdict(base, cand).status == "PASS"  # +0.033 over all kinds
-    small = mkrun(300), mkrun(300, noise=lambda i: 0.1 if i % 3 == 2 else 0.0, ndcg=0.5)
-    assert gate.verdict(*small, scope="global").status == "INSUFFICIENT"  # only 100 in-scope queries
+    g = lambda n: (mkrun(n), mkrun(n, noise=lambda i: 0.1 if i % 3 == 2 else 0.0, ndcg=0.5))
+    assert gate.verdict(*g(300), scope="global").status == "PASS"  # 100 global queries >= 50, set >= 200
     assert gate.metric_deltas(base, cand, "global")["p_ndcg@10"]["delta"] == pytest.approx(0.1)
     assert gate.metric_deltas(base, cand, "fact")["p_ndcg@10"]["delta"] == pytest.approx(0.0)
 
@@ -218,3 +224,29 @@ def test_cutover_enqueues_eval_run_only_with_reference_set(db_session, settings,
     assert _cutover(db_session, settings, eval_on_reindex=False) == []
     (job,) = _cutover(db_session, settings)
     assert job.payload == {"set_id": str(ref.id), "trigger": "reindex", "judge": True}
+
+
+def test_per_scope_minimum_is_50_and_whole_set_200():
+    """Ledger M3: a scope needs >= 50 queries AND the reference set as a whole >= 200."""
+    assert gate.MIN_SCOPE_QUERIES == 50 and gate.MIN_QUERIES == 200
+    noisy = lambda n: (mkrun(n), mkrun(n, noise=lambda i: 0.1 if i % 3 == 2 else 0.0, ndcg=0.5))
+    v = gate.verdict(*noisy(300 - 3), scope="global")  # 99 global queries
+    assert v.status == "PASS"
+    v = gate.verdict(*noisy(120), scope="global")  # 40 global queries, set too small too
+    assert v.status == "INSUFFICIENT" and any("need 50" in r for r in v.reasons)
+    v = gate.verdict(*noisy(149), scope="global")  # 49 global queries, 149 total
+    assert any("need 50" in r for r in v.reasons) and any("need 200" in r for r in v.reasons)
+    v = gate.verdict(*noisy(199), scope="global")  # 66 global but the whole set is 199 < 200
+    assert v.status == "INSUFFICIENT" and not any("need 50" in r for r in v.reasons)
+
+
+def test_global_scope_uses_doc_recall_and_guards_fact():
+    base = mkrun(300)
+    cand = mkrun(300, noise=lambda i: 0.06 if i % 3 == 2 else 0.0)
+    v = gate.verdict(base, cand, scope="global")
+    assert v.status == "PASS" and "d_recall@10" in v.reasons[0]
+    weak = mkrun(300, noise=lambda i: 0.04 if i % 3 == 2 else 0.0)
+    assert gate.verdict(base, weak, scope="global").status == "FAIL"  # +0.04 < 0.05 doc-recall gain
+    hurt = mkrun(300, noise=lambda i: 0.06 if i % 3 == 2 else (-0.01 if i % 3 == 0 else 0.0))
+    v = gate.verdict(base, hurt, scope="global")  # fact ndcg -0.01 < -0.005
+    assert v.status == "FAIL" and any("fact p_ndcg@10" in r for r in v.reasons)

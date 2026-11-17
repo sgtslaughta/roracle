@@ -108,6 +108,18 @@ class Settings(BaseSettings):
     )
     raptor_model: str = ""  # empty = summary_model
     raptor_section_chars: int = 12000  # section text sent per summary call
+    router: bool = False  # P13 T7: query router + global map-reduce (flips on a PASS in docs/eval/)
+    router_llm: bool = (
+        False  # ambiguous questions: one small-model call; off = heuristic only (no hot-path LLM)
+    )
+    router_model: str = ""  # empty = summary_model
+    router_timeout_s: float = 1.5
+    global_max_docs: int = 40
+    global_concurrency: int = 8
+    global_timeout_s: float = 90.0
+    global_doc_chars: int = 6000  # one document's own text sent per map call
+    global_map_tokens: int = 200  # hard cap per map note
+    global_reduce_tokens: int = 1200  # hard cap on the streamed reduce answer
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     db_connect_timeout_s: int = (
         5  # PG connect timeout (api/worker/readyz); a ?connect_timeout= in the URL wins
