@@ -7,6 +7,7 @@ import { FacetRail } from "./FacetRail";
 import { FiltersButton } from "./FiltersButton";
 import { QueryBar } from "./QueryBar";
 import { QuerySentence, useSentenceNames } from "./QuerySentence";
+import { SavedSearchesMenu } from "./SavedSearchesMenu";
 import { SortSelect } from "./SortSelect";
 import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
@@ -68,6 +69,7 @@ export function SearchPage() {
           <FiltersButton facets={data?.facets} search={search} nav={nav} />
           <ViewSwitch value={view} onChange={(v) => nav.patch({ view: v }, true)} />
           {view === "table" && <ColumnPicker columns={search.cols ?? DEFAULT_COLUMNS} onChange={(cols) => nav.patch({ cols })} />}
+          <SavedSearchesMenu search={search} />
           <SortSelect value={search.sort} onChange={nav.setSort} />
         </div>
       </div>

@@ -132,3 +132,6 @@ export interface UploadsResponse { items: UploadItem[]; total: number }
 export interface UploadCreated { document_id: string; version_id: string; sha256: string }
 export interface DuplicateDetail { code: "duplicate"; document_id: string }
 export type NearDupAction = "new_version" | "separate" | "cancel";
+
+/** /me/saved-searches (`query` is the library URL query string, no leading `?`) */
+export interface SavedSearch { id: string; name: string; query: string; created_at: string; updated_at: string }

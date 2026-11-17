@@ -16,6 +16,7 @@ import { proposalHandlers } from "./proposals";
 import { notificationHandlers } from "./notifications";
 import { draftDocument, draftHandlers } from "./drafts";
 import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
+import { savedSearchHandlers } from "./savedSearches";
 import { evalHandlers } from "./eval";
 import { DIR_USERS, directoryHandlers } from "./directory";
 
@@ -211,4 +212,5 @@ export const handlers = [
   ...proposalHandlers,
   ...notificationHandlers,
   ...draftHandlers,
+  ...savedSearchHandlers,
 ];
