@@ -111,3 +111,37 @@ Pods run non-root with a read-only root filesystem (emptyDirs for `/tmp`, home/c
 ## Verification
 
 `terraform fmt -check -recursive`, `terraform init -backend=false`, `terraform validate` (CI job `terraform`, image `TERRAFORM_IMAGE`).
+
+## Local rehearsal (kind)
+
+`test/kind-e2e.sh` applies this stack for real on a throwaway kind cluster, with a local `registry:2` as the air-gap mirror
+(`localhost:5055`, containerd mirror hosts on the node). Subcommands: `up | apply | verify | destroy | down | all`; idempotent; state, kubeconfig,
+tools (pinned kind v0.33.0, kubectl, Helm 3.17.3, sha256 in the script) live in git-ignored `test/.tools/`; `~/.kube/config` is never touched.
+Needs docker, terraform, curl, jq, openssl and internet on the first run. Names: cluster `rorac-kind`, registry `rorac-kind-registry`.
+
+```sh
+deploy/terraform/test/kind-e2e.sh all      # up, apply, verify, destroy, down
+```
+
+Timings (16 CPU host, warm Docker cache): up 41 s (images mirrored, backend/web built), apply 80 s (18 resources; migrate hook included),
+verify 3 s, destroy 140 s, down 5 s; whole cycle about 5 min (cold: add upstream pulls and the backend/web image builds).
+
+Verified: operator charts fetched from the mirror as OCI (`helm_release` against `oci://localhost:5055/charts`, plain HTTP on localhost) and operator images
+from the mirror (cnpg, barman plugin + sidecar, cert-manager, ECK, MinIO operator); gate refuses apply with `MIRROR.example.com` and creates nothing, while
+`allow_placeholders=true` passes it (separate throwaway state, gate resource only); all pods Ready; migrate job succeeded; API `/healthz` and `/readyz`
+(db, Elasticsearch, S3) 200; web served; every container image outside kube-system comes from the mirror; `terraform destroy` with `protect_data=true` is
+refused by `prevent_destroy` with the data tier intact; then `state mv` protected -> unprotected and destroy with `protect_data=false` removes everything.
+Profile: `environments/kind.tfvars` + `environments/kind-values.yaml` (1 replica, small requests, ES 1.5 GiB limit, observability and inference off).
+
+Known gaps (not faked):
+- **MinIO tenant is not rehearsed.** `quay.io/minio/minio` and `quay.io/minio/mc` (chart defaults) now answer 401, so a mirror cannot be populated from them.
+  The MinIO Operator itself runs; the app uses `minio_mode = "external"` with a `bitnamilegacy/minio` stand-in (`test/s3-stub.yaml`; pod CIDR `10.244.0.0/16` as `network.s3_cidrs`).
+  PG/ES backups and snapshots (`postgres.backup`, `elasticsearch.snapshot`) are off, so the barman plugin and cert-manager are installed but unused. Production needs a MinIO image source you control.
+- Parsers docling, grobid, clamav and the draft gotenberg are off (memory); only ingest gotenberg runs. No ingress controller (Ingress off), no Keycloak, no LLM: auth and chat are not exercised.
+- containerd mirror hosts also redirect quay.io, ghcr.io and docker.elastic.co to the registry, but the node still has internet: image origin is proven by the pod specs (all `localhost:5055/...`), not by network isolation.
+- Destroy leaves operator CRDs behind (Helm never deletes CRDs of installed charts; terraform prints a warning per CRD): delete by hand on a reused cluster. `down` removes the whole cluster.
+- kindnet NetworkPolicy enforcement is basic; `network.kube_api_cidrs` is left empty (any destination on 443/6443).
+
+CI: manual job `iac-kind-e2e` (stage `terraform`, `when: manual`). It needs a **privileged** runner with Docker-in-Docker (kind nodes and registry are
+containers), the dind service sharing the job's network namespace (Kubernetes executor; the script uses `127.0.0.1`), ~8 GB RAM, internet on first run, and
+`KIND_E2E_IMAGE` (docker CLI, terraform, curl, jq, tar, openssl). Not part of the default pipeline.
