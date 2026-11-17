@@ -39,11 +39,10 @@ ceph = {
   image         = { tag = "v19.2.3" }
   device_filter = "^sd[b-d]$" # or `nodes = [{ name = "worker-1", devices = [{ name = "nvme1n1" }] }]`; never all devices
   mon_count     = 3
-  data_pool     = { mode = "erasure", data_chunks = 2, coding_chunks = 1 } # needs >= 3 hosts; "replicated" with replicas = 3 otherwise
-  rgw           = { instances = 2 }                                        # tls_secret = "rgw-tls" + s3.ca_secret for HTTPS
+  data_pool     = { mode = "erasure", data_chunks = 2, coding_chunks = 1 }  # needs >= 3 hosts; "replicated" with replicas = 3 otherwise
+  rgw           = { instances = 2, cert_manager_issuer = "self-signed-ca" } # TLS is required: cert-manager issues the RGW cert, CA copied to the app namespace (or tls_secret + s3.ca_secret)
 }
-# existing secrets mode: build Secret roracle-secrets ROR_S3_ACCESS_KEY/SECRET_KEY from the OBC Secret roracle-app (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY),
-# roracle-pg-backup-s3 (ACCESS_KEY_ID/ACCESS_SECRET_KEY) from roracle-pg-backup, roracle-es-s3 (s3.client.default.*) from roracle-es-snapshot.
+# rook-ceph: Terraform creates the S3 Secrets (roracle-s3, roracle-pg-backup-s3, roracle-es-s3) from the ObjectBucketClaim credentials in every secrets_mode.
 
 protect_data = true # default: prevent_destroy on the release (uninstall would delete data-tier PVCs)
 

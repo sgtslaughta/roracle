@@ -105,19 +105,24 @@ deletes the data-tier CRs and PVCs. With `protect_data = true` the next plan err
 
 ## Object storage: Rook-Ceph or external S3
 
-`object_store = "external"` (default; small installs, dev, kind): set `s3.endpoint` (+ `s3.ca_secret` for a private CA) and `secret_data.s3_access_key/s3_secret_key`
-(optional `s3_pg_backup`, `s3_es_snapshot`; they default to the app identity). Buckets (`s3.bucket`, `pg_backup_bucket`, `es_snapshot_bucket`) must exist; backups and snapshots
-are enabled by the chart defaults. Terraform never deploys MinIO: the community images ended in Oct 2025 (see the [mirror manifest](../../docs/enterprise/airgap-mirror-manifest.md)).
+The chart has no bundled object store any more (MinIO community images ended in Oct 2025, see the [mirror manifest](../../docs/enterprise/airgap-mirror-manifest.md)); `ROR_S3_ENDPOINT` is required.
+
+`object_store = "external"` (variable default; small installs, dev, kind): set `s3.endpoint` (+ `s3.ca_secret` for a private CA) and `secret_data.s3_access_key/s3_secret_key`.
+Buckets (`s3.bucket`, `pg_backup_bucket`, `es_snapshot_bucket`) must exist. While `backups_enabled` (default on) the apply requires **separate identities**:
+`secret_data.s3_pg_backup` and `s3_es_snapshot` with access keys different from the app key (the app identity must not be able to write or delete backups); `backups_enabled = { postgres = false, elasticsearch = false }` turns them off.
+Per-bucket policies: app key = `roracle/*` only; PG backup key = PG backup bucket only; ES snapshot key = ES snapshot bucket only; ideally object lock/retention on the backup buckets and no delete for the writers.
 
 `object_store = "rook-ceph"` (production example in `environments/prod.example.tfvars`): the operator layer installs `rook-ceph` + `rook-ceph-cluster` (placeholder-gated charts and
-images `docker.io/rook/ceph:v1.18.0`, `quay.io/ceph/ceph:v19.2.3`; CSI, toolbox and monitoring off), `modules/ceph` claims the three buckets with ObjectBucketClaims, waits
-(`kubectl wait`, so `kubectl` must be on the runner) until they are Bound, reads the generated credentials into the app Secrets and adds a NetworkPolicy from api/worker/migrate to RGW.
-Variables: `ceph.device_filter` / `ceph.nodes` (OSD devices: **never** all devices; empty is a gated placeholder), `mon_count` (3), `data_pool` (erasure `data_chunks`+`coding_chunks`, default 2+1, or replicated), `metadata_replicas` (3),
-`rgw.instances` / `rgw.tls_secret` (HTTPS; add `s3.ca_secret`), `resources` (mon/mgr/osd). In `secrets_mode = "existing"` the OBC Secrets (`roracle-app`, `roracle-pg-backup`, `roracle-es-snapshot` in the app namespace) must be mapped into your Secrets (see the comment in prod.example).
-
-Ceph prerequisites: >= 3 nodes with **raw, unformatted disks** (no partitions or filesystems), kernel with RBD/LVM support, around 4-6 GiB RAM per OSD plus 1-2 GiB per mon and 2-4 GiB per RGW,
-a low-latency network between nodes, and (for erasure 2+1) at least 3 failure domains. For fewer nodes or no spare disks use `external`.
-Backups: the PG/ES backup buckets sit in the same Ceph cluster, which the former bundled MinIO did as well; for disaster recovery replicate them off-cluster (RGW multisite sync or a scheduled `rclone`/`rgw` replication to a second site), or point `s3.*_bucket` at an external S3 in another site.
+images `docker.io/rook/ceph:v1.18.0`, `quay.io/ceph/ceph:v19.2.3`; CSI incl. the ceph-csi-operator, toolbox and monitoring off, so nothing else is pulled), `modules/ceph` claims the three buckets with ObjectBucketClaims (one Ceph user per bucket, so identities are
+separate automatically), waits (`kubectl wait`, so `kubectl` must be on the runner) until they are Bound, and creates the S3 Secrets (`roracle-s3`, `roracle-pg-backup-s3`, `roracle-es-s3`) from the generated credentials **in every `secrets_mode`**
+(they hold only bucket credentials; in `existing` mode create the other Secrets yourself, and do not create these three). The credentials are in Terraform state.
+- **TLS is required** (gated): `ceph.rgw.cert_manager_issuer = "self-signed-ca"` (internal CA chain) or a ClusterIssuer name makes Terraform issue the RGW certificate and copy the CA into the app namespace (`roracle-s3-ca`, wired as trust for the app, CNPG and ES);
+  or bring your own `ceph.rgw.tls_secret` (kubernetes.io/tls, in the Ceph namespace) plus `s3.ca_secret`; `ceph.rgw.allow_plain_http = true` is for test clusters only. RGW then serves only the secure port.
+- **NetworkPolicy**: RGW ingress is limited to the app namespace and the Ceph namespace; egress from api/worker/migrate **and** the CNPG/ES pods (backups, snapshots) is the chart's `networkPolicy.s3` set to the RGW pods.
+- Variables: `ceph.device_filter` / `ceph.nodes` (OSD devices: **never** all devices; empty is a gated placeholder), `mon_count` (3), `data_pool` (erasure `data_chunks`+`coding_chunks`, default 2+1, or replicated), `metadata_replicas` (3), `rgw.instances`, `resources` (mon/mgr/osd).
+- Prerequisites: >= 3 nodes with **raw, unformatted disks**, ~4-6 GiB RAM per OSD plus 1-2 GiB per mon and 2-4 GiB per RGW, low-latency network, >= 3 failure domains for erasure 2+1. For fewer nodes or no spare disks use `external`.
+- Backups: the PG/ES backup buckets sit in the same Ceph cluster (as the former bundled MinIO did): replicate them off-cluster (RGW multisite or a scheduled `rclone`) or point `s3.*_bucket` at an external S3 in another site.
+- Destroy: `rook-ceph-cluster` has no `protect_data` guard; Rook blocks deleting the object store while buckets exist (the destroy hangs rather than wiping data), `preservePoolsOnDelete` and the bucket class `Retain` keep pools and data.
 This path is validated only by `terraform validate/plan` and `helm template` (the kind rehearsal has no raw disks); treat the first real install as a rehearsal.
 
 ## Optional inference module
@@ -150,7 +155,7 @@ Timings (16 CPU host, warm Docker cache): up 41 s (images mirrored, backend/web 
 verify 3 s, destroy 140 s, down 5 s; whole cycle about 5 min (cold: add upstream pulls and the backend/web image builds).
 
 Verified: operator charts fetched from the mirror as OCI (`helm_release` against `oci://localhost:5055/charts`, plain HTTP on localhost) and operator images
-from the mirror (cnpg, barman plugin + sidecar, cert-manager, ECK); gate refuses (also `object_store=rook-ceph` without mirror values or OSD devices); apply with `MIRROR.example.com` and creates nothing, while
+from the mirror (cnpg, barman plugin + sidecar, cert-manager, ECK); gate refuses apply with `MIRROR.example.com` and creates nothing (also `object_store=rook-ceph` without mirror values, OSD devices or TLS), while
 `allow_placeholders=true` passes it (separate throwaway state, gate resource only); all pods Ready; migrate job succeeded; API `/healthz` and `/readyz`
 (db, Elasticsearch, S3) 200; web served; every container image outside kube-system comes from the mirror; `terraform destroy` with `protect_data=true` is
 refused by `prevent_destroy` with the data tier intact; then `state mv` protected -> unprotected and destroy with `protect_data=false` removes everything.

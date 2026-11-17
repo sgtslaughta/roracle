@@ -19,15 +19,13 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
 | `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
-| `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` (chart default) | MinIO `Tenant` | **No public upstream** (see note below): supply an image you control |
-| `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` (chart default) | `minio-policy` hook Job | **No public upstream** (see note below): supply an image you control |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
 | `gotenberg/gotenberg` | `8.20.1` | parser | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
 | `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
 
-**MinIO images (no public upstream).** MinIO stopped publishing community container images in Oct 2025 (the community edition is source-only) and `quay.io/minio/minio` / `quay.io/minio/mc` now answer 401, so the two chart defaults above cannot be mirrored. The Terraform stack therefore does **not** deploy MinIO: use `object_store = "rook-ceph"` (images below) or `"external"` (your S3). Only plain-Helm installs with `minio.mode=tenant` still need them: supply an image you control (build from source at a pinned `RELEASE.*` tag, a vetted rebuild such as `cgr.dev/chainguard/minio`, or the commercial AIStor image) and set `minio.image` / `minio.policyJob.image`; the operator also injects `quay.io/minio/operator-sidecar:<operator version>` into tenant pods. The frozen `bitnamilegacy/minio` is used by dev compose, CI and the kind rehearsal only and is never shipped.
+**MinIO (removed).** MinIO stopped publishing community container images in Oct 2025 (the community edition is source-only; `quay.io/minio/minio` and `quay.io/minio/mc` answer 401). The chart and Terraform no longer deploy MinIO: object storage is Rook-Ceph (`object_store = "rook-ceph"`, images below) or an S3 you operate. `bitnamilegacy/minio` (dev compose, CI, the kind rehearsal stand-in) is dev/CI only and never shipped.
 
 ### Rook-Ceph object storage (`object_store = "rook-ceph"`)
 
@@ -37,7 +35,7 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `quay.io/ceph/ceph` | `v19.2.3` | `<mirror_registry>/ceph/ceph` (`ceph.image`) | mon, mgr, osd, rgw |
 | chart `rook-ceph`, `rook-ceph-cluster` | `v1.18.0` | `oci://<mirror>/charts` (`charts.rook_ceph`, `charts.rook_ceph_cluster`) | Terraform `helm_release` |
 
-CSI drivers, toolbox and monitoring are disabled by the Terraform values, so their images (cephcsi, csi-operator, sidecars) are not needed. Confirm the tags against the mirrored charts (`helm show values`) before pinning.
+CSI (including the ceph-csi-operator subchart: `csi.rookUseCsiOperator=false`), toolbox and monitoring are disabled by the Terraform values, so cephcsi, csi-operator and sidecar images are not needed. cert-manager (already mirrored) issues the RGW certificate. Confirm the tags against the mirrored charts (`helm show values`) before pinning.
 
 
 ### Build and CI
@@ -68,7 +66,7 @@ Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 G
 | `rook-ceph`, `rook-ceph-cluster` | v1.18.0 (Ceph v19.2.3); only for `object_store = "rook-ceph"`; pin in mirror | platform |
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 
-Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator, Prometheus, Grafana, Loki, collector-contrib) must be mirrored at the tag the chosen chart version pins.
+Each chart's images (operator, plugin sidecar, cert-manager, ECK, Prometheus, Grafana, Loki, collector-contrib) must be mirrored at the tag the chosen chart version pins.
 
 ### Terraform providers (`deploy/terraform`, mirror via `provider_installation` in the CLI config / `TF_CLI_CONFIG_FILE`)
 

@@ -1,6 +1,6 @@
 # rook-ceph object storage glue (the operator and cluster charts are installed by modules/operators):
-# ObjectBucketClaims for the three buckets -> wait until bound -> read the generated credentials (output) -> NetworkPolicy
-# opening api/worker/migrate and the ES/PG pods to RGW. Not exercised on a live Ceph in the kind rehearsal (no raw disks).
+# ObjectBucketClaims for the three buckets -> wait until bound -> read the generated credentials -> chart Secrets (always) -> RGW ingress policy,
+# optional cert-manager certificate for RGW. Not exercised on a live Ceph in the kind rehearsal (no raw disks).
 terraform {
   required_providers {
     kubernetes = { source = "hashicorp/kubernetes" }
@@ -31,9 +31,20 @@ variable "buckets" {
   type        = map(string)
 }
 
-variable "tls" {
-  type    = bool
-  default = false
+variable "tls_secret" {
+  description = "RGW certificate Secret name in the Ceph namespace (\"\" = plain HTTP, test clusters only)."
+  type        = string
+  default     = ""
+}
+
+variable "cert_manager_issuer" {
+  type    = string
+  default = ""
+}
+
+variable "secret_names" {
+  description = "{s3, pg_backup, es_snapshot} Secret names consumed by the chart."
+  type        = map(string)
 }
 
 variable "kubeconfig_path" {
@@ -51,6 +62,7 @@ variable "timeout" {
 }
 
 locals {
+  tls    = var.tls_secret != ""
   prefix = "roracle"
   obc    = { for k in keys(var.buckets) : k => "${local.prefix}-${replace(k, "_", "-")}" }
 }
@@ -89,39 +101,115 @@ data "kubernetes_secret_v1" "cred" {
   depends_on = [terraform_data.bound]
 }
 
-# Additive allow: the chart's default-deny egress would otherwise block RGW (in-cluster, so it is not covered by s3Cidrs).
-resource "kubernetes_network_policy_v1" "rgw_egress" {
+# RGW ingress: only the app namespace (api/worker/migrate, CNPG barman, ES snapshots) and the Ceph namespace itself (operator, mgr,
+# OBC provisioner). Egress from the app side is the chart's networkPolicy.s3 (Terraform sets it to the RGW pods).
+resource "kubernetes_network_policy_v1" "rgw_ingress" {
   metadata {
-    name      = "roracle-rgw-egress"
-    namespace = var.namespace
+    name      = "roracle-rgw-ingress"
+    namespace = var.ceph_namespace
   }
   spec {
     pod_selector {
-      match_expressions {
-        key      = "app.kubernetes.io/component"
-        operator = "In"
-        values   = ["api", "worker", "migrate"]
-      }
+      match_labels = { app = "rook-ceph-rgw", rook_object_store = var.store_name }
     }
-    policy_types = ["Egress"]
-    egress {
-      to {
+    policy_types = ["Ingress"]
+    ingress {
+      from {
         namespace_selector {
-          match_labels = { "kubernetes.io/metadata.name" = var.ceph_namespace }
-        }
-        pod_selector {
-          match_labels = { app = "rook-ceph-rgw", rook_object_store = var.store_name }
+          match_labels = { "kubernetes.io/metadata.name" = var.namespace }
         }
       }
-      ports {
-        port     = var.tls ? 443 : 80
-        protocol = "TCP"
+      from {
+        pod_selector {}
       }
       ports {
-        port     = var.tls ? 8443 : 8080 # RGW container ports behind the Service (post-DNAT)
+        port     = local.tls ? 8443 : 8080 # RGW container port behind the Service (post-DNAT)
         protocol = "TCP"
       }
     }
+  }
+}
+
+# ---- TLS via cert-manager (optional): certificate for the RGW service + CA copied to the app namespace ----
+resource "helm_release" "rgw_tls" {
+  count     = var.cert_manager_issuer == "" ? 0 : 1
+  name      = "roracle-rgw-tls"
+  namespace = var.ceph_namespace
+  chart     = "${path.module}/tls"
+  values = [yamlencode({
+    issuer     = var.cert_manager_issuer
+    secretName = var.tls_secret
+    dnsNames = [
+      "rook-ceph-rgw-${var.store_name}.${var.ceph_namespace}.svc",
+      "rook-ceph-rgw-${var.store_name}.${var.ceph_namespace}.svc.cluster.local",
+      "rook-ceph-rgw-${var.store_name}.${var.ceph_namespace}",
+    ]
+  })]
+  wait = true
+}
+
+resource "terraform_data" "cert_ready" {
+  count      = var.cert_manager_issuer == "" ? 0 : 1
+  input      = helm_release.rgw_tls[0].id
+  depends_on = [helm_release.rgw_tls]
+  provisioner "local-exec" {
+    command = join(" ", compact([
+      "kubectl --kubeconfig '${pathexpand(var.kubeconfig_path)}'",
+      var.kubeconfig_context == null ? "" : "--context '${var.kubeconfig_context}'",
+      "-n '${var.ceph_namespace}' wait --for=condition=Ready certificate/${var.tls_secret} --timeout=${var.timeout}",
+    ]))
+  }
+}
+
+data "kubernetes_secret_v1" "rgw_tls" {
+  count = var.cert_manager_issuer == "" ? 0 : 1
+  metadata {
+    name      = var.tls_secret
+    namespace = var.ceph_namespace
+  }
+  depends_on = [terraform_data.cert_ready]
+}
+
+resource "kubernetes_secret_v1" "s3_ca" {
+  count = var.cert_manager_issuer == "" ? 0 : 1
+  metadata {
+    name      = "roracle-s3-ca"
+    namespace = var.namespace
+  }
+  data = { "ca.crt" = data.kubernetes_secret_v1.rgw_tls[0].data["ca.crt"] }
+}
+
+# ---- S3 Secrets the chart consumes (created in every secrets_mode: they hold only OBC output, no operator secret) ----
+resource "kubernetes_secret_v1" "app_s3" {
+  metadata {
+    name      = var.secret_names.s3
+    namespace = var.namespace
+  }
+  data = {
+    ROR_S3_ACCESS_KEY = data.kubernetes_secret_v1.cred["app"].data["AWS_ACCESS_KEY_ID"]
+    ROR_S3_SECRET_KEY = data.kubernetes_secret_v1.cred["app"].data["AWS_SECRET_ACCESS_KEY"]
+  }
+}
+
+resource "kubernetes_secret_v1" "pg_backup" {
+  metadata {
+    name      = var.secret_names.pg_backup
+    namespace = var.namespace
+  }
+  data = {
+    ACCESS_KEY_ID     = data.kubernetes_secret_v1.cred["pg_backup"].data["AWS_ACCESS_KEY_ID"]
+    ACCESS_SECRET_KEY = data.kubernetes_secret_v1.cred["pg_backup"].data["AWS_SECRET_ACCESS_KEY"]
+  }
+}
+
+resource "kubernetes_secret_v1" "es_snapshot" {
+  metadata {
+    name      = var.secret_names.es_snapshot
+    namespace = var.namespace
+  }
+  data = {
+    "s3.client.default.access_key" = data.kubernetes_secret_v1.cred["es_snapshot"].data["AWS_ACCESS_KEY_ID"]
+    "s3.client.default.secret_key" = data.kubernetes_secret_v1.cred["es_snapshot"].data["AWS_SECRET_ACCESS_KEY"]
   }
 }
 
@@ -135,5 +223,10 @@ output "credentials" {
 }
 
 output "endpoint" {
-  value = "${var.tls ? "https" : "http"}://rook-ceph-rgw-${var.store_name}.${var.ceph_namespace}.svc:${var.tls ? 443 : 80}"
+  value = "${local.tls ? "https" : "http"}://rook-ceph-rgw-${var.store_name}.${var.ceph_namespace}.svc:${local.tls ? 443 : 80}"
+}
+
+output "ca_secret" {
+  description = "{name, key} of the CA Secret created in the app namespace (cert_manager_issuer mode), else null."
+  value       = var.cert_manager_issuer == "" ? null : { name = kubernetes_secret_v1.s3_ca[0].metadata[0].name, key = "ca.crt" }
 }

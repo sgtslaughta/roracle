@@ -29,9 +29,10 @@ images = {
 
 # Object storage: external. Rook-Ceph cannot run in kind (needs raw disks); a bitnamilegacy/minio stand-in (test/s3-stub.yaml, created by the script)
 # serves S3 and the pod CIDR of kind is allowed as S3 egress.
-object_store = "external"
-s3           = { endpoint = "http://s3-stub.rorac-s3.svc:9000" }
-network      = { s3_cidrs = ["10.244.0.0/16"] }
+object_store    = "external"
+s3              = { endpoint = "http://s3-stub.rorac-s3.svc:9000" }
+backups_enabled = { postgres = false, elasticsearch = false } # no S3 with separate backup identities in the stand-in
+network         = { s3_cidrs = ["10.244.0.0/16"] }
 
 extra_values_file = "environments/kind-values.yaml"
 

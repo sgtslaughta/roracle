@@ -26,7 +26,8 @@ locals {
   s3_endpoint = local.ceph_on ? module.ceph[0].endpoint : var.s3.endpoint
   s3_https    = startswith(local.s3_endpoint, "https://")
   s3_hostport = trimprefix(trimprefix(local.s3_endpoint, "https://"), "http://")
-  s3_ca       = var.s3.ca_secret != null ? [var.s3.ca_secret] : []
+  s3_ca_obj   = local.ceph_on && var.ceph.rgw.cert_manager_issuer != "" ? try(module.ceph[0].ca_secret, null) : var.s3.ca_secret
+  s3_ca       = local.s3_ca_obj != null ? [local.s3_ca_obj] : []
   config = { for k, v in merge(local.config_raw, var.models.extra_env, {
     ROR_S3_ENDPOINT = local.s3_endpoint
     ROR_S3_BUCKET   = var.s3.bucket
@@ -67,7 +68,7 @@ locals {
       backend = { tag = var.images.backend_tag, digest = var.images.backend_digest, pullPolicy = var.images.pull_policy }
       web     = { tag = var.images.web_tag, digest = var.images.web_digest, pullPolicy = var.images.pull_policy }
     }
-    secrets = { existingSecret = var.secret_names.app, llmApiKeyEnabled = var.models.llm_key_used }
+    secrets = { existingSecret = var.secret_names.app, llmApiKeyEnabled = var.models.llm_key_used, s3Secret = local.ceph_on ? var.secret_names.s3 : "" }
     config  = local.config
     web     = { oidcClientId = var.keycloak.web_client_id }
     ingress = {
@@ -81,6 +82,7 @@ locals {
       storage              = { size = var.storage.postgres, storageClass = var.storage.class }
       appCredentialsSecret = var.secret_names.pg_app
       backup = {
+        enabled           = var.backups_enabled.postgres
         credentialsSecret = { name = var.secret_names.pg_backup }
         destinationPath   = "s3://${var.s3.pg_backup_bucket}/"
         endpointURL       = local.s3_endpoint
@@ -92,6 +94,7 @@ locals {
       storage       = { size = var.storage.elasticsearch, storageClass = var.storage.class }
       appUserSecret = var.secret_names.es_app
       snapshot = {
+        enabled           = var.backups_enabled.elasticsearch
         credentialsSecret = var.secret_names.es_snapshot
         bucket            = var.s3.es_snapshot_bucket
         endpoint          = local.s3_hostport
@@ -99,15 +102,19 @@ locals {
         extraCASecret     = length(local.s3_ca) == 0 ? {} : local.s3_ca[0]
       }
     }
-    # object storage is always external to the chart: rook-ceph RGW (object_store) or your own S3; no bundled MinIO tenant
-    minio    = { mode = "external" }
     caBundle = { extraSecrets = local.s3_ca }
     networkPolicy = {
       operatorNamespaces       = { eck = var.namespaces.eck, cnpg = var.namespaces.cnpg }
       monitoringNamespace      = var.namespaces.monitoring
       ingressNamespaceSelector = { "kubernetes.io/metadata.name" = var.network.ingress_namespace }
       kubeAPI                  = { cidrs = var.network.kube_api_cidrs, ports = [443, 6443] }
-      s3Cidrs                  = var.network.s3_cidrs # external S3; rook-ceph RGW is allowed by modules/ceph (NetworkPolicy)
+      # object storage egress for api/worker/migrate and the CNPG/ES data tier: external CIDRs, or the in-cluster RGW pods (post-DNAT port)
+      s3 = {
+        cidrs             = local.ceph_on ? [] : var.network.s3_cidrs
+        ports             = local.ceph_on ? [local.rgw_tls ? 8443 : 8080] : var.network.s3_ports
+        namespaceSelector = local.ceph_on ? { "kubernetes.io/metadata.name" = var.namespaces.rook_ceph } : {}
+        podSelector       = local.ceph_on ? { app = "rook-ceph-rgw", rook_object_store = var.ceph.store_name } : {}
+      }
       externalCIDRs = {
         postgres      = { cidrs = var.network.postgres_cidrs, ports = [5432] }
         elasticsearch = { cidrs = var.network.elastic_cidrs, ports = [9200] }

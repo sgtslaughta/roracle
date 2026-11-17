@@ -66,7 +66,7 @@ storage = { postgres = "20Gi", elasticsearch = "50Gi" }
 # secret_data = {
 #   db_password       = "..."    # openssl rand -hex 32
 #   es_app_password   = "..."
-#   s3_access_key     = "..."    # object_store=external; optional s3_pg_backup / s3_es_snapshot = { access, secret }
+#   s3_access_key     = "..."    # object_store=external; s3_pg_backup / s3_es_snapshot = { access, secret } required while backups are on (different keys)
 #   s3_secret_key     = "..."
 #   llm_api_key       = "..."    # required unless models.llm_key_used = false
 # }
@@ -75,3 +75,4 @@ storage = { postgres = "20Gi", elasticsearch = "50Gi" }
 # Object storage: an S3 you operate (small installs). For Ceph see environments/prod.example.tfvars.
 object_store = "external"
 s3           = { endpoint = "https://s3.internal.example:9000" }
+# backups on => secret_data.s3_pg_backup and s3_es_snapshot with DIFFERENT access keys than s3_access_key (else backups_enabled = { postgres = false, elasticsearch = false })

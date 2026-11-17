@@ -107,6 +107,15 @@ variable "storage" {
   default = {}
 }
 
+variable "backups_enabled" {
+  description = "chart postgres.backup / elasticsearch.snapshot. true needs S3 credentials separate from the app identity (external: secret_data.s3_pg_backup / s3_es_snapshot, different access key; rook-ceph: automatic)."
+  type = object({
+    postgres      = optional(bool, true)
+    elasticsearch = optional(bool, true)
+  })
+  default = {}
+}
+
 variable "postgres_mode" {
   type    = string
   default = "cnpg"
@@ -133,7 +142,8 @@ variable "network" {
     llm_cidrs              = optional(list(string), [])
     llm_ports              = optional(list(number), [443])
     oidc_cidrs             = optional(list(string), [])
-    s3_cidrs               = optional(list(string), [])
+    s3_cidrs               = optional(list(string), []) # external S3 egress (api/worker/migrate and the CNPG/ES data tier)
+    s3_ports               = optional(list(number), [443, 9000])
     postgres_cidrs         = optional(list(string), [])
     elastic_cidrs          = optional(list(string), [])
     llm_namespace_selector = optional(map(string), {})
@@ -160,6 +170,7 @@ variable "secret_names" {
     pg_app      = optional(string, "roracle-pg-app")
     pg_backup   = optional(string, "roracle-pg-backup-s3")
     es_app      = optional(string, "roracle-es-app")
+    s3          = optional(string, "roracle-s3") # rook-ceph: S3 keys of the app (own Secret, created by Terraform in every secrets_mode)
     es_snapshot = optional(string, "roracle-es-s3")
   })
   default = {}

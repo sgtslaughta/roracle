@@ -46,32 +46,38 @@ module "operators" {
 }
 
 module "ceph" {
-  count              = var.deploy_app && local.ceph_on ? 1 : 0
-  source             = "./modules/ceph"
-  namespace          = var.namespaces.app
-  ceph_namespace     = var.namespaces.rook_ceph
-  store_name         = var.ceph.store_name
-  storage_class      = local.ceph_bucket_class
-  buckets            = { app = var.s3.bucket, pg_backup = var.s3.pg_backup_bucket, es_snapshot = var.s3.es_snapshot_bucket }
-  tls                = var.ceph.rgw.tls_secret != ""
-  kubeconfig_path    = var.kubeconfig_path
-  kubeconfig_context = var.kubeconfig_context
-  timeout            = var.ceph.obc_timeout
-  depends_on         = [module.operators, module.platform] # operators = CRDs + RGW chart installed
+  count               = var.deploy_app && local.ceph_on ? 1 : 0
+  source              = "./modules/ceph"
+  namespace           = var.namespaces.app
+  ceph_namespace      = var.namespaces.rook_ceph
+  store_name          = var.ceph.store_name
+  storage_class       = local.ceph_bucket_class
+  buckets             = { app = var.s3.bucket, pg_backup = var.s3.pg_backup_bucket, es_snapshot = var.s3.es_snapshot_bucket }
+  tls_secret          = local.rgw_tls ? local.rgw_tls_secret : ""
+  cert_manager_issuer = var.ceph.rgw.cert_manager_issuer
+  secret_names        = { s3 = var.secret_names.s3, pg_backup = var.secret_names.pg_backup, es_snapshot = var.secret_names.es_snapshot }
+  kubeconfig_path     = var.kubeconfig_path
+  kubeconfig_context  = var.kubeconfig_context
+  timeout             = var.ceph.obc_timeout
+  depends_on          = [module.operators, module.platform] # operators = CRDs + RGW chart installed
 }
 
 module "secrets" {
-  count         = var.deploy_app && var.secrets_mode == "create" ? 1 : 0
-  source        = "./modules/secrets"
-  namespace     = var.namespaces.app
-  names         = var.secret_names
-  data          = var.secret_data
-  fullname      = local.app_fullname
-  postgres_mode = var.postgres_mode
-  s3            = local.s3_creds
-  llm_key_used  = var.models.llm_key_used
-  elastic_mode  = var.elasticsearch_mode
-  depends_on    = [module.platform, module.ceph]
+  count                = var.deploy_app && var.secrets_mode == "create" ? 1 : 0
+  source               = "./modules/secrets"
+  namespace            = var.namespaces.app
+  names                = var.secret_names
+  data                 = var.secret_data
+  fullname             = local.app_fullname
+  postgres_mode        = var.postgres_mode
+  s3                   = local.s3_creds
+  s3_in_app            = !local.ceph_on
+  pg_backup_required   = var.backups_enabled.postgres
+  es_snapshot_required = var.backups_enabled.elasticsearch
+  s3_external          = !local.ceph_on
+  llm_key_used         = var.models.llm_key_used
+  elastic_mode         = var.elasticsearch_mode
+  depends_on           = [module.platform, module.ceph]
 }
 
 module "inference" {

@@ -29,7 +29,7 @@ variable "ceph" {
     rook-ceph settings. image = Ceph image (default <mirror_registry>/ceph/ceph, tag a gated placeholder; e.g. v19.2.3).
     OSDs: never "all devices": set device_filter (regex on device names) and/or nodes ([{name = "<k8s hostname>", devices = [{name = "sdb"}]}]); empty = gated placeholder.
     data_pool: erasure (data_chunks + coding_chunks, needs >= that many failure domains) or replicated; metadata is always replicated.
-    rgw.tls_secret: Secret (in the Ceph namespace, with tls.crt/tls.key/ca.crt) enabling HTTPS 443 on RGW; also set s3.ca_secret = {name} (copy of the CA in the app namespace) so the app trusts it.
+    TLS is required (gated): rgw.cert_manager_issuer (cert-manager issues the RGW certificate, the CA is copied to the app namespace automatically) or rgw.tls_secret (+ s3.ca_secret) ; rgw.allow_plain_http=true only for test clusters. RGW then serves only the secure port.
   EOT
   type = object({
     image                        = optional(object({ repository = optional(string), tag = optional(string) }), {})
@@ -48,9 +48,11 @@ variable "ceph" {
       replicas      = optional(number, 3)
     }), {})
     rgw = optional(object({
-      instances  = optional(number, 2)
-      tls_secret = optional(string, "")
-      resources  = optional(any, { requests = { cpu = "1", memory = "2Gi" }, limits = { memory = "4Gi" } })
+      instances           = optional(number, 2)
+      tls_secret          = optional(string, "")  # existing kubernetes.io/tls Secret in the Ceph namespace (+ s3.ca_secret in the app namespace)
+      cert_manager_issuer = optional(string, "")  # "self-signed-ca" (internal CA chain) or a ClusterIssuer name: Terraform issues the RGW cert and copies the CA to the app namespace
+      allow_plain_http    = optional(bool, false) # test clusters only: RGW on plain HTTP (credentials and data in clear text)
+      resources           = optional(any, { requests = { cpu = "1", memory = "2Gi" }, limits = { memory = "4Gi" } })
     }), {})
     resources = optional(any, {
       mon = { requests = { cpu = "500m", memory = "1Gi" }, limits = { memory = "2Gi" } }

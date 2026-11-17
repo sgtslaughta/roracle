@@ -38,14 +38,16 @@ locals {
     repository = coalesce(var.ceph.image.repository, "${var.mirror_registry}/ceph/ceph")
     tag        = coalesce(var.ceph.image.tag, local.placeholder_version)
   }
+  rgw_tls           = var.ceph.rgw.tls_secret != "" || var.ceph.rgw.cert_manager_issuer != ""
+  rgw_tls_secret    = var.ceph.rgw.cert_manager_issuer != "" ? "${var.ceph.store_name}-rgw-tls" : var.ceph.rgw.tls_secret
   ceph_bucket_class = "roracle-ceph-bucket"
   # S3 identities: rook-ceph = one OBC user per bucket; external = secret_data (backup identities default to the app one)
-  s3_app_ext = { access = var.secret_data.s3_access_key, secret = var.secret_data.s3_secret_key }
-  s3_creds = local.ceph_on ? try(module.ceph[0].credentials, {}) : {
-    app         = local.s3_app_ext
-    pg_backup   = coalesce(var.secret_data.s3_pg_backup, local.s3_app_ext)
-    es_snapshot = coalesce(var.secret_data.s3_es_snapshot, local.s3_app_ext)
+  s3_ext = {
+    app         = { access = var.secret_data.s3_access_key, secret = var.secret_data.s3_secret_key }
+    pg_backup   = var.secret_data.s3_pg_backup
+    es_snapshot = var.secret_data.s3_es_snapshot
   }
+  s3_creds           = local.ceph_on ? try(module.ceph[0].credentials, {}) : { for k, v in local.s3_ext : k => v if v != null }
   barman_sidecar_tag = coalesce(try(var.operator_images["barman"].sidecar_tag, null), local.placeholder_version)
   pull_list          = local.pull ? [{ name = local.pull_name }] : []
 
@@ -75,7 +77,7 @@ locals {
     rook_ceph = yamlencode({
       image            = local.img.rook_ceph
       imagePullSecrets = local.pull_list
-      csi              = { disableCsiDriver = "true", enableRbdDriver = false, enableCephfsDriver = false }
+      csi              = { rookUseCsiOperator = false, disableCsiDriver = "true", enableRbdDriver = false, enableCephfsDriver = false } # no ceph-csi-operator image to mirror
     })
     rook_ceph_cluster = yamlencode({
       operatorNamespace                 = var.namespaces.rook_ceph
@@ -108,10 +110,14 @@ locals {
             { replicated = { size = var.ceph.data_pool.replicas } },
           )
           preservePoolsOnDelete = true
-          gateway = merge(
-            { instances = var.ceph.rgw.instances, resources = var.ceph.rgw.resources },
-            var.ceph.rgw.tls_secret == "" ? { port = 80 } : { port = 80, securePort = 443, sslCertificateRef = var.ceph.rgw.tls_secret },
-          )
+          # uniform object, nulls dropped below: yamlencode must keep ints (a conditional of two object shapes becomes map(string))
+          gateway = { for k, v in {
+            instances         = var.ceph.rgw.instances
+            resources         = var.ceph.rgw.resources
+            port              = local.rgw_tls ? null : 80
+            securePort        = local.rgw_tls ? 443 : null
+            sslCertificateRef = local.rgw_tls ? local.rgw_tls_secret : null
+          } : k => v if v != null }
         }
         storageClass = { enabled = true, name = local.ceph_bucket_class, reclaimPolicy = "Retain", parameters = { region = "us-east-1" } }
         ingress      = { enabled = false }
@@ -160,6 +166,8 @@ locals {
     "images.digests" = "${var.images.backend_digest} ${var.images.web_digest}" },
     # loki's bundled values point at s3.example.com unless overridden
     try(local.enabled_charts["loki"].enabled, false) && !can(regex("endpoint", var.charts["loki"].values)) ? { "loki.s3.endpoint" = "MIRROR.example.com (s3.example.com in loki values)" } : {},
+    local.ceph_on && !var.ceph.rgw.allow_plain_http && !local.rgw_tls ? { "ceph.rgw.tls_secret or ceph.rgw.cert_manager_issuer (TLS is required)" = "CHANGEME" } : {},
+    local.ceph_on && var.ceph.rgw.tls_secret != "" && var.ceph.rgw.cert_manager_issuer == "" && var.s3.ca_secret == null ? { "s3.ca_secret (CA of ceph.rgw.tls_secret in the app namespace)" = "CHANGEME" } : {},
     local.ceph_on ? { "ceph.image" = "${local.ceph_image.repository} ${local.ceph_image.tag}" } : {},
     local.ceph_on && var.ceph.device_filter == "" && length(var.ceph.nodes) == 0 ? { "ceph.device_filter/ceph.nodes (explicit OSD devices, never all devices)" = "CHANGEME" } : {},
     local.app_chart_remote ? { "app_chart.repository" = var.app_chart.repository, "app_chart.version" = var.app_chart.version } : {},
