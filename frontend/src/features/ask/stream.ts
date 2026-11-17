@@ -1,5 +1,5 @@
 import { authedFetch, errorOf, seg } from "@/api/client";
-import type { Citation, SendMessageBody } from "@/api/chat";
+import type { Citation, ExcludedByLabel, SendMessageBody } from "@/api/chat";
 
 export interface SseEvent { event: string; data: string }
 
@@ -36,6 +36,9 @@ export function createSseParser(onEvent: (ev: SseEvent) => void): (chunk: string
 export interface StreamHandlers {
   onToken(text: string): void;
   onCitations(items: Citation[]): void;
+  onExcluded?(items: ExcludedByLabel[]): void;
+  /** agentic retrieval: sub-question progress (round `step`, `done` of `of` sub-questions searched) */
+  onProgress?(p: { step: number; of: number; done: number }): void;
   onDone(messageId: string): void;
   onError(detail: string): void;
 }
@@ -52,6 +55,8 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     try { p = JSON.parse(data) as Record<string, unknown>; } catch { return; }
     if (event === "token") h.onToken(String(p.text ?? ""));
     else if (event === "citations") { if (Array.isArray(p.items)) h.onCitations(p.items as Citation[]); }
+    else if (event === "progress") { if (typeof p.step === "number" && typeof p.of === "number") h.onProgress?.({ step: p.step, of: p.of, done: Number(p.done ?? 0) }); }
+    else if (event === "meta") { if (Array.isArray(p.excluded_by_label)) h.onExcluded?.(p.excluded_by_label as ExcludedByLabel[]); }
     else if (event === "done") { if (typeof p.message_id === "string") { finished = true; h.onDone(p.message_id); } }
     else if (event === "error") { finished = true; h.onError(p.detail === "inference failed" ? "The model couldn't finish this answer." : String(p.detail ?? "Something went wrong.")); }
   });

@@ -12,7 +12,12 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "connector_tick",
         "maintenance",
         "reconcile_tags",
+        "lsh_backfill",
         "reembed",
+        "rebuild_units",
+        "rebuild_watch",
+        "eval_run",
+        "eval_generate",
     } and callable(h["ingest"])
     assert isinstance(HANDLERS, dict)
 
@@ -20,8 +25,12 @@ def test_build_handlers_registers_ingest(settings, session_factory):
 def test_main_warns_when_scanning_disabled(settings, monkeypatch, caplog):
     from roracle import worker
 
-    monkeypatch.setattr(worker, "get_settings", lambda: settings.model_copy(update={"clamav_host": ""}))
-    monkeypatch.setattr(worker, "make_session_factory", lambda url, *a: None)
+    monkeypatch.setattr(
+        worker,
+        "get_settings",
+        lambda: settings.model_copy(update={"clamav_host": "", "worker_health_port": 0}),
+    )
+    monkeypatch.setattr(worker, "worker_session_factory", lambda s: None)
     monkeypatch.setattr(worker, "build_handlers", lambda s, sf: {})
     monkeypatch.setattr(worker, "run_forever", lambda sf, h: None)
     monkeypatch.setattr(worker, "ensure_tick", lambda sf: None)
@@ -44,7 +53,7 @@ def test_health_server_starts_before_blocking_startup_work(settings, monkeypatch
 
     order = []
     monkeypatch.setattr(worker, "get_settings", lambda: settings)
-    monkeypatch.setattr(worker, "make_session_factory", lambda url, *a: None)
+    monkeypatch.setattr(worker, "worker_session_factory", lambda s: None)
     monkeypatch.setattr(worker, "build_handlers", lambda s, sf: {})
     monkeypatch.setattr(worker, "run_forever", lambda sf, h: None)
     monkeypatch.setattr(worker.worker_health, "serve", lambda port: order.append("serve"))

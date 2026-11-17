@@ -1,0 +1,32 @@
+# S3 stand-in for the kind rehearsal (the MinIO Operator tenant images quay.io/minio/{minio,mc} are private now).
+# Same image the repo CI uses. Credentials/endpoint come from the script (secret s3-stub), image from the local mirror.
+apiVersion: v1
+kind: Namespace
+metadata: {name: rorac-s3}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: s3-stub, namespace: rorac-s3}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: s3-stub}}
+  template:
+    metadata: {labels: {app: s3-stub}}
+    spec:
+      containers:
+        - name: minio
+          image: localhost:5055/bitnamilegacy/minio:2025.5.24
+          env:
+            - {name: MINIO_DEFAULT_BUCKETS, value: roracle}
+            - {name: MINIO_ROOT_USER, valueFrom: {secretKeyRef: {name: s3-stub, key: access}}}
+            - {name: MINIO_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: s3-stub, key: secret}}}
+          ports: [{containerPort: 9000}]
+          readinessProbe: {httpGet: {path: /minio/health/ready, port: 9000}, periodSeconds: 3}
+          resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: s3-stub, namespace: rorac-s3}
+spec:
+  selector: {app: s3-stub}
+  ports: [{port: 9000}]

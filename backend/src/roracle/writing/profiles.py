@@ -55,6 +55,7 @@ class Profile(BaseModel):
     acronym_allowlist: list[str] = []
     style_guidance: str = ""
     review_required: bool = False
+    default_label: str | None = Field(None, max_length=40)  # label name; unknown names are ignored
     rules: dict[RuleName, Severity] = Field(default={}, validate_default=True)
 
     @field_validator("org_units")

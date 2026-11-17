@@ -6,8 +6,9 @@ import type { AdminJob, JobStatus } from "@/api/admin";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { useJobs, useJobsSummary, useRetryFailed, useRetryJob } from "./api";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { StatusPill } from "./StatusPill";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const STATUSES: JobStatus[] = ["queued", "running", "failed", "done"];
 const ERR_MAX = 200;
@@ -79,7 +80,13 @@ export function JobsPage() {
                   <td className="trunc" title={j.filename}>{j.filename ?? "–"}</td>
                   <td className="wrap" title={oneLine(j.last_error)}>{oneLine(j.last_error).slice(0, ERR_MAX) || "–"}</td>
                   <td>{fmtTime(j.updated_at)}</td>
-                  <td>{j.status === "failed" && <Button variant="ghost" aria-label={`Retry job ${j.id}`} title="Retry" disabled={retry.isPending} onClick={() => retryOne(j)}><RotateCcw aria-hidden /></Button>}</td>
+                  <td>
+                    <RowMenu kebab={false} label={`Actions for job ${j.id}`} actions={[
+                      ...(j.status === "failed" ? [{ label: "Retry", onSelect: () => retryOne(j) }] : []),
+                      copyAction("Copy job ID", String(j.id)),
+                      ...(j.last_error ? [copyAction("Copy error", oneLine(j.last_error))] : []),
+                    ]} />
+                    {j.status === "failed" && <Button variant="ghost" aria-label={`Retry job ${j.id}`} title="Retry" disabled={retry.isPending} onClick={() => retryOne(j)}><RotateCcw aria-hidden /></Button>}</td>
                 </tr>
               ))}
             </tbody>

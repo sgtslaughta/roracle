@@ -1,0 +1,160 @@
+"""T9: document soft delete + ownership transfer."""
+
+import pytest
+from api_seed import seed
+from sqlalchemy import select
+
+from roracle.api.routes.library import get_es
+from roracle.models import AuditLog, Document, Job, Notification
+
+pytestmark = pytest.mark.usefixtures("_blob_store_override")
+
+
+class FES:
+    def __init__(self):
+        self.calls, self.dbq = [], []
+
+    def update_by_query(self, **kw):
+        self.calls.append(kw)
+
+    def delete_by_query(self, **kw):
+        self.dbq.append(kw)
+
+    def search(self, **kw):
+        return {"hits": {"hits": []}}
+
+
+@pytest.fixture
+def fes(app):
+    f = FES()
+    app.dependency_overrides[get_es] = lambda: f
+    return f
+
+
+def test_owner_deletes_document(client, as_ana, as_bob, ana, bob, db_session, fes):
+    d, _ = seed(db_session, ana, visibility="everyone")
+    assert client.get(f"/documents/{d.id}", headers=as_bob).status_code == 200
+    assert client.delete(f"/documents/{d.id}", headers=as_bob).status_code == 403
+    assert client.delete(f"/documents/{d.id}", headers=as_ana).status_code == 204
+    assert fes.dbq and fes.dbq[0]["query"] == {"term": {"doc_id": str(d.id)}}
+    for h in (as_ana, as_bob):
+        assert client.get(f"/documents/{d.id}", headers=h).status_code == 404
+    assert client.delete(f"/documents/{d.id}", headers=as_ana).status_code == 404
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).deleted_at is not None
+    assert db_session.scalar(select(AuditLog).where(AuditLog.action == "document.delete")) is not None
+    assert db_session.scalars(select(Job).where(Job.kind == "acl_sync")).first() is not None
+
+
+def test_admin_deletes_and_owner_notified(client, as_ana, adm, ana, db_session, fes):
+    d, _ = seed(db_session, ana, visibility="private")
+    assert client.delete(f"/documents/{d.id}", headers=adm).status_code == 204
+    n = db_session.scalars(select(Notification).where(Notification.user_id == ana)).all()
+    assert [x.kind for x in n] == ["document.deleted"]
+
+
+def test_transfer(client, as_ana, as_bob, adm, ana, bob, db_session, fes):
+    d, _ = seed(db_session, ana, visibility="private")
+    body = {"user_id": str(bob)}
+    assert client.post(f"/documents/{d.id}/transfer", headers=as_bob, json=body).status_code == 404
+    assert (
+        client.post(
+            f"/documents/{d.id}/transfer",
+            headers=as_ana,
+            json={"user_id": "0" * 8 + "-0000-4000-8000-" + "0" * 12},
+        ).status_code
+        == 422
+    )
+    r = client.post(f"/documents/{d.id}/transfer", headers=as_ana, json=body)
+    assert r.status_code == 200
+    assert next(iter(fes.calls[-1]["script"]["params"]["acl"].values()))["fields"]["owner_id"] == str(bob)
+    assert client.get(f"/documents/{d.id}", headers=as_ana).status_code == 404
+    assert client.get(f"/documents/{d.id}", headers=as_bob).status_code == 200
+    assert (
+        client.post(f"/documents/{d.id}/transfer", headers=adm, json={"user_id": str(ana)}).status_code == 200
+    )
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).owner_id == ana
+    kinds = {(x.user_id, x.kind) for x in db_session.scalars(select(Notification))}
+    assert {(ana, "document.transferred"), (bob, "document.transferred")} <= kinds
+    assert db_session.scalar(select(AuditLog).where(AuditLog.action == "document.transfer")) is not None
+
+
+def test_non_readable_is_404_not_403(client, as_bob, ana, db_session, fes):
+    d, _ = seed(db_session, ana, visibility="everyone", stage="needs_title")
+    assert client.delete(f"/documents/{d.id}", headers=as_bob).status_code == 404
+    assert (
+        client.post(f"/documents/{d.id}/transfer", headers=as_bob, json={"user_id": str(ana)}).status_code
+        == 404
+    )
+
+
+def test_owner_rechecked_after_lock(client, as_ana, ana, bob, db_session, session_factory, fes, monkeypatch):
+    from roracle.api.routes import documents_manage as m
+
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    real = m.visible_doc
+
+    def racing(session, p, doc_id):
+        doc = real(session, p, doc_id)
+        with session_factory() as s:  # concurrent transfer commits between load and lock
+            s.get(Document, doc_id).owner_id = bob
+            s.commit()
+        return doc
+
+    monkeypatch.setattr(m, "visible_doc", racing)
+    assert client.delete(f"/documents/{d.id}", headers=as_ana).status_code == 403
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).deleted_at is None
+
+
+def test_patch_owner_rechecked_after_lock(
+    client, as_ana, ana, bob, db_session, session_factory, fes, monkeypatch
+):
+    from roracle.api.routes import documents_write as m
+
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    real = m.visible_doc
+
+    def racing(session, p, doc_id):
+        doc = real(session, p, doc_id)
+        with session_factory() as s:  # transfer commits between load and lock
+            s.get(Document, doc_id).owner_id = bob
+            s.commit()
+        return doc
+
+    monkeypatch.setattr(m, "visible_doc", racing)
+    assert (
+        client.patch(f"/documents/{d.id}", json={"visibility": "private"}, headers=as_ana).status_code == 403
+    )
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).visibility == "everyone"
+
+
+@pytest.mark.parametrize("unit", ["/", ""])
+def test_patch_rejects_root_org_unit(client, as_ana, ana, db_session, fes, unit):
+    d, _ = seed(db_session, ana, visibility="everyone")
+    db_session.commit()
+    r = client.patch(f"/documents/{d.id}", json={"visibility": "org_unit", "org_unit": unit}, headers=as_ana)
+    assert r.status_code == 422
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).visibility == "everyone"
+
+
+def test_transfer_detaches_connector(client, as_ana, ana, bob, db_session, fes):
+    from roracle.models import Connector
+
+    d, _ = seed(db_session, ana, visibility="private")
+    c = Connector(name="c", kind="http", owner_id=ana, visibility="private", config={})
+    db_session.add(c)
+    db_session.flush()
+    d.connector_id = c.id
+    db_session.commit()
+    assert (
+        client.post(f"/documents/{d.id}/transfer", headers=as_ana, json={"user_id": str(bob)}).status_code
+        == 200
+    )
+    db_session.expire_all()
+    assert db_session.get(Document, d.id).connector_id is None

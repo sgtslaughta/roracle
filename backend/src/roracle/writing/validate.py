@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
 from roracle.config import Settings
+from roracle.labels.policy import Policy
+from roracle.labels.textgate import require_text
 from roracle.writing import checks, cite_check, drafts, profiles
 from roracle.writing.markdown import parse
 
@@ -23,6 +25,11 @@ SYSTEM = (
     "Style guidance:\n"
 )
 UNAVAILABLE = "style check unavailable"
+LABEL_SKIP = "style and citation LLM checks skipped: the draft's label excludes LLM review"
+
+
+def policy_blocks(session: Session, doc) -> bool:
+    return Policy.load(session).has(doc.label_id, "exclude_llm")
 
 
 def check_style(llm, model: str, content: str, prof: profiles.Profile) -> list[checks.Finding]:
@@ -53,6 +60,7 @@ def check_style(llm, model: str, content: str, prof: profiles.Profile) -> list[c
 def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UUID) -> dict:
     t0 = time.monotonic()
     doc, d = drafts.owned_or_coauthored(session, p, doc_id)
+    require_text(session, p, doc)  # findings quote the draft
     v = drafts.latest_version(session, doc_id)
     content = v.content if v else ""
     parsed = parse(content)
@@ -61,14 +69,22 @@ def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UU
     keys = list(dict.fromkeys(c.key for c in parsed.citations))
     resolved = cite_check.resolve_keys(session, p, keys[:cap]) if prof.rules["citations"] != "off" else {}
     model = settings.writing_model or settings.chat_model_list[0]
+    llm_blocked = policy_blocks(session, doc)
     blocking: list[dict] = []
-    warnings: list[dict] = []
+    warnings: list[dict] = [checks.Finding("label", LABEL_SKIP, soft=True).dict()] if llm_blocked else []
+    dl = prof.default_label
+    if dl and not any(x.name.lower() == dl.lower() for x in Policy.load(session).labels):
+        warnings.append(
+            checks.Finding("label", f"profile default_label {dl!r} is not an existing label; ignored").dict()
+        )
     for rule, sev in prof.rules.items():
         if sev == "off":
             continue
         if rule != "style" and time.monotonic() - t0 > settings.writing_validate_budget_s:
             blocking.append(checks.Finding("limits", "validation exceeded time budget").dict())
             break
+        if rule == "style" and llm_blocked:
+            continue  # gate (a): draft text never reaches the style LLM
         if rule == "style":
             found = check_style(llm, model, content, prof)
         elif rule == "citations":

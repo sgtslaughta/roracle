@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle.models import Document, DocumentVersion, Notification, User
-from roracle.queue import USER_PREFIX
+from roracle.queue import USER_PREFIX, NonRetryable, payload_uuid
 
 
 def emit(session: Session, user_id: UUID, kind: str, payload: dict[str, Any]) -> None:
@@ -28,7 +28,10 @@ def on_job_failed(session: Session, job) -> None:
             session, "ops.job_failed", {"job_id": job.id, "kind": job.kind, "error": "processing failed"}
         )
         return
-    v = session.get(DocumentVersion, UUID(job.payload["version_id"])) if job.payload else None
+    try:
+        v = session.get(DocumentVersion, payload_uuid(job.payload or {}, "version_id"))
+    except NonRetryable:  # malformed payload: nobody to tell
+        return
     d = session.get(Document, v.document_id) if v else None
     if d is None:
         return

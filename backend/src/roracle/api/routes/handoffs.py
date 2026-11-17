@@ -62,8 +62,14 @@ def create(body: CreateBody, p: Who, session: Session_, request: Request) -> dic
 
 
 @router.get("/handoffs")
-def list_mine(p: Who, session: Session_, request: Request) -> list[dict]:
-    return [_abs(request, m) for m in handoff.list_mine(session, p)]
+def list_mine(
+    p: Who,
+    session: Session_,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
+    return [_abs(request, m) for m in handoff.list_mine(session, p, limit, offset)]
 
 
 @router.get("/handoffs/{code}")

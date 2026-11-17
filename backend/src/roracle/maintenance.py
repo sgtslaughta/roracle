@@ -16,11 +16,12 @@ from uuid import UUID
 
 from botocore.exceptions import ClientError
 from elasticsearch import Elasticsearch, NotFoundError
-from sqlalchemy import delete, exists, func, select, text, update
+from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from roracle.acl_sync import drifted, read_acl_many
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
-from roracle.queue import enqueue
+from roracle.queue import enqueue, payload_uuid
 from roracle.search_index import ALIAS, MUTATE_ALIAS
 from roracle.storage import BlobStore
 
@@ -30,6 +31,7 @@ GC_MIN_AGE = timedelta(days=1)
 PURGE_BATCH = 100
 GC_BATCH = 500
 RECONCILE_BATCH = 500
+JOB_BATCH = 10_000
 _MISSING = {"404", "NoSuchKey", "NotFound"}
 
 
@@ -54,6 +56,24 @@ def purge(session: Session, es: Elasticsearch, settings: Any, store: BlobStore) 
     return len(docs)
 
 
+def prune_jobs(session: Session, *, done_days: int = 7, failed_days: int = 30, batch: int = JOB_BATCH) -> int:
+    """Delete up to `batch` finished jobs: `done` older than `done_days`, `failed` older than `failed_days`.
+    `queued`/`running` rows are never touched. Returns the number deleted (== batch: more to do)."""
+    deleted = 0
+    for status, days in (("done", done_days), ("failed", failed_days)):
+        if deleted >= batch:
+            break
+        r = session.execute(
+            text(
+                "DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE status = :st"
+                " AND updated_at < now() - make_interval(days => :d) ORDER BY id LIMIT :n FOR UPDATE SKIP LOCKED)"
+            ),
+            {"st": status, "d": days, "n": batch - deleted},
+        )
+        deleted += r.rowcount
+    return deleted
+
+
 def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UUID) -> None:
     try:  # chunks first: a retry after a later failure finds nothing left to delete
         r = es.delete_by_query(
@@ -74,7 +94,10 @@ def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UU
         session.scalars(
             select(Evidence.blob_sha256)
             .join(Annotation, Annotation.id == Evidence.annotation_id)
-            .where(Annotation.document_id == doc_id, Evidence.blob_sha256.is_not(None))
+            .where(
+                or_(Annotation.document_id == doc_id, Annotation.target_document_id == doc_id),
+                Evidence.blob_sha256.is_not(None),
+            )
         )
     )
     for sha in set(shas):
@@ -158,16 +181,44 @@ def gc_blobs(session: Session, store: BlobStore) -> int:
     return removed
 
 
-def handle_reconcile_tags(session: Session, payload: dict) -> None:
-    """Enqueue `acl_sync` for the next batch of live documents after the id cursor; chain while full."""
+def handle_reconcile_tags(session: Session, payload: dict, *, es: Elasticsearch) -> None:
+    """Drift DETECTION over the next RECONCILE_BATCH live documents after the id cursor (bulk priority): compare
+    each document's Postgres `acl_hash` with the hashes in ES (an in-sync corpus costs 0 ES writes). Repair is a
+    normal-priority `acl_sync` job per drifted document (deduped), so a revocation fix never waits behind user
+    work and always re-reads Postgres when it runs. One chain job per batch while full."""
     q = select(Document.id).where(Document.deleted_at.is_(None))
     if payload.get("after"):
-        q = q.where(Document.id > UUID(payload["after"]))
+        q = q.where(Document.id > payload_uuid(payload, "after"))
     ids = session.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)).all()
-    for doc_id in ids:
-        enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
+    if bad := drifted(es, read_acl_many(session, ids)):
+        key = Job.payload["doc_id"].astext
+        pending = set(
+            session.scalars(select(key).where(Job.kind == "acl_sync", Job.status == "queued", key.in_(bad)))
+        )
+        for doc_id in sorted(bad - pending):
+            enqueue(session, "acl_sync", {"doc_id": doc_id})
     if len(ids) == RECONCILE_BATCH:
         enqueue(session, "reconcile_tags", {"after": str(ids[-1])})
+
+
+LSH_BATCH = 500
+
+
+def handle_lsh_backfill(session: Session, payload: dict) -> None:
+    """One-off (enqueued by migration 0014e): write the LSH bands of every version that has a MinHash, in id order,
+    LSH_BATCH per job. The ingest keeps using the exhaustive check while this job exists."""
+    from roracle.ingest.neardup import mark_lsh_ready, write_bands
+
+    q = select(DocumentVersion.id, DocumentVersion.minhash).where(DocumentVersion.minhash.is_not(None))
+    if payload.get("after"):
+        q = q.where(DocumentVersion.id > payload_uuid(payload, "after"))
+    rows = session.execute(q.order_by(DocumentVersion.id).limit(LSH_BATCH)).all()
+    for vid, mh in rows:
+        write_bands(session, vid, mh)
+    if len(rows) == LSH_BATCH:
+        enqueue(session, "lsh_backfill", {"after": str(rows[-1][0])})
+    else:
+        mark_lsh_ready(session)  # the ingest switches to the LSH path only from here
 
 
 def _scheduled(session: Session, *statuses: str) -> bool:
@@ -183,7 +234,7 @@ def _scheduled(session: Session, *statuses: str) -> bool:
 def handle_maintenance(
     session: Session, payload: dict, *, settings: Any, store: BlobStore, es: Elasticsearch
 ) -> None:
-    """`op` = purge | gc | reconcile (manual) or all (periodic: runs all three, then reschedules itself)."""
+    """`op` = purge | prune_jobs | gc | reconcile (manual) or all (periodic: runs all, then reschedules itself)."""
     op = payload.get("op", "all")
     periodic = op == "all"
     if periodic and not _scheduled(session, "queued"):
@@ -195,6 +246,7 @@ def handle_maintenance(
 
     steps = {
         "purge": lambda: purge(session, es, settings, store) == PURGE_BATCH,
+        "prune_jobs": lambda: prune_jobs(session) == JOB_BATCH,
         "gc": lambda: gc_blobs(session, store) == GC_BATCH,
         "reconcile": _reconcile,
     }

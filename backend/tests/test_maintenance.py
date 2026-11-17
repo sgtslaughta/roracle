@@ -181,7 +181,23 @@ def test_gc_missing_s3_object_still_drops_row(db_session):
     assert db_session.get(Blob, "9" * 64) is None
 
 
-def test_reconcile_one_acl_sync_per_live_doc_and_resumes(db_session, user, monkeypatch):
+class DriftEs:
+    """search() reports `drift` doc ids as drifted; update_by_query records the synced doc ids."""
+
+    def __init__(self, drift=()):
+        self.drift, self.synced, self.queries = set(drift), [], []
+
+    def search(self, **kw):
+        self.queries.append(kw)
+        hits = [{"fields": {"doc_id": [d]}} for d in self.drift]
+        return {"hits": {"hits": hits}}
+
+    def update_by_query(self, **kw):
+        self.synced.append(sorted(kw["script"]["params"]["acl"]))
+        return {"updated": 1}
+
+
+def test_reconcile_batches_resumes_and_syncs_only_drifted(db_session, user, monkeypatch):
     monkeypatch.setattr(maintenance, "RECONCILE_BATCH", 2)
     ids = []
     for i in range(5):
@@ -192,17 +208,23 @@ def test_reconcile_one_acl_sync_per_live_doc_and_resumes(db_session, user, monke
     gone = Document(owner_id=user.id, title="x", org_unit="/", visibility="private", deleted_at=func.now())
     db_session.add(gone)
     db_session.commit()
-    maintenance.handle_reconcile_tags(db_session, {})
-    first = jobs(db_session, "acl_sync")
-    assert len(first) == 2
+    es = DriftEs(drift={str(sorted(ids)[1])})
+    maintenance.handle_reconcile_tags(db_session, {}, es=es)
     nxt = jobs(db_session, "reconcile_tags")
-    assert len(nxt) == 1 and nxt[0].payload["after"] == first[-1].payload["doc_id"]
-    maintenance.handle_reconcile_tags(db_session, nxt[0].payload)
-    maintenance.handle_reconcile_tags(db_session, jobs(db_session, "reconcile_tags")[-1].payload)
-    synced = [j.payload["doc_id"] for j in jobs(db_session, "acl_sync")]
-    assert sorted(synced) == sorted(str(i) for i in ids) and len(synced) == 5
-    assert str(gone.id) not in synced
+    assert len(nxt) == 1 and nxt[0].payload["after"] == str(sorted(ids)[1])
+    assert [j.payload["doc_id"] for j in jobs(db_session, "acl_sync")] == [str(sorted(ids)[1])]
+    assert es.synced == []  # detection only: nothing is written by the reconcile itself
+    es.drift = set()
+    maintenance.handle_reconcile_tags(db_session, nxt[0].payload, es=es)
+    maintenance.handle_reconcile_tags(db_session, jobs(db_session, "reconcile_tags")[-1].payload, es=es)
     assert len(jobs(db_session, "reconcile_tags")) == 2  # last batch (1 < 2) does not chain
+    assert len(jobs(db_session, "acl_sync")) == 1  # no further drift: no more jobs
+    queried = {
+        c["term"]["doc_id"]
+        for q in es.queries
+        for c in [s["bool"]["filter"][0] for s in q["query"]["bool"]["should"]]
+    }
+    assert str(gone.id) not in queried and queried == {str(i) for i in ids}
 
 
 def test_periodic_maintenance_runs_all_and_reschedules(db_session, user, store):
@@ -385,3 +407,37 @@ def test_periodic_reschedule_survives_failed_step_and_ensure(db_session, user, s
         db_session, {"op": "all"}, settings=settings(), store=fake_store(), es=FakeEs()
     )
     assert any(j.payload == {"op": "all"} for j in jobs(db_session, "maintenance"))
+
+
+def test_purge_decrements_evidence_on_relation_notes_from_other_docs(db_session, user, store):
+    target = make_version(db_session, store, user)
+    other = make_version(db_session, store, user)
+    note = Annotation(
+        id=uuid.uuid4(), document_id=other.document_id, version_id=other.id, author_id=user.id,
+        kind="relation", body="x", visibility="everyone", relation_type="extends",
+        target_document_id=target.document_id,
+    )  # fmt: skip
+    db_session.add(note)
+    db_session.add(Blob(sha256="5" * 64, size=1, refcount=1))
+    db_session.flush()
+    db_session.add(
+        Evidence(annotation_id=note.id, creator_id=user.id, stance="supports", crate={}, blob_sha256="5" * 64)
+    )
+    trash(db_session, db_session.get(Document, target.document_id), 40)
+    maintenance.purge(db_session, FakeEs(), settings(), store)
+    assert db_session.get(Blob, "5" * 64).refcount == 0
+
+
+def test_drift_repair_is_claimed_before_older_bulk_work_while_user_jobs_arrive(db_session, user):
+    from roracle.queue import claim, enqueue
+
+    d = Document(owner_id=user.id, title="t", org_unit="/", visibility="private")
+    db_session.add(d)
+    db_session.flush()
+    enqueue(db_session, "reconcile_tags", {"after": str(d.id)})  # an older bulk job is already waiting
+    db_session.execute(text("UPDATE jobs SET run_after = now() - interval '1 hour'"))
+    maintenance.handle_reconcile_tags(db_session, {}, es=DriftEs(drift={str(d.id)}))
+    db_session.commit()
+    kinds = ["ingest", "acl_sync", "reconcile_tags"]
+    first = claim(db_session, kinds)
+    assert first.kind == "acl_sync" and first.payload == {"doc_id": str(d.id)}

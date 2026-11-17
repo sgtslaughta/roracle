@@ -68,3 +68,8 @@
   .result { grid-template-columns: minmax(0, 1fr); }
   .result .vote { flex-direction: row; order: 2; }
 }
+/* add-to-collection picker: capped, scrolls */
+.coll-pick { max-height: 240px; overflow-y: auto; margin: 10px 0; }
+.coll-pick .menu-link { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 7px 8px; border-radius: 6px; text-align: left; }
+.coll-pick .menu-link span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coll-pick .menu-link:hover { background: var(--muted-bg); }

@@ -3,13 +3,14 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { isAvailable, type Citation, type CitationOk } from "@/api/chat";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { safeComponents } from "@/components/SafeMarkdown";
 import { remarkCiteMarkers } from "./citeMarkers";
 
 export const openCitation = (c: CitationOk) =>
-  openDoc(c.doc_id, { page: c.page, chunkId: c.chunk_id ?? undefined, version: c.version, bbox: c.bbox });
+  openDoc(c.doc_id, { page: c.page, chunkId: c.chunk_id ?? undefined, version: c.version ?? undefined, bbox: c.bbox });
 
 export interface AnswerTextProps {
   text: string;

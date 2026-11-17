@@ -1,6 +1,7 @@
 """Link a version's parsed references to library documents; ACL is applied at READ time only."""
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from urllib.parse import unquote
 from uuid import UUID
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session, aliased
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.models import DocCitation, Document, DocumentVersion
+from roracle.queue import payload_uuid
 
 FUZZY_MIN = 92
 
@@ -144,7 +146,7 @@ def backfill_for(session: Session, document: Document) -> int:
 
 def handle_citations(session: Session, payload: dict) -> None:
     """Job `citations` {version_id}: runs inside run_once's SAVEPOINT; never commits (R6/R9)."""
-    v = session.get(DocumentVersion, UUID(payload["version_id"]))
+    v = session.get(DocumentVersion, payload_uuid(payload, "version_id"))
     if v is None or v.stage != "searchable":
         return
     d = session.get(Document, v.document_id)
@@ -154,42 +156,64 @@ def handle_citations(session: Session, payload: dict) -> None:
     backfill_for(session, d)
 
 
-def best_targets(p: Principal):
+def best_targets(p: Principal, targets: Sequence[UUID] | None = None, sources: Sequence[UUID] | None = None):
     """Per (src_version, ref_no) the viewer's best VISIBLE candidate (rn == 1): max confidence, then
-    oldest document, then id. Never refuses a tie and never reveals a candidate the viewer can't see."""
+    oldest document, then id. Never refuses a tie and never reveals a candidate the viewer can't see.
+
+    `targets` / `sources` scope the ranking to the (src_version, ref_no) groups that cite one of those documents /
+    come from those versions, BEFORE the window: rows of every candidate of a kept group are still ranked
+    together (a group's winner may be a non-target), but unrelated groups are never read. Without either the
+    window runs over the whole table (O(corpus)); callers on a hot path must pass one."""
     tv = aliased(DocumentVersion)
     rn = func.row_number().over(
         partition_by=[DocCitation.src_version_id, DocCitation.ref_no],
         order_by=[DocCitation.confidence.desc(), Document.created_at, Document.id],
     )
-    return (
-        select(DocCitation.src_version_id, DocCitation.ref_no, DocCitation.target_document_id, rn.label("rn"))
-        .join(Document, Document.id == DocCitation.target_document_id)
-        .join(
-            tv,
-            and_(tv.document_id == Document.id, tv.is_latest.is_(True), tv.stage == "searchable"),
+    q = select(
+        DocCitation.src_version_id, DocCitation.ref_no, DocCitation.target_document_id, rn.label("rn")
+    ).join(Document, Document.id == DocCitation.target_document_id)
+    if sources is not None:
+        q = q.where(DocCitation.src_version_id.in_(list(sources)))
+    if targets is not None:
+        groups = (
+            select(DocCitation.src_version_id, DocCitation.ref_no)
+            .where(DocCitation.target_document_id.in_(list(targets)))
+            .distinct()
+            .subquery("grp")
         )
+        q = q.join(
+            groups,
+            and_(
+                groups.c.src_version_id == DocCitation.src_version_id,
+                groups.c.ref_no == DocCitation.ref_no,
+            ),
+        )
+    return (
+        q.join(tv, and_(tv.document_id == Document.id, tv.is_latest.is_(True), tv.stage == "searchable"))
         .where(visible_documents(p))
         .subquery()
     )
 
 
-def cited_by_counts(session: Session, p: Principal, doc_ids: list[UUID]) -> dict[str, int]:
-    """Distinct VISIBLE citing documents (latest searchable version) per target; one query."""
-    if not doc_ids:
-        return {}
-    bt = best_targets(p)
-    rows = session.execute(
+def cited_by_counts_stmt(p: Principal, doc_ids: Sequence[UUID]):
+    bt = best_targets(p, targets=doc_ids)
+    return (
         select(bt.c.target_document_id, func.count(func.distinct(Document.id)))
         .join(DocumentVersion, DocumentVersion.id == bt.c.src_version_id)
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             bt.c.rn == 1,
-            bt.c.target_document_id.in_(doc_ids),
+            bt.c.target_document_id.in_(list(doc_ids)),
             DocumentVersion.is_latest.is_(True),
             DocumentVersion.stage == "searchable",
             visible_documents(p),
         )
         .group_by(bt.c.target_document_id)
-    ).all()
-    return {str(t): n for t, n in rows}
+    )
+
+
+def cited_by_counts(session: Session, p: Principal, doc_ids: list[UUID]) -> dict[str, int]:
+    """Distinct VISIBLE citing documents (latest searchable version) per target; one query scoped to the ids."""
+    if not doc_ids:
+        return {}
+    return {str(t): n for t, n in session.execute(cited_by_counts_stmt(p, doc_ids)).all()}

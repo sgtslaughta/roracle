@@ -7,6 +7,7 @@ import { DOCS } from "./docs";
 import { docById, docling } from "./pdf";
 import { ownerOf } from "./search";
 import { state } from "./state";
+import { docLabel, labelJson, noteOwnLabel } from "./labels";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const err = (status: number, detail: string) => HttpResponse.json({ detail }, { status });
@@ -71,7 +72,11 @@ export function addNote(docId: string, b: NoteIn, extra: Partial<Note> = {}): No
 const find = (id: string) => notes().find((n) => n.id === id);
 /** Readable to the mock user: not removed; hidden only for its author, the document owner or an admin. */
 const readable = (n: Note) => n.status !== "removed" && (n.status === "visible" || n.author.id === ME.id || state.admin || ownerOf(docById(n.document_id)!) === ME.id);
-const out = (n: Note): Note => ({ ...n, shares: n.author.id === ME.id ? n.shares : [], evidence: evidenceCounts(n.id) });
+const withLabels = (n: Note): Note => {
+  const own = noteOwnLabel(n.id), doc = docLabel(n.document_id);
+  return { ...n, label: own, effective_label: own && own.rank > doc.rank ? own : doc };
+};
+const out = (n: Note): Note => withLabels({ ...n, shares: n.author.id === ME.id ? n.shares : [], evidence: evidenceCounts(n.id) });
 const bodyOk = (b: unknown) => typeof b === "string" && b.length >= 1 && b.length <= NOTE_BODY_MAX;
 const now = () => new Date().toISOString();
 
@@ -93,7 +98,26 @@ export const noteHandlers = [
     if (!bodyOk(b.body)) return err(422, "body must be 1-10000 characters");
     if ((b.kind === "relation") !== !!b.relation) return err(422, "relation is required for, and only for, kind 'relation'");
     if (b.relation?.target_document_id === d.id) return err(422, "relation target must differ from the document");
-    return HttpResponse.json(addNote(d.id, b), { status: 201 });
+    const made = addNote(d.id, b);
+    if (b.label_id) {
+      if (labelJson(b.label_id).rank < docLabel(d.id).rank) { state.notes = notes().filter((n) => n.id !== made.id); return err(422, "a note cannot be below its document label"); }
+      state.noteLabels[made.id] = b.label_id;
+    }
+    return HttpResponse.json(out(made), { status: 201 });
+  }),
+  http.put(url("/annotations/:id/label"), async ({ params, request }) => {
+    const n = getNote(String(params.id));
+    if (n instanceof Response) return n;
+    if (n.author.id !== ME.id && !state.admin) return err(403, "only the author or an admin can do this");
+    const b = (await request.json()) as { label_id: string | null; reason?: string };
+    const doc = docLabel(n.document_id), own = noteOwnLabel(n.id), to = b.label_id ? labelJson(b.label_id) : null;
+    if (to && to.rank < doc.rank) return err(422, "a note cannot be below its document label");
+    if (own && (!to || to.rank < own.rank)) {
+      if (!state.admin) return err(403, "only admins can lower a label");
+      if (own.gates.reason_on_lower && (b.reason ?? "").trim().length < 3) return err(422, "a reason is required to lower this label");
+    }
+    if (to) state.noteLabels[n.id] = to.id; else delete state.noteLabels[n.id];
+    return HttpResponse.json(out(n));
   }),
   http.get(url("/annotations/:id"), ({ params }) => {
     const n = getNote(String(params.id));

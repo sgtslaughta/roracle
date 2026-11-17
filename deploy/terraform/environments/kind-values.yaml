@@ -1,0 +1,24 @@
+# Extra Helm values for the kind rehearsal (extra_values_file in kind.tfvars). Merged last, wins over Terraform values.
+# Small footprint: heavy parsers (docling, grobid, clamav, chromium gotenberg) are off; only the ingest gotenberg runs.
+# object_store=external with an S3 stand-in (test/s3-stub.yaml); backups/snapshots are off (backups_enabled in kind.tfvars).
+parsers:
+  docling: {enabled: false}
+  grobid: {enabled: false}
+  clamav: {enabled: false}
+  draftgotenberg: {enabled: false}
+  gotenberg:
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+postgres:
+  monitoring: {enabled: false}   # no prometheus-operator CRDs in kind
+  resources: {requests: {cpu: 200m, memory: 512Mi}, limits: {memory: 1Gi}}
+elasticsearch:
+  resources: {requests: {cpu: 300m, memory: 1536Mi}, limits: {memory: 1536Mi}}   # ECK sets heap = 50% of the limit
+api:
+  resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 768Mi}}
+worker:
+  tmpSize: 1Gi
+  resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 768Mi}}
+web:
+  resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+migrate:
+  resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 512Mi}}

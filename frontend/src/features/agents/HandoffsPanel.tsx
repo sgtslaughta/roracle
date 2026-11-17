@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { invalidText, useHandoff, useHandoffs, usePatchHandoff, useRevokeHandoff } from "./api";
 import { copyText } from "./HandoffDialog";
 import { AUDIENCE_LABEL, HandoffForm, type HandoffValues } from "./HandoffForm";
-import { fmtDate } from "./TokensPanel";
+import { fmtDate } from "@/lib/dates";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const PAGE = 20;
 const KIND_LABEL = { chat: "Chat", collection: "Collection", search: "Search", document: "Document", agent: "Agent" } as const;
@@ -34,7 +35,7 @@ export function HandoffsPanel() {
 
   return (
     <div className="agent-panel">
-      <p className="sub">Handoffs you've created. Anyone in the audience can load one until it expires or you revoke it.</p>
+      <p className="sub">Handoffs you've created with “Continue in agent”. Anyone in the audience can load one until it expires or you revoke it.</p>
       {isError && <p role="alert">Handoffs couldn't be loaded. Reload to try again.</p>}
       {data && !data.length && <div className="empty"><Bot aria-hidden /><p>No handoffs yet. Use “Continue in agent” on a chat, document or search.</p></div>}
       {data && data.length > 0 && (
@@ -47,6 +48,14 @@ export function HandoffsPanel() {
                   <b className="trunc" title={nameOf(h)}>{nameOf(h)}</b>
                   <small><code>{h.display}</code> · {KIND_LABEL[h.kind]} · {AUDIENCE_LABEL[h.audience]} · <span>{st === "Active" ? `Expires ${fmtDate(h.expires_at)}` : st}</span>{h.created_via === "mcp" ? " · Made by an agent" : ""}</small>
                 </div>
+                <RowMenu kebab={false} label={`Actions for ${nameOf(h)}`} actions={[
+                  copyAction("Copy code", h.display),
+                  ...(st === "Active" ? [
+                    { label: "Copy link", onSelect: () => void copyText(handoffLink(`/h/${seg(h.display)}`), "Handoff link copied") },
+                    { label: "Edit", onSelect: () => setEditing(h) },
+                    { label: "Revoke", danger: true, onSelect: () => setTarget(h) },
+                  ] : []),
+                ]} />
                 {st === "Active" && (
                   <div className="row2">
                     <button className="icon-btn" aria-label={`Copy link to ${nameOf(h)}`} onClick={() => void copyText(handoffLink(`/h/${seg(h.display)}`), "Handoff link copied")}><Copy aria-hidden /></button>

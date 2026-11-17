@@ -18,6 +18,7 @@ from roracle.connectors.netguard import Blocked, check_url
 from roracle.connectors.run import active_run_job
 from roracle.db import get_session
 from roracle.models import Connector, ConnectorRun, Document, Job
+from roracle.models_labels import Label
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -72,6 +73,7 @@ class Common(BaseModel):
     name: Name
     visibility: Literal["private", "org_unit", "everyone"]
     org_unit: Annotated[str, Field(max_length=500)] = ""
+    label_id: UUID | None = None
     schedule_minutes: Schedule = None
     enabled: bool = True
 
@@ -100,12 +102,18 @@ class ConnectorPatch(BaseModel):
     config: dict[str, Any] | None = None
     visibility: Literal["private", "org_unit", "everyone"] | None = None
     org_unit: Annotated[str, Field(max_length=500)] | None = None
+    label_id: UUID | None = None
     schedule_minutes: Schedule = None
     enabled: bool | None = None
 
 
 def redact(config: dict) -> dict:
     return {**config, "secret_key": MASK} if config.get("secret_key") else dict(config)
+
+
+def _check_label(session: Session, label_id: UUID | None) -> None:
+    if label_id is not None and session.get(Label, label_id) is None:
+        raise HTTPException(422, "unknown label")
 
 
 def _check_scope(visibility: str, org_unit: str) -> str:
@@ -144,6 +152,7 @@ def _out(c: Connector) -> dict:
         "owner_id": str(c.owner_id),
         "visibility": c.visibility,
         "org_unit": c.org_unit,
+        "label_id": str(c.label_id) if c.label_id else None,
         "schedule_minutes": c.schedule_minutes,
         "enabled": c.enabled,
         "next_run_at": c.next_run_at.isoformat() if c.next_run_at else None,
@@ -232,6 +241,7 @@ def create_connector(body: ConnectorIn, p: Admin, session: Db, request: Request)
     org_unit = _check_scope(body.visibility, body.org_unit)
     config = _validate_config(body.kind, body.config.model_dump(), request)
     _name_free(session, body.name)
+    _check_label(session, body.label_id)
     c = Connector(
         name=body.name,
         kind=body.kind,
@@ -239,6 +249,7 @@ def create_connector(body: ConnectorIn, p: Admin, session: Db, request: Request)
         owner_id=p.user_id,
         visibility=body.visibility,
         org_unit=org_unit,
+        label_id=body.label_id,
         schedule_minutes=body.schedule_minutes,
         enabled=body.enabled,
     )
@@ -286,6 +297,9 @@ def patch_connector(cid: UUID, body: ConnectorPatch, p: Admin, session: Db, requ
         ).all()
         for doc_id in ids:
             enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
+    if "label_id" in sent:  # applies to documents ingested from now on, never retroactively
+        _check_label(session, body.label_id)
+        c.label_id = body.label_id
     if "schedule_minutes" in sent:
         c.schedule_minutes, c.next_run_at = body.schedule_minutes, None  # due at the next tick
     if body.enabled is not None:

@@ -1,4 +1,5 @@
 """Embedding-model switch: copy -> cutover -> catch-up against a fake ES (real Postgres)."""
+# ruff: noqa: F811
 
 import uuid
 from datetime import UTC, datetime
@@ -6,155 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import bearer
-from elasticsearch import NotFoundError
+from es_fakes import msearch as _es_msearch
+from reembed_support import SRC, FakeEs, FakeIndices, FakeLlm, base, drain, es, vid  # noqa: F401
 from sqlalchemy import func, select
 
 from roracle import reembed, runtime, search_index
-from roracle.config import Settings
 from roracle.models import DocumentVersion, Job, Tag
-
-SRC = "chunks-old-1"
-
-
-class FakeIndices:
-    def __init__(self, es):
-        self.es = es
-        self.alias_calls = []
-
-    def exists(self, index):
-        return index in self.es.data or index in self.es.aliases
-
-    def exists_alias(self, name, index=None):
-        return name in self.es.aliases and (index is None or index in self.es.aliases[name])
-
-    def create(self, index, mappings=None, aliases=None):
-        self.es.data[index] = {}
-        for a in aliases or {}:
-            self.es.aliases.setdefault(a, set()).add(index)
-
-    def get_alias(self, name):
-        if not self.es.aliases.get(name):
-            raise NotFoundError("nf", SimpleNamespace(status=404), {})
-        return {i: {"aliases": {name: {}}} for i in self.es.aliases[name]}
-
-    def update_aliases(self, actions):
-        self.alias_calls.append(actions)
-        for a in actions:
-            ((op, spec),) = a.items()
-            if op == "remove_index":
-                self.es.data.pop(spec["index"])
-                continue
-            s = self.es.aliases.setdefault(spec["alias"], set())
-            (s.add if op == "add" else s.discard)(spec["index"])
-
-    def delete(self, index):
-        for i in [index] if isinstance(index, str) else index:
-            self.es.data.pop(i)
-            for s in self.es.aliases.values():
-                s.discard(i)
-
-
-class FakeEs:
-    def __init__(self):
-        self.data = {SRC: {}}
-        self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
-        self.indices = FakeIndices(self)
-        self.mutations = []
-        self.after_bulk = lambda: None  # hook: a concurrent change landing right after our write
-
-    def put(self, cid, doc_id, text="hello", index=SRC, **kw):
-        self.data[index][cid] = {
-            "chunk_id": cid, "doc_id": str(doc_id), "version_id": cid.split(":")[0], "text": text,
-            "title": "t", "headings": [], "owner_id": "o", "visibility": "private", "org_unit": "/",
-            "share_users": [], "share_groups": [], "tags": [], "is_latest": True, "version": 1,
-            "embedding": [9.0, 9.0], "embedding_model": "old", **kw,
-        }  # fmt: skip
-
-    def count(self, index):
-        return {"count": len(self.data[index])}
-
-    def search(self, index, size=10, sort=None, search_after=None, query=None, **kw):
-        docs = self.data[index]
-        if query and "ids" in query:
-            ids = [i for i in query["ids"]["values"] if i in docs]
-            return {"hits": {"hits": [{"_id": i} for i in ids]}}
-        keys = sorted(k for k in docs if not search_after or k > search_after[0])[:size]
-        return {"hits": {"hits": [{"_id": k, "_source": dict(docs[k]), "sort": [k]} for k in keys]}}
-
-    def update_by_query(self, **kw):
-        self.mutations.append(kw["index"])
-        return {}
-
-    def delete_by_query(self, **kw):
-        self.mutations.append(kw["index"])
-        q, docs = kw["query"], self.data.get(kw["index"], {})
-        if "ids" in q:
-            doomed = [i for i in q["ids"]["values"] if i in docs]
-        elif "term" in q:
-            ((f, v),) = q["term"].items()
-            doomed = [i for i, d in docs.items() if d.get(f) == v]
-        else:
-            doomed = []
-        for i in doomed:
-            docs.pop(i)
-        return {}
-
-
-class FakeLlm:
-    def __init__(self, dims):
-        self.embeddings = SimpleNamespace(create=lambda model, input: self._create(model, input))
-        self.dims, self.models = dims, []
-
-    def _create(self, model, input):
-        self.models.append(model)
-        return SimpleNamespace(
-            data=[SimpleNamespace(index=i, embedding=[1.0] * self.dims) for i, _ in enumerate(input)]
-        )
-
-
-@pytest.fixture
-def es(monkeypatch):
-    fake = FakeEs()
-
-    def bulk(client, actions, **kw):
-        n = 0
-        for a in actions:
-            fake.data[a["_index"]][a["_id"]] = a["_source"]
-            n += 1
-        fake.after_bulk()
-        return n, []
-
-    monkeypatch.setattr(reembed.helpers, "bulk", bulk)
-    return fake
-
-
-@pytest.fixture
-def vid(db_session, document, blob):
-    v = DocumentVersion(
-        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="a.pdf",
-        content_type="x", size=1,
-    )  # fmt: skip
-    db_session.add(v)
-    db_session.flush()
-    return str(v.id)
-
-
-@pytest.fixture
-def base():
-    return Settings(embed_model="old", embed_dims=2)
-
-
-def drain(db, sf, es, llm, base, limit=50):
-    """Run queued reembed jobs in order (ignoring run_after) until none is left."""
-    for _ in range(limit):
-        j = db.scalar(select(Job).where(Job.kind == "reembed", Job.status == "queued").order_by(Job.id))
-        if j is None:
-            return
-        j.status = "done"
-        db.flush()
-        reembed.handle_reembed(db, j.payload, es=es, llm=llm, session_factory=sf, settings=base)
-        db.commit()
-    raise AssertionError("did not terminate")
 
 
 def test_cutover_swaps_alias_once_and_switches_model(db_session, session_factory, es, base, document, vid):
@@ -205,6 +63,9 @@ def test_copy_takes_acl_from_postgres_not_source(db_session, session_factory, es
         "everyone", "/", [], ["x"], "fresh",
     )  # fmt: skip
     assert t["owner_id"] == str(document.owner_id)
+    from roracle import acl_sync, search_index
+
+    assert t["acl_hash"] == search_index.acl_hash(*acl_sync.read_acl(session_factory, document.id))
     assert es.mutations == []  # nothing left to resync: written correct the first time
 
 
@@ -273,6 +134,7 @@ def test_older_version_chunks_not_latest_after_copy(
         filename="b.pdf",
         content_type="x",
         size=1,
+        stage="searchable",
     )
     db_session.add(v2)
     db_session.commit()
@@ -289,6 +151,46 @@ def test_reconcile_tags_enqueued_before_cutover_and_after_catchup(
     _run_copy(db_session, session_factory, es, base)
     n = db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "reconcile_tags"))
     assert n >= 4  # end of copy, cutover, two catch-up rounds
+
+
+def test_eval_enqueued_once_by_the_final_catchup_not_by_a_timer(
+    db_session, session_factory, es, base, document, vid
+):
+    from roracle.models_eval import EvalSet
+
+    ref = EvalSet(name="ref", is_reference=True)
+    db_session.add(ref)
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
+    base = base.model_copy(update={"eval_on_reindex": True})
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    seen = []
+    for _ in range(50):
+        j = db_session.scalar(
+            select(Job).where(Job.kind == "reembed", Job.status == "queued").order_by(Job.id)
+        )
+        if j is None:
+            break
+        seen.append(
+            (
+                j.payload["phase"],
+                j.payload.get("round"),
+                db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "eval_run")),
+            )
+        )
+        j.status = "done"
+        db_session.flush()
+        reembed.handle_reembed(
+            db_session, j.payload, es=es, llm=FakeLlm(2), session_factory=session_factory, settings=base
+        )
+        db_session.commit()
+    evs = db_session.scalars(select(Job).where(Job.kind == "eval_run")).all()
+    assert len(evs) == 1 and evs[0].payload["trigger"] == "reindex"
+    assert evs[0].run_after <= datetime.now(UTC)  # no fixed delay
+    assert [n for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)] == [0] * len(
+        [1 for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)]
+    )
 
 
 def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, es, base, document, vid):
@@ -323,7 +225,7 @@ def test_start_rejects_second_running_job(db_session, es, base):
 def test_status_reports_progress(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     assert reembed.status(db_session, es, base) == {
-        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "old": [],
+        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "failed": None, "old": [],
     }  # fmt: skip
     for n in range(2):
         es.put(f"{vid}:{n}", document.id)
@@ -334,7 +236,7 @@ def test_status_reports_progress(db_session, session_factory, es, base, document
     )
     s = reembed.status(db_session, es, base)
     assert s["running"]["target"] == {"model": "new", "dims": 2, "index": "chunks-new-1"}
-    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("cutover", 2, 2)
+    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("converge", 2, 2)
 
 
 def test_drop_old_keeps_active(db_session, es, base):
@@ -372,12 +274,16 @@ def test_retrieval_reads_active_index(db_session, base):
     seen = []
 
     class E:
+        msearch = _es_msearch
+
         def search(self, index, **kw):
             seen.append(index)
             return {"hits": {"hits": []}}
 
-    p = SimpleNamespace(user_id="u", groups=(), is_admin=True)
-    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", filters={}, qvec=[0.0, 0.0])
+    p = SimpleNamespace(user_id="u", groups=(), is_admin=True, via="jwt")
+    from roracle.labels.policy import Policy
+
+    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", policy=Policy([]), filters={}, qvec=[0.0, 0.0])
     assert seen and set(seen) == {"chunks-new-3"}
 
 
@@ -473,14 +379,24 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     assert j.kind == "reembed" and j.payload["target"] == {"model": "m", "dims": 2, "index": "chunks-m-1"}
     assert client.post("/admin/reindex", json={"model": "m2", "dims": 2}, headers=adm).status_code == 409
     g = client.get("/admin/reindex", headers=adm).json()
-    assert g["running"] == {"target": j.payload["target"], "copied": 0, "total": None, "phase": "copy"}
+    assert g["running"] == {
+        "target": j.payload["target"], "copied": 0, "total": None, "phase": "copy", "slices": 4,
+    }  # fmt: skip
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # running
-    j.status = "done"
+    for other in db_session.scalars(select(Job).where(Job.kind == "reembed")):
+        other.status = "done"  # every slice chain
     db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # alias != active index
     runtime.set_active_embedding(db_session, "m0", 2, SRC)
     api_es.data["chunks-m-1"] = {}
     api_es.aliases["chunks-all"].add("chunks-m-1")
+    from roracle.queue import enqueue
+
+    rb = enqueue(db_session, "rebuild_units", {"version_ids": []})
+    db_session.flush()
+    assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # a shadow rebuild is queued
+    db_session.get(Job, rb).status = "done"
+    db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 204
     assert (
         "chunks-m-1" not in api_es.data and SRC in api_es.data
@@ -495,3 +411,18 @@ def test_unguarded_ensure_index_leaves_existing_read_alias(es):
     }
     search_index.ensure_index(es, "b", 2, name="chunks-b-1")
     assert es.aliases["chunks"] == {SRC} and es.aliases["chunks-all"] == {SRC, "chunks-b-1"}
+
+
+def test_pg_state_newest_counts_only_searchable(session_factory, db_session, document, blob):
+    for n, stage in enumerate(["searchable", "rejected", "searchable", "chunked"], 1):
+        db_session.add(
+            DocumentVersion(
+                document_id=document.id, version=n, blob_sha256=blob.sha256, filename="a",
+                content_type="x", size=1, stage=stage,
+            )
+        )  # fmt: skip
+    db_session.commit()
+    _, _, newest = reembed._pg_state(
+        session_factory, [{"doc_id": str(document.id), "version_id": str(uuid.uuid4())}]
+    )
+    assert newest == {str(document.id): 3}

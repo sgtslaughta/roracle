@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete as sa_delete
@@ -17,7 +17,8 @@ from roracle.auth import Principal, current_principal, get_app_settings, require
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.ingest.intake import ref_blob
-from roracle.models import Blob, Evidence, EvidenceReproduction
+from roracle.labels.policy import Policy, require_exportable
+from roracle.models import Annotation, Blob, Document, Evidence, EvidenceReproduction
 from roracle.notes import evidence as ev
 from roracle.notes.access import get_readable
 from roracle.notes.service import NOT_FOUND
@@ -112,13 +113,21 @@ def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depe
 
 
 @router.get("/annotations/{note_id}/evidence")
-def list_evidence(note_id: UUID, session: Session_, p: Who) -> dict:
+def list_evidence(
+    note_id: UUID,
+    session: Session_,
+    p: Who,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
     get_readable(session, p, note_id)
     rows = list(
         session.scalars(
             select(Evidence)
             .where(Evidence.annotation_id == note_id)
             .order_by(Evidence.created_at, Evidence.id)
+            .limit(limit)
+            .offset(offset)
         )
     )
     return {"items": ev.to_json(session, p, rows)}
@@ -132,6 +141,11 @@ def get_evidence(evidence_id: UUID, session: Session_, p: Who) -> dict:
 @router.get("/evidence/{evidence_id}/file")
 def download(evidence_id: UUID, session: Session_, p: Who, store: Store) -> StreamingResponse:
     e = _load(session, p, evidence_id)
+    note = session.get(Annotation, e.annotation_id)
+    doc = session.get(Document, note.document_id)
+    require_exportable(session, p, doc, "evidence.file", note.label_id)  # effective label
+    if p.via == "pat" and Policy.load(session).effective(doc.label_id, note.label_id).exclude_llm:
+        raise HTTPException(403, "withheld by label")  # agents get no text-bearing bytes
     if e.blob_sha256 is None or e.scan_status not in ("clean", "unscanned"):
         raise HTTPException(409, "not available")
     body = store.open(e.blob_sha256)

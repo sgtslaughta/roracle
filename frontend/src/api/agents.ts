@@ -1,3 +1,4 @@
+import type { Label } from "./types";
 /** P7 contract: personal access tokens (JWT-only management) and agent handoffs. */
 
 export type TokenScopes = ["read"] | ["read", "write"];
@@ -51,6 +52,9 @@ export interface HandoffManifest {
   passages: HandoffPassage[];
   notes: HandoffNote[];
   withheld: number;
+  /** documents with their labels; `text_withheld` when the label keeps the text from this reader */
+  documents?: { id: string; title: string; label: Label; text_withheld: boolean }[];
+  withheld_by_reason?: { unavailable: number; label_text: number };
   parts: { transcript: number; notes: number };
   audience: Audience;
   expires_at: string;

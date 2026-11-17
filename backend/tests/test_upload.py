@@ -87,6 +87,7 @@ def test_group_shared_doc_triggers_409_for_group_member(client, as_ana, as_bob, 
     db_session.add(
         DocumentShare(document_id=first["document_id"], principal_kind="group", principal="/Physics")
     )
+    db_session.execute(update(DocumentVersion).values(stage="searchable"))
     db_session.flush()
     r = _up(client, as_bob)
     assert r.status_code == 409 and r.json()["detail"]["document_id"] == first["document_id"]

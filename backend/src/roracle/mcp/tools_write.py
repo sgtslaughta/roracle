@@ -5,9 +5,11 @@ import binascii
 import hashlib
 import json
 import mimetypes
+import time
 from collections.abc import Callable
 from io import BytesIO
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 import httpx
 import openai
@@ -16,6 +18,7 @@ from elasticsearch import TransportError
 from fastapi import FastAPI, HTTPException
 from mcp.server import MCPServer
 from pydantic import Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers, UploadFile
 
@@ -23,9 +26,14 @@ from roracle import handoff
 from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
+from roracle.chat import agentic
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
+from roracle.chat.global_answer import answer_sync, route_question
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
+from roracle.labels.policy import Policy, label_json
+from roracle.labels.service import label_by_name
 from roracle.mcp.auth import dep
+from roracle.models import Document
 
 
 def digest(text: str) -> str:
@@ -51,24 +59,55 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
     s = dep(app, get_app_settings, session)
     llm = dep(app, search_routes.get_llm)
     scope = f"collection:{collection}" if collection else "all"
+    prep, plan, meta = None, None, {}  # `route` is reported only when the router is on
     try:
-        passages = retrieve_for_chat(
-            session=session,
-            es=dep(app, library.get_es),
-            llm=llm,
-            settings=s,
-            p=p,
-            question=question,
-            viewer=Viewer(),
-            scope=scope,
-            pins=[],
-            excludes=[],
-        )
+        if s.router:
+            es = dep(app, library.get_es)
+            prep, meta = route_question(session, es, llm, s, p, question, scope == "all")
+            plan = answer_sync(session, es, llm, s, p, question, prep) if prep else None
+            if prep and plan is None:  # nothing citable in the global pass: answer from the fact path
+                meta = {"route": "fact"}
+        ranked = None
+        if (
+            not plan
+            and s.agentic_retrieval
+            and meta.get("route") in (None, "multihop")
+            and agentic.admit(s, p)
+        ):
+            try:  # blocking loop inside the MCP budget; every sub-query goes through rank_for_chat
+                ranked, subqueries = agentic.retrieve(
+                    session, dep(app, library.get_es), llm, s, p, question, scope=scope,
+                    deadline=time.monotonic()
+                    + min(s.agentic_timeout_s, s.global_mcp_budget_s - s.agentic_answer_reserve_s),  # keep time to answer
+                    session_factory=app.state.session_factory,
+                )  # fmt: skip
+                meta = {**meta, "subqueries": subqueries}
+            finally:
+                agentic.leave(p)
+        passages = (
+            plan[1]
+            if plan
+            else retrieve_for_chat(
+                session=session,
+                es=dep(app, library.get_es),
+                llm=llm,
+                settings=s,
+                p=p,
+                question=question,
+                viewer=Viewer(),
+                scope=scope,
+                pins=[],
+                excludes=[],
+                ranked=ranked,
+            )
+        )  # gate (a): retrieve_for_chat applies exclude_llm in ES and Postgres
         passages, notes = split_notes(passages)
         if not passages:
-            return {"answer": NO_PASSAGES, "citations": []}
+            return {"answer": NO_PASSAGES, "citations": [], **meta}
         r = llm.chat.completions.create(
-            model=s.chat_model_list[0], messages=build_messages(question, passages, [], 0, notes)
+            model=s.chat_model_list[0],
+            messages=plan[0] if plan else build_messages(question, passages, [], 0, notes),
+            **({"max_tokens": s.global_reduce_tokens} if plan else {}),
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
@@ -78,10 +117,21 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
         raise HTTPException(503, "search unavailable") from None
     text = r.choices[0].message.content or ""
     ns = parse_citations(text, len(passages))
-    return {"answer": text, "citations": [citation_item(n, passages[n - 1]) for n in ns]}
+    cites = [citation_item(n, passages[n - 1]) for n in ns]
+    policy = Policy.load(session)
+    labels = dict(
+        session.execute(
+            select(Document.id, Document.label_id).where(Document.id.in_({UUID(c["doc_id"]) for c in cites}))
+        ).all()
+    )
+    return {
+        "answer": text,
+        **meta,
+        "citations": [{**c, "label": label_json(policy.get(labels[UUID(c["doc_id"])]))} for c in cites],
+    }
 
 
-def _upload(app, session, p, filename, b64, title, visibility) -> dict:
+def _upload(app, session, p, filename, b64, title, visibility, label_id=None) -> dict:
     _need_write(p)
     s = dep(app, get_app_settings, session)
     if len(b64) * 3 // 4 > s.mcp_max_upload_bytes + 3:
@@ -97,7 +147,7 @@ def _upload(app, session, p, filename, b64, title, visibility) -> dict:
     try:
         return documents.upload_file(
             p, session, dep(app, documents.get_blob_store), s, f,
-            documents.UploadForm(title=title, visibility=visibility),
+            documents.UploadForm(title=title, visibility=visibility, label_id=label_id),
         )  # fmt: skip
     except HTTPException as e:
         if e.status_code == 409 and isinstance(e.detail, dict):  # already in the library: not an error
@@ -124,13 +174,18 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         content_base64: Annotated[str, Field(max_length=max_b64)],
         title: Annotated[str | None, Field(max_length=200)] = None,
         visibility: Literal["private", "shared", "org_unit", "everyone"] = "private",
+        label: Annotated[str | None, Field(max_length=40)] = None,
     ) -> dict:
         """Upload a document (base64 content; needs a write token; size-capped, larger files use
-        POST /documents). Returns document_id/version_id, or {"duplicate_of": id} if already present."""
-        return run(
-            app, "upload",
-            lambda s, p: _upload(app, s, p, filename, content_base64, title, visibility), filename,
-        )  # fmt: skip
+        POST /documents). `label` is a sensitivity label name (default: the library default; choosing a
+        lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}."""
+
+        def go(session: Session, p: Principal) -> dict:
+            _need_write(p)  # scope error before any label lookup
+            lid = label_by_name(session, label).id if label else None
+            return _upload(app, session, p, filename, content_base64, title, visibility, lid)
+
+        return run(app, "upload", go, filename)
 
     @mcp.tool()
     def load_handoff(code: Annotated[str, Field(min_length=1, max_length=200)]) -> dict:

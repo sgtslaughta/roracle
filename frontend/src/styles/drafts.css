@@ -1,0 +1,30 @@
+/* drafts: sunken tray (list) > raised rows; editor + tool panels */
+.dlist { display: flex; flex-direction: column; gap: 8px; background: var(--tray); border-radius: 16px; padding: 10px; box-shadow: var(--well); }
+.dlist .ovl-more { align-self: flex-start; }
+.drow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }
+.dmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dmain b { font-weight: 600; overflow-wrap: anywhere; }
+.dmain small, .vrow small, .cite small { color: var(--muted); font-size: 12px; }
+.dform { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.dform label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+.dform label.chk { flex-direction: row; align-items: center; gap: 8px; }
+.dform.inline { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.dform.inline .inp:not(select) { flex: 1 1 220px; }
+.dform fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.derr { color: var(--terra); font-size: 13px; margin: 6px 0; }
+.dnote { padding: 8px 12px; border-radius: 9px; background: var(--hl); color: var(--hl-ink); font-size: 13.5px; }
+.deditor { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.dtext { width: 100%; min-height: 360px; resize: vertical; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.dpreview { min-height: 200px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: auto; }
+.dpanel { padding: 14px 4px; display: flex; flex-direction: column; gap: 8px; }
+.dpanel h3 { margin: 10px 0 0; font-size: 14px; }
+.vlist { display: flex; flex-direction: column; gap: 6px; }
+.vrow, .cite { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.cite { flex-direction: column; align-items: stretch; }
+.vview { padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); max-height: 360px; overflow: auto; }
+.flist { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; font-size: 13.5px; }
+.fitem { margin: 0; }
+.linkish { border: 0; background: none; padding: 0; color: var(--primary); font-weight: 500; text-decoration: underline; }
+.dpdf { max-height: 640px; overflow: auto; }
+.spin { animation: dspin 1s linear infinite; }
+@keyframes dspin { to { transform: rotate(360deg); } }

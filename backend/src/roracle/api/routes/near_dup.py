@@ -8,18 +8,23 @@ from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from roracle.access import agent_visible
 from roracle.api.routes.library import MAX_TAGS
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.labels.service import raise_document_label
 from roracle.models import (
+    Annotation,
     Blob,
     CollectionItem,
+    ConnectorItem,
     Document,
     DocumentShare,
     DocumentVersion,
     Tag,
     Vote,
 )
+from roracle.models_writing import Draft
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -50,7 +55,9 @@ def decide_near_dup(
         raise HTTPException(409, "not awaiting a decision")
     if body.action == "cancel":
         v.stage = "cancelled"
-        doc.deleted_at = datetime.now(UTC)
+        session.flush()
+        if not _has_live_version(session, doc.id) and session.get(Draft, doc.id) is None:
+            doc.deleted_at = datetime.now(UTC)  # only the doc's last live version: never a draft or a v1
         session.execute(
             update(Blob)
             .where(Blob.sha256 == v.blob_sha256)
@@ -66,6 +73,17 @@ def decide_near_dup(
     return {"version_id": str(v.id), "document_id": str(v.document_id), "stage": v.stage}
 
 
+def _has_live_version(session: Session, doc_id: UUID) -> bool:
+    return (
+        session.scalar(
+            select(DocumentVersion.id)
+            .where(DocumentVersion.document_id == doc_id, DocumentVersion.stage != "cancelled")
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: Document) -> None:
     match = session.get(DocumentVersion, v.near_dup_of) if v.near_dup_of else None
     target = session.get(Document, match.document_id, with_for_update=True) if match else None
@@ -73,12 +91,26 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
         raise HTTPException(403, "only the document owner can add versions")
     if target is None or target.deleted_at is not None:
         raise HTTPException(409, "matched document no longer exists")
+    if (
+        p.via == "pat"
+        and session.scalar(select(Document.id).where(Document.id == target.id, agent_visible())) is None
+    ):
+        raise HTTPException(409, "matched document no longer exists")  # hidden from agents: say nothing more
+    if session.get(Draft, doc.id) is not None:
+        raise HTTPException(409, "a published draft cannot be merged into another document")
     top = session.scalar(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == target.id)
     )
     old_doc_id = v.document_id
-    v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, True
+    if raise_document_label(session, p, target, doc.label_id, via="near_dup"):
+        enqueue(session, "acl_sync", {"doc_id": str(target.id)})
+    v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, False
     session.flush()
+    others = session.scalar(
+        select(func.count()).select_from(DocumentVersion).where(DocumentVersion.document_id == old_doc_id)
+    )
+    if others:  # a re-version: the old document keeps its other versions (and its library rows)
+        return
     _merge_library(session, old_doc_id, target.id)
     # The uploader's document is now empty: hard-delete it (shares first; library rows moved above).
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == old_doc_id))
@@ -106,6 +138,11 @@ def _merge_library(session: Session, old: UUID, new: UUID) -> None:
         .on_conflict_do_nothing()
     )
     session.execute(delete(CollectionItem).where(CollectionItem.document_id == old))
+    session.execute(update(Annotation).where(Annotation.document_id == old).values(document_id=new))
+    session.execute(
+        update(Annotation).where(Annotation.target_document_id == old).values(target_document_id=new)
+    )
+    session.execute(update(ConnectorItem).where(ConnectorItem.document_id == old).values(document_id=new))
     session.execute(delete(Vote).where(Vote.document_id == old))
     # Votes on `new` that pointed at `old` would become self-referential: clear them first.
     session.execute(

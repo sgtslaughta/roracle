@@ -1,4 +1,5 @@
-import type { Stage, UploadItem, Visibility } from "@/api/types";
+import type { Label, Stage, UploadItem, Visibility } from "@/api/types";
+import { SEED_LABELS, toLabel } from "./labels";
 
 export type MockUpload = UploadItem;
 
@@ -10,7 +11,7 @@ const LABEL: Record<Stage, string> = {
 };
 export const labelOf = (s: Stage) => LABEL[s];
 
-const base = { size: 1_000_000, visibility: "everyone" as Visibility, status: "done" as const, error: null, page_count: null, near_dup_of: null };
+const base = { label: toLabel(SEED_LABELS[0]) as Label, size: 1_000_000, visibility: "everyone" as Visibility, status: "done" as const, error: null, page_count: null, near_dup_of: null };
 const mk = (o: Partial<MockUpload> & Pick<MockUpload, "document_id" | "version_id" | "filename" | "stage" | "uploaded_at">): MockUpload =>
   ({ ...base, title: null, stage_label: LABEL[o.stage], ...o });
 

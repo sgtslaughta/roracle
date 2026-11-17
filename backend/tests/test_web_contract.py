@@ -55,13 +55,13 @@ def test_handoff_documents_visible_only_and_shares_creator_only(client, as_ana, 
         "shares": [{"kind": "user", "principal": str(bob)}],
     }  # fmt: skip
     m = client.post("/handoffs", json=body, headers=as_ana).json()
-    assert m["documents"] == [
-        {"id": str(pub[0].id), "title": "PubT"},
-        {"id": str(priv[0].id), "title": "SecretT"},
+    assert [(d["id"], d["title"]) for d in m["documents"]] == [
+        (str(pub[0].id), "PubT"),
+        (str(priv[0].id), "SecretT"),
     ]
     assert m["shares"] == [{"kind": "user", "principal": str(bob)}]
     b = client.get(f"/handoffs/{m['code']}", headers=as_bob).json()
-    assert b["documents"] == [{"id": str(pub[0].id), "title": "PubT"}]
+    assert [(d["id"], d["title"]) for d in b["documents"]] == [(str(pub[0].id), "PubT")]
     assert "shares" not in b and "SecretT" not in json.dumps(b) and str(priv[0].id) not in json.dumps(b)
 
 

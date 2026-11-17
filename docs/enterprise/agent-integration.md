@@ -37,15 +37,16 @@ Example client configuration (generic MCP JSON):
 | `get_document(doc_id)` | read | Metadata, versions, summary, tags, votes |
 | `get_passages(chunk_ids, context?)` | read | Exact passages (<= 50 ids, `context` 0-2 neighbours), page + bbox |
 | `list_collections()` | read | The user's collections |
-| `ask(question, collection?)` | read | Cited answer from visible passages: `{answer, citations}` |
+| `ask(question, collection?)` | read | Cited answer from visible passages: `{answer, citations}`. With the router on it adds `route` (`fact`/`multihop`/`global`; a global answer cites documents); with the agentic loop on and a multi-hop question that was admitted (not busy) it adds `subqueries` (the searches the planner ran, all under your own access). Both fields are absent when the features are off |
 | `load_handoff(code)` | read | Handoff manifest (brief, docs, passages, notes, `parts`, `withheld`) |
 | `get_handoff_part(code, part?, page?)` | read | `transcript` or `notes`, 20 items per page |
 | `create_handoff(title, brief, doc_ids?, goal?, audience?, expires_in_days?)` | write | Hand work to a human or agent; returns `{code, display, url, uri, dropped}` |
 | `append_to_handoff(code, note)` | write | Add a note (max 200 per handoff) |
-| `upload(filename, content_base64, title?, visibility?)` | write | Add a document (default `private`); duplicate returns `{"duplicate_of": id}` |
+| `upload(filename, content_base64, title?, visibility?, label?)` | write | Add a document (default `private`, default label); `label` is a label name, lower than the default is refused for every token (agents cannot lower; scope is checked before the name); duplicate returns `{"duplicate_of": id}` |
 | `list_annotations(doc_id)` | read | Notes the caller may read on a document (≤ 500, oldest first) |
 | `propose_annotation(doc_id, kind, body, quote?, prefix?, suffix?, ...)` | write | Create a pending proposal (never published directly); returns its id |
 | `reply_to_annotation(annotation_id, body)` | write | Propose a reply to a readable note |
+| `propose_label(doc_id, label, annotation_id?, reason?)` | write | Propose a sensitivity label (by name) for a document, or for a note thread root with `annotation_id`; returns `{proposal_id, status}` |
 | `export_bibtex(doc_ids?, collection?)` | read | BibTeX for visible documents |
 | `save_draft(content, draft_id?, title?, profile?, base_version?)` | write | Create a draft or save a new version; returns `{draft_id, version, url}` |
 | `validate_draft(draft_id)` | write | Check the latest version against its writing profile; stores the report |
@@ -68,7 +69,13 @@ document version (`nothing_to_submit` if the latest version was already submitte
 `review_required: true` park the draft `in_review`: admins decide at `GET /admin/drafts/reviews` and
 `POST /admin/drafts/{id}/review` `{decision: approve|reject, note?}`; approval rebuilds from the frozen
 submitted version, the owner is notified (`draft.approved`/`draft.rejected`). Visibility is the target plus
-the co-authors. The AI disclosure is returned as `ai_disclosure` by `GET /documents/{id}`.
+the co-authors; named co-author users additionally keep read access to the published paper whatever its
+visibility (co-author groups do not). The AI disclosure is returned as `ai_disclosure` by `GET /documents/{id}`.
+`GET /drafts/{id}/checks` returns the caller's own stored validation and citation reports for the latest version
+(`null` when none, or run by another author).
+
+Pickers (any authenticated caller, `q` of 2-100 chars, at most 10 items): `GET /directory/users?q=` returns
+`{items: [{id, username}]}`; `GET /directory/groups?q=` returns `{items: ["/Org/Unit", ...]}` (groups seen in user tokens).
 
 `upload` sends the file base64-encoded in the JSON body, so it is capped at the decoded size
 `ROR_MCP_MAX_UPLOAD_BYTES` (default 25 MiB); larger files use `POST /documents` (REST limit
@@ -105,6 +112,38 @@ normal note). Agent proposals default to `private`; a requested visibility appli
 approval. MCP `search` hits carry `notes` and `ask` may use them as context, but only notes that pass the
 quality gate (own, or well-upvoted: `ROR_CHAT_NOTE_MIN_UPVOTES`/`ROR_CHAT_NOTE_MIN_RATIO`). Notes are
 commentary, never citations.
+
+## Sensitivity labels
+
+Admins label documents and notes (see [security, section 13](security.md#13-sensitivity-labels); ADR-0014).
+Labels only restrict; they never widen what a token can see.
+
+- **Label fields.** Tool output carries `label: {name, rank}` (no colour or gates) on `search` hits,
+  `get_document`, `get_passages`, `ask` citations, `list_annotations` (`label` own/nullable and
+  `effective_label`), `save_draft`, handoff `documents[]` and (as `max_label`) `list_collections`. `rank` orders
+  labels (higher = more sensitive).
+- **`block_agents` PAT gate.** Documents and notes whose (effective) label has `block_agents` are not found
+  for every PAT, admin PATs included: same 404/not-found error as an invisible document, and absent from
+  search, `ask`, `get_*`, `list_annotations`, bibtex and handoffs.
+- **`exclude_llm`.** Hit metadata and label are visible but the passage text is not: `search` returns
+  `passages: []` with `withheld: "<label>"`, `get_passages` returns `[withheld: <label>]` as the text, `get_document`
+  returns no summary and `withheld: "<label>"`, notes show a withheld body, and `ask` never uses these documents as
+  context.
+- **`block_export`.** `export_bibtex` silently omits gated documents. Owner and admin PATs are exempt
+  (R9); any other PAT is always treated as a download, so it gets 403 `export blocked by label` from the
+  file, pdf and docling routes of gated documents (on an `exclude_llm` document the 403 is `withheld by
+  label: <name>` instead). Drafts of an `exclude_llm` document return 403 `withheld by label` to PATs too.
+- **`propose_label`.** Needs a write token (read-only: insufficient scope). Unknown names return an error
+  listing the valid labels. Nothing changes until a human approves; lowering needs an admin approver, and
+  the approver supplies the reason (the agent's `reason` is advisory and not stored). Agents cannot call the
+  label write routes (403 `agents must propose`). Replies cannot carry labels (422). Agent notes
+  always inherit the document label.
+- **`upload`** takes the label name; an unknown name is an error listing valid names.
+- **Handoffs.** `block_agents` documents and notes are excluded for **every** loader, human or agent
+  (a handoff is an agent context package). Redactions at load time are counted in `withheld`;
+  documents dropped when the handoff is created are not (an MCP creator sees them in `dropped`).
+  Manifest `documents[]` items carry `label` and `text_withheld`; `withheld_by_reason` splits
+  `unavailable` from `label_text`. Passages from notes are never included in manifests.
 
 ## Writing papers
 

@@ -15,6 +15,8 @@ import { useReply } from "./api";
 import { KIND_ICON, KIND_LABEL, VIS_LABEL } from "./labels";
 import { NoteMenu, NoteVote } from "./NoteActions";
 import { NoteComposer } from "./NoteComposer";
+import { NoteLabel } from "./NoteLabel";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
 
 export const REPLIES_SHOWN = 3;
 const REPLIES_STEP = 20;
@@ -74,6 +76,7 @@ function NoteBody({ note, docId, me, docOwnerId, children }: Ctx & { note: Note;
       <div className="nhead nfoot">
         <NoteVote note={note} docId={docId} own={!!me && me.id === note.author.id} />
         {children}
+        {!note.parent_id && <NoteLabel note={note} docId={docId} me={me} />}
         <span className="grow" />
         <NoteMenu note={note} docId={docId} me={me} docOwnerId={docOwnerId} onEdit={() => setEditing(true)} />
       </div>
@@ -113,6 +116,7 @@ export const NoteCard = forwardRef<HTMLDivElement, Props>(function NoteCard({ no
         <b>{note.author.username}</b>
         {note.agent_assisted && <span className="badge-o"><Bot aria-hidden />Agent-assisted</span>}
         <span className="badge-o"><VisIcon aria-hidden />{VIS_LABEL[note.visibility]}</span>
+        {(note.effective_label ?? note.label) && <SensitivityBadge label={(note.effective_label ?? note.label)!} own={!!note.label && note.label.id === (note.effective_label ?? note.label)!.id} />}
         {note.status === "hidden" && <span className="badge-o"><EyeOff aria-hidden />Hidden</span>}
         {a?.page != null && <button className="badge-o" onClick={() => onGoTo(a.page!)}>Page {a.page}</button>}
         {note.may_not_apply_to_version != null

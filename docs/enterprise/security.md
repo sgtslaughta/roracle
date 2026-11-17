@@ -7,10 +7,10 @@ Audience: security reviewers, ISSOs, platform engineers. Companion to the
 
 | Asset | Where | Sensitivity |
 |---|---|---|
-| Documents (originals, derived PDFs, chunks, vectors) | MinIO, Elastic | Per-document visibility; may be export-controlled |
+| Documents (originals, derived PDFs, chunks, vectors) | object store, Elastic | Per-document visibility; may be export-controlled |
 | Metadata, ACLs, chats, notes, drafts, audit log | Postgres | Reveals research activity |
 | Credentials: JWT signing keys (Keycloak), PAT hashes, service secrets | Keycloak, Postgres, secret store | High |
-| Evidence packages (agent-produced data, notebooks) | MinIO | Untrusted content |
+| Evidence packages (agent-produced data, notebooks) | S3 object store | Untrusted content |
 
 Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/worker → data services;
 (4) api/worker → inference endpoint; (5) worker → parsing sidecars processing **untrusted files**.
@@ -46,6 +46,13 @@ Boundaries: (1) user/agent → org proxy (mTLS); (2) proxy → ingress; (3) api/
   documents and say only how many were withheld; links to documents a user cannot see show a
   request-access page with no title or metadata.
 - MCP tools run as the token's user; no tool bypasses the ACL path.
+- **Co-authors of a published paper** keep read access whatever its visibility. At publish the draft's co-author
+  *users* are written to `document_coauthors` (a dedicated grant, not share rows: shares stay inert unless
+  `visibility == shared` and are never revived). Co-author *groups* grant nothing after publication. The grant is in
+  `visible_documents`/`readable_documents` and in the Elastic filter (`coauthor_users`, kept in sync by
+  `acl_sync`). The owner or an admin can drop co-authors with `PATCH /documents/{id}` `{coauthors: [ids to keep]}`
+  (removal only; 422 for ids that are not current co-authors). `GET /documents/{id}` returns `share_users`,
+  `share_groups` and `coauthors` to the owner/admin only.
 - **Notes (annotations)**: readable only if the note is not `removed` (`hidden` only for its author, the
   document owner and admins), its document passes the document ACL (non-owner non-admins also need a
   `searchable` version), any relation target does too, and the reader is the author/an admin or the note
@@ -88,8 +95,8 @@ through image or link URLs.
 
 ## 5. Data protection
 
-- TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/MinIO).
-- Encryption at rest via storage class / MinIO SSE (KMS-backed where available).
+- TLS everywhere in transit (ingress, service mesh or per-service TLS to Postgres/Elastic/S3 object store).
+- Encryption at rest via storage class / S3 object store SSE (KMS-backed where available).
 - Soft delete → purge after retention; purge (default `0` = off) removes chunks,
   vectors, rows and `derived/<version>/` objects; blob objects are removed by GC once unreferenced and a day old.
   On a versioned bucket noncurrent versions persist until a noncurrent-expiry rule removes them (see the runbook). Backups age out per backup policy.
@@ -103,6 +110,8 @@ document view/download, chat question (text hash + cited doc ids), handoff creat
 approve/reject, share/visibility change, admin actions, PAT create/revoke, `mcp.<tool>` for every
 MCP tool call (MCP PAT use is audited this way, REST PAT use as `pat.use` with method and path; failures carry an `error` detail; schema-validation rejections are not audited). Ship to the SIEM via
 Loki/OTel. Admin viewer with filters; retention per policy.
+
+Sensitivity-label events (`label.*`, `document.label`, `annotation.label`) are listed in [section 13](#13-sensitivity-labels).
 
 ## 7. Platform hardening
 
@@ -128,12 +137,14 @@ The bucket lives in each API replica's memory (idle buckets are evicted after 10
 effective cluster-wide limit is about N x the configured value, and a restart resets it. For a hard global cap or
 IP-level protection also set limits on the ingress (e.g. nginx `limit-rps`/`limit-connections`).
 
+**Input guard** (`api/input_guard.py`, ASGI middleware before routing). NUL characters (raw, `%00` or JSON `\u0000`) in the query string or a JSON body answer `422` (Postgres cannot store them). JSON bodies are capped at 3 MiB (`413`; the largest legitimate body is a 2 MiB draft); `/mcp` (own cap) and multipart/octet-stream uploads are not buffered by it.
+
 **Upload path.** `POST /documents` and evidence uploads are streamed from the request body into object storage
 (S3 multipart, 8 MiB parts, SHA-256 computed on the fly) under `tmp/<uuid>`; nothing is spooled to the pod's disk.
 The size cap is enforced while streaming (413, upload aborted); after authorisation, quota and duplicate checks the
 object is server-side copied to `blobs/<sha[:2]>/<sha>` (skipped when that content already exists) and `tmp/` is
 deleted. Any error aborts the multipart upload. Orphans from a crashed pod are expired by a bucket lifecycle rule
-on `tmp/` (1 day, installed by the chart's `minio-policy` hook; add the same rule on external S3).
+on `tmp/` (1 day) and abort incomplete multipart uploads after 1 day. Terraform `object_store=rook-ceph` sets this on the app bucket (OBC lifecycle); on external S3 it is an operator duty (`aws s3api put-bucket-lifecycle-configuration`, see the Terraform README, "External S3 commands").
 
 ## 9. Connectors
 
@@ -206,10 +217,10 @@ Admins (never PATs) configure connectors that ingest from S3-compatible buckets,
 
 ## 11. Data-tier network and credential controls (Helm chart)
 
-- NetworkPolicies for bundled Postgres/ES/MinIO are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`; MinIO 9000 from app, CNPG, ES, peers and the MinIO operator. Egress is limited to peers, MinIO, DNS and (instance managers/MinIO) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
-- TLS in the data tier: ES and MinIO use operator-issued certificates; trust reaches the app through an interim CA bundle (see deployment guide, section 8) (`ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE`).
-- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. MinIO users are limited to one bucket each (app, Postgres backups, ES snapshots); backup buckets are created with object lock and get a GOVERNANCE default retention (`minio.backupRetentionDays`).
-- Backups should be replicated to a separate site; a single-cluster MinIO does not protect against loss of the cluster.
+- NetworkPolicies for the bundled Postgres and ES are always rendered: ES 9200 only from app pods (api/worker/migrate/snapshot job) and the ECK operator namespace, 9300 only between ES pods; Postgres 5432 from app pods and peers, 8000 from the CNPG operator, 9187 from `networkPolicy.monitoringNamespace`. Object storage is always external to the chart: egress for api/worker/migrate and the CNPG/ES data tier goes only to `networkPolicy.s3` (CIDRs and/or an in-cluster peer, e.g. the Rook-Ceph RGW pods). Other egress is limited to peers, DNS and (instance managers) the kube-apiserver (`networkPolicy.kubeAPI`). In production set `networkPolicy.kubeAPI.cidrs` to the apiserver endpoint IPs (policies apply after DNAT, so the service IP is not enough).
+- TLS in the data tier: ES uses an operator-issued certificate; the object store should be HTTPS (Terraform requires TLS on Rook-Ceph RGW: cert-manager issued or supplied). Trust reaches the app through an interim CA bundle (see deployment guide, section 8) (`ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE`) built from the ECK CA and `caBundle.extraSecrets` (the S3 CA).
+- Least privilege: the app's ES user `roracle_app` can only act on `chunks*` (create_index, manage, read, write, view_index_metadata) plus cluster `monitor`; the snapshot hook alone uses `elastic`. Object-store identities are separate per bucket: with Terraform rook-ceph each bucket has its own Ceph user (app bucket: OBC user; PG backup and ES snapshot: dedicated writers with a bucket policy that denies version deletion, lock bypass and policy/lifecycle changes), the backup buckets are created with S3 object lock and a default retention (GOVERNANCE, 30 d), and the app identity has no grant on them. The Ceph admin user `roracle-admin` (bucket owner, creates the buckets) is the break-glass identity: as owner it can still bypass GOVERNANCE retention, so guard its Secret `rook-ceph-object-user-<store>-roracle-admin` (RBAC) and prefer COMPLIANCE mode only after you accept that nobody can shorten it. On external S3 you must do the same (Terraform requires separate backup identities; bucket creation with object lock, retention and policy are operator duties, see the Terraform README, "External S3 commands").
+- Backups should be replicated to a separate site; a single-cluster object store (including the backup buckets on the same Ceph cluster) does not protect against loss of the cluster.
 
 ## 12. Web tier, pod baseline and secrets (Helm chart)
 
@@ -245,14 +256,14 @@ Cross-Origin-Opener-Policy: same-origin
 | worker | gotenberg / docling / grobid / clamav | 3000 / 5001 / 8070 / 3310 | parsers have no egress |
 | api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
 | api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |
-| api, worker | MinIO (bundled, or `s3Cidrs`) | 9000 | |
+| api, worker, migrate, CNPG/ES pods | object store (`networkPolicy.s3`: CIDRs and/or in-cluster peer) | 443 / 9000 (configurable; Rook-Ceph RGW 443) | empty = denied |
 | api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4318 (configurable) | empty = denied |
 | worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
 | all pods | DNS (`networkPolicy.dns`) | 53 | |
 | `monitoringNamespace` | api/worker | 8000 (api), 8001 (worker) | only if `scrape.enabled` (default true; `/metrics` on both) |
 
 Data tier (always rendered for bundled modes): see section 11 (ES 9200 from app pods and the ECK operator, 9300 between ES pods;
-Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring; MinIO 9000 from app, CNPG, ES, peers, MinIO operator).
+Postgres 5432 from app pods and peers, 8000 from CNPG operator, 9187 from monitoring). With Rook-Ceph, Terraform adds an ingress policy in the Ceph namespace: RGW accepts only the app namespace and the Ceph namespace.
 Policies match after DNAT: use pod/node/LB CIDRs, never Service ClusterIPs. `kubeAPI.cidrs` empty means 443/6443 to any destination for the
 instance managers: set it in production.
 
@@ -263,7 +274,7 @@ with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate d
 
 | Exception | Why |
 |---|---|
-| MinIO and Elasticsearch pods: root filesystem not read-only | operator-managed pods; their data paths are PVCs |
+| Elasticsearch pods (and Ceph daemons): root filesystem not read-only | operator-managed pods; their data paths are PVCs |
 | ES `node.store.allow_mmap: false` | avoids ECK's privileged `vm.max_map_count` sysctl init container (slower; drop when nodes are tuned) |
 | ClamAV: signature DB seeded into an emptyDir; `/init-unprivileged` entrypoint | non-root + read-only FS; the default `/init` needs root |
 | GROBID: `-XX:-UseContainerSupport -Xmx4608m` | JDK crash on cgroup v2; heap must be explicit |
@@ -271,15 +282,14 @@ with emptyDir for writable paths; api/worker/migrate run as UID 10001; migrate d
 ### Secrets handling
 
 - Credentials are only referenced by Secret name (`existingSecret`, operator Secrets); the chart renders no secret values.
-- No secret on any command line: the MinIO hook passes root credentials through the `MC_HOST_local` env alias and user secrets on stdin; the ES hook reads curl config from stdin; no `set -x`.
-- MinIO root user/password are restricted to `[A-Za-z0-9._~-]` because `mc` does not URL-decode the alias credentials.
+- No secret on any command line: the ES hook reads curl config from stdin; no `set -x`. The Terraform bucket-setup Job reads the admin keys from Rook's Secret through `secretKeyRef`, never from arguments.
 - The app Postgres password is in two Secrets (CNPG basic-auth and `ROR_DATABASE_URL`) because CNPG's generated URI lacks the `+psycopg` driver: rotate both.
 - `ROR_ELASTIC_URL` carries the `roracle_app` credentials as userinfo, so it lives in the app Secret.
 
 ### TLS trust (interim)
 
-ES and MinIO issue TLS certificates from private CAs. An init container concatenates certifi's
-bundle with the ECK CA, `kube-root-ca.crt` and `caBundle.extraSecrets` into an emptyDir mounted over certifi's `cacert.pem`
+ES issues its TLS certificate from a private CA and the S3 endpoint may use one too. An init container concatenates certifi's
+bundle with the ECK CA and `caBundle.extraSecrets` (the S3 CA) into an emptyDir mounted over certifi's `cacert.pem`
 (`caBundle.certifiPath`, coupled to the image's Python layout) and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `AWS_CA_BUNDLE` (httpx/openai) plus `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3) to that file. Verification is always on; there is no `verify=False` path. Credentials can be supplied as `ROR_ELASTIC_USERNAME/PASSWORD` and `ROR_DATABASE_PASSWORD` secret keys instead of URL userinfo.
 
 ### ClamAV fail-closed configuration
@@ -289,3 +299,132 @@ if below `ROR_MAX_UPLOAD_BYTES`/`ROR_EVIDENCE_MAX_BYTES`), `AlertExceedsMax yes`
 Readiness and startup probes check the effective limits with `clamconf` plus a clamd PING, so a pod with fail-open config never becomes ready.
 An over-limit stream ends in a scanner error and the backend treats it as non-retryable (no partial scan). Signatures: `parsers.clamav.mirrorUrl`;
 without a mirror only baked-in signatures exist.
+
+## 13. Sensitivity labels
+
+> rOracle sensitivity labels are handling markers enforced only inside rOracle. They are not a security classification system, do not implement clearance or need-to-know, and must not be relied on to protect classified, export-controlled or otherwise regulated data. Access is governed solely by visibility and shares; labels can only restrict.
+
+Design: [ADR-0014](../adr/0014-sensitivity-labels.md). Admins define up to 20 labels ordered by `rank`
+(higher = more sensitive; admin page **Labels**, `/admin/labels*`). Every document, draft included, has one
+label (default: the label flagged `is_default`, seeded as `General`); a note may carry its own label and its
+**effective label** is `max(document, note)`; replies use their thread root's. Labels are per document, not
+per version. Gates are monotonic: a gate set on a label is set on all higher-ranked labels, enforced on
+every admin write (422 `gates must not decrease with rank`). Every label check is an extra AND on top of
+visibility; labels never grant access.
+
+### Gates
+
+| Gate | Effect | Applies to |
+|---|---|---|
+| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
+| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
+| `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner and admins, **including their PATs** |
+| `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
+
+**Ruling (cross-encoder reranker):** `exclude_llm` text may be scored by the site-hosted cross-encoder reranker (`ROR_RERANK_URL`, TEI on game-01). It is non-generative and returns only scores, like the embedding model, so it is not an "LLM" for this gate. Keep the endpoint on a trusted network (loopback/mesh); it never receives text the viewer cannot already read, because ES ACL filters run before reranking.
+
+Export routes under `block_export`: `GET /documents/{id}/versions/{n}/file` (attachment), the same
+`file`/`pdf`/`docling` for non-owner PATs, `GET /export/bibtex` and MCP `export_bibtex` (gated documents are
+silently omitted), `GET /evidence/{id}/file` (effective note label) and the draft PDF build. Each block
+is audited `label.export_blocked` (detail `{route}`). `GET /chats/{id}/export.md` does not 403: it returns
+200 with passage text and answers derived from gated documents replaced by `[withheld: <label>]`. A PAT
+reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withheld by label: <name>` first, and
+`evidence.file` 403 `withheld by label`; so the `export blocked by label` body above is not the only 403 a PAT sees. Invisible stays 404, so naming the label leaks nothing.
+
+### Deterrent, not DRM
+
+- **Owner and admin PATs are exempt from `block_export`** (the owner holds the original and admins can
+  relabel). Non-owner PATs are always treated as downloads: they get no inline reader view of a
+  `block_export` document.
+- Non-owner humans can still **read inline in the reader**; only download/export is blocked. In-app viewing
+  transfers the content to the browser, so copying, screenshots and printing are not prevented. Each inline
+  read (`/file`, `/pdf`, `/docling`) by a non-owner non-admin is audited `label.view`, one row per user,
+  document and UTC day. Markdown and plain-text documents are served inline as `text/plain` with a
+  restrictive CSP sandbox (`GET .../file?inline=true`); PATs never get the inline variant.
+- `exclude_llm` binds LLM *context*, not embeddings: chunks are still embedded, and summaries written before
+  a label was raised are not deleted. Past chat answers are not redacted for their owner, but replaying an
+  old turn into an LLM drops it.
+- A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
+  job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak).
+- Handoff transcripts of chats: assistant message text derived from `block_agents` sources is withheld
+  (`[withheld: <label>]`) for **every** loader, humans included; text derived from `exclude_llm` sources is
+  withheld for PAT loaders. Passages that came from notes are always dropped from handoff manifests.
+- Drafts are text: a PAT (owner or co-author too) gets 403 `withheld by label` on `GET /drafts/{id}`,
+  `GET /drafts/{id}/versions/{n}`, `GET /drafts/{id}/checks`, `POST /drafts/{id}/validate`,
+  `POST /drafts/{id}/check-citations` (also MCP `validate_draft`, `check_citations`) and `POST /drafts/{id}/build`
+  for an `exclude_llm` document, because their output quotes the draft. The drafts list (metadata and label)
+  stays available. Writing is not gated: a PAT may still overwrite such a draft blind with `save_draft` /
+  `PUT /drafts/{id}/content`.
+- Stored per-user state is filtered for PATs too: the chat `viewer` (selection text, tabs) is never returned to a
+  PAT, pinned/excluded ids and proposals/notifications (including unread counts) naming documents or notes hidden
+  from agents are dropped, and note citations are gated by the note's own label. A PAT may still cause a label
+  *raise* (never a lowering) by merging a higher-labelled near-duplicate upload into a document it can see
+  (the target takes the upload's label); it is audited as `document.label` with `via: near_dup`.
+
+### Who may change a label
+
+| Target | Raise or keep | Lower |
+|---|---|---|
+| Document | Owner or admin | Admin only (403 `only admins can lower a label`); reason required when the current label has `reason_on_lower` |
+| Note (thread root) | Author or admin | Admin only, same reason rule; never below the document label (422) |
+| Upload / connector / draft submit | Upload may choose any label ranking at or above the default (lower: admin human; PATs, admin or not, never); connector docs get the connector label or the default; submit and near-duplicate `new_version` merge only raise (`max`) | n/a |
+
+The two label write routes `PUT /documents/{id}/label` and `PUT /annotations/{id}/label` are human-only (PAT: 403 `agents must propose`); `/admin/labels*` are admin-only and never reachable with a PAT. Agents use MCP `propose_label`; a
+human approves it and the **approver's** rights apply (an owner approving a lowering gets 403; an admin
+supplies the reason). A label in use by any document, note or connector, or the default, cannot be deleted
+(409 `label in use`). Someone else changing your document's or note's label sends you a `label.changed`
+notification.
+
+### Audit events
+
+`label.create`, `label.update`, `label.delete`, `label.reorder` (admin actions); `document.label` and
+`annotation.label` with `{from, to, via, reason?}` (label ids; `via` is `user`, `proposal`, `near_dup` or
+`submit`; notes also `own_from`/`own_to`); `label.export_blocked` `{route}`; `label.view` `{route}`. Details
+never contain document or note text. Query with `GET /admin/audit?action=label.` or `document.label`.
+
+### Elasticsearch projection and backfill
+
+Chunks carry `label_id` (keyword) via `search_index.acl_fields`. Gate sets resolve at query time from the
+current labels, so reorder and gate edits need no reindex; only a document's label change needs `acl_sync`.
+Migration `0012` enqueues one `acl_sync` job per non-deleted document to backfill the field (see the
+runbook). `search_acl.acl_filter` adds `must_not terms label_id` for PAT principals.
+
+## 14. Retrieval-quality surfaces (ADR-0015) and performance tooling
+
+All of these are OFF by default except the admin APIs and the quick search mode; none widens what a caller can read.
+
+### LLM gate coverage (`exclude_llm` / `block_agents`)
+No `exclude_llm` document text reaches a generative model through any path added here once its label is seen (a label raised during a notes job can still have one batch of at most `ROR_CONTEXT_CONCURRENCY` calls in flight; the result is discarded, never cached), and a PAT principal never gets `block_agents`
+documents:
+
+| Path | Where the gate sits |
+|---|---|
+| Contextual chunk notes | the document's label is re-read from Postgres before every batch of note calls; an `exclude_llm` document gets its heading path instead and is never sent; a batch in flight when the label is raised is discarded and not cached (`ingest/context.py`) |
+| RAPTOR units | an `exclude_llm` document gets no units and no calls (`ingest/raptor.py`) |
+| Router | the prompt carries the question only (<= 600 characters), no document text (`chat/router.py`) |
+| Global map-reduce | candidates come from ES with the `exclude_llm` filter (plus the PAT `block_agents` filter), then Postgres re-checks visibility, gate (a), the latest searchable version and `gated_docs`; each map call sees one document's own units (`chat/global_answer.py`) |
+| Agentic loop | every retrieval, the first and each sub-query, is `rank_for_chat` as the caller; the planner prompt holds the question and passages that came out of it, with delimiter tags neutralised (`_quote`); sub-queries are plain strings, scope and principal are fixed by the caller (`chat/agentic.py`) |
+| Eval judge | refuses with `LabelGateError` if a gated document is in its input (`eval/judge.py`) |
+| Eval question generation | samples only documents visible to the chosen non-admin principal and `llm_allowed`, re-checked per document (`eval/generate.py`) |
+| Reranker | a cross-encoder service you operate, not a generative model. On library search it receives the passages the caller already sees, **including `exclude_llm` documents** (their text is withheld from PATs, not from the human who may read them); chat and MCP `ask` retrieve with the `exclude_llm` filter. Keep the reranker host inside the same trust boundary as the API |
+
+### No cross-document artefacts
+Notes, section/document units and map findings are per document and per version (`derived/{version_id}/...`), carry only their own document's ACL
+and label fields in ES (so `acl_sync`, deletes and the Postgres re-check apply unchanged), and a citation always resolves to a real chunk of the
+cited document (units expand to source passages; a global answer cites documents). Corpus-wide GraphRAG was rejected for exactly this reason.
+
+### New endpoints and modes
+- **`/admin/eval/*`** and **`POST /admin/retrieval/rebuild`** require a JWT admin (PATs are refused) and write one audit row per request
+  (`admin.<name>`). Gold queries, gold document ids, ranked results and judge text can reveal that private documents exist, so the eval API is
+  admin-only; runs evaluate every named principal through the production path, and a run fails on any hit the principal may not see.
+- **`GET /search?mode=quick`** (command palette): one Elasticsearch title search under the caller's ACL filter, then the Postgres visibility re-check;
+  no embedding or LLM call; takes only `q` (filters, `after` or `page` > 1 are a `422`; `sort`/`size`/`notes` are ignored).
+- Interactive embedding failures (`/search`, chat, MCP `ask`) are a prompt `503 inference unavailable`: no retries and no shared pause, so a throttled endpoint
+  cannot stall other requests. Batch work (ingest, re-embed, rebuild) retries with backoff.
+- **Admission caps** (global answers and agentic loops): one per user, a per-process maximum; excess requests take the plain path.
+
+### Performance tooling (`roracle perf`)
+The perf harness mints its own test tokens with a throw-away key and serves the matching JWKS from a loopback port of the suite process; the API under test is
+configured to trust only that URL. **There is no token-minting code in the application and nothing to enable or disable in production**; a deployment trusts only
+the keys its Keycloak publishes. The CLI refuses any database not named `roracle_perf...` and only touches `perf-*` Elasticsearch indices (the `--es-url` itself is
+not guarded: never point it at production).

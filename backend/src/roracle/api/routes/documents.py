@@ -4,20 +4,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
-from roracle.access import org_unit_error, org_units, visible_documents
+from roracle.access import org_unit_error, org_units, readable_documents
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.ingest.intake import add_document
+from roracle.labels import service
 from roracle.models import Document, DocumentVersion
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, EmptyFile, StagedBlob, StagedFile, TooLarge, blob_store_from, stage
 from roracle.upload_stream import Received, multipart_body, receive
 
 router = APIRouter()
+HIDDEN = ("rejected", "cancelled")  # R5
 
 
 def get_blob_store(request: Request) -> BlobStore:
@@ -31,6 +33,7 @@ class UploadForm(BaseModel):
     title: Annotated[str | None, Field(max_length=500)] = None
     visibility: Literal["private", "shared", "org_unit", "everyone"] = "everyone"
     force: bool = False
+    label_id: UUID | None = None
 
 
 async def _received(
@@ -64,6 +67,7 @@ async def _received(
                 "default": "everyone",
             },
             "force": {"type": "boolean", "default": False},
+            "label_id": {"type": "string", "format": "uuid"},
         },
         ["file"],
     ),
@@ -154,11 +158,22 @@ def accept(
         dup = session.scalar(
             select(DocumentVersion.document_id)
             .join(Document, Document.id == DocumentVersion.document_id)
-            .where(DocumentVersion.blob_sha256 == staged.sha256, visible_documents(p))
+            .where(
+                DocumentVersion.blob_sha256 == staged.sha256,
+                DocumentVersion.stage.notin_(HIDDEN),
+                readable_documents(p),
+                # per matched version: non-owners may only learn of searchable ones (R16)
+                or_(
+                    true() if p.is_admin else false(),
+                    Document.owner_id == p.user_id,
+                    DocumentVersion.stage == "searchable",
+                ),
+            )
             .limit(1)
         )
         if dup is not None:
             raise HTTPException(409, {"code": "duplicate", "document_id": str(dup)})
+    label_id = service.initial_label(session, form.label_id, p=p)
     doc, version = add_document(
         session,
         store,
@@ -169,6 +184,7 @@ def accept(
         filename=filename,
         content_type=content_type,
         title=form.title or None,
+        label_id=label_id,
     )
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
@@ -190,7 +206,7 @@ def set_title(
     row = session.execute(
         select(DocumentVersion, Document)
         .join(Document, Document.id == DocumentVersion.document_id)
-        .where(DocumentVersion.id == version_id, Document.id == doc_id, visible_documents(p))
+        .where(DocumentVersion.id == version_id, Document.id == doc_id, readable_documents(p))
         .with_for_update(of=DocumentVersion)
     ).first()
     if row is None:

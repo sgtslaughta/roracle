@@ -83,3 +83,11 @@ describe("mock API", () => {
     expect(r.facets.tags.length).toBeGreaterThan(0);
   });
 });
+
+describe("ApiError 422", () => {
+  it("builds the message from detail[].msg", async () => {
+    server.use(http.get(`${API_BASE}/v422`, () => HttpResponse.json({ detail: [{ msg: "Field required", loc: ["body", "a"] }, { msg: "Too long", loc: ["body", "b"] }] }, { status: 422 })));
+    const err = (await apiFetch("/v422").catch((e) => e)) as ApiError;
+    expect(err.message).toBe("Field required; Too long");
+  });
+});

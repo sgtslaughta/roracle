@@ -23,6 +23,10 @@ all empty (an empty `to` would mean "anywhere"). args: cidrs, ports, namespaceSe
 {{- if eq .Values.postgres.mode "cnpg" }}
 - to: [{podSelector: {matchLabels: {cnpg.io/cluster: {{ printf "%s-pg" (include "roracle.fullname" .) | quote }}}}}]
   ports: [{port: 5432, protocol: TCP}]
+{{- if .Values.postgres.pooler.enabled }}
+- to: [{podSelector: {matchLabels: {cnpg.io/poolerName: {{ printf "%s-pg-pooler-rw" (include "roracle.fullname" .) | quote }}}}}]
+  ports: [{port: 5432, protocol: TCP}]
+{{- end }}
 {{- else }}
 {{- include "roracle.npCidrRule" .Values.networkPolicy.externalCIDRs.postgres }}
 {{- end }}
@@ -109,14 +113,6 @@ spec:
   {{ include "roracle.npPods" (dict "root" . "comps" (list "es-snapshot")) }}
   policyTypes: [Egress]
   egress: {{ include "roracle.npEsEgress" . | nindent 4 }}
-{{- end }}
-{{- if eq .Values.minio.mode "tenant" }}
----
-{{ include "roracle.npMeta" (dict "root" . "name" "minio-policy-egress") }}
-spec:
-  {{ include "roracle.npPods" (dict "root" . "comps" (list "minio-policy")) }}
-  policyTypes: [Egress]
-  egress: {{ include "roracle.npS3Egress" . | nindent 4 }}
 {{- end }}
 {{- /* api + worker -> inference (LLM), OIDC (JWKS), OTLP collector */}}
 {{- $ext := print (include "roracle.npCidrRule" $np.egressCIDRs.llm) (include "roracle.npCidrRule" $np.egressCIDRs.oidc) (include "roracle.npCidrRule" $np.egressCIDRs.otel) }}

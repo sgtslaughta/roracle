@@ -162,3 +162,10 @@ def test_non_owner_cannot_fetch_unfinished_version(mc, as_ana, as_bob, bob, db_s
     assert not err and [i["chunk_id"] for i in (out["result"] if isinstance(out, dict) else out)] == [
         f"{v.id}:0"
     ]
+
+
+def test_get_mcp_is_405_when_authenticated(mc, ana, db_session):
+    _, token = pats.create(db_session, ana, "t", ["read"], 30)
+    db_session.commit()
+    r = mc.get("/mcp", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 405 and r.headers["allow"] == "POST"

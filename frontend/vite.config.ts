@@ -17,7 +17,10 @@ const dropDevOnlyPublicFiles = (): Plugin => ({
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), dropDevOnlyPublicFiles()],
-  build: { chunkSizeWarningLimit: 700 }, // pdf.js is lazy-loaded; the main chunk is react + router + query + oidc
+  build: {
+    chunkSizeWarningLimit: 500, // routes, markdown/KaTeX and pdf.js load on demand
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: "oidc", test: /node_modules[\\/]oidc-client-ts/ }] } } },
+  },
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   server: {
     proxy: {
@@ -29,6 +32,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    testTimeout: 20_000, // lazy chunks + parallel workers make cold first renders slow
     env: { VITE_API_BASE: "http://localhost/api" },
   },
 });

@@ -5,14 +5,18 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
+from roracle.labels.policy import Policy, label_json
+from roracle.labels.service import note_label_for_create
+from roracle.labels.textgate import withheld_text
 from roracle.models import (
     Annotation,
     AnnotationShare,
     AnnotationVote,
+    Blob,
     Document,
     DocumentVersion,
     Evidence,
@@ -78,6 +82,7 @@ def create(
     default_visibility: str = "everyone",
 ) -> Annotation:
     v = check(session, p, doc_id, body)
+    label_id = note_label_for_create(session, session.get(Document, doc_id), body.label_id)
     vis = body.visibility or default_visibility
     n = Annotation(
         document_id=doc_id,
@@ -90,6 +95,7 @@ def create(
         target_document_id=body.relation.target_document_id if body.relation else None,
         visibility=vis,
         agent_assisted=agent_assisted,
+        label_id=label_id,
     )
     session.add(n)
     session.flush()
@@ -162,8 +168,26 @@ def patch(session: Session, p: Principal, note_id: UUID, body: NotePatch) -> Ann
 
 
 def delete(session: Session, p: Principal, note_id: UUID) -> None:
-    session.delete(_own(session, p, note_id))
+    n = _own(session, p, note_id)
+    ids, frontier = {n.id}, [n.id]
+    while frontier:  # the note and every reply below it: evidence cascades with them
+        frontier = list(session.scalars(select(Annotation.id).where(Annotation.parent_id.in_(frontier))))
+        ids.update(frontier)
+    for sha in session.scalars(
+        select(Evidence.blob_sha256).where(Evidence.annotation_id.in_(ids), Evidence.blob_sha256.is_not(None))
+    ):
+        session.execute(
+            update(Blob).where(Blob.sha256 == sha).values(refcount=func.greatest(Blob.refcount - 1, 0))
+        )
+    session.delete(n)
     session.flush()
+
+
+def _anchor(anchor: dict | None, hide: bool) -> dict | None:
+    """Anchors quote document text: agents keep only the non-text fields when the note is withheld."""
+    if not hide or not anchor:
+        return anchor
+    return {k: v for k, v in anchor.items() if k not in ("quote", "prefix", "suffix")}
 
 
 def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dict]:
@@ -199,10 +223,31 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
     if mine:
         for s in session.scalars(select(AnnotationShare).where(AnnotationShare.annotation_id.in_(mine))):
             shares[s.annotation_id].append({"kind": s.principal_kind, "principal": s.principal})
+    policy = Policy.load(session)
+    doc_label = dict(
+        session.execute(
+            select(Document.id, Document.label_id).where(Document.id.in_({n.document_id for n in notes}))
+        ).all()
+    )
+    parents = {n.parent_id for n in notes if n.parent_id}
+    root_label = (
+        dict(
+            session.execute(
+                select(Annotation.id, Annotation.label_id).where(Annotation.id.in_(parents))
+            ).all()
+        )
+        if parents
+        else {}
+    )
     out = []
     for n in notes:
         v = votes.get(n.id, {"up": 0, "down": 0, "mine": 0})
         u = users.get(n.author_id)
+        # replies inherit the thread ROOT's label (their own stays null)
+        eff = policy.effective(
+            doc_label[n.document_id], root_label.get(n.parent_id) if n.parent_id else n.label_id
+        )
+        hide = p.via == "pat" and eff.exclude_llm  # agents: the note exists, its text does not
         out.append(
             {
                 "id": str(n.id),
@@ -212,14 +257,16 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
                 "parent_id": str(n.parent_id) if n.parent_id else None,
                 "author": {"id": str(n.author_id), "username": u.username if u else ""},
                 "kind": n.kind,
-                "body": n.body,
-                "anchor": n.anchor,
+                "body": withheld_text(eff.name) if hide else n.body,
+                "anchor": _anchor(n.anchor, hide),
                 "relation": {"type": n.relation_type, "target_document_id": str(n.target_document_id)}
                 if n.relation_type
                 else None,
                 "visibility": n.visibility,
                 "shares": sorted(shares[n.id], key=lambda s: (s["kind"], s["principal"])),
                 "status": n.status,
+                "label": label_json(policy.get(n.label_id)) if n.label_id else None,
+                "effective_label": label_json(eff),
                 "agent_assisted": n.agent_assisted,
                 "may_not_apply_to_version": n.stale_version,
                 "votes": {**v, "score": vote_ratio(v["up"], v["down"])},

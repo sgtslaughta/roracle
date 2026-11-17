@@ -11,21 +11,30 @@ image:
 
 secrets:
   existingSecret: ""       # REQUIRED. Secret holding the keys below
+  s3Secret: ""             # optional: separate Secret for the S3 keys (s3AccessKey/s3SecretKey below); empty = existingSecret
   keys:                    # key names inside existingSecret
     databaseUrl: ROR_DATABASE_URL
     s3AccessKey: ROR_S3_ACCESS_KEY
     s3SecretKey: ROR_S3_SECRET_KEY
     elasticUrl: ROR_ELASTIC_URL   # http(s)://elastic:<password>@host:9200 (userinfo creds, so it is a secret)
     llmApiKey: ROR_LLM_API_KEY
+    rerankApiKey: ROR_RERANK_API_KEY   # optional; only read when secrets.rerankApiKeyEnabled
     # Optional (key may be absent/empty = not set). Use instead of userinfo in the URLs above.
     elasticUsername: ROR_ELASTIC_USERNAME
     elasticPassword: ROR_ELASTIC_PASSWORD
     databasePassword: ROR_DATABASE_PASSWORD   # injected into ROR_DATABASE_URL (which then carries no password)
+  rerankApiKeyEnabled: false   # true = inject ROR_RERANK_API_KEY from the Secret (optional key)
   llmApiKeyEnabled: true   # false if the inference endpoint needs no key (backend default "unused")
+
+# Reranker (cross-encoder; deploy/game-01). Empty url = off. Allow its CIDR/port in networkPolicy.egressCIDRs.llm.
+rerank:
+  url: ""                  # TEI binds 127.0.0.1 on game-01: use a TLS proxy/mesh URL, e.g. https://rerank.internal/rerank
+  api: cohere              # cohere | tei
+  model: ""                # cohere-style servers only (bge-reranker-v2-m3)
 
 # Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
 config:
-  ROR_S3_ENDPOINT: ""      # REQUIRED unless minio.mode=tenant (auto-filled to the tenant service)
+  ROR_S3_ENDPOINT: ""      # REQUIRED: external S3 (Rook-Ceph RGW, your own S3; no bundled object store)
   ROR_S3_BUCKET: roracle
   ROR_OIDC_ISSUER: ""      # REQUIRED
   ROR_OIDC_JWKS_URL: ""    # REQUIRED
@@ -42,6 +51,21 @@ config:
   ROR_EVIDENCE_MAX_BYTES: "1073741824"
   ROR_RETENTION_DELETED_DAYS: "0"   # purge soft-deleted documents after N days; 0 = never
   ROR_DB_CONNECT_TIMEOUT_S: "5"
+  # Connection budget (docs/perf/connection-budget.md): per process = pool + overflow; the chart fails the render when
+  # replicas x these + postgres.reservedConnections exceed postgres.parameters.max_connections (or the pooler budget).
+  ROR_DB_POOL_SIZE: "8"              # api
+  ROR_DB_MAX_OVERFLOW: "4"
+  ROR_WORKER_DB_POOL_SIZE: "3"       # worker (claim session + stage session)
+  ROR_WORKER_DB_MAX_OVERFLOW: "1"
+  ROR_DB_POOL_TIMEOUT_S: "10"
+  ROR_JOB_LEASE_S: "90"              # job lease; a crashed worker's job is requeued after it (heartbeat every lease/3)
+  ROR_JOB_DRAIN_S: "120"             # SIGTERM: a running job gets this long, then it is RELEASED (no attempt spent); keep < worker grace
+  ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream
+  # Elasticsearch index settings, applied when an index is CREATED (docs/enterprise/capacity-planning.md for sizing)
+  ROR_ES_SHARDS: "1"                 # ~30-50 GB per shard: 12 for 50M chunks
+  ROR_ES_REPLICAS: "1"
+  ROR_VECTOR_INDEX_TYPE: int8_hnsw   # bbq_hnsw (with rescore oversample 3) only after the recall/eval gate
+  ROR_AGENTIC_PLANNER_MODEL: ""      # small fast model for the agentic planner (e.g. qwen2.5:3b); empty = first chat model. Only used when agentic_retrieval is on
   ROR_MAINTENANCE_INTERVAL_S: "86400"  # periodic purge + blob gc + tag reconcile
 
 # Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.
@@ -91,10 +115,12 @@ worker:
     requests: {cpu: "4", memory: 8Gi}
     limits: {memory: 8Gi}
   tmpSize: 20Gi
-  # CPU HPA; for queue-depth scaling use KEDA/external metrics on the `jobs` table instead.
-  autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70}
+  # Workers are I/O-bound (ES, LLM, embeddings): CPU is a poor signal, and a CPU HPA scales down exactly the pods that
+  # wait on a long job. Prefer KEDA/external metrics on queue depth (`SELECT count(*) FROM jobs WHERE status='queued'`)
+  # and set `enabled: false`. With the CPU HPA kept, scale-down is slow: one pod per 10 min after a 1 h stabilisation.
+  autoscaling: {enabled: true, minReplicas: 4, maxReplicas: 12, targetCPUUtilizationPercentage: 70, scaleDownStabilizationSeconds: 3600}
   pdb: {enabled: true, minAvailable: 1}
-  terminationGracePeriodSeconds: 3600   # let long ingest jobs finish
+  terminationGracePeriodSeconds: 150    # = ROR_JOB_DRAIN_S + 30: running jobs are released at the deadline and resume per stage/batch
   runAsUser: 10001
   extraEnv: []
   nodeSelector: {}
@@ -132,11 +158,10 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: 1100m
 
-# ---- Data services: operator CRs (CNPG, ECK, MinIO Operator must be installed by the platform) ----
+# ---- Data services: operator CRs (CNPG, ECK must be installed by the platform) ----
 # Each can be switched to "external": nothing is rendered; point the app at your own service via
 # config / secrets.existingSecret. Credentials are always secret names + keys, never values.
-# Bundled-mode backups default to buckets on the bundled MinIO tenant; for real DR, point
-# destinations at a different cluster/site (MinIO site replication is documented, not automated).
+# Backups go to the external S3 (buckets below); for real DR keep them on a different cluster/site.
 postgres:
   mode: cnpg               # cnpg | external (external: ROR_DATABASE_URL in existingSecret, nothing rendered)
   instances: 3
@@ -145,7 +170,14 @@ postgres:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  parameters: {}           # extra postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters)
+  # postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters). max_connections is checked
+  # against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory.
+  # NB: a `parameters` override without max_connections leaves PostgreSQL's own default (100), which the guard then uses.
+  parameters: {max_connections: "200", shared_buffers: 2GB, work_mem: 16MB, jit: "off"}  # jit off: see docs/perf/report-2026-11-17.md (F1)
+  reservedConnections: 15  # superuser_reserved (3) + CNPG/monitoring/replication + migrate Job + operator headroom
+  # PgBouncer (CNPG Pooler, transaction mode). When enabled, point ROR_DATABASE_URL at <release>-pg-pooler-rw and keep the
+  # migrate Job on the direct <release>-pg-rw service. Server connections = instances x defaultPoolSize.
+  pooler: {enabled: false, instances: 2, poolMode: transaction, maxClientConn: 1000, defaultPoolSize: 40}
   # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
   # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
   appCredentialsSecret: ""
@@ -158,7 +190,7 @@ postgres:
     # barmanObjectStore: legacy in-tree config (deprecated upstream, still works).
     method: plugin
     destinationPath: s3://roracle-pg-backup/
-    endpointURL: ""        # default: bundled MinIO tenant service when minio.mode=tenant
+    endpointURL: ""        # REQUIRED when backup.enabled: S3 endpoint URL (https://...)
     credentialsSecret: {name: "", accessKeyKey: ACCESS_KEY_ID, secretAccessKeyKey: ACCESS_SECRET_KEY}  # REQUIRED when enabled
     endpointCA: {name: "", key: ca.crt}   # optional Secret holding the CA of a TLS object store
     retentionPolicy: 30d
@@ -169,7 +201,8 @@ postgres:
 
 elasticsearch:
   mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)
-  version: 8.15.3
+  version: 9.5.6           # an EXISTING 8.x cluster must go 8.15 -> 8.19.x -> 9.5.x (never straight); needs an ECK 3.x release that lists 9.5
+  # mode: external requires Elasticsearch 9.x (the client sends compatible-with=9; hnsw_filter_heuristic / exclude_source_vectors are 9.x settings)
   image: {repository: docker.elastic.co/elasticsearch/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
   nodeSets:                # default: one set of 3 master+data nodes
     - {name: default, count: 3, roles: [master, data, ingest]}
@@ -188,9 +221,9 @@ elasticsearch:
     enabled: true          # hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily
     bucket: roracle-es-snapshots
     basePath: roracle
-    endpoint: ""           # host:port without scheme; default: bundled MinIO tenant service
-    protocol: ""           # "" = https when minio.mode=tenant with requestAutoCert, http for tenant without, else https
-    # ES trusts only its JVM truststore: when protocol is https and the CA is kube-root-ca.crt (tenant auto-cert) or
+    endpoint: ""           # REQUIRED when snapshot.enabled: S3 host:port without scheme
+    protocol: ""           # "" = https
+    # ES trusts only its JVM truststore: when protocol is https and the CA comes from
     # extraCASecret, an init container builds a truststore (JDK cacerts + those CAs) and ES_JAVA_OPTS points at it.
     extraCASecret: {name: "", key: ca.crt}   # optional private CA of an external S3
     pathStyleAccess: true
@@ -201,31 +234,6 @@ elasticsearch:
       image: {repository: curlimages/curl, tag: "8.10.1", digest: "", pullPolicy: IfNotPresent}
       activeDeadlineSeconds: 1800
       runAsUser: 100
-
-minio:
-  mode: tenant             # tenant | external (external: set config.ROR_S3_ENDPOINT)
-  image: {repository: quay.io/minio/minio, tag: RELEASE.2024-10-13T13-34-11Z, digest: "", pullPolicy: IfNotPresent}
-  # REQUIRED (tenant): Secret with config.env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) supplied by the operator/platform.
-  configurationSecret: ""
-  servers: 4
-  volumesPerServer: 4      # 16 drives -> erasure coding
-  storage: {size: 250Gi, storageClass: ""}
-  requestAutoCert: true    # operator-issued TLS (signed by the cluster CA, trusted via caBundle.kubeRootCa); ROR_S3_ENDPOINT -> https
-  # Bucket names come from config.ROR_S3_BUCKET, postgres.backup.destinationPath and elasticsearch.snapshot.bucket;
-  # the two backup buckets get objectLock (=> versioning). Replicate backups to a separate site (MinIO site replication).
-  # Least-privilege users (REQUIRED, tenant): operator-supplied Secrets with CONSOLE_ACCESS_KEY / CONSOLE_SECRET_KEY.
-  # The policy hook Job (mc) creates these users with the root creds and attaches one-bucket RW policies (not Tenant users:).
-  # The app user's keys must also be in secrets.existingSecret (ROR_S3_ACCESS_KEY/SECRET_KEY); the others in the backup secrets.
-  users: {app: "", pgBackup: "", esSnapshot: ""}
-  backupRetentionDays: 30  # GOVERNANCE default retention on the backup buckets; keep >= backup/snapshot retention
-  policyJob:
-    image: {repository: quay.io/minio/mc, tag: RELEASE.2024-10-08T09-37-26Z, digest: "", pullPolicy: IfNotPresent}
-    activeDeadlineSeconds: 1800
-    runAsUser: 1000
-  runAsUser: 1000
-  resources:
-    requests: {cpu: "1", memory: 4Gi}
-    limits: {memory: 4Gi}
 
 # ---- Parser services: optional in-chart Deployments. Only the worker calls them (ingest pipeline + evidence scan). ----
 # Backend URL settings are auto-filled (roracle.endpoints) when enabled and config.ROR_* is empty; to use an external
@@ -333,20 +341,21 @@ connectors:
 # Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
 # certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
 # ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
-# Active only when ES TLS (eck), MinIO auto-cert (tenant) or extraSecrets are in play.
+# Active only when ES TLS (eck) or extraSecrets (e.g. the S3 CA) are in play.
 caBundle:
   certifiPath: /app/backend/.venv/lib/python3.12/site-packages/certifi/cacert.pem   # coupled to the backend image layout
-  kubeRootCa: true         # kube-root-ca.crt (signs MinIO operator auto-cert)
   extraSecrets: []         # [{name: my-ca, key: ca.crt}] operator CAs for external ES/S3/etc.
 
-# Data-tier policies (data-postgres/es/minio) are always rendered for bundled modes.
+# Data-tier policies (data-postgres/es) are always rendered for bundled modes.
 # Namespace values are matched by label kubernetes.io/metadata.name.
 networkPolicy:
-  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system, minio: minio-operator}
+  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system}
   monitoringNamespace: monitoring
   # Instance managers / operators need the kube-apiserver. Empty cidrs = allow these ports to any destination; tighten.
   kubeAPI: {cidrs: [], ports: [443, 6443]}
-  s3Cidrs: []              # egress CIDRs (port 443/9000) for backups/snapshots when minio.mode=external
+  # Object storage egress for api/worker/migrate and the data tier (CNPG barman, ES snapshots): CIDRs and/or an in-cluster peer
+  # (e.g. Rook-Ceph RGW: namespaceSelector + podSelector, ports = post-DNAT container ports).
+  s3: {cidrs: [], ports: [443, 9000], namespaceSelector: {}, podSelector: {}}
   dns:
     namespace: kube-system
     podLabels: {k8s-app: kube-dns}
@@ -354,7 +363,7 @@ networkPolicy:
   enabled: true
   ingressNamespaceSelector: {kubernetes.io/metadata.name: ingress-nginx}   # namespace labels of the ingress controller
   # Egress for api/worker(/migrate) to non-bundled data services. Bundled modes use pod selectors instead.
-  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
+  # External S3 uses networkPolicy.s3 above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
   externalCIDRs:
     postgres: {cidrs: [], ports: [5432]}
     elasticsearch: {cidrs: [], ports: [9200]}

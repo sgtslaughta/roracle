@@ -10,6 +10,7 @@ from roracle import clients, reembed, runtime, search_index
 from roracle.auth import Principal
 from roracle.ingest.chunking import Chunk
 from roracle.ingest.embed import doc_prompt, embed
+from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion, Job
 from roracle.retrieval import search_chunks
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
@@ -45,7 +46,7 @@ def es(cfg):
     c.close()
 
 
-def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user, blob):
+def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user, blob, monkeypatch):
     llm = clients.llm(cfg)
     ensure_index(es, MODEL, DIMS, cfg.read_alias)
     d = Document(owner_id=user.id, title="Quokka", visibility="everyone", org_unit="/")
@@ -65,7 +66,7 @@ def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user,
     p = Principal(user_id=uuid.uuid4(), sub="s", username="u", groups=(), is_admin=False)
 
     def search(settings):
-        return search_chunks(es, llm, settings, p, "marsupial quokka", filters={})
+        return search_chunks(es, llm, settings, p, "marsupial quokka", policy=Policy([]), filters={})
 
     assert search(cfg)
     reembed.start(db_session, es, cfg, MODEL, DIMS)
@@ -95,4 +96,7 @@ def test_reindex_same_model_to_gen_2(es, cfg, db_session, session_factory, user,
     for gen in (1, 2):  # mutation alias reaches both generations
         es.indices.refresh(index=index_name(MODEL, gen))
         assert es.get(index=index_name(MODEL, gen), id=f"{v.id}:0")["_source"]["visibility"] == "private"
+    own, all_old = index_name(MODEL, 1)[:-1], reembed._old
+    # chunks-all is shared and hardcoded: only ever see (and delete) this model's generations
+    monkeypatch.setattr(reembed, "_old", lambda *a: [i for i in all_old(*a) if i.startswith(own)])
     assert reembed.drop_old(db_session, es, cfg) == [index_name(MODEL, 1)]

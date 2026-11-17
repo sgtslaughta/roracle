@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type { Chat, ChatDetail, ChatPage, ChatScope, ModelsResponse, Rating, Shares } from "@/api/chat";
 
 /** Recent chats, 20 per page, newest first; `fetchNextPage` follows the opaque `next` cursor. */
@@ -19,6 +19,7 @@ export const useChat = (id: string | undefined) =>
 export function useCreateChat() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (body: { title?: string; scope?: ChatScope; model?: string } = {}) => apiFetch<Chat>("/chats", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chats"] }),
   });
@@ -27,6 +28,7 @@ export function useCreateChat() {
 export function usePatchChat(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (patch: { title?: string; scope?: ChatScope; pins?: string[]; excludes?: string[]; model?: string }) =>
       apiFetch<Chat>(`/chats/${seg(id)}`, { method: "PATCH", json: patch }),
     // optimistic: pins/excludes/title show at once and roll back if the PATCH fails
@@ -49,12 +51,23 @@ export function usePatchChat(id: string) {
   });
 }
 
+/** Soft "remove from my chats": hides it from the owner's list only (204). */
+export function useHideChat() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: QUIET,
+    mutationFn: (id: string) => apiFetch<void>(`/chats/${seg(id)}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["chats"] }),
+  });
+}
+
 export const useShares = (id: string, enabled: boolean) =>
   useQuery({ queryKey: ["shares", id], queryFn: () => apiFetch<Shares>(`/chats/${seg(id)}/shares`), enabled, gcTime: 0 });
 
 export function useShareChat(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (b: Shares) => apiFetch<Shares>(`/chats/${seg(id)}/shares`, { method: "PUT", json: b }),
     onSuccess: (s) => qc.setQueryData(["shares", id], s),
   });
@@ -63,6 +76,7 @@ export function useShareChat(id: string) {
 export function useRateMessage(chatId: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ messageId, value, comment }: { messageId: string; value: 1 | -1 | 0; comment?: string }) =>
       apiFetch<Rating>(`/messages/${seg(messageId)}/rating`, { method: "PUT", json: { value, comment } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chat", chatId] }),

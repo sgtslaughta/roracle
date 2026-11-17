@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -6,9 +7,9 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { useRevokeToken, useTokens } from "./api";
 import { CreateTokenDialog } from "./CreateTokenDialog";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const PAGE = 20;
-export const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString([], { dateStyle: "medium" }) : "Never");
 const stateOf = (t: AccessToken) => (t.revoked_at ? "Revoked" : new Date(t.expires_at) <= new Date() ? "Expired" : "Active");
 
 export function TokensPanel() {
@@ -50,7 +51,10 @@ export function TokensPanel() {
                     <td>{fmtDate(t.expires_at)}</td>
                     <td>{fmtDate(t.last_used_at)}</td>
                     <td>{st}</td>
-                    <td>{!t.revoked_at && <Button variant="ghost" aria-label={`Revoke ${t.name}`} onClick={() => setTarget(t)}>Revoke</Button>}</td>
+                    <td>
+                      {!t.revoked_at && <Button variant="ghost" aria-label={`Revoke ${t.name}`} onClick={() => setTarget(t)}>Revoke</Button>}
+                      <RowMenu kebab={false} label={`Actions for token ${t.name}`} actions={[copyAction("Copy prefix", t.prefix), ...(t.revoked_at ? [] : [{ label: "Revoke", danger: true, onSelect: () => setTarget(t) }])]} />
+                    </td>
                   </tr>
                 );
               })}
