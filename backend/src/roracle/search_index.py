@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -168,6 +169,9 @@ def _point_read_alias(
             move()
 
 
+ENSURE_TTL_S = 30.0  # the idempotent existence/mapping/alias checks (4-6 metadata calls) run once per window
+
+
 def ensure_index(
     es: Elasticsearch,
     model: str,
@@ -179,9 +183,38 @@ def ensure_index(
     settings: Any = None,
     create: bool = True,
 ) -> str:
+    """`_ensure_index`, memoized per (client, index, dims, alias, create) for ENSURE_TTL_S: an ingest does not repeat
+    the metadata round trips for every document. Failures are never memoized; the unguarded mode (no
+    `session_factory`: tools/tests, which repair the read alias) is never memoized."""
+    name = name or index_name(model)
+    memo: dict = es.__dict__.setdefault("_roracle_ensured", {})
+    key = (name, dims, alias, create)
+    if (
+        session_factory is not None
+        and (at := memo.get(key)) is not None
+        and time.monotonic() - at < ENSURE_TTL_S
+    ):
+        return name
+    out = _ensure_index(
+        es, model, dims, alias, name, session_factory=session_factory, settings=settings, create=create
+    )
+    memo[key] = time.monotonic()
+    return out
+
+
+def _ensure_index(
+    es: Elasticsearch,
+    model: str,
+    dims: int,
+    alias: str,
+    name: str,
+    *,
+    session_factory: sessionmaker[Session] | None,
+    settings: Any,
+    create: bool,
+) -> str:
     """Create the index and add it to `chunks-all`. The read alias is (re)pointed here only when no
     `session_factory` is given (tests) or `name` is the Postgres-persisted active index."""
-    name = name or index_name(model)
     _adopt_plain_index(es, name, dims, alias, settings)
     if not create and not es.indices.exists(index=name):
         raise NonRetryable(f"index {name!r} no longer exists")  # shadow dropped mid-rebuild: never re-created
@@ -273,6 +306,7 @@ def index_chunks(
     prompt_shas: list[str] | None = None,
     index: str | None = None,
     contexts: list[str] | None = None,
+    refresh: bool | str = "wait_for",
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     base = _base(version, document, acl, model, title, is_latest, tags)
@@ -296,7 +330,7 @@ def index_chunks(
         }
         for i, (c, v) in enumerate(zip(chunks, vectors, strict=True))
     ]
-    ok, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
+    ok, errors = helpers.bulk(es, actions, refresh=refresh, raise_on_error=False)
     if errors:
         raise RuntimeError(f"bulk indexing failed for {len(errors)} chunks: {errors[0]}")
     return ok
@@ -316,6 +350,7 @@ def index_units(
     tags: list[str] | None = None,
     index: str | None = None,
     prompt_shas: list[str] | None = None,
+    refresh: bool | str = "wait_for",
 ) -> int:
     """Bulk index per-document summary units (same ACL/label fields as the document's chunks)."""
     base = _base(version, document, acl, model, title, is_latest, tags)
@@ -339,7 +374,7 @@ def index_units(
         }
         for i, (u, v) in enumerate(zip(units, vectors, strict=True))
     ]
-    ok, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
+    ok, errors = helpers.bulk(es, actions, refresh=refresh, raise_on_error=False)
     if errors:
         raise RuntimeError(f"bulk indexing failed for {len(errors)} units: {errors[0]}")
     return ok
@@ -381,7 +416,12 @@ def cached_vectors(
 
 
 def delete_stale_chunks(
-    es: Elasticsearch, version_id, keep: int, alias: str = MUTATE_ALIAS, keep_units: list[str] | None = None
+    es: Elasticsearch,
+    version_id,
+    keep: int,
+    alias: str = MUTATE_ALIAS,
+    keep_units: list[str] | None = None,
+    refresh: bool = True,
 ) -> None:
     """Remove chunks of this version with n >= keep (a re-run may produce fewer chunks). Summary units are left
     alone unless `keep_units` is given: then ONE query also removes units not in it (raptor ingest)."""
@@ -397,12 +437,14 @@ def delete_stale_chunks(
                 ],
             }
         },
-        refresh=True,
+        refresh=refresh,
         conflicts="proceed",
     )
 
 
-def delete_stale_units(es: Elasticsearch, version_id, keep_ids: list[str], alias: str = MUTATE_ALIAS) -> None:
+def delete_stale_units(
+    es: Elasticsearch, version_id, keep_ids: list[str], alias: str = MUTATE_ALIAS, refresh: bool = True
+) -> None:
     """Remove summary units of this version that were not just (re)written (`keep_ids` = their chunk ids)."""
     es.delete_by_query(
         index=alias,
@@ -412,12 +454,14 @@ def delete_stale_units(es: Elasticsearch, version_id, keep_ids: list[str], alias
                 "must_not": [{"ids": {"values": keep_ids}}] if keep_ids else [],
             }
         },
-        refresh=True,
+        refresh=refresh,
         conflicts="proceed",
     )
 
 
-def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str = MUTATE_ALIAS) -> None:
+def mark_previous_versions(
+    es: Elasticsearch, doc_id, version: int, alias: str = MUTATE_ALIAS, refresh: bool = True
+) -> None:
     """Flag every chunk of this document's versions older than `version` as not latest."""
     es.update_by_query(
         index=alias,
@@ -427,7 +471,7 @@ def mark_previous_versions(es: Elasticsearch, doc_id, version: int, alias: str =
             }
         },
         script={"source": "ctx._source.is_latest = false", "lang": "painless"},
-        refresh=True,
+        refresh=refresh,
         conflicts="proceed",
     )
 

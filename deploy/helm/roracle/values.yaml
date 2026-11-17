@@ -58,6 +58,10 @@ config:
   ROR_WORKER_DB_MAX_OVERFLOW: "1"
   ROR_DB_POOL_TIMEOUT_S: "10"
   ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream
+  # Elasticsearch index settings, applied when an index is CREATED (docs/enterprise/capacity-planning.md for sizing)
+  ROR_ES_SHARDS: "1"                 # ~30-50 GB per shard: 12 for 50M chunks
+  ROR_ES_REPLICAS: "1"
+  ROR_VECTOR_INDEX_TYPE: int8_hnsw   # bbq_hnsw (with rescore oversample 3) only after the recall/eval gate
   ROR_MAINTENANCE_INTERVAL_S: "86400"  # periodic purge + blob gc + tag reconcile
 
 # Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.

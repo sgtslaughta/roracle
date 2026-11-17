@@ -74,19 +74,22 @@ def test_crash_before_searchable_rerun_has_no_duplicates(
 ):
     monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(paras=30)))
     v = make_version(db_session, store, user)
-    real = pipeline.search_index.mark_previous_versions
+    real = pipeline.mark_searchable_and_enqueue
 
     def boom(*a, **k):
-        raise ConnectionError("es down")
+        raise ConnectionError("db down")
 
-    monkeypatch.setattr(pipeline.search_index, "mark_previous_versions", boom)
+    monkeypatch.setattr(pipeline, "mark_searchable_and_enqueue", boom)
     _run(db_session, session_factory, cfg, store, es, v)  # retryable failure, job requeued
     assert _stage(db_session, v) == "embedded"
     first = len(_chunks(es, cfg, v))
     es.index(  # stale chunk from an earlier, longer run
-        index=index_name(cfg.embed_model), id=f"{v.id}:99", document={"version_id": str(v.id), "doc_id": "x"}
+        index=index_name(cfg.embed_model),
+        id=f"{v.id}:99",
+        document={"version_id": str(v.id), "doc_id": "x"},
+        refresh=True,  # the retry backoff (>= 20 s) is longer than the refresh interval: earlier chunks are visible
     )
-    monkeypatch.setattr(pipeline.search_index, "mark_previous_versions", real)
+    monkeypatch.setattr(pipeline, "mark_searchable_and_enqueue", real)
     with session_factory() as s:  # run_after backoff: make the job due again
         s.execute(Job.__table__.update().values(run_after=Job.__table__.c.created_at))
         s.commit()

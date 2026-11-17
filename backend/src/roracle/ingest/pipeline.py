@@ -142,6 +142,8 @@ def _index(
     chunks = chunk(doc, title, settings.embed_tokenizer)
     if not chunks:
         raise NonRetryable("no text extracted")
+    # first time this version reaches indexing: a crashed earlier run would have left "chunked"/"embedded"
+    first_index = not rebuild and v.stage in ("summarized", "deduped")
     if not rebuild:
         set_stage(sf, v.id, "chunked")
     notes = None
@@ -182,7 +184,7 @@ def _index(
     )  # fmt: skip
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-        summary_vector=sv, prompt_shas=shas, index=index, contexts=notes,
+        summary_vector=sv, prompt_shas=shas, index=index, contexts=notes, refresh=False,
     )  # fmt: skip
     keep_units = None
     if (
@@ -195,6 +197,7 @@ def _index(
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
     if fresh is None:  # deleted while we indexed: DELETE's chunk purge may have run before our bulk
+        es.indices.refresh(index=search_index.MUTATE_ALIAS)  # the purge must see the unrefreshed new chunks
         es.delete_by_query(
             index=search_index.MUTATE_ALIAS,
             query={"term": {"doc_id": str(d.id)}},
@@ -203,14 +206,18 @@ def _index(
         )
         return
     if fresh[0] != {**acl, "tags": tags}:
+        es.indices.refresh(index=search_index.MUTATE_ALIAS)  # update_by_query only sees refreshed chunks
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
-    search_index.delete_stale_chunks(es, v.id, len(chunks), keep_units=keep_units)
+    if not first_index:  # a first index of this version has no earlier chunks to prune
+        search_index.delete_stale_chunks(es, v.id, len(chunks), keep_units=keep_units, refresh=False)
+    if latest and v.version > 1 and not rebuild:  # version 1 has no older versions to demote
+        search_index.mark_previous_versions(es, d.id, v.version, refresh=False)
+        clear_outdated_reasons(sf, d.id, v.id)
+    es.indices.refresh(
+        index=search_index.MUTATE_ALIAS
+    )  # the ONE refresh per ingest, before it becomes searchable
     if rebuild:
         return
-    if latest:
-        search_index.mark_previous_versions(es, d.id, v.version)
-        if v.version > 1:
-            clear_outdated_reasons(sf, d.id, v.id)
     # R6 + demotion: stage, citations job and the is_latest flip commit atomically
     mark_searchable_and_enqueue(sf, v.id, demote_doc=d.id if latest else None)
 
@@ -239,7 +246,7 @@ def _index_units(
         runtime.assert_embedding_unchanged(session, settings)
         search_index.index_units(
             es, v, d, units, vecs, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-            index=index, prompt_shas=shas,
+            index=index, prompt_shas=shas, refresh=False,
         )  # fmt: skip
     return [f"{v.id}:{u.key}" for u in units]
 
@@ -264,14 +271,17 @@ def index_units_only(
     )
     fresh = read_acl(sf, d.id)
     if fresh is None:
+        es.indices.refresh(index=search_index.MUTATE_ALIAS)
         es.delete_by_query(
             index=search_index.MUTATE_ALIAS, query={"term": {"doc_id": str(d.id)}}, refresh=True,
             conflicts="proceed",
         )  # fmt: skip
         return
     if fresh[0] != {**acl, "tags": tags}:
+        es.indices.refresh(index=search_index.MUTATE_ALIAS)
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
-    search_index.delete_stale_units(es, v.id, keep or [])
+    search_index.delete_stale_units(es, v.id, keep or [], refresh=False)
+    es.indices.refresh(index=search_index.MUTATE_ALIAS)
 
 
 def _is_latest(session: Session, v: DocumentVersion, d: Document) -> bool:
