@@ -68,15 +68,29 @@ class LLM:
 
 @pytest.fixture
 def run(client, as_ana, app, settings):
-    def go(es, content="give me a summary", tabs=(), scope="all", chars=48000, headers=None, ignored=()):
+    def go(
+        es,
+        content="give me a summary",
+        tabs=(),
+        scope="all",
+        chars=48000,
+        win=300,
+        headers=None,
+        ignored=(),
+        selection=None,
+    ):
         llm = LLM()
-        small = settings.model_copy(update={"summary_doc_chars": chars})
+        small = settings.model_copy(update={"summary_doc_chars": chars, "summary_window_chars": win})
         app.dependency_overrides[get_es] = lambda: es
         app.dependency_overrides[get_llm] = lambda: llm
         app.dependency_overrides[get_app_settings] = lambda: small
         h = headers or as_ana
         cid = client.post("/chats", headers=h, json={"scope": scope}).json()["id"]
-        viewer = {"tabs": [{"doc_id": str(d.id)} for d in tabs], "ignored": [str(i) for i in ignored]}
+        viewer = {
+            "tabs": [{"doc_id": str(d.id)} for d in tabs],
+            "ignored": [str(i) for i in ignored],
+            "selection": selection,
+        }
         r = client.post(f"/chats/{cid}/messages", headers=h, json={"content": content, "viewer": viewer})
         assert r.status_code == 200, r.text
         ev = []
@@ -108,7 +122,7 @@ def test_live_repro_open_paper_only(run, db_session, ana):
     assert items and {c["doc_id"] for c in items} == {str(a.id)}
     assert es.corpus_calls == [] and len(llm.streams) == 1 and llm.maps == []
     msg = llm.streams[0]["messages"]
-    assert msg[0]["content"] == summarize.SYSTEM and "Decoy" not in msg[-1]["content"]
+    assert msg[0]["content"] == summarize.SYSTEM + "Paper A" and "Decoy" not in msg[-1]["content"]
     assert msg[-1]["content"].index("A text 0") < msg[-1]["content"].index("A text 2")  # reading order
     assert any(e == "meta" and d["summarize"]["doc_id"] == str(a.id) for e, d in ev)
 
@@ -180,7 +194,7 @@ def test_long_doc_map_reduce_cites_real_chunks(run, db_session, ana):
 def test_window_cap(run, db_session, ana):
     a, av = seed(db_session, ana, title="Huge")
     chunks = [hit(a, av, i, "x" * 100, page=i + 1) for i in range(60)]
-    llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=150)
+    llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=200, win=200)
     assert len(llm.maps) == summarize.MAX_WINDOWS
     assert {c["chunk_id"] for c in cites(ev)} <= {c["_source"]["chunk_id"] for c in chunks}
 
@@ -191,8 +205,50 @@ def test_units_used_when_over_budget(run, db_session, ana):
     units = [hit(a, av, "s0", "section one", unit="section", source_chunks=[f"{av.id}:4", f"{av.id}:5"]),
              hit(a, av, "d", "whole doc", unit="document", source_chunks=[f"{av.id}:0"])]  # fmt: skip
     units[0]["_source"]["chunk_id"], units[1]["_source"]["chunk_id"] = f"{av.id}:s0", f"{av.id}:d"
-    llm, ev = run(SummES(chunks=chunks, units=units), tabs=[a], chars=1000 - 1 - 0)
+    llm, ev = run(SummES(chunks=chunks, units=units), tabs=[a], chars=999)
     assert llm.maps == []
     body = llm.streams[0]["messages"][-1]["content"]
     assert "section one" in body and "whole doc" in body
     assert {c["chunk_id"] for c in cites(ev)} <= {c["_source"]["chunk_id"] for c in chunks}
+    assert all(
+        c["quote"] in ("x" * 100,) for c in cites(ev)
+    )  # quotes are real chunk text, not unit summaries
+    assert len({c["chunk_id"] for c in cites(ev)}) == len(cites(ev))  # deduped by chunk id
+
+
+def test_map_outputs_cached_and_focus_in_prompt(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Cached")
+    chunks = [hit(a, av, i, "y" * 100) for i in range(10)]
+    llm, _ = run(SummES(chunks=chunks), content="Limitations", tabs=[a], chars=300)
+    assert len(llm.maps) == 4 and "Limitations" in llm.maps[0]["messages"][-1]["content"]
+    assert llm.maps[0]["max_tokens"] == 200
+    llm2, _ = run(SummES(chunks=chunks), content="Limitations", tabs=[a], chars=300)
+    assert llm2.maps == [] and len(llm2.streams) == 1
+
+
+def test_selection_keeps_ordinary_path(db_session, ana):
+    d, _ = seed(db_session, ana, title="Sel")
+    p = Principal(user_id=ana, sub="ana", username="ana", groups=(), is_admin=False)
+    sel = {"doc_id": str(d.id), "page": 1, "text": "a paragraph"}
+    view = Viewer(tabs=[Tab(doc_id=str(d.id))], selection=sel)
+    assert summarize.decide(db_session, p, "summarize this", view, "all") == (None, False)
+
+
+def test_topic_summary_without_tab_searches(db_session, ana):
+    p = Principal(user_id=ana, sub="ana", username="ana", groups=(), is_admin=False)
+    for q in (
+        "what are the limitations of CRISPR?",
+        "summary of BERT",
+        "give me an overview of transformers",
+    ):
+        assert summarize.decide(db_session, p, q, Viewer(), "all") == (None, False)
+
+
+def test_meta_names_doc_and_version_and_reading_frames(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Named")
+    chunks = [hit(a, av, i, "z" * 100) for i in range(10)]
+    llm, ev = run(SummES(chunks=chunks), content="Methods used", tabs=[a], chars=300)
+    meta = next(d for e, d in ev if e == "meta" and "summarize" in d)["summarize"]
+    assert meta == {"doc_id": str(a.id), "title": "Named", "version": 1}
+    assert [d["part"] for e, d in ev if e == "reading"] == [1, 2, 3, 4]
+    assert "Named" in llm.streams[0]["messages"][0]["content"]

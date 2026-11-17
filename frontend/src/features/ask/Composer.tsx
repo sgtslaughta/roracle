@@ -51,7 +51,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     setDraft("");
     onSend(q);
   };
-  const send = (q: string) => { if (!streaming && !busy) { if (uid) pushHistory(uid, q); onSend(q); } };
+  const send = (q: string) => { if (!streaming && !busy) { if (uid) pushHistory(uid, q); onSend(q); area.current?.focus(); } };
   const fill = (t: string) => { caret.current = Math.max(0, t.indexOf(PLACEHOLDER)); setDraft(t); area.current?.focus(); };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
@@ -76,7 +76,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     <form className="composer" onSubmit={submit}>
       <div className="cwrap">
         <ContextChips />
-        {!streaming && !draft && <QuickPrompts onSend={send} onFill={fill} />}
+        {!streaming && !busy && !draft && <QuickPrompts onSend={send} onFill={fill} />}
         <textarea
           ref={area} rows={1} aria-label="Question" maxLength={MAX_Q} value={draft} onChange={(e) => { cursor.current = null; setDraft(e.target.value); }} onKeyDown={onKey}
           placeholder="Ask about your documents, or about what you're reading"

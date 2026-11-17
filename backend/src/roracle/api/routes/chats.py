@@ -141,10 +141,6 @@ def _release(prep, ss: Session, own: bool):
     return go
 
 
-def _close(ss: Session, own: bool):
-    return ss.close if own else (lambda: None)
-
-
 def _leave(p: Principal, ss: Session, own: bool):
     def go() -> None:
         agentic.leave(p)
@@ -261,6 +257,7 @@ def post_message(
     prep = None
     agent = False
     target = None
+    admitted = False
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
@@ -320,15 +317,15 @@ def post_message(
             excluded, meta, settings.global_reduce_tokens if prep else None,
             stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact)
             if prep
-            else (summarize.prepare(ss, es, llm, settings, p, body.content, target, history, HISTORY) if target else None)
+            else summarize.prepare(ss, es, llm, settings, p, body.content, target, history, HISTORY)
             if target
             else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
-            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else (_close(ss, ss is not session) if target else None)),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent or target else None),
         )  # fmt: skip
     except BaseException:
         if prep:
             prep.release()
-        if agent:
+        if agent or admitted:
             agentic.leave(p)
         raise
     return ClosingStreamingResponse(

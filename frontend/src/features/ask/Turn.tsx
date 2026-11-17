@@ -27,6 +27,7 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
       {answer && (
         <article className="answer" ref={ref} aria-label="Answer" aria-busy={streaming}>
           <AnswerText text={answer.text} citations={answer.citations} streaming={streaming} hot={hot} onHot={setHot} />
+          {answer.note && <p className="stat">{answer.note}</p>}
           {!!answer.excluded?.length && <ExcludedNote items={answer.excluded} />}
           <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">

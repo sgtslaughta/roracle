@@ -72,4 +72,4 @@ def contentless(q: str) -> bool:
     """True when almost nothing but request words remains (needs an open document to mean anything)."""
     rest = _STRIP.sub(" ", q)
     toks = [t for t in re.findall(r"\w+", rest.lower()) if t not in _STOP]
-    return len(toks) < 2
+    return not toks

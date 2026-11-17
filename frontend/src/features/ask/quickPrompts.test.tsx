@@ -73,11 +73,27 @@ describe("quick prompts", () => {
 
   it("is hidden while a turn streams", async () => {
     server.use(http.post(`${API_BASE}/chats/:id/messages`, () =>
-      new HttpResponse(new ReadableStream({ start() { /* stays open */ } }), { headers: { "Content-Type": "text/event-stream" } })));
+      new HttpResponse(new ReadableStream({ start() { /* stays open */ } }), { headers: { "Content-Type": "text/event-stream", "Content-Length": "1000000" } })));
     openDoc(D1);
     await renderApp();
     await userEvent.setup().click(await screen.findByRole("button", { name: "Limitations" }));
     await screen.findByRole("button", { name: "Stop" });
     expect(names()).toEqual([]);
+    await waitFor(async () => expect(await box()).toHaveFocus());
+  });
+
+  it("shows which paper is summarized and the reading progress", async () => {
+    const enc = new TextEncoder();
+    const ev = (e: string, d: unknown) => enc.encode(`event: ${e}\ndata: ${JSON.stringify(d)}\n\n`);
+    server.use(http.post(`${API_BASE}/chats/:id/messages`, () =>
+      new HttpResponse(new ReadableStream({ start(c) {
+        c.enqueue(ev("reading", { part: 2, of: 5 }));
+        c.enqueue(ev("meta", { summarize: { doc_id: D1, title: "Spectral gaps", version: 2 } }));
+      } }), { headers: { "Content-Type": "text/event-stream", "Content-Length": "1000000" } })));
+    openDoc(D1);
+    await renderApp();
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Summarize this paper" }));
+    expect(await screen.findByText("Summarizing Spectral gaps (v2)")).toBeInTheDocument();
+    expect(await screen.findByText("Reading part 2 of 5…")).toBeInTheDocument();
   });
 });
