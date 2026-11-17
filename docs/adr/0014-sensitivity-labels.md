@@ -62,4 +62,4 @@ without introducing a second access-control system. Visibility and shares stay t
 - No label retire/merge: a label in use cannot be deleted (409 `label in use`).
 - Operations and operator-facing limits: [security](../enterprise/security.md#13-sensitivity-labels),
   [agent integration](../enterprise/agent-integration.md#sensitivity-labels),
-  [runbook](../enterprise/operations-runbook.md#sensitivity-labels).
+  [runbook](../enterprise/runbook-routine.md#sensitivity-labels).

@@ -1,4 +1,8 @@
-# Elasticsearch capacity planning (Elasticsearch 9.5.6)
+# Capacity planning
+
+Audience: platform engineers and SRE. Back to the [enterprise index](README.md). Component sizing for the reference target (500 concurrent users, 1M documents, about 50M chunks, 10k documents a day) is in the [deployment guide](deployment-guide.md#3-sizing-target-500-concurrent-users-1m-docs-50m-chunks-10k-docsday); this page explains the numbers behind it: Elasticsearch 9.5.6 (with BBQ), Postgres, the object store (Rook-Ceph RGW), inference and the connection budget. Measured behaviour: [performance report](../perf/report-2026-11-17.md) and the [budgets](../perf/README.md#budgets-at-a-glance) in `docs/perf/budgets.yaml`.
+
+## Elasticsearch (9.5.6)
 
 ## What the index looks like
 One index per embedding model and generation (`chunks-<model>-<n>`), read alias `chunks`, mutation alias `chunks-all`.
@@ -61,9 +65,50 @@ The Python client is `elasticsearch` 9.x. The 9.0 breaking changes that touch th
 (fixed in `cached_vectors` and the tests) and stricter bulk parsing. `bbq_disk`, native RRF/linear retrievers and
 searchable snapshots need an Enterprise license and are not used.
 
-## Postgres settings that the performance budgets assume
+## Postgres
 
-- `jit = off` (the chart sets it; set it yourself on an external Postgres). With JIT on, the ACL queries are compiled on every
-  statement (150-500 ms each under load) and `/search` is about 4x slower (`docs/perf/report-2026-11-17.md`, F1).
-- `shared_buffers` ~ 25 % of memory: at the default 128 MB a search spends ~130 ms in Postgres, at 3 GB ~13 ms (F5).
-- API replicas: one process sustains about 10 searches/s (5 filtered searches/s) before it is CPU-bound (F3).
+Chart defaults (`postgres.*`, [Helm values](../reference/helm-values.md)): 3 instances (1 primary), 100Gi per instance, requests 2 CPU and 8Gi memory with a 8Gi limit, `max_connections` 200, `shared_buffers` 2GB, `work_mem` 16MB and `jit` off. The deployment guide sizes the target at 8 vCPU, 32 GiB and 500 GiB; metadata is about 100 GiB at the target.
+
+- `jit = off` (the chart sets it; set it yourself on an external Postgres). With JIT on, the ACL queries are compiled on every statement (150-500 ms each under load) and `/search` is about 4x slower (perf report, F1).
+- `shared_buffers` about 25% of memory: at the default 128 MB a search spends about 130 ms in Postgres, at 3 GB about 13 ms (F5).
+- The 1M-document measurement used a 5.8 GB database (1M documents and versions, 2M tags, 5M citations, 3M finished jobs, 1M audit rows, 16M LSH rows). Plan disk for the audit log and `jobs`, which the maintenance job prunes (finished jobs after 7 days, failed after 30).
+- Backups add WAL and base-backup volume to the S3 side, not to the cluster disk ([backup and DR](backup-dr.md)).
+
+### Connection budget
+
+Every pod holds pooled connections, so the budget must hold at full autoscale. The chart renders a failure with the numbers when it does not (and `NOTES.txt` prints the worst case for an external Postgres).
+
+```text
+clients = api_max_replicas x (ROR_DB_POOL_SIZE + ROR_DB_MAX_OVERFLOW)
+        + worker_max_replicas x (ROR_WORKER_DB_POOL_SIZE + ROR_WORKER_DB_MAX_OVERFLOW)
+direct:  clients + postgres.reservedConnections <= postgres.parameters.max_connections
+pooled:  pooler.instances x defaultPoolSize + reserved <= max_connections;  clients <= pooler.instances x maxClientConn
+```
+
+Defaults: API 10 x (8 + 4) = 120, workers 12 x (3 + 1 + 1 heartbeat) = 60, reserved 15, total 195 against `max_connections` 200. Each idle backend costs about 10 MB of RAM and active ones add up to `work_mem` per sort or hash node. Past about 300 connections enable PgBouncer (`postgres.pooler.enabled`). One-off Jobs (migrate, eval and CLI runs) come out of `postgres.reservedConnections`. Derivation, the agentic extra connections and the PgBouncer rules: [connection budget](../perf/connection-budget.md).
+
+## Application replicas
+
+- **API:** one process sustains about 10 searches per second (5 filtered searches per second) before it is CPU-bound; size replicas as `rps / 10` for search and `rps / 5` for filtered (perf report, F3). Each in-flight chat stream holds one worker thread (`ROR_API_THREADS`, 256).
+- **Workers:** parsing and models are remote, so workers wait on I/O. Ingest overhead in our own code is about 0.16 s per document (p95), against 15 s per document allowed by the throughput budget of 4 documents a minute per worker; real throughput is set by Docling, the summary model and embeddings. Scale on queue depth, not CPU ([incident runbook](runbook-incidents.md#2-job-leases-drain-and-worker-shutdown)).
+- **Budgets** (`docs/perf/budgets.yaml`, milliseconds unless stated): search p95 400, filtered search p95 500, browse p95 100 at 10M documents, chat retrieval p95 800 (1100 with RAPTOR), MCP search p95 450, document read p95 80, queue claim p99 5, ingest overhead p95 2 s, near-duplicate p95 50, re-embed at least 1000 chunks/s, reconcile with no drift 0 Elasticsearch writes.
+
+## Object store (Rook-Ceph RGW)
+
+Only for `object_store = "rook-ceph"` ([Terraform guide](deployment-terraform.md)); with an external S3 the provider sizes it. Terraform defaults (`ceph.*`): 3 monitors, 2 managers, an erasure-coded data pool 2 data + 1 coding chunks (needs at least 3 failure domains, `failure_domain = "host"`; `replicated` with 3 replicas otherwise), replicated metadata (3), 2 RGW instances (request 1 CPU and 2Gi, limit 4Gi), OSDs request 1 CPU and 4Gi (limit 6Gi). Raw capacity is usable capacity times 1.5 for erasure 2+1, or times 3 replicated. The deployment guide's target is about 10 TiB usable (originals about 5 TiB plus derived PDFs and evidence).
+
+Add the backup buckets: the object-locked buckets keep noncurrent versions for `ceph.object_lock.retention_days` plus one day, so they cost about twice the retention window of backup data ([backup and DR](backup-dr.md#3-object-lock-backup-buckets)). Backups on the same cluster as the data they protect are not a backup: replicate off-site.
+
+## Inference
+
+rOracle calls an OpenAI-spec endpoint (`ROR_LLM_BASE_URL`) for chat, summaries and embeddings, and optionally a reranker; it does not run models itself. Sizing inputs:
+
+- **Chat:** a model with at least 32k context (default `qwen2.5:14b`). Peak concurrent chats equal API threads in use; the retrieval half of a chat turn is budgeted at 800 ms excluding the LLM.
+- **Embeddings:** every chunk is embedded at ingest, and a re-embed copies all chunks: the 1000 chunks/s budget assumes four embedding replicas at about 250 chunks/s each. Set `ROR_EMBED_CONCURRENCY` (requests in flight per slice) and `ROR_REEMBED_SLICES` (default 4) to the replica count. Double the vector storage during a re-embed.
+- **Small models:** `ROR_SUMMARY_MODEL` (default `qwen2.5:3b`) runs once per document; the agentic planner needs a small fast model (calls above `ROR_AGENTIC_CALL_TIMEOUT_S`, 1.5 s, drop the loop).
+- **Reranker:** `bge-reranker-v2-m3`, up to 200 passages per chat request (`ROR_RERANK_DEPTH`) and 50 for `/search` (`ROR_SEARCH_RERANK_DEPTH`), at most 256 texts per call, timeout 3 s (`ROR_RERANK_TIMEOUT_S`); target p95 under 800 ms for 200 passages. A slower reranker adds its time to every search one for one.
+- **In-cluster option:** the Terraform `inference` module (off by default) runs one GPU each for the LLM (defaults 4 CPU, 32Gi) and the reranker (2 CPU, 8Gi), with placeholder images ([mirror manifest](airgap-mirror-manifest.md)).
+
+## Related
+
+[Observability](observability.md), [upgrades](upgrades.md), [metrics reference](../reference/metrics.md), [settings reference](../reference/settings.md).

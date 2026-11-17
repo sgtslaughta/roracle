@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_airgap import missing as airgap_missing
 from mdutil import ROOT, lines, load_allow, md_files
 
 # Historic records explain why, not what is true now.
@@ -251,7 +252,7 @@ def run(root: Path = ROOT, allow: set | None = None) -> list[str]:
                 if (None, tok) in allow or (rel, tok) in allow:
                     continue
                 errs.append(f"{rel}:{n}: {what}: {tok}")
-    return errs
+    return errs + airgap_missing(root)
 
 
 def main() -> int:

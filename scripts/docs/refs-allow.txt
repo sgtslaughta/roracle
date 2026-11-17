@@ -2,3 +2,7 @@
 # Keep a reason on each line; upgrade notes about removed settings belong here.
 docs/reference/helm-values.md|/api/isalive  # GROBID probe path in the generated chart defaults, not an rOracle route
 docs/reference/api.md|ROR_VERSION  # env var read by roracle/__init__.py resolve_version, not a Settings field
+docs/reference/metrics.md|roracle_search_seconds  # named only to say it does not exist
+docs/reference/metrics.md|roracle_chat_ttft_seconds  # named only to say it does not exist
+docs/reference/metrics.md|roracle_ingest_seconds  # named only to say it does not exist
+docs/reference/metrics.md|roracle_llm_errors_total  # named only to say it does not exist

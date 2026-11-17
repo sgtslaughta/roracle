@@ -29,6 +29,24 @@ transaction, and a claim shares one transaction with its handler): drain workers
 before `roracle migrate`. A failed build leaves an invalid index; re-running the migration drops and rebuilds it.
 `ROR_READ_ALIAS` and `ROR_MUTATE_ALIAS` must be set together (Settings validates it) on API and worker.
 
+## Budgets at a glance
+
+The binding limits are in [`budgets.yaml`](budgets.yaml) (milliseconds unless stated) and the latest measurements, with findings and what was extrapolated, are in the [performance report](report-2026-11-17.md). The CI profile loosens latency limits by 1.5x. Operators: see [capacity planning](../enterprise/capacity-planning.md) for how they translate into replicas and the [connection budget](connection-budget.md).
+
+| Budget | Limit |
+|---|---|
+| `search` | p95 400 |
+| `search_filtered` | p95 500 (about 5 requests per second per API process) |
+| `browse` | p95 100 at 10M documents (measured at 1M, extrapolated) |
+| `chat_retrieve` | p95 800 (1100 with RAPTOR); the retrieval half of a chat turn |
+| `mcp_search` | p95 450 |
+| `doc_read` | p95 80 |
+| `claim` | p99 5 at 100k queued jobs, one claimer |
+| `ingest_overhead_s` | p95 2 s per document, models excluded |
+| `near_dup` | p95 50 |
+| `rebuild_chunks_per_s` | at least 1000 |
+| `reconcile_es_writes` | 0 with no drift |
+
 ## One command: `roracle perf suite` (Task 10.13)
 
 Runs every budget in `budgets.yaml` against a scratch environment and exits non-zero when one is missed:

@@ -180,7 +180,7 @@ rebuild is idempotent per version.
   0 turns it off). `/healthz` returns 503 only when the loop heartbeat is more than 300 s old and no job is
   running, so a long handler never trips liveness.
 - `roracle_job_runs_total{kind,outcome}` counts `done`, `retry` and `failed` runs; see the
-  [metrics reference](../reference/README.md).
+  [metrics reference](../reference/metrics.md).
 - **Scaling.** Workers scale out freely because claims use `SKIP LOCKED`. The chart enables a **CPU-based HPA** for
   workers by default (4 to 12 replicas, target 70 %, scale-down stabilization 3600 s, at most one pod removed per
   10 minutes). The chart comment says that is a poor signal for I/O-bound workers, because CPU-based scale-down
