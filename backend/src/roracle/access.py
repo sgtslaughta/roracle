@@ -7,6 +7,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.auth import Principal
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
+from roracle.models_labels import Label
 
 
 def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
@@ -72,8 +73,22 @@ def org_ancestors(groups: list[str]) -> list[str]:
     return sorted(out)
 
 
+def agent_visible() -> ColumnElement[bool]:
+    """Gate (b): document label does not carry `block_agents`. Always an extra AND, never widens access."""
+    return Document.label_id.not_in(select(Label.id).where(Label.block_agents.is_(True)))
+
+
+def llm_allowed() -> ColumnElement[bool]:
+    """Gate (a): document label does not carry `exclude_llm`. Postgres authority behind the ES label filter."""
+    return Document.label_id.not_in(select(Label.id).where(Label.exclude_llm.is_(True)))
+
+
 def visible_documents(p: Principal) -> ColumnElement[bool]:
     live = Document.deleted_at.is_(None)
+    if p.via == "pat":
+        live = and_(
+            live, agent_visible()
+        )  # PAT/agent principals: label-blocked docs behave as invisible (admins too)
     if p.is_admin:
         return and_(live, true())
     groups = org_units(p.groups)

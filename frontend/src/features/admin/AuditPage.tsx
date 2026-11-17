@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useDebounced } from "@/lib/useDebounced";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "./dataApi";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const DETAIL_MAX = 160;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,7 +30,7 @@ export function AuditPage() {
       {rows.length > 0 && (
         <div className="tok-wrap">
           <table className="agent-table admin-table">
-            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Details</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {rows.map((r) => {
                 const full = asText(r.detail), long = full.length > DETAIL_MAX, expanded = open === r.id;
@@ -41,6 +42,7 @@ export function AuditPage() {
                       {full ? (expanded || !long ? full : `${full.slice(0, DETAIL_MAX)}…`) : "–"}
                       {long && <> <Button variant="ghost" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.id)}>{expanded ? "Less" : "More"}</Button></>}
                     </td>
+                    <td><RowMenu label={`Actions for entry ${r.id}`} actions={[copyAction("Copy details", full || r.action), ...(r.target ? [copyAction("Copy target", r.target)] : [])]} /></td>
                   </tr>
                 );
               })}

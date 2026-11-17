@@ -8,9 +8,11 @@ from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from roracle.access import agent_visible
 from roracle.api.routes.library import MAX_TAGS
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.labels.service import raise_document_label
 from roracle.models import (
     Annotation,
     Blob,
@@ -89,12 +91,19 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
         raise HTTPException(403, "only the document owner can add versions")
     if target is None or target.deleted_at is not None:
         raise HTTPException(409, "matched document no longer exists")
+    if (
+        p.via == "pat"
+        and session.scalar(select(Document.id).where(Document.id == target.id, agent_visible())) is None
+    ):
+        raise HTTPException(409, "matched document no longer exists")  # hidden from agents: say nothing more
     if session.get(Draft, doc.id) is not None:
         raise HTTPException(409, "a published draft cannot be merged into another document")
     top = session.scalar(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == target.id)
     )
     old_doc_id = v.document_id
+    if raise_document_label(session, p, target, doc.label_id, via="near_dup"):
+        enqueue(session, "acl_sync", {"doc_id": str(target.id)})
     v.document_id, v.version, v.is_latest = target.id, (top or 0) + 1, False
     session.flush()
     others = session.scalar(

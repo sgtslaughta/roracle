@@ -58,7 +58,7 @@ describe("settings", () => {
     const input = screen.getByLabelText("rerank_depth");
     await user.clear(input); await user.type(input, "5");
     await user.click(screen.getByRole("button", { name: "Save rerank_depth" }));
-    expect(await within(rowOf("rerank_depth")).findByRole("alert")).toHaveTextContent("rerank_depth: Input should be between 10 and 100");
+    expect(await within(rowOf("rerank_depth")).findByRole("alert")).toHaveTextContent("rerank_depth: Input should be between 10 and 500");
     await user.click(within(rowOf("pats_enabled")).getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "Save pats_enabled" }));
     expect(await lastBody("PUT", "/admin/settings")).toEqual({ pats_enabled: false });

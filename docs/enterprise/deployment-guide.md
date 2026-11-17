@@ -10,12 +10,12 @@ Read with: [spec](../spec.md), [security](security.md), [operations runbook](ope
  users ──mTLS──► org proxy ──► ingress (TLS) ──► web (nginx, SPA)
  agents ─mTLS──► org proxy ─┘                 └► api (FastAPI: REST, SSE, /mcp) ──┬─► Postgres (CNPG, 3 inst.)
                                                                                   ├─► Elasticsearch (ECK, 3+ data)
- Keycloak (X.509 authenticator) ◄── JWKS ── api                                   ├─► MinIO (4+ nodes, EC)
+ Keycloak (X.509 authenticator) ◄── JWKS ── api                                   ├─► S3 (Rook-Ceph RGW or external)
                                                                                   └─► OpenAI-spec inference
  worker (jobs) ──► Docling · GROBID · Gotenberg · ClamAV · latex-builder ──► same stores
 ```
 
-Namespaces: `roracle` (app and bundled Postgres, Elastic, MinIO, parsers); operators in their own namespaces.
+Namespaces: `roracle` (app and bundled Postgres, Elastic, parsers; object storage is external or Rook-Ceph in `rook-ceph`); operators in their own namespaces.
 Use `mode: external` for platform-provided data services. NetworkPolicies: default deny; allow only the edges above.
 
 ## 2. Prerequisites
@@ -23,7 +23,7 @@ Use `mode: external` for platform-provided data services. NetworkPolicies: defau
 | Item | Requirement |
 |---|---|
 | Kubernetes | ≥ 1.29, 3+ worker nodes across failure domains; CSI with SSD storage class and snapshots |
-| Operators | CloudNativePG (+ barman-cloud plugin, cert-manager), ECK, MinIO Operator, each optional with the matching `mode: external` (see section 4.1) |
+| Operators | CloudNativePG (+ barman-cloud plugin, cert-manager), ECK, (Rook-Ceph via Terraform), each optional with the matching `mode: external` (see section 4.1) |
 | Ingress | TLS-terminating ingress reachable only from the org proxy |
 | Keycloak | Realm with X.509 browser + direct-grant flows, groups, client `roracle-web` (see Keycloak guide) |
 | Inference | OpenAI-spec endpoint: chat models, one embedding model, reranker (`/v1/rerank` or equivalent) |
@@ -46,7 +46,7 @@ Use `mode: external` for platform-provided data services. NetworkPolicies: defau
 | latex-builder | 2 | 2 vCPU, 2 GiB per build | job concurrency limited |
 | Postgres | 3 (1 primary + 2 sync/async replicas) | 8 vCPU, 32 GiB, 500 GiB SSD | metadata ≈ 100 GiB at target |
 | Elasticsearch | 3 master (small) + 3–4 data | data: 16 vCPU, 64 GiB (31 GiB heap), 2 TiB SSD | see vector math below |
-| MinIO | 4–8 nodes, erasure coding | 4 vCPU, 16 GiB, disks for ~10 TiB usable | originals ≈ 5 TiB + derived PDFs + evidence |
+| Object storage (Rook-Ceph RGW or external S3) | 3+ nodes with raw disks (Ceph), erasure coding | 4 vCPU, 16 GiB, disks for ~10 TiB usable | originals ≈ 5 TiB + derived PDFs + evidence |
 
 Vector math (per embedding model index, 1 replica):
 - 768-d (EmbeddingGemma): 50M × 768 × 4 B ≈ 154 GB float; `int8_hnsw` ≈ 39 GB + graph ≈ 7 GB.
@@ -61,7 +61,7 @@ Vector math (per embedding model index, 1 replica):
 |---|---|---|
 | CloudNativePG operator (>= 1.26) + barman-cloud plugin + cert-manager | `postgres.mode=cnpg` with `backup.method=plugin` (default); the plugin needs cert-manager | `cnpg-system` |
 | ECK operator | `elasticsearch.mode=eck` | `elastic-system` |
-| MinIO Operator | `minio.mode=tenant` | `minio-operator` |
+| Object storage | always external: Rook-Ceph RGW (Terraform `object_store = "rook-ceph"`) or your own S3; no bundled MinIO | `rook-ceph` (Terraform) |
 | prometheus-operator CRDs | `postgres.monitoring.enabled` (default true; PodMonitor) | `monitoring` |
 | Ingress controller | `ingress.enabled`; default `ingressNamespaceSelector` = namespace `ingress-nginx` | `ingress-nginx` |
 
@@ -75,12 +75,10 @@ bundled data services render into the same namespace as the release.
 |---|---|---|
 | `secrets.existingSecret` | `ROR_DATABASE_URL` (`postgresql+psycopg://roracle:<pw>@roracle-pg-rw:5432/roracle`), `ROR_ELASTIC_URL`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY`, `ROR_LLM_API_KEY` (unless `secrets.llmApiKeyEnabled=false`) | always |
 | `postgres.appCredentialsSecret` | type `kubernetes.io/basic-auth`: `username: roracle`, `password` (same password as in `ROR_DATABASE_URL`) | `postgres.mode=cnpg` |
-| `postgres.backup.credentialsSecret.name` | `ACCESS_KEY_ID`, `ACCESS_SECRET_KEY` (= `minio.users.pgBackup` keys) | cnpg + `backup.enabled` |
-| `postgres.backup.endpointCA.name` | `ca.crt` = content of `kube-root-ca.crt` (render fails without it when MinIO auto-cert is on) | cnpg + backup + tenant + `requestAutoCert` |
+| `postgres.backup.credentialsSecret.name` | `ACCESS_KEY_ID`, `ACCESS_SECRET_KEY` (a dedicated identity: not the app key) | cnpg + `backup.enabled` |
+| `postgres.backup.endpointCA.name` | `ca.crt` of the S3 endpoint CA (only for a private CA) | cnpg + backup + private-CA S3 |
 | `elasticsearch.appUserSecret` | basic-auth: `username: roracle_app`, `password`, `roles: roracle_app` | `elasticsearch.mode=eck` |
-| `elasticsearch.snapshot.credentialsSecret` | `s3.client.default.access_key`, `s3.client.default.secret_key` (= `minio.users.esSnapshot` keys) | eck + `snapshot.enabled` |
-| `minio.configurationSecret` | `config.env` with `export MINIO_ROOT_USER=...` / `export MINIO_ROOT_PASSWORD=...`; charset `[A-Za-z0-9._~-]` only (e.g. `openssl rand -hex 32`) | `minio.mode=tenant` |
-| `minio.users.app`, `.pgBackup`, `.esSnapshot` | `CONSOLE_ACCESS_KEY`, `CONSOLE_SECRET_KEY` (users are created by the `minio-policy` hook Job with one-bucket policies) | tenant |
+| `elasticsearch.snapshot.credentialsSecret` | `s3.client.default.access_key`, `s3.client.default.secret_key` (a dedicated identity: not the app key) | eck + `snapshot.enabled` |
 
 `ROR_ELASTIC_URL` = `https://roracle_app:<password>@roracle-es-http.<ns>.svc:9200` (`<fullname>-es-http`; never the `elastic` user).
 Optional: `caBundle.extraSecrets`, `elasticsearch.snapshot.extraCASecret` (private CAs), `imagePullSecrets`.
@@ -99,13 +97,21 @@ First-install ordering:
 
 | `postgres.mode` | Migrate hook (`python -m roracle migrate --wait 600`, `backoffLimit: 0`) |
 |---|---|
-| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
+| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
 | `external` | `pre-install,pre-upgrade`: failure blocks the release. |
 
-Post hooks run in weight order: `minio-policy` (-10, creates users, policies, retention) then ES snapshot repo + SLM (0, retries repository registration up to 5 min until the MinIO user exists). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
+Post hooks run in weight order: ES snapshot repo + SLM (0, retries repository registration up to 5 min until the S3 bucket and snapshot identity exist). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
 
 Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
 `helm test` is not provided.
+
+### 4.3a Deploy with Terraform
+
+`deploy/terraform` wraps the steps above (namespaces, pull secret, operator charts, Secrets, the `roracle` release) for an existing cluster
+reached through a kubeconfig; it creates no cloud resources and does not replace the chart ([ADR-0016](../adr/0016-terraform-iac.md)).
+Operator chart repositories/versions are placeholders until you set your mirror values; `apply` refuses to run while any remain.
+Object storage is `object_store = "rook-ceph"` (Terraform installs Rook-Ceph RGW, buckets and credentials; needs >= 3 nodes with raw disks) or `"external"` (your S3, recommended for small installs); Terraform never deploys a MinIO tenant (community images ended Oct 2025).
+See [deploy/terraform/README.md](../../deploy/terraform/README.md) for prerequisites, the placeholder table, plan/apply order, state backends and destroy cautions.
 
 ### 4.4 Ingress
 
@@ -125,7 +131,7 @@ The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew
 |---|---|---|
 | Postgres | `postgres.mode=cnpg` (CNPG `Cluster` `roracle-pg`, `ObjectStore`, daily `ScheduledBackup`) | `external`: nothing rendered; `ROR_DATABASE_URL` in the app Secret; egress via `networkPolicy.externalCIDRs.postgres` |
 | Elasticsearch | `elasticsearch.mode=eck` (`Elasticsearch` `roracle`, snapshot hook Job) | `external`: `ROR_ELASTIC_URL` in the app Secret; `externalCIDRs.elasticsearch`; snapshots are yours |
-| Object store | `minio.mode=tenant` (`Tenant` `roracle-minio`, svc `minio`) | `external`: set `config.ROR_S3_ENDPOINT`; `networkPolicy.s3Cidrs` for egress |
+| Object store | removed (use Rook-Ceph or an external S3) | `config.ROR_S3_ENDPOINT` (required), `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint`; `networkPolicy.s3` (CIDRs and/or in-cluster peer) for egress, which also covers the CNPG/ES pods |
 | Parsers | `parsers.{gotenberg,draftgotenberg,docling,grobid,clamav}.enabled` (Deployments, no egress) | `enabled=false` + `config.ROR_*_URL` (draft builds: `config.ROR_DRAFT_GOTENBERG_URL`) / `ROR_CLAMAV_HOST` + `ROR_CLAMAV_PORT` + `egressCIDRs.parsers` |
 
 ### 4.6 NetworkPolicy values you must set
@@ -138,8 +144,8 @@ The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew
 | `networkPolicy.ingressNamespaceSelector` | labels of the ingress controller namespace (hostNetwork controllers: add your own policy for the node CIDR) |
 | `networkPolicy.egressCIDRs.{llm,oidc,otel,parsers}` | `cidrs` and/or `namespaceSelector`/`podSelector` + `ports` (pod/node/LB addresses, never Service ClusterIPs: policies apply after DNAT) |
 | `networkPolicy.kubeAPI.cidrs` | apiserver endpoint IPs. Default empty = ports 443/6443 allowed to any destination (tighten in production) |
-| `networkPolicy.operatorNamespaces` | namespaces of ECK, CNPG, MinIO operators if not the defaults |
-| `networkPolicy.externalCIDRs.*`, `s3Cidrs`, `connectors.egressCIDRs` | only for external services / connector targets |
+| `networkPolicy.operatorNamespaces` | namespaces of the ECK and CNPG operators if not the defaults |
+| `networkPolicy.externalCIDRs.*`, `networkPolicy.s3`, `connectors.egressCIDRs` | only for external services / connector targets |
 | `networkPolicy.monitoringNamespace`, `scrape.{enabled,ports}` | Prometheus namespace allowed to scrape api (8000) and worker (`worker.healthPort`, 8001) `/metrics` and Postgres; keep `ports` in step with `worker.healthPort` |
 
 ### 4.7 Web runtime environment
@@ -170,7 +176,7 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 | `ingress` | host, class, TLS secret, annotations |
 | `postgres` | CNPG mode, instances, storage, image, `backup` (plugin/legacy, schedule, retention) |
 | `elasticsearch` | ECK mode, version, nodeSets, storage, TLS, `snapshot` (bucket, SLM schedule/retention) |
-| `minio` | tenant mode, servers/volumes, auto-cert, users, `backupRetentionDays`, `policyJob` |
+| `networkPolicy.s3` | egress to the object store (CIDRs and/or in-cluster peer) |
 | `parsers` | gotenberg, draftgotenberg, docling, grobid, clamav (+ PDB) |
 | `connectors` | worker egress CIDRs/ports for connectors |
 | `caBundle` | interim CA bundle (see section 8) |
@@ -194,12 +200,10 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | Variable | Example | Purpose |
 |---|---|---|
 | `ROR_DATABASE_URL` | `postgresql+psycopg://roracle:…@pg-rw:5432/roracle` | Postgres (read-write service) |
-| `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://minio.roracle-data:9000`, `roracle` | Blob store |
+| `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://s3.internal:9000` (Ceph RGW: `https://rook-ceph-rgw-roracle.rook-ceph.svc`), `roracle` | Blob store |
 | `ROR_OIDC_ISSUER`, `ROR_OIDC_AUDIENCE`, `ROR_OIDC_JWKS_URL` | `https://kc/realms/research`, `roracle` | Token validation |
 | `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
-| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`): the API needs no large `/tmp` (`api.tmpSize` default `1Gi`). The bucket must allow multipart uploads and server-side copy for the app user, and should expire `tmp/` after 1 day (`mc ilm rule add --prefix tmp/ --expire-days 1 <alias>/<bucket>`; the bundled MinIO hook does this) |
-| `ROR_MCP_MAX_UPLOAD_BYTES` | `26214400` | Max decoded file size for the MCP `upload` tool (25 MiB); also sizes the `/mcp` body cap |
-| `ROR_PUBLIC_BASE_URL` | `https://roracle.example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
+| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`): the API needs no large `/tmp` (`api.tmpSize` default `1Gi`). The bucket must allow multipart uploads and server-side copy for the app user, and should expire `tmp/` after 1 day and abort incomplete multipart uploads (Terraform rook-ceph sets this lifecycle; external S3: `aws s3api put-bucket-lifecycle-configuration`, runbook 2).example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
 | `ROR_PATS_ENABLED` | `true` | Personal access tokens for agents (`false` rejects all PATs) |
 | `ROR_PAT_MAX_IDENTITY_AGE_DAYS` | `30` | PAT rejected if its owner has not signed in via JWT within this many days |
 | `ROR_ELASTIC_URL`, `ROR_ELASTIC_API_KEY` | `https://es-http:9200` | Search index (plan 3) |
@@ -210,7 +214,12 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_SEARCH_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of library search (BM25 hits are not floored); `0` disables. Measured on embeddinggemma: relevant hits 0.38-0.73, unrelated <=0.28. Scores are model-specific: re-tune after changing the embedding model |
 | `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
 | `ROR_CHAT_NOTE_MIN_UPVOTES`, `ROR_CHAT_NOTE_MIN_RATIO` | `3`, `0.6` | Community notes by other users reach an LLM (chat, MCP `ask`/`search`) only with at least this many upvotes and a vote ratio above the floor (the asker's own notes always qualify); prompt-injection gate |
-| `ROR_RERANK_DEPTH` | `50` | Top-N passages sent to the reranker (10-100) |
+| `ROR_RERANK_DEPTH` | `200` | Top-N passages sent to the reranker (10-500) |
+| `ROR_RERANK_URL`, `ROR_RERANK_API` | empty, `cohere` | Reranker endpoint; `tei` = HF text-embeddings-inference (`deploy/game-01`). Empty URL disables |
+| `ROR_RERANK_API_KEY` | empty | Optional bearer token for the reranker (Secret key `rerankApiKey`; never logged) |
+| `ROR_RERANK_TIMEOUT_S`, `ROR_RERANK_MAX_CHARS` | `3`, `2000` | Slow/failed rerank keeps the fused order (`roracle_rerank_fallback_total{reason}`); chars per passage sent |
+| `ROR_RERANK_MAX_BATCH` | `256` | Texts per rerank request (keep <= server `--max-client-batch-size`); the timeout is one budget for all requests |
+| `ROR_CHAT_CANDIDATES` | `200` (20-500) | BM25 and kNN list size on the chat path |
 | `ROR_UPLOAD_QUOTA_BYTES` | `0` | Per-user quota: logical bytes of the user's document versions, including trash until purged and excluding rejected/cancelled versions; over = 413 `upload quota exceeded`; hard (uploads serialized per user); `0` = unlimited |
 | `ROR_DB_CONNECT_TIMEOUT_S` | `5` | Postgres connect timeout (seconds) for API, worker, `/readyz` and the metrics collector. Raise for cross-AZ/managed PG under load; a `?connect_timeout=` in `ROR_DATABASE_URL` overrides it |
 | `ROR_RATE_LIMIT_PER_MINUTE` | `0` | Per-token request budget per API replica (token bucket, `0` = off): `429` + `Retry-After` when exceeded; PATs and JWTs are separate buckets; with N replicas the cluster-wide limit is about N x this value (use ingress limits for a hard cap). See security.md section 8 |
@@ -234,10 +243,58 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_DRAFT_GOTENBERG_URL`, `ROR_BUILD_TIMEOUT_S`, `ROR_BUILD_MAX_PDF_BYTES`, `ROR_BUILD_CONCURRENCY`, `ROR_LATEX_BUILDER` | empty, `120`, `104857600`, `2`, `disabled` | Paper-draft PDF build (`POST /drafts/{id}/build`, synchronous). Markdown goes through the bundled pandoc (pypandoc-binary wheel, run with `--sandbox`, rlimits, empty env, stdout cap) and a Python AST sanitizer, then to a **separate Chromium-enabled Gotenberg** (never the ingest instance): command `gotenberg --api-disable-download-from --webhook-disable --pdfengines-disable-routes --libreoffice-disable-routes --api-timeout=120s`, own namespace, deny-all egress NetworkPolicy (ingress from api only), no secrets, read-only root FS. `ROR_BUILD_TIMEOUT_S` is one deadline for the whole build (both pandoc passes and the Gotenberg response stream). `ROR_BUILD_CONCURRENCY` (default `2`; chart: `config.ROR_BUILD_CONCURRENCY`, and `ROR_DRAFT_GOTENBERG_URL` is auto-filled to the in-chart `parsers.draftgotenberg` Service, enabled by default, port 3000, no egress, ingress from the api only) caps simultaneous builds per api process because builds are CPU-heavy; beyond it the route returns 503 `build service busy`; the cap is read once at first use, so changing it needs an api restart. Empty URL = build returns 503 `build service not configured`. The response is streamed and aborted past `ROR_BUILD_MAX_PDF_BYTES`; it must start with `%PDF-`. `ROR_LATEX_BUILDER=disabled` = `format: latex` drafts return 501; the optional service contract is in `latex-builder.md` |
 | `ROR_DRAFT_MAX_BYTES`, `ROR_WRITING_MAX_CITATIONS`, `ROR_WRITING_VALIDATE_BUDGET_S`, `ROR_WRITING_MODEL` | `2097152`, `200`, `10`, empty | Paper drafts. `ROR_DRAFT_MAX_BYTES`: Markdown cap in UTF-8 bytes per save (over = 413). `ROR_WRITING_MAX_CITATIONS`: distinct citation keys per draft (over = blocking validation finding, fail closed). `ROR_WRITING_VALIDATE_BUDGET_S`: wall-clock budget in seconds for the deterministic checks (exceeded = blocking finding, fail closed). `ROR_WRITING_MODEL`: chat model for the style check and citation judge; empty = the first of `ROR_CHAT_MODELS`. Published PDFs name only `everyone`-visible searchable references; others render as "Restricted reference" |
 
+### 5.1 Retrieval-quality, indexing and scale settings
+
+Defaults are the code defaults (`backend/src/roracle/config.py`). In Helm put any of them under `config:` (or `api.extraEnv` /
+`worker.extraEnv`); the chart already sets `ROR_DB_*`, `ROR_JOB_*`, `ROR_API_THREADS`, `ROR_ES_*` and `ROR_VECTOR_INDEX_TYPE` in `values.yaml`.
+Features marked **off** stay off until a PASS report in `docs/eval/` (ADR-0015).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROR_VECTOR_INDEX_TYPE`, `ROR_VECTOR_RESCORE_OVERSAMPLE` | `int8_hnsw`, `3.0` | Vector index type of NEW indices (`int4_hnsw`, `bbq_hnsw`; bbq only after the eval gate; oversample > 1 and < 10 applies to bbq). An existing index keeps its own |
+| `ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_ES_REFRESH_INTERVAL` | `1`, `1`, `5s` | Index settings applied when an index is created (sizing: `capacity-planning.md`) |
+| `ROR_ES_EXCLUDE_SOURCE_VECTORS`, `ROR_ES_HNSW_FILTER_HEURISTIC` | `true`, `acorn` | Vectors out of `_source` (ES >= 9.2); filtered kNN heuristic `acorn` or `fan_out` |
+| `ROR_EMBED_DIMS`, `ROR_EMBED_TOKENIZER` | `768`, `sentence-transformers/all-MiniLM-L6-v2` | Dimensions of the bootstrap embedding model; tokenizer used for chunk sizing in workers |
+| `ROR_SUMMARY_MODEL` | `qwen2.5:3b` | Ingest summaries; also the default for `ROR_RAPTOR_MODEL` |
+| `ROR_LLM_TIMEOUT_S`, `ROR_DOCLING_TIMEOUT_S`, `ROR_GROBID_TIMEOUT_S` | `120`, `300`, `120` | Client timeouts of the inference, docling and GROBID calls |
+| `ROR_OIDC_ALLOWED_CLIENTS` | `roracle-web,roracle-mcp` | Keycloak `azp` values accepted for access tokens |
+| `ROR_SEARCH_RERANK_DEPTH`, `ROR_RERANK_BLEND` | `50`, `0.3` | `/search` rerank depth (chat/MCP use `ROR_RERANK_DEPTH`); weight of the min-max reranker score against the fused score (`1.0` = replace). The reranker input is `title + text` |
+| `ROR_EMBED_CACHE_SIZE`, `ROR_EMBED_CACHE_TTL_S`, `ROR_SEARCH_CACHE_S` | `10000`, `600`, `60` | In-process caches: query embeddings (0 = off), `/search` first stage for paging (0 = off) |
+| `ROR_EVAL_JUDGE_MODEL`, `ROR_EVAL_JUDGE_SAMPLE`, `ROR_EVAL_ON_REINDEX` | empty (first chat model), `100`, `true` | Eval LLM judge model and pairs per run; enqueue `eval_run` on the reference set after a cutover or rebuild |
+| `ROR_CONTEXT_NOTES` (off), `ROR_CONTEXT_MODEL` | `false`, empty | Contextual chunk notes. An empty model = no notes. Needs an Ollama variant with `num_ctx >= 16384` (`deploy/game-01/README.md`) |
+| `ROR_CONTEXT_DOC_CHARS`, `ROR_CONTEXT_MAX_CHUNKS`, `ROR_CONTEXT_MAX_TOKENS`, `ROR_CONTEXT_CONCURRENCY` | `24000`, `400`, `120`, `8` | Document window sent per note; notes per document (later chunks get the heading path); cap per note; notes in flight per document |
+| `ROR_RAPTOR` (off), `ROR_RAPTOR_MODEL`, `ROR_RAPTOR_SECTION_CHARS`, `ROR_RAPTOR_MAX_SECTIONS` | `false`, empty, `12000`, `64` | Per-document section/document summary units; model empty = `ROR_SUMMARY_MODEL` |
+| `ROR_ROUTER` (off; admin runtime override), `ROR_ROUTER_LLM`, `ROR_ROUTER_MODEL`, `ROR_ROUTER_TIMEOUT_S` | `false`, `false`, empty, `1.5` | Query router. Heuristic only unless `ROR_ROUTER_LLM`; an ambiguous question then costs one small-model call (empty model = `ROR_SUMMARY_MODEL`) |
+| `ROR_GLOBAL_MAX_DOCS`, `ROR_GLOBAL_CONCURRENCY`, `ROR_GLOBAL_MAX_CONCURRENT`, `ROR_GLOBAL_MAX_ADMITTED` | `40`, `8`, `16`, `4` | Global answers: documents per question, map calls in parallel per question, in-flight map calls per process, questions admitted per process (one per user); busy = the normal fact path |
+| `ROR_GLOBAL_CALL_TIMEOUT_S`, `ROR_GLOBAL_TIMEOUT_S`, `ROR_GLOBAL_MCP_BUDGET_S` | `20`, `90`, `45` | Per map call, whole map phase, MCP `ask` budget |
+| `ROR_GLOBAL_DOC_CHARS`, `ROR_GLOBAL_MAP_TOKENS`, `ROR_GLOBAL_REDUCE_TOKENS` | `6000`, `200`, `1200` | Text per map call, cap per finding, cap on the reduce answer |
+| `ROR_AGENTIC_RETRIEVAL` (off; admin runtime override), `ROR_AGENTIC_PLANNER_MODEL` | `false`, empty | Query decomposition loop for multi-hop questions in chat and MCP `ask`. **Use a small fast planner model** (dev: `qwen2.5:3b`); empty = the first chat model, which is slower. Budget: added p95 <= 1 s per planning round |
+| `ROR_AGENTIC_MAX_STEPS`, `ROR_AGENTIC_MAX_SUBQUERIES`, `ROR_AGENTIC_TIMEOUT_S`, `ROR_AGENTIC_CALL_TIMEOUT_S` | `3`, `4`, `30`, `1.5` | Planning rounds, sub-queries per round, deadline of the loop, one planner call (slower = dropped, the loop stops) |
+| `ROR_AGENTIC_MAX_PARALLEL`, `ROR_AGENTIC_MAX_ADMITTED`, `ROR_AGENTIC_ANSWER_RESERVE_S` | `4`, `4`, `20` | Sub-query retrievals in flight per process (each takes a pooled DB connection), loops admitted per process (one per user), time kept for the MCP answer |
+| `ROR_EMBED_CONCURRENCY`, `ROR_REEMBED_SLICES` | `4`, `4` (1-16) | Embedding requests in flight (re-embed, rebuild, ingest) and parallel slice chains of a re-embed. Rule of thumb: `slices x concurrency` ~ embedding replicas x per-replica concurrency. Batch embedding calls retry 429/5xx with backoff; interactive queries never retry |
+| `ROR_DB_POOL_SIZE`, `ROR_DB_MAX_OVERFLOW`, `ROR_DB_POOL_TIMEOUT_S` | `8`, `4`, `10` | API connection pool (max `pool + overflow` per process) and the wait for a free connection |
+| `ROR_WORKER_DB_POOL_SIZE`, `ROR_WORKER_DB_MAX_OVERFLOW` | `3`, `1` | Worker pool; plus one separate connection for the lease heartbeat |
+| `ROR_DB_DISABLE_PREPARED` | `false` | Set by the chart with the PgBouncer pooler (no server-side prepared statements) |
+| `ROR_JOB_LEASE_S`, `ROR_JOB_DRAIN_S` | `90`, `0` (chart `120`) | Job lease (renewed every lease/3; a crashed worker's job is requeued after it) and the time a running job gets after SIGTERM before it is released (no attempt spent). Keep `worker.terminationGracePeriodSeconds` >= drain + 30 (chart 150) |
+| `ROR_API_THREADS` | `256` | Worker threads per API pod: one per in-flight sync route or answer stream |
+| `ROR_READ_ALIAS`, `ROR_MUTATE_ALIAS` | `chunks`, `chunks-all` | Only to isolate a scratch index (perf harness): both or neither, and they must differ. Never change on a live system |
+| `ROR_EMBED_INDEX` | empty | Set by the re-embed cutover / eval overrides; do not set it |
+
+### 5.2 GPU host services (reranker, context-note model, planner)
+- **Reranker (TEI)**: `deploy/game-01/reranker.sh` (pull on a connected host, `install` on the GPU host, `run`, `health`) serves
+  `BAAI/bge-reranker-v2-m3` with `ghcr.io/huggingface/text-embeddings-inference:89-1.9` on `127.0.0.1:28080`, offline (`HF_HUB_OFFLINE=1`,
+  model mounted read-only). Point the app at it with `ROR_RERANK_URL=http://<host>/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3`
+  (an SSH tunnel or mesh address; TEI has no authentication, put a proxy in front if it is reachable beyond that and set `ROR_RERANK_API_KEY`). Budget:
+  p95 <= 800 ms for 200 passages. Failure or timeout keeps the fused order (`roracle_rerank_fallback_total{reason}`). It is OFF
+  until the eval gate passes (ADR-0015 outcomes).
+- **Context-note model**: an Ollama variant of the notes model with `PARAMETER num_ctx 16384` (the default 4096 silently truncates
+  the document window); recipe in `deploy/game-01/README.md`. Set `ROR_CONTEXT_MODEL` to its name.
+- **Planner model** for `ROR_AGENTIC_PLANNER_MODEL`: any small fast chat model on the same OpenAI-spec endpoint (dev: `qwen2.5:3b`).
+
 Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
 Postgres, not env. Admins can override `chat_models`, `chat_default_model`, `chat_passages`, `chat_note_min_upvotes`, `chat_note_min_ratio`, `rerank_depth`,
 `near_dup_threshold`, `near_dup_summary_threshold`, `max_upload_bytes`, `upload_quota_bytes`,
-`rate_limit_per_minute` and `pats_enabled` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
+`rate_limit_per_minute`, `pats_enabled`, `router` and `agentic_retrieval` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
 the env value; `null` removes the override). Changes apply to new requests and jobs without a restart.
 
 ## 6. High availability
@@ -246,7 +303,7 @@ the env value; `null` removes the override). Changes apply to new requests and j
   topology spread across zones, readiness on `/healthz`.
 - Postgres: CNPG automatic failover; app connects via the `-rw` service.
 - Elastic: 3 dedicated masters; ≥ 1 replica shard; shard size target 30–50 GB.
-- MinIO: erasure coding tolerates node/disk loss; site replication for DR.
+- Object storage: Ceph erasure coding tolerates node/disk loss; replicate buckets to another site (RGW multisite or external S3 elsewhere) for DR.
 - Worker jobs are idempotent and retried (max 5, exponential backoff); a worker crash releases its
   row lock and the job is retried.
 - Rolling upgrades: migrations are additive (expand → migrate → contract across releases).
@@ -258,21 +315,37 @@ manual steps. Always take a Postgres backup and an ES snapshot before a minor/ma
 
 P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.
 
+### Upgrading to 0.2.0 (breaking)
+
+Chart 0.2.0 removes the bundled MinIO tenant; object storage is external only (Rook-Ceph RGW via Terraform, or your own S3).
+`helm upgrade` (or `terraform apply`) deletes the `Tenant` CR, so the MinIO pods go away (PVCs stay per operator default). **Copy the data out first**
+(`rclone sync` or `aws s3 sync` of the `roracle`, `roracle-pg-backup` and `roracle-es-snapshots` buckets to the new store, then verify object counts) and take a Postgres backup and ES snapshot.
+Then migrate the values; the chart fails the render if a removed value is still set:
+
+| Old | New |
+|---|---|
+| `minio.*` (mode, image, users, configurationSecret, policyJob, backupRetentionDays, ...) | removed. Set `config.ROR_S3_ENDPOINT`, `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint` (+ `protocol`, `extraCASecret`) |
+| backup/snapshot Secrets = MinIO users | dedicated identities per bucket that **you** (or Terraform rook-ceph) create; the app identity must not be able to delete backups |
+| `networkPolicy.s3Cidrs` | `networkPolicy.s3.cidrs` (+ `ports`, `namespaceSelector`, `podSelector`); an unmigrated value would silently drop S3 egress |
+| `caBundle.kubeRootCa` | removed; add any CA you still need through `caBundle.extraSecrets` (including the S3 CA) |
+| `networkPolicy.operatorNamespaces.minio` | removed |
+| `minio-policy` hook (users, policies, `tmp/` lifecycle, backup retention) | gone. Create the lifecycle, object lock and bucket policies yourself (Terraform README, "External S3 commands"); Terraform rook-ceph does it |
+| optional | `secrets.s3Secret`: separate Secret for `ROR_S3_ACCESS_KEY/SECRET_KEY` |
+
 ## 8. TLS trust, hooks and ordering (bundled data services)
 
 Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bundled services:
 
-- TLS: ES (ECK self-signed) and MinIO (`requestAutoCert`, signed by the cluster CA) are on by default. api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`),
+- TLS: ES (ECK self-signed) is on by default; the S3 endpoint should be HTTPS (Terraform requires TLS on Rook-Ceph RGW), its CA reaching the app via `caBundle.extraSecrets`. api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `caBundle.extraSecrets`, e.g. the S3 CA),
   mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the backend image's Python layout; adjust if the image changes).
   `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `AWS_CA_BUNDLE` point at it (httpx/openai), as do `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3).
   Clusters whose CSR signer differs from the kube root CA (e.g. EKS) add the signer CA via `caBundle.extraSecrets`.
-- ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`); `ES_JAVA_OPTS` points at it.
+- ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + optional `elasticsearch.snapshot.extraCASecret`, the S3 CA); `ES_JAVA_OPTS` points at it.
   The post-install hook Job registers repository `roracle-s3` and SLM policy `roracle-daily`.
-- `minio-policy` hook Job: creates the three MinIO users (not Tenant `users:`, which grants consoleAdmin), attaches one-bucket policies,
-  sets GOVERNANCE default retention `minio.backupRetentionDays` on the backup buckets (keep >= backup/snapshot retention). Versioning and object lock come from the Tenant `buckets[].objectLock` (set at bucket creation, not changeable later). It runs on every upgrade, first (hook weight -10).
+- Backup/snapshot buckets: create them with a dedicated identity per bucket (write-only for backups where the store supports it) and, where available, object lock/retention (keep >= backup/snapshot retention); the chart no longer creates users or retention.
 - api/worker wait for the ECK CA Secret; after ECK CA rotation run `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
 - ES nodes run with `node.store.allow_mmap: false` (avoids ECK's privileged sysctl init container); drop it if a node-tuning DaemonSet sets `vm.max_map_count>=262144`.
 - Proxies in front of the web pod must allow bodies >= the evidence cap (`ROR_EVIDENCE_MAX_BYTES`, 1 GiB); the web pod's nginx allows 1100m. Ingress annotations: `nginx.ingress.kubernetes.io/proxy-body-size: 1100m`.
-- Pre-GA checklist: against the mirrored MinIO release, test that the ES S3 repository (repository verification and a snapshot) and barman-cloud (base backup + WAL) can write into the object-lock buckets (they require Content-MD5/checksum headers on PUTs).
-- Backups land on the bundled MinIO by default. For DR replicate the backup buckets to another site (MinIO site replication, not automated by the chart)
+- Pre-GA checklist: against your S3 implementation, test that the ES S3 repository (repository verification and a snapshot) and barman-cloud (base backup + WAL) can write into the object-lock buckets (they require Content-MD5/checksum headers on PUTs).
+- Backups land on the configured S3. For DR replicate the backup buckets to another site (site replication or multisite sync, not automated by the chart)
   or point `postgres.backup.*` / `elasticsearch.snapshot.*` at an external store. See the [runbook](operations-runbook.md) section 3.

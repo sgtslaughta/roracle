@@ -10,7 +10,7 @@ import httpx
 import openai
 from elasticsearch import ConnectionError as EsConnectionError
 from elasticsearch import Elasticsearch, TransportError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,11 +19,14 @@ from starlette.responses import StreamingResponse
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.chat import agentic
 from roracle.chat.access import owned_chat
-from roracle.chat.answer import build_messages, split_notes, stream_answer
-from roracle.chat.retrieve import Viewer, has_open_context, retrieve_for_chat
+from roracle.chat.answer import build_messages, frame, split_notes, stream_answer
+from roracle.chat.global_answer import route_question, stream_prepare
+from roracle.chat.retrieve import Viewer, _uids, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
-from roracle.db import get_session
+from roracle.db import get_session, get_stream_session
+from roracle.labels.textgate import replay_history
 from roracle.models import Chat, ChatMessage, DocumentVersion
 
 router = APIRouter(prefix="/chats")
@@ -32,6 +35,7 @@ Db = Annotated[Session, Depends(get_session)]
 Cfg = Annotated[Settings, Depends(get_app_settings)]
 HISTORY = 6
 NO_OPEN_DOCS = "No open documents to answer from. Open a document or switch scope."
+NO_READABLE = "None of the open documents can be used as a source for answers."
 SCOPE = r"^(all|open|collection:[0-9a-fA-F-]{36})$"
 
 
@@ -91,9 +95,18 @@ def create_chat(body: ChatIn, p: Who, session: Db, settings: Cfg) -> dict:
 class ClosingStreamingResponse(StreamingResponse):
     """Always aclose() the body iterator, so a disconnect reliably runs `_frames`' finally."""
 
+    def __init__(self, *a, closer=None, **kw):
+        super().__init__(*a, **kw)
+        self.closer = closer  # sync close of the answer stream: runs even if iteration never started
+
     async def stream_response(self, send) -> None:
-        async with contextlib.aclosing(self.body_iterator):
-            await super().stream_response(send)
+        try:
+            async with contextlib.aclosing(self.body_iterator):
+                await super().stream_response(send)
+        finally:
+            if self.closer:
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(self.closer)
 
 
 async def _frames(gen: Iterator[str]) -> AsyncIterator[str]:
@@ -109,6 +122,111 @@ async def _frames(gen: Iterator[str]) -> AsyncIterator[str]:
             await anyio.to_thread.run_sync(gen.close)
 
 
+def _versions(session: Session, passages: list) -> dict[str, int]:
+    vids = [UUID(x.version_id) for x in passages]
+    if not vids:
+        return {}
+    rows = session.execute(
+        select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+    )
+    return {str(i): n for i, n in rows}
+
+
+def _release(prep, ss: Session, own: bool):
+    def go() -> None:
+        prep.release()
+        if own:
+            ss.close()
+
+    return go
+
+
+def _leave(p: Principal, ss: Session, own: bool):
+    def go() -> None:
+        agentic.leave(p)
+        if own:
+            ss.close()
+
+    return go
+
+
+def _fact_fallback(
+    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
+):
+    """Inside a global stream whose map phase produced nothing usable: the ordinary retrieval + prompt, on the
+    stream's own session. Returns (messages, passages, versions, notes, excluded)."""
+    pins, excludes, scope = list(chat.pins), list(chat.excludes), chat.scope
+
+    def run():
+        excluded: list[dict] = []
+        ps = retrieve_for_chat(
+            ss, es, llm, settings, p, body.content, body.viewer, scope, pins, excludes,
+            include_notes=body.include_notes, excluded=excluded,
+        )  # fmt: skip
+        ps, notes = split_notes(ps)
+        out = (
+            build_messages(body.content, ps, history, HISTORY, notes),
+            ps,
+            _versions(ss, [*ps, *notes]),
+            notes,
+            excluded,
+        )
+        ss.commit()
+        return out
+
+    return run
+
+
+def _agentic_prepare(
+    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history, factory
+):
+    """For `AnswerStream(prepare=...)`: the agentic retrieval loop INSIDE the stream, after the first `meta` frame
+    (no pooled connection is held while the planner model runs). Yields `progress` frames, then a `meta` frame with the
+    sub-queries; returns (messages, passages, versions, canned, notes). Retrieval uses the stream's own session."""
+
+    pins, excludes, scope = (
+        list(chat.pins),
+        list(chat.excludes),
+        chat.scope,
+    )  # read now: `chat` is the request's
+
+    def run():
+        ss.commit()
+        gen = agentic.iter_retrieve(
+            ss,
+            es,
+            llm,
+            settings,
+            p,
+            body.content,
+            viewer=body.viewer,
+            scope=scope,
+            excludes=excludes,
+            session_factory=factory,
+        )
+        try:
+            while True:
+                step, of, done = next(gen)
+                yield frame("progress", {"step": step, "of": of, "done": done})
+        except StopIteration as e:
+            ranked, subqueries = e.value
+        excluded: list[dict] = []
+        ps = retrieve_for_chat(
+            ss, es, llm, settings, p, body.content, body.viewer, scope, pins, excludes,
+            include_notes=body.include_notes, excluded=excluded, ranked=ranked,
+        )  # fmt: skip
+        ps, notes = split_notes(ps)
+        msgs = build_messages(body.content, ps, history, HISTORY, notes)
+        versions = _versions(ss, [*ps, *notes])
+        ss.commit()
+        yield frame(
+            "meta", {"subqueries": subqueries, **({"excluded_by_label": excluded} if excluded else {})}
+        )
+        return msgs, ps, versions, None, notes
+
+    return run
+
+
 @router.post("/{chat_id}/messages")
 def post_message(
     chat_id: UUID,
@@ -118,6 +236,8 @@ def post_message(
     settings: Cfg,
     es: Annotated[Elasticsearch, Depends(get_es)],
     llm: Annotated[object, Depends(get_llm)],
+    ss: Annotated[Session, Depends(get_stream_session)],
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; direct calls in tests omit it
 ) -> StreamingResponse:
     chat = owned_chat(session, p, chat_id)
     _check_model(settings, body.model)
@@ -129,41 +249,75 @@ def post_message(
         .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(2 * HISTORY)
     )
-    history = list(reversed(list(recent)))
+    history = replay_history(session, p, list(reversed(list(recent))))
     canned = None
     passages = []
+    excluded: list[dict] = []
+    meta: dict | None = None
+    prep = None
+    agent = False
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
-        canned, model = NO_OPEN_DOCS, None
+        excluded = open_blocked(session, p, body.viewer)
+        canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
     else:
         try:
-            passages = retrieve_for_chat(
-                session, es, llm, settings, p, body.content, body.viewer, chat.scope,
-                list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
-            )  # fmt: skip
+            if settings.router:
+                prep, meta = route_question(
+                    session, es, llm, settings, p, body.content,
+                    chat.scope == "all" and not body.viewer.tabs and not body.viewer.selection,
+                    dropped=set(_uids(chat.excludes)) | set(_uids(body.viewer.ignored)), pins=_uids(chat.pins),
+                )  # fmt: skip
+            if (
+                prep is None
+                and settings.agentic_retrieval
+                and (meta is None or meta.get("route") == "multihop")
+            ):
+                agent = agentic.admit(settings, p)  # busy / already running for this user: the plain path
+                meta = {**(meta or {}), "agentic": agent}
+            if prep is None and not agent:
+                passages = retrieve_for_chat(
+                    session, es, llm, settings, p, body.content, body.viewer, chat.scope,
+                    list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
+                    excluded=excluded,
+                )  # fmt: skip
         except ValueError as e:
             raise HTTPException(422, str(e)) from None
         except (openai.APIError, httpx.HTTPError):
             raise HTTPException(503, "inference unavailable") from None
         except (EsConnectionError, TransportError):
             raise HTTPException(503, "search unavailable") from None
-    session.add(
-        ChatMessage(chat_id=chat.id, role="user", content=body.content, viewer=body.viewer.model_dump())
-    )
-    if not chat.title:
-        chat.title = body.content[:80]
-    session.commit()
-    passages, notes = split_notes(passages)
-    messages = build_messages(body.content, passages, history, HISTORY, notes)
-    vids = [UUID(x.version_id) for x in (*passages, *notes)]
-    versions = {
-        str(i): n
-        for i, n in session.execute(
-            select(DocumentVersion.id, DocumentVersion.version).where(DocumentVersion.id.in_(vids))
+    try:
+        session.add(
+            ChatMessage(chat_id=chat.id, role="user", content=body.content, viewer=body.viewer.model_dump())
         )
-    }
-    gen = stream_answer(session, llm, chat.id, model, messages, passages, versions, canned, notes)
+        if not chat.title:
+            chat.title = body.content[:80]
+        chat.hidden_at = None  # in use again
+        session.commit()  # no transaction (and no pooled connection) stays open into the stream
+        passages, notes = split_notes(passages)
+        hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
+        messages = [] if prep or agent else build_messages(body.content, passages, history, HISTORY, notes)
+        versions = _versions(session, [*passages, *notes])
+        fact = None
+        if prep:  # the global stream gets its OWN session (independent of the request's teardown timing)
+            fact = _fact_fallback(ss, es, llm, settings, p, body, chat, history)
+        gen = stream_answer(
+            ss if prep or agent else session, llm, chat.id, model, messages, passages, versions, canned, notes,
+            excluded, meta, settings.global_reduce_tokens if prep else None,
+            stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact)
+            if prep
+            else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else None),
+        )  # fmt: skip
+    except BaseException:
+        if prep:
+            prep.release()
+        if agent:
+            agentic.leave(p)
+        raise
     return ClosingStreamingResponse(
         _frames(gen),
+        closer=gen.close,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -3,13 +3,9 @@ import { AnswerText } from "./AnswerText";
 import { Sidenotes } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
 import { Button } from "@/components/ui/button";
+import { ExcludedNote } from "./ExcludedNote";
 import { AnswerFooter, type ChatCtx } from "./AnswerFooter";
 import type { TurnData } from "./turns";
-
-export const initials = (name: string | undefined) => {
-  const w = (name ?? "").trim().split(/[\s._-]+/).filter(Boolean);
-  return ((w.length > 1 ? w[0][0] + w[1][0] : (w[0] ?? "?").slice(0, 2)) || "?").toUpperCase();
-};
 
 interface Props { turn: TurnData; who: string; chat?: ChatCtx; onRetry: (question: string) => void }
 
@@ -31,9 +27,10 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
       {answer && (
         <article className="answer" ref={ref} aria-label="Answer" aria-busy={streaming}>
           <AnswerText text={answer.text} citations={answer.citations} streaming={streaming} hot={hot} onHot={setHot} />
+          {!!answer.excluded?.length && <ExcludedNote items={answer.excluded} />}
           <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">
-            {streaming && !answer.text && <p className="stat" role="status">Reading the library…</p>}
+            {streaming && !answer.text && <p className="stat" role="status">{answer.progress ?? "Reading the library…"}</p>}
             {answer.status === "interrupted" && <p className="stat">Stopped before the answer finished.</p>}
             {answer.status === "failed" && (
               <div className="stat bad" role="alert">

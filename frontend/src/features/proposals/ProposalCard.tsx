@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { ArrowUpRight, Bot, Check, Pencil, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,13 +15,14 @@ import { useDoc } from "@/features/reader/api";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { isDocId } from "@/lib/ids";
 import { useApprove, useReject, type ApproveBody, type Proposal } from "./api";
+import { LabelProposal } from "./LabelProposal";
 
 const tooLong = (v: string) => (v.length > PRINCIPAL_MAX ? `Keep each entry under ${PRINCIPAL_MAX} characters.` : null);
 const groupError = (v: string) => tooLong(v) ?? (v.startsWith("/") ? null : "Group paths start with “/”.");
 const errText = (e: unknown, what: string) =>
   e instanceof ApiError && (e.status === 422 || e.status === 409) ? invalidText(e) : `The proposal couldn't be ${what}. Try again.`;
 
-export const proposalLabel = (p: Proposal) => (p.payload.parent_id ? "Reply" : KIND_LABEL[p.payload.kind ?? "comment"]);
+export const proposalLabel = (p: Proposal) => (p.kind === "label" ? "Label change" : p.payload.parent_id ? "Reply" : KIND_LABEL[p.payload.kind ?? "comment"]);
 
 function Target({ id }: { id: string }) {
   const title = useDoc(id).data?.title || "a related document";
@@ -90,9 +92,11 @@ function EditForm({ p, onDone }: { p: Proposal; onDone: () => void }) {
   );
 }
 
-interface Props { p: Proposal; selected?: boolean; onSelect?: (on: boolean) => void }
+export interface Props { p: Proposal; selected?: boolean; onSelect?: (on: boolean) => void }
 
-export function ProposalCard({ p, selected, onSelect }: Props) {
+export const ProposalCard = (props: Props) => (props.p.kind === "label" ? <LabelProposal {...props} /> : <NoteProposal {...props} />);
+
+function NoteProposal({ p, selected, onSelect }: Props) {
   const approve = useApprove(), reject = useReject();
   const [editing, setEditing] = useState(false);
   const pl = p.payload, doc = p.document;
@@ -132,7 +136,7 @@ export function ProposalCard({ p, selected, onSelect }: Props) {
             })}><X aria-hidden />Reject</Button>
           </>
         )}
-        {p.status !== "pending" && <span className="sub">{p.status === "approved" ? "Approved" : "Rejected"}{p.decided_at && ` ${new Date(p.decided_at).toLocaleDateString()}`}</span>}
+        {p.status !== "pending" && <span className="sub">{p.status === "approved" ? "Approved" : "Rejected"}{p.decided_at && ` ${fmtDate(p.decided_at)}`}</span>}
         {p.status === "approved" && p.annotation_id && doc && <Button onClick={() => showNote(doc.id, p.annotation_id!)}>Open note</Button>}
       </div>
     </article>

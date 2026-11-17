@@ -1,16 +1,23 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
-import { lazy, Suspense, useEffect } from "react";
+import { BookOpen, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { apiFetch, seg } from "@/api/client";
+import { docTitle } from "@/lib/docTitle";
+import { AddTitle } from "@/features/uploads/TitlePrompt";
 import { CiteLine } from "@/components/CiteLine";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AddToCollectionDialog } from "@/features/library/AddToCollection";
 import { VoteControl } from "@/features/library/VoteControl";
+import { useOwnerOrAdmin } from "@/features/library/useMe";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
-import { useCitedBy, useDoc, useReferences } from "./api";
+import { downloadOriginal, useCitedBy, useDoc, useReferences } from "./api";
+import { SharingDialog } from "./SharingDialog";
+import { ManageMenu } from "./ManageMenu";
+import { DocLabel } from "@/features/labels/DocLabel";
+import { downloadBlockedText } from "@/features/labels/api";
 const PdfView = lazy(() => import("./PdfView"));
 import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
@@ -24,10 +31,13 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const cited = useCitedBy(tab.docId).data;
   const notes = useNotes(tab.docId).data;
   const adding = notesUi.use((s) => s.adding === tab.docId);
+  const [collecting, setCollecting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const canManage = useOwnerOrAdmin(d?.owner.id);
   const navigate = useNavigate();
   const onAskRoute = useLocation({ select: (l) => l.pathname === "/ask" || l.pathname.startsWith("/ask/") });
 
-  useEffect(() => { if (d) addRecent({ id: d.id, title: d.title }); }, [d?.id, d?.title]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (d) addRecent({ id: d.id, title: d.title.trim() || "Untitled document" }); }, [d?.id, d?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isError) return <div className="empty" role="alert"><p>This document isn't available. You may need to request access from its owner.</p></div>;
   if (!d) return <div className="rhead"><p className="sub" role="status">Loading…</p></div>;
@@ -36,22 +46,18 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const version = tab.version ?? latest;
   const link = `${window.location.origin}/d/${d.id}/v/${version}#p=${tab.page}${tab.chunkId ? `&c=${tab.chunkId}` : ""}`;
 
-  const download = async () => {
-    try {
-      const blob = await apiFetch<Blob>(`/documents/${seg(d.id)}/versions/${seg(version)}/file`);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    } catch { toast("The original couldn't be downloaded. Try again."); }
-  };
+  const filename = d.versions.find((v) => v.version === version)?.filename ?? `${d.id}.pdf`;
+  const title = docTitle({ title: d.title, filename: d.versions.find((v) => v.version === version)?.filename }); // not the .pdf fallback
+  const blocked = d.label?.gates.block_export && !canManage ? downloadBlockedText(d.label) : undefined;
+  const download = () => { downloadOriginal(d.id, version, filename).catch(() => toast("The original couldn't be downloaded. Try again.")); };
 
   return (
     <>
       <div className="rhead">
-        <h2 title={d.title}>{d.title}</h2>
+        <h2 title={title}>{title}</h2>
+        {canManage && !d.title.trim() && <div className="tdet title"><span className="msg">This document has no title.</span><AddTitle documentId={d.id} name={title} /></div>}
         <CiteLine authors={d.authors} venue={d.venue} year={d.year} org={d.org_unit} />
+        <div className="rlabel"><DocLabel doc={d} canManage={canManage} /></div>
         <div className="rtools">
           <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
             <Sparkles aria-hidden />Ask about this
@@ -64,17 +70,20 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
             <LinkIcon aria-hidden />Copy link
           </Button>
           <ContinueInAgent source={() => ({
-            kind: "document", sourceId: d.id, docIds: [d.id], title: d.title.slice(0, 200), goal: `Work with “${d.title}”`,
-            brief: `Goal: work with “${d.title}”. I'm reading page ${tab.page} of version ${version}.`,
+            kind: "document", sourceId: d.id, docIds: [d.id], title: title.slice(0, 200), goal: `Work with “${title}”`,
+            brief: `Goal: work with “${title}”. I'm reading page ${tab.page} of version ${version}.`,
             summary: "Hands this document to an agent, with its notes, references and cited-by links.",
           })} />
+          <Button onClick={() => setCollecting(true)}><FolderPlus aria-hidden />Add to collection</Button>
+          {canManage && <Button onClick={() => setSharing(true)}><Share2 aria-hidden />Sharing</Button>}
           <Button
             aria-pressed={adding} disabled={!adding && version !== latest}
             title={version !== latest ? "Switch to the latest version to anchor a note" : "Then click a passage on the page"} onClick={() => {
             notesUi.set((s) => ({ ...s, adding: adding ? null : d.id }));
             if (!adding) setView("doc");
           }}><MessageSquarePlus aria-hidden />Add note</Button>
-          <button className="icon-btn" aria-label="Download original" onClick={download}><Download aria-hidden /></button>
+          <button className="icon-btn" aria-label="Download original" onClick={download} disabled={!!blocked} title={blocked}><Download aria-hidden /></button>
+          {canManage && <ManageMenu doc={d} />}
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>
           <TabsList aria-label="Document sections">
@@ -85,9 +94,11 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           </TabsList>
         </Tabs>
       </div>
+      {sharing && <SharingDialog doc={d} open onOpenChange={setSharing} />}
+      {collecting && <AddToCollectionDialog docId={d.id} open onOpenChange={setCollecting} />}
       {view === "doc" && (
         <Suspense fallback={<div className="pages"><p className="sub" role="status">Loading document…</p></div>}>
-          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} />
+          <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} blocked={blocked} />
         </Suspense>
       )}
       {view === "refs" && <ReferencesTab docId={d.id} />}

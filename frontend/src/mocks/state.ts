@@ -8,10 +8,20 @@ import type { Proposal } from "@/features/proposals/api";
 import type { AppNotification } from "@/features/notifications/describe";
 import type { OpsState } from "./adminOps";
 import type { DataState } from "./adminData";
+import type { EvalMock } from "./eval";
+import type { MockDraft } from "./drafts";
+import type { AdminLabel } from "@/api/types";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
   extraTags: Record<string, string[]>;
+  /** collections created in the mock, and docs added to any collection (id -> doc ids) */
+  newCollections: { id: string; name: string }[];
+  collItems: Record<string, string[]>;
+  /** seeded collection members removed via DELETE /collections/{id}/items/{doc} (id -> doc ids) */
+  collRemoved: Record<string, string[]>;
+  /** PATCH /documents/{id} bodies applied to non-upload documents */
+  docPatch: Record<string, { visibility?: string; share_users?: string[]; share_groups?: string[] }>;
   removedTags: Record<string, string[]>;
   versions: Record<string, number>;
   uploads: MockUpload[];
@@ -36,6 +46,19 @@ export interface MockState {
   ops: OpsState | null;
   /** mocks/adminData.ts; seeded lazily there */
   adminData: DataState | null;
+  /** mocks/drafts.ts; seeded lazily there */
+  drafts: MockDraft[] | null;
+  /** mocks/eval.ts; seeded lazily there */
+  evalData: EvalMock | null;
+  /** mocks/labels.ts; seeded lazily there */
+  labels: AdminLabel[] | null;
+  /** document id / note id -> label id overrides, deleted documents, transferred owners, collection rename/delete */
+  docLabels: Record<string, string>;
+  noteLabels: Record<string, string>;
+  deletedDocs: string[];
+  owners: Record<string, string>;
+  collRenamed: Record<string, string>;
+  collDeleted: string[];
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -43,6 +66,10 @@ const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admi
 const fresh = (): MockState => ({
   votes: {},
   extraTags: {},
+  newCollections: [],
+  collItems: {},
+  collRemoved: {},
+  docPatch: {},
   removedTags: {},
   versions: Object.fromEntries(DOCS.map((d) => [d.id, d.ver])),
   uploads: seedUploads(),
@@ -59,6 +86,15 @@ const fresh = (): MockState => ({
   notifications: null,
   ops: null,
   adminData: null,
+  drafts: null,
+  labels: null,
+  evalData: null,
+  docLabels: {},
+  noteLabels: {},
+  deletedDocs: [],
+  owners: {},
+  collRenamed: {},
+  collDeleted: [],
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

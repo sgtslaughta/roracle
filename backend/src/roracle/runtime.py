@@ -35,13 +35,15 @@ class SettingsIn(BaseModel):
     chat_passages: Annotated[StrictInt, Field(ge=4, le=12)] | None = None
     chat_note_min_upvotes: Annotated[StrictInt, Field(ge=0)] | None = None
     chat_note_min_ratio: Annotated[StrictInt | StrictFloat, Field(ge=0, le=1)] | None = None
-    rerank_depth: Annotated[StrictInt, Field(ge=10, le=100)] | None = None
+    rerank_depth: Annotated[StrictInt, Field(ge=10, le=500)] | None = None
     near_dup_threshold: Annotated[StrictInt | StrictFloat, Field(ge=0.5, le=1)] | None = None
     near_dup_summary_threshold: Annotated[StrictInt | StrictFloat, Field(ge=0.5, le=1)] | None = None
     max_upload_bytes: Annotated[StrictInt, Field(ge=MiB, le=5 * 1024 * MiB)] | None = None
     upload_quota_bytes: Annotated[StrictInt, Field(ge=0, le=MAXINT)] | None = None
     rate_limit_per_minute: Annotated[StrictInt, Field(ge=0, le=MAXINT)] | None = None
     pats_enabled: StrictBool | None = None
+    router: StrictBool | None = None
+    agentic_retrieval: StrictBool | None = None
 
     @field_validator("chat_models")
     @classmethod

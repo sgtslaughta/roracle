@@ -1,3 +1,4 @@
+import { fmtDate } from "@/lib/dates";
 import { Copy } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -57,7 +58,7 @@ function TokenForm({ onDone, onCreated }: { onDone: () => void; onCreated: () =>
           <input aria-label="Your new token" readOnly value={created.token} onFocus={(e) => e.currentTarget.select()} />
           <Button onClick={() => void copy()} aria-label="Copy token"><Copy aria-hidden />Copy</Button>
         </div>
-        <p className="chipin-help">Give it to your agent as a bearer token for the rOracle MCP server. It can {write ? "read and write" : "only read"}, and stops working {new Date(created.expires_at).toLocaleDateString([], { dateStyle: "medium" })}.</p>
+        <p className="chipin-help">Give it to your agent as a bearer token for the rOracle MCP server. It can {write ? "read and write" : "only read"}, and stops working {fmtDate(created.expires_at)}.</p>
         <div className="foot"><Button variant="primary" onClick={onDone}>Done</Button></div>
       </>
     );

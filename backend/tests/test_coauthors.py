@@ -15,6 +15,18 @@ from roracle.models_writing import Draft
 pytestmark = pytest.mark.usefixtures("_blob_store_override", "built")
 
 
+@pytest.fixture(autouse=True)
+def _null_es(app):
+    """No real Elasticsearch in these route tests (a test may still override `get_es` itself)."""
+    from es_fakes import NullEs
+
+    from roracle.api.routes.library import get_es
+
+    es = NullEs()
+    app.dependency_overrides[get_es] = lambda: es
+    return es
+
+
 def publish(client, db, h, owner, co, vis="org_unit"):
     i = mk(client, h)
     client.put(f"/drafts/{i}/coauthors", headers=h, json={"users": [str(co)], "groups": ["/Elsewhere"]})
@@ -44,10 +56,13 @@ def test_coauthor_keeps_access_org_unit(client, as_ana, ana, as_bob, bob, db_ses
     assert doc.id not in set(db_session.scalars(select(Document.id).where(visible_documents(stranger))))
 
 
-def test_patch_shared_no_revival_and_coauthor_stays(client, as_ana, ana, as_bob, bob, db_session, s3):
+def test_patch_shared_no_revival_and_coauthor_stays(
+    client, as_ana, ana, as_bob, bob, db_session, s3, _null_es
+):
     i = publish(client, db_session, as_ana, ana, bob)
     assert client.patch(f"/documents/{i}", headers=as_ana, json={"visibility": "shared"}).status_code == 200
     assert db_session.scalars(select(DocumentShare)).all() == []
+    assert _null_es.calls, "the PATCH must sync the ACL to ES"  # a dropped sync_acl call would fail here
     assert client.get(f"/documents/{i}", headers=as_bob).status_code == 200  # co-author grant, not a share
 
 

@@ -2,11 +2,14 @@ import uuid
 
 import pytest
 from elasticsearch import Elasticsearch
+from sqlalchemy import select
 
 from roracle.ingest.chunking import Chunk
 from roracle.models import DocumentShare, DocumentVersion
+from roracle.models_labels import Label
 from roracle.search_index import (
     acl_fields,
+    cached_vectors,
     delete_stale_chunks,
     ensure_index,
     index_chunks,
@@ -18,9 +21,8 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def es():
-    c = Elasticsearch("http://localhost:9200")
-    return c
+def es(settings):
+    return Elasticsearch(settings.elastic_url)
 
 
 @pytest.fixture
@@ -63,6 +65,7 @@ def test_acl_fields(db_session, user, document):
         "coauthor_users": [],
         "share_users": ["u1"],
         "share_groups": ["/Physics"],
+        "label_id": str(db_session.scalar(select(Label.id).where(Label.is_default))),
     }
 
 
@@ -153,10 +156,8 @@ def test_summary_vector_only_on_chunk_zero(es, model, db_session, document, blob
         summary_vector=[0.5] * 4,
     )  # fmt: skip
     es.indices.refresh(index=index_name(model))
-    srcs = {
-        h["_source"]["chunk_id"].split(":")[1]: h["_source"]
-        for h in es.search(index=index_name(model))["hits"]["hits"]
-    }
+    got = es.search(index=index_name(model), fields=["summary_embedding"])["hits"]["hits"]  # not in `_source`
+    srcs = {h["_source"]["chunk_id"].split(":")[1]: h.get("fields", {}) for h in got}
     assert srcs["0"]["summary_embedding"] == [0.5] * 4 and "summary_embedding" not in srcs["1"]
 
 
@@ -185,3 +186,50 @@ def test_ensure_index_dims_mismatch_does_not_mutate_mapping(es, model):
         ensure_index(es, model, 8)
     assert "summary_embedding" not in es.indices.get_mapping(index=name)[name]["mappings"]["properties"]
     ensure_index(es, model, 4)
+
+
+def test_index_is_created_with_explicit_options_and_settings(es, settings, model):
+    s = settings.model_copy(update={"es_shards": 2, "es_replicas": 0, "es_refresh_interval": "7s"})
+    name = ensure_index(es, model, 128, settings=s)
+    got = es.indices.get_settings(index=name)[name]["settings"]["index"]
+    assert (got["number_of_shards"], got["number_of_replicas"], got["refresh_interval"]) == ("2", "0", "7s")
+    assert got["dense_vector"]["hnsw_filter_heuristic"] == "acorn"  # ACORN filtered kNN
+    assert got["mapping"]["exclude_source_vectors"] == "true"  # vectors out of _source
+    props = es.indices.get_mapping(index=name)[name]["mappings"]["properties"]
+    for f in ("embedding", "summary_embedding"):
+        assert props[f]["index_options"]["type"] == "int8_hnsw"  # explicit, never the server default
+
+
+def test_bbq_option_adds_rescore_oversample_and_filtered_knn_works(es, settings, model):
+    s = settings.model_copy(
+        update={"vector_index_type": "bbq_hnsw", "vector_rescore_oversample": 4.0, "es_replicas": 0}
+    )
+    name = ensure_index(es, model, 128, settings=s)
+    opts = es.indices.get_mapping(index=name)[name]["mappings"]["properties"]["embedding"]["index_options"]
+    assert opts["type"] == "bbq_hnsw" and opts["rescore_vector"] == {"oversample": 4.0}
+    es.index(index=name, id="a", document={"doc_id": "d1", "embedding": [0.3] * 128}, refresh=True)
+    r = es.search(
+        index=name,
+        knn={
+            "field": "embedding", "query_vector": [0.3] * 128, "k": 1, "num_candidates": 10,
+            "filter": {"term": {"doc_id": "d1"}},
+        },
+    )  # fmt: skip
+    assert r["hits"]["total"]["value"] == 1
+
+
+def test_vectors_are_not_in_source_but_cached_vectors_and_updates_keep_them(es, settings, model):
+    name = ensure_index(es, model, 4, settings=settings.model_copy(update={"es_replicas": 0}))
+    es.index(
+        index=name, id="a", refresh=True,
+        document={"doc_id": "d1", "prompt_sha": "p1", "embedding": [0.25, 0.5, 0.75, 1.0]},
+    )  # fmt: skip
+    assert "embedding" not in es.get(index=name, id="a")["_source"]
+    assert cached_vectors(es, model, "d1", ["p1"], 4) == {"p1": [0.25, 0.5, 0.75, 1.0]}
+    es.update_by_query(
+        index=name, query={"term": {"doc_id": "d1"}},
+        script={"source": "ctx._source.title = 'x'", "lang": "painless"}, refresh=True,
+    )  # fmt: skip
+    assert cached_vectors(es, model, "d1", ["p1"], 4) == {
+        "p1": [0.25, 0.5, 0.75, 1.0]
+    }  # ACL-style rewrite keeps them

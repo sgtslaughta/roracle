@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { isDocId } from "@/lib/ids";
 import { useNearDup } from "@/features/uploads/api";
 import { REVIEW_PAGE, useReview } from "./api";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const SOURCES: [ReviewSource, string][] = [["all", "All"], ["upload", "Uploads"], ["connector", "Connectors"]];
 
@@ -49,9 +50,15 @@ export function ReviewPage() {
                   <td>{r.connector_id ? "Connector" : "Upload"}</td>
                   <td>{fmtTime(r.uploaded_at)}</td>
                   <td className="wrap">
-                    {r.match ? (isDocId(r.match.document_id) ? <Link to="/d/$docId" params={{ docId: r.match.document_id }}>{r.match.title}</Link> : r.match.title) : "A document in the library"}
+                    {r.match ? (isDocId(r.match.document_id) ? <Link to="/d/$docId" params={{ docId: r.match.document_id }}>{r.match.title || "Untitled document"}</Link> : r.match.title || "Untitled document") : "A document in the library"}
                   </td>
                   <td>
+                    <RowMenu kebab={false} label={`Actions for ${r.filename}`} actions={[
+                      { label: "Add as new version", onSelect: () => decide(r, "new_version") },
+                      { label: "Keep separate", onSelect: () => decide(r, "separate") },
+                      { label: "Cancel upload", danger: true, onSelect: () => decide(r, "cancel") },
+                      copyAction("Copy filename", r.filename),
+                    ]} />
                     <span className="acts">
                       <Button variant="primary" disabled={nearDup.isPending} aria-label={`Add ${r.filename} as new version`} onClick={() => decide(r, "new_version")}>New version</Button>
                       <Button disabled={nearDup.isPending} aria-label={`Keep ${r.filename} separate`} onClick={() => decide(r, "separate")}>Keep separate</Button>

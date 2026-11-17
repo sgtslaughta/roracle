@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
-from roracle.api.routes.documents_read import HIDDEN_STAGES, _doc, _privileged
+from roracle.api.routes.documents_read import HIDDEN_STAGES, privileged, visible_doc
 from roracle.auth import Principal, current_principal
 from roracle.citations import _year as _int_or_none
 from roracle.citations import best_targets
@@ -23,7 +23,7 @@ Session_ = Annotated[Session, Depends(get_session)]
 
 def _readable(session: Session, p: Principal, doc_id: UUID) -> DocumentVersion:
     """Version whose references are shown: latest; non-owners only a searchable one (R16)."""
-    doc = _doc(session, p, doc_id)
+    doc = visible_doc(session, p, doc_id)
     versions = list(
         session.scalars(
             select(DocumentVersion)
@@ -31,7 +31,7 @@ def _readable(session: Session, p: Principal, doc_id: UUID) -> DocumentVersion:
             .order_by(DocumentVersion.version.desc())
         )
     )
-    if not _privileged(doc, p):
+    if not privileged(doc, p):
         versions = [v for v in versions if v.stage == "searchable"]
     if not versions:
         raise HTTPException(404, "not found")
@@ -53,7 +53,7 @@ def _title(d: Document, v: DocumentVersion | None) -> str:
 @router.get("/documents/{doc_id}/references")
 def references(doc_id: UUID, p: Who, session: Session_) -> list[dict]:
     v = _readable(session, p, doc_id)
-    bt = best_targets(p)
+    bt = best_targets(p, sources=[v.id])
     best = dict(
         session.execute(
             select(bt.c.ref_no, bt.c.target_document_id).where(bt.c.src_version_id == v.id, bt.c.rn == 1)
@@ -101,7 +101,7 @@ def cited_by(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[dict]:
     _readable(session, p, doc_id)
-    bt = best_targets(p)
+    bt = best_targets(p, targets=[doc_id])
     # one row per citing document (newest qualifying version), so limit/offset page documents
     one = (
         select(DocumentVersion.id.label("vid"))

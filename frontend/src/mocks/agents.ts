@@ -3,6 +3,7 @@ import { API_BASE } from "@/api/client";
 import type { AccessToken, CreateHandoffBody, CreateTokenBody, HandoffManifest, HandoffRow, HandoffShare, PatchHandoffBody } from "@/api/agents";
 import { DOCS } from "./docs";
 import { state } from "./state";
+import { docLabel } from "./labels";
 
 /** Handoff kept by the mock: the manifest plus creator-only fields the API never returns. */
 export interface MockHandoff { m: HandoffManifest; revoked_at: string | null; shares: HandoffShare[] }
@@ -65,7 +66,7 @@ export const agentHandlers = [
     const ids = [...new Set([...(b.kind === "document" && b.source_id ? [b.source_id] : []), ...b.doc_ids])].filter((id) => DOCS.some((d) => d.id === id));
     const m: HandoffManifest = {
       code, display: display(code), url: `/h/${display(code)}`, uri: `roracle://handoff/${code}`, kind: b.kind,
-      title: b.title, goal: b.goal, brief: b.brief, source: b.source_id ? { id: b.source_id } : {}, doc_ids: ids, passages: [], notes: [],
+      title: b.title, goal: b.goal, brief: b.brief, source: b.source_id ? { id: b.source_id } : {}, doc_ids: ids, documents: ids.map((id) => ({ id, title: DOCS.find((d) => d.id === id)!.title, label: docLabel(id), text_withheld: false })), passages: [], notes: [],
       withheld: 0, parts: { transcript: 0, notes: 0 }, audience: b.audience, expires_at: iso(b.expires_in_days * DAY), created_at: iso(),
       created_by: "researcher", created_via: "ui",
     };

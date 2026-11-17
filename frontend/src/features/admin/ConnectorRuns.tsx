@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ConnectorRun } from "@/api/admin";
 import { useRun, useRuns } from "./api";
-import { fmtTime } from "./ConnectorsPage";
+import { fmtDateTime as fmtTime } from "@/lib/dates";
 import { StatusPill } from "./StatusPill";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 
 /** Longest log shown; the tail is what matters for a failed run. */
 export const LOG_CAP = 200_000;
@@ -33,7 +34,10 @@ export function ConnectorRuns({ id }: { id: string }) {
                   <td>{fmtTime(r.started_at)}</td>
                   <td>{r.finished_at ? fmtTime(r.finished_at) : "Not finished"}</td>
                   <td className="wrap">{statsText(r.stats)}</td>
-                  <td><Button variant="ghost" aria-pressed={sel === r.id} onClick={() => setSel(sel === r.id ? null : r.id)}>{sel === r.id ? "Hide log" : "View log"}</Button></td>
+                  <td>
+                    <RowMenu kebab={false} label={`Actions for run ${r.id}`} actions={[{ label: sel === r.id ? "Hide log" : "View log", onSelect: () => setSel(sel === r.id ? null : r.id) }, copyAction("Copy run ID", String(r.id))]} />
+                    <Button variant="ghost" aria-pressed={sel === r.id} onClick={() => setSel(sel === r.id ? null : r.id)}>{sel === r.id ? "Hide log" : "View log"}</Button>
+                  </td>
                 </tr>
               ))}
             </tbody>

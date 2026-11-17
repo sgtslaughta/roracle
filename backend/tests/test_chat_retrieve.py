@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from api_seed import seed
 from elasticsearch import NotFoundError
+from es_fakes import msearch as _es_msearch
 
 from roracle.auth import Principal
 from roracle.chat import retrieve as rt
@@ -16,6 +17,8 @@ class FakeES:
 
     def __init__(self, hits=(), cap=None):
         self.hits, self.calls, self.cap = list(hits), [], cap
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)
@@ -179,7 +182,7 @@ def test_tab_second_search_adds_candidates(db_session, settings, me, other, call
     docs = [seed(db_session, other.id, title=f"D{i}") for i in range(3)]
     es = FakeES([hit(d, v) for d, v in docs])
     run(db_session, es, settings, me, Viewer(tabs=[Tab(doc_id=str(docs[2][0].id))]))
-    assert [kw["size"] for _, kw in calls] == [50, 20]
+    assert [kw["size"] for _, kw in calls] == [200, 20]
     assert calls[1][1]["doc_ids"] == [str(docs[2][0].id)]
 
 
@@ -249,7 +252,7 @@ def test_keyword_only_call_and_min_similarity(db_session, settings, me, other, c
     run(db_session, es, s, me)
     args, kw = calls[0]
     assert len(args) == 4
-    assert kw["query"] == "alpha" and kw["filters"] == {} and kw["doc_ids"] is None and kw["size"] == 50
+    assert kw["query"] == "alpha" and kw["filters"] == {} and kw["doc_ids"] is None and kw["size"] == 200
     assert kw["min_similarity"] == 0.4
     assert next(c for c in es.calls if "knn" in c)["knn"]["similarity"] == 0.4
     s0 = settings.model_copy(update={"chat_min_similarity": 0})
@@ -260,6 +263,8 @@ def test_keyword_only_call_and_min_similarity(db_session, settings, me, other, c
 
 def test_missing_index_is_empty(db_session, settings, me):
     class Boom:
+        msearch = _es_msearch
+
         def search(self, **kw):
             raise NotFoundError("nf", SimpleNamespace(status=404), {})
 
@@ -302,3 +307,34 @@ def test_invalid_ids_ignored(db_session, settings, me, other):
     assert ids(out) == [str(a.id)]
     with pytest.raises(ValueError):
         Tab(doc_id="a", page=0)
+
+
+def test_one_policy_load_and_one_msearch_per_chat_turn(db_session, settings, me, other, monkeypatch):
+    from roracle.chat import retrieve as chat_retrieve
+
+    mine, mv = seed(db_session, me.user_id, title="Mine")
+    es = FakeES([hit(mine, mv)])
+    loads = []
+    real = chat_retrieve.Policy.load
+    monkeypatch.setattr(chat_retrieve.Policy, "load", classmethod(lambda cls, s: loads.append(1) or real(s)))
+    v = Viewer(tabs=[Tab(doc_id=str(mine.id))])
+    run(db_session, es, settings, me, v, excludes=[str(other.id)])
+    assert len(loads) == 1  # gates, corpus search, tab search all share one Policy
+    assert len(es.calls) == 4  # corpus search (BM25 + kNN) and tab search (BM25 + kNN): 2 msearch round trips
+
+
+def test_chat_turn_on_a_flagged_request_session_rechecks_after_the_commit(db_session, settings, me, other):
+    """Request sessions release the connection before ES/embedding; R19 then runs in the next transaction and still
+    drops what the user may not see. Inside the (faked) ES call no pooled connection is checked out."""
+    mine, mv = seed(db_session, me.user_id, title="Mine")
+    secret, sv = seed(db_session, other.id, title="Secret", visibility="private")
+    db_session.commit()
+    db_session.info["release_before_io"] = True
+    pool = db_session.get_bind().pool
+    es = FakeES([hit(secret, sv), hit(mine, mv)])
+    seen = []
+    real = es.search
+    es.search = lambda **kw: seen.append(pool.checkedout()) or real(**kw)
+    out = run(db_session, es, settings, me)
+    assert ids(out) == [str(mine.id)]
+    assert seen and set(seen) == {0}

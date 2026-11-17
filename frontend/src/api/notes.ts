@@ -1,4 +1,5 @@
 /** P8 contract: reader annotations (notes), threads, votes and moderation. */
+import type { Label } from "./types";
 
 export const NOTE_KINDS = ["comment", "finding", "correction", "question", "relation"] as const;
 export type NoteKind = (typeof NOTE_KINDS)[number];
@@ -43,9 +44,13 @@ export interface Note {
   evidence: EvidenceCounts;
   created_at: string;
   updated_at: string;
+  /** own label (null = inherits the document's) and max(document, own) */
+  label?: Label | null;
+  effective_label?: Label;
 }
 
 export interface NoteIn {
+  label_id?: string;
   kind: NoteKind;
   body: string;
   anchor?: NoteAnchor | null;

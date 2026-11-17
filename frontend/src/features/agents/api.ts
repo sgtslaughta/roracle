@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, apiFetch, seg } from "@/api/client";
+import { ApiError, apiFetch, seg, QUIET } from "@/api/client";
 import type { AccessToken, CreateHandoffBody, CreatedToken, CreateTokenBody, HandoffManifest, HandoffRow, PatchHandoffBody } from "@/api/agents";
 
 export const useTokens = () => useQuery({ queryKey: ["tokens"], queryFn: () => apiFetch<AccessToken[]>("/me/tokens") });
@@ -10,6 +10,7 @@ export const createToken = (body: CreateTokenBody) => apiFetch<CreatedToken>("/m
 export function useRevokeToken() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (id: string) => apiFetch<void>(`/me/tokens/${seg(id)}`, { method: "DELETE" }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["tokens"] }),
   });
@@ -29,6 +30,7 @@ export const useHandoff = (code: string | undefined) =>
 export function useCreateHandoff() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (body: CreateHandoffBody) => apiFetch<HandoffManifest>("/handoffs", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["handoffs"] }),
   });
@@ -37,6 +39,7 @@ export function useCreateHandoff() {
 export function usePatchHandoff() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ code, patch }: { code: string; patch: PatchHandoffBody }) =>
       apiFetch<HandoffManifest>(`/handoffs/${seg(code)}`, { method: "PATCH", json: patch }),
     onSuccess: (m) => { qc.setQueryData(["handoff", m.code], m); return qc.invalidateQueries({ queryKey: ["handoffs"] }); },
@@ -46,6 +49,7 @@ export function usePatchHandoff() {
 export function useRevokeHandoff() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (code: string) => apiFetch<void>(`/handoffs/${seg(code)}`, { method: "DELETE" }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["handoffs"] }),
   });

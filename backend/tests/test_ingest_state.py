@@ -126,6 +126,10 @@ def test_promotion_demotes_and_marks_searchable_atomically(
     from roracle.ingest import state
 
     ids = _versions(db_session, document, blob, [True, False])
+    db_session.execute(
+        DocumentVersion.__table__.update().where(DocumentVersion.id == ids[1]).values(stage="embedded")
+    )  # the promoted version is mid-ingest (an already-searchable one is a no-op by design)
+    db_session.commit()
     monkeypatch.setattr(state, "enqueue", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         state.mark_searchable_and_enqueue(session_factory, ids[1], demote_doc=document.id)

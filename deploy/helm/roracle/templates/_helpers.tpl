@@ -27,14 +27,27 @@ app.kubernetes.io/component: {{ .comp }}
 {{- if .img.digest }}{{ printf "%s@%s" $r .img.digest }}{{ else }}{{ printf "%s:%s" $r (default .root.Chart.AppVersion .img.tag) }}{{ end -}}
 {{- end -}}
 
-{{/* Computed defaults for config entries the user left empty. Later tasks extend this (elastic, parsers, minio). */}}
+{{/* Computed defaults for config entries the user left empty. Later tasks extend this (elastic, parsers). */}}
+{{/* Worst-case Postgres client connections at full autoscale: replicas x (pool + overflow) for api and worker. */}}
+{{- define "roracle.pgClients" -}}
+{{- $api := .Values.api }}{{- $wk := .Values.worker }}{{- $c := .Values.config }}
+{{- $apiMax := ternary $api.autoscaling.maxReplicas $api.replicas $api.autoscaling.enabled | int }}
+{{- $wkMax := ternary $wk.autoscaling.maxReplicas $wk.replicas $wk.autoscaling.enabled | int }}
+{{- add (mul $apiMax (add (int $c.ROR_DB_POOL_SIZE) (int $c.ROR_DB_MAX_OVERFLOW))) (mul $wkMax (add (int $c.ROR_WORKER_DB_POOL_SIZE) (int $c.ROR_WORKER_DB_MAX_OVERFLOW) 1)) | int }}
+{{- end -}}
+
 {{- define "roracle.endpoints" -}}
+{{- if and (eq .Values.postgres.mode "cnpg") .Values.postgres.pooler.enabled }}
+ROR_DB_DISABLE_PREPARED: "true"   # transaction pooling: no server-side prepared statements (any PgBouncer version)
+{{- end }}
 {{- if .Values.ingress.host }}
 ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
 {{- end }}
-{{- if eq .Values.minio.mode "tenant" }}
-ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
-{{- end }}
+{{- with .Values.rerank }}{{ if .url }}
+ROR_RERANK_URL: {{ .url | quote }}
+ROR_RERANK_API: {{ .api | quote }}
+ROR_RERANK_MODEL: {{ .model | quote }}
+{{- end }}{{ end }}
 {{- $pf := printf "%s-" (include "roracle.fullname" .) }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
 ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
@@ -52,11 +65,6 @@ ROR_GROBID_URL: {{ printf "http://%sgrobid:%v" $pf .port | quote }}
 ROR_CLAMAV_HOST: {{ printf "%sclamav" $pf | quote }}
 ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- end }}
-{{- end -}}
-
-{{/* S3 endpoint of the bundled MinIO tenant (operator creates Service "minio" in the tenant namespace). */}}
-{{- define "roracle.minioEndpoint" -}}
-{{ ternary "https" "http" .Values.minio.requestAutoCert }}://minio.{{ .Release.Namespace }}.svc
 {{- end -}}
 
 {{/* Operator-managed image ref: like roracle.image but the tag is mandatory (no appVersion default). args: root, img */}}
@@ -87,13 +95,17 @@ ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- $s := required "secrets.existingSecret is required" .Values.secrets.existingSecret -}}
 {{- $k := .Values.secrets.keys }}
 - {name: ROR_DATABASE_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.databaseUrl | quote }}}}}
-- {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
-- {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
+{{- $s3 := default $s .Values.secrets.s3Secret }}
+- {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s3 | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
+- {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s3 | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
 - {name: ROR_ELASTIC_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.elasticUrl | quote }}}}}
 {{- range $env, $key := dict "ROR_ELASTIC_USERNAME" $k.elasticUsername "ROR_ELASTIC_PASSWORD" $k.elasticPassword "ROR_DATABASE_PASSWORD" $k.databasePassword }}
 {{- if $key }}
 - {name: {{ $env }}, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $key | quote }}, optional: true}}}
 {{- end }}
+{{- end }}
+{{- if .Values.secrets.rerankApiKeyEnabled }}
+- {name: ROR_RERANK_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.rerankApiKey | quote }}}}}
 {{- end }}
 {{- if .Values.secrets.llmApiKeyEnabled }}
 - {name: ROR_LLM_API_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.llmApiKey | quote }}}}}
@@ -131,6 +143,9 @@ metadata:
   labels: {{ include "roracle.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .comp }}
 spec:
+  {{- with .minReady }}
+  minReadySeconds: {{ . }}
+  {{- end }}
   {{- if not .v.autoscaling.enabled }}
   replicas: {{ .v.replicas }}
   {{- end }}
@@ -240,7 +255,7 @@ spec:
 
 {{/* ---- Interim CA bundle (see values caBundle). Empty output unless a TLS CA is in play. ---- */}}
 {{- define "roracle.caEnabled" -}}
-{{- if or (and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls) (and (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert) .Values.caBundle.extraSecrets }}true{{ end -}}
+{{- if or (and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls) .Values.caBundle.extraSecrets }}true{{ end -}}
 {{- end -}}
 
 {{/* Init container + volumes + mounts + env. Main containers get the merged bundle over certifi's cacert.pem. */}}
@@ -274,9 +289,6 @@ initContainers:
       {{- if and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls }}
       - secret: {name: {{ include "roracle.fullname" . }}-es-http-certs-public, optional: {{ $o }}, items: [{key: ca.crt, path: es.crt}]}
       {{- end }}
-      {{- if and .Values.caBundle.kubeRootCa (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert }}
-      - configMap: {name: kube-root-ca.crt, optional: true, items: [{key: ca.crt, path: kube-root.crt}]}
-      {{- end }}
       {{- range $i, $x := .Values.caBundle.extraSecrets }}
       - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
       {{- end }}
@@ -302,12 +314,12 @@ initContainers:
 {{- end }}
 {{- end -}}
 
-{{/* NetworkPolicy peers: app pods (api/worker/migrate/es-snapshot/minio-policy jobs) in this release. */}}
+{{/* NetworkPolicy peers: app pods (api/worker/migrate/es-snapshot jobs) in this release. */}}
 {{- define "roracle.appPeer" -}}
 - podSelector:
     matchLabels: {app.kubernetes.io/name: {{ .Chart.Name }}, app.kubernetes.io/instance: {{ .Release.Name | quote }}}
     matchExpressions:
-      - {key: app.kubernetes.io/component, operator: In, values: [api, worker, migrate, es-snapshot, minio-policy]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, worker, migrate, es-snapshot]}
 {{- end -}}
 
 {{- define "roracle.nsPeer" -}}
@@ -319,9 +331,9 @@ initContainers:
 {{ .Values.postgres.backup.destinationPath | trimPrefix "s3://" | splitList "/" | first }}
 {{- end -}}
 
-{{/* ES S3 client protocol: explicit value, else follows the bundled MinIO TLS setting (https for external S3). */}}
+{{/* ES S3 client protocol: explicit value, else https. */}}
 {{- define "roracle.snapProtocol" -}}
-{{- default (ternary (ternary "https" "http" .Values.minio.requestAutoCert) "https" (eq .Values.minio.mode "tenant")) .Values.elasticsearch.snapshot.protocol -}}
+{{- default "https" .Values.elasticsearch.snapshot.protocol -}}
 {{- end -}}
 
 {{/* "1100M" / "2G" / "512K" / "1048576" -> bytes (int64). */}}
@@ -331,4 +343,55 @@ initContainers:
 {{- else if hasSuffix "m" $s }}{{ mul (int64 (trimSuffix "m" $s)) 1048576 }}
 {{- else if hasSuffix "k" $s }}{{ mul (int64 (trimSuffix "k" $s)) 1024 }}
 {{- else }}{{ int64 $s }}{{ end -}}
+{{- end -}}
+
+{{/* Worker entrypoint: wait (bounded, logged every 5 s) until alembic_version = this image's head, then exec the worker.
+Why: the bundled-CNPG migrate hook is post-install, which Helm (--wait) runs only after the release is Ready, while the worker
+crashes at startup without the schema (install deadlock). During the wait a stub answers 200 on the worker health port, so
+liveness stays green and the pod counts as Ready. 1500 s = migrate.activeDeadlineSeconds. */}}
+{{- define "roracle.workerStartPy" -}}
+import os, sys, time, threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, text
+from roracle.config import get_settings
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        ok = self.path.startswith("/healthz")
+        self.send_response(200 if ok else 404); self.end_headers()
+        if ok:
+            self.wfile.write(b"waiting for schema")
+    def log_message(self, *a):
+        pass
+port = int(os.environ.get("ROR_WORKER_HEALTH_PORT") or 0)
+srv = HTTPServer(("0.0.0.0", port), H) if port else None
+if srv:
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+script = ScriptDirectory.from_config(Config("alembic.ini"))
+head = script.get_current_head()
+known = {r.revision for r in script.walk_revisions()}
+engine = create_engine(get_settings().database_url, connect_args={"connect_timeout": 5})
+end = time.time() + 1500
+while True:
+    try:
+        with engine.connect() as c:
+            cur = c.execute(text("select version_num from alembic_version")).scalar()
+    except Exception as e:
+        cur = None
+        why = "unavailable (%s)" % type(e).__name__
+    else:
+        why = "at %s" % cur
+    # proceed at head, or when the DB is NEWER than this image (rollback/old tag: expand-first schema is compatible)
+    if cur == head or (cur is not None and cur not in known):
+        print("schema ok: db %s, image head %s" % (why, head), flush=True)
+        break
+    if time.time() > end:
+        print("TIMEOUT waiting for migrations: db %s, image head %s" % (why, head), file=sys.stderr, flush=True)
+        sys.exit(1)
+    print("waiting for migrations: db %s, image head %s" % (why, head), flush=True)
+    time.sleep(5)
+if srv:
+    srv.shutdown(); srv.server_close()
+os.execvp("python", ["python", "-m", "roracle", "worker"])
 {{- end -}}

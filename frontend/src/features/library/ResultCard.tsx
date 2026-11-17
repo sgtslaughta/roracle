@@ -1,15 +1,21 @@
+import { useState } from "react";
+import { copyAction, RowMenu } from "@/components/RowMenu";
 import { Clock, FileText, FileType2, History, MessageSquareQuote, Quote, TextQuote } from "lucide-react";
 import type { CommunityNote } from "@/api/notes";
 import type { Bbox, SearchHit } from "@/api/types";
 import { OverflowList } from "@/components/OverflowList";
 import { Badge } from "@/components/ui/badge";
+import { SensitivityBadge } from "@/components/SensitivityBadge";
 import { CiteLine } from "@/components/CiteLine";
 import { notesUi } from "@/features/notes/api";
 import { KindPill } from "@/features/notes/NoteCard";
 import { openDoc, setView } from "@/features/reader/useReaderStore";
 import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
-import { useCanRemoveTags } from "./useMe";
+import { docTitle } from "@/lib/docTitle";
+import { useOwnerOrAdmin } from "./useMe";
+import { useRemoveFromCollection } from "./api";
+import { AddToCollectionDialog } from "./AddToCollection";
 import { VoteControl } from "./VoteControl";
 
 export interface ResultCardProps {
@@ -18,10 +24,15 @@ export interface ResultCardProps {
   others: { id: string; title: string }[];
   onOpen: (docId: string, opts?: { page?: number; chunkId?: string; bbox?: Bbox | null }) => void;
   onTag: (tag: string) => void;
+  /** set when the library is filtered to exactly one collection */
+  collectionId?: string;
 }
 
-export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProps) {
-  const canRemove = useCanRemoveTags(hit.owner_id);
+export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: ResultCardProps) {
+  const removeFrom = useRemoveFromCollection();
+  const canRemove = useOwnerOrAdmin(hit.owner_id);
+  const [adding, setAdding] = useState(false);
+  const title = docTitle(hit);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
@@ -29,10 +40,16 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
       <div style={{ minWidth: 0 }}>
         <div className="rtop">
           <div style={{ minWidth: 0 }}>
-            <h3><button title={hit.title} onClick={() => onOpen(hit.doc_id)}>{highlight(hit.title, terms)}</button></h3>
+            <h3><button title={title} onClick={() => onOpen(hit.doc_id)}>{hit.title.trim() ? highlight(hit.title, terms) : title}</button></h3>
             <CiteLine authors={hit.authors} venue={hit.venue} year={hit.year} />
           </div>
           {hit.flag && <span className="flag"><Clock aria-hidden />{hit.flag}</span>}
+          <RowMenu label={`Actions for ${title}`} actions={[
+            { label: "Open", onSelect: () => onOpen(hit.doc_id) },
+            { label: "Add to collection", onSelect: () => setAdding(true) },
+            ...(collectionId ? [{ label: "Remove from collection", danger: true, onSelect: () => removeFrom.mutate({ cid: collectionId, docId: hit.doc_id }) }] : []),
+            copyAction("Copy title", title),
+          ]} />
         </div>
         <div className="hits">
           {hit.passages.map((p) => (
@@ -44,6 +61,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           <CommunityNotes docId={hit.doc_id} notes={hit.notes ?? []} />
         </div>
         <div className="rmeta">
+          {hit.label && <SensitivityBadge label={hit.label} />}
           <Badge kind="type"><TypeIcon aria-hidden />{hit.file_type}</Badge>
           <Badge><History aria-hidden />v{hit.version}</Badge>
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}
@@ -53,6 +71,7 @@ export function ResultCard({ hit, terms, others, onOpen, onTag }: ResultCardProp
           />
         </div>
       </div>
+      {adding && <AddToCollectionDialog docId={hit.doc_id} open onOpenChange={setAdding} />}
     </li>
   );
 }

@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select, update
 
+from roracle.cursor import make_cursor
 from roracle.models import Document, DocumentVersion, Job
 
 pytestmark = pytest.mark.usefixtures("_blob_store_override")
@@ -146,3 +148,28 @@ def test_stage_label_page_count_and_near_dup_visibility(client, as_ana, as_bob, 
     )
     db_session.flush()
     assert client.get("/me/uploads", headers=as_ana).json()["items"][0]["near_dup_of"] is None
+
+
+def test_keyset_paging_and_capped_total(client, as_ana, upload, monkeypatch):
+    from roracle.api.routes import me
+
+    for i in range(5):
+        upload(as_ana, bytes([i]), f"f{i}.pdf")
+    seen, after = [], None
+    for _ in range(5):
+        r = client.get(
+            "/me/uploads", headers=as_ana, params={"limit": 2, **({"after": after} if after else {})}
+        )
+        body = r.json()
+        seen += [i["filename"] for i in body["items"]]
+        after = body["next"]
+        assert body["total"] == 5 and body["total_capped"] is False
+        if after is None:
+            break
+    assert seen == ["f4.pdf", "f3.pdf", "f2.pdf", "f1.pdf", "f0.pdf"]
+    monkeypatch.setattr(me, "TOTAL_CAP", 3)
+    body = client.get("/me/uploads", headers=as_ana).json()
+    assert body["total"] == 3 and body["total_capped"] is True
+    assert client.get("/me/uploads", headers=as_ana, params={"after": "junk"}).status_code == 422
+    ok = make_cursor(datetime(2026, 1, 1, tzinfo=UTC), UUID(int=0))
+    assert client.get("/me/uploads", headers=as_ana, params={"after": ok, "offset": 1}).status_code == 422

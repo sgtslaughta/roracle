@@ -1,0 +1,4 @@
+apiVersion: v2
+name: roracle-buckets
+description: ObjectBucketClaims for rOracle on a Rook-Ceph object store (local chart, shipped with the Terraform module)
+version: 0.1.0

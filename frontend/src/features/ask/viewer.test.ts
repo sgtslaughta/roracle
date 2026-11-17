@@ -21,6 +21,11 @@ describe("buildViewer", () => {
     expect(v.tabs.map((t) => t.doc_id)).toEqual(["a"]);
     expect(v.ignored).toEqual(["b"]);
   });
+  it("drops ignores for closed tabs (no chip shown, so no hidden corpus exclusion)", () => {
+    const v = buildViewer({ tabs: [tab("a")], active: "a" }, ["gone", "a"], ids);
+    expect(v.ignored).toEqual(["a"]);
+    expect(buildViewer({ tabs: [], active: null }, ["gone"], ids).ignored).toEqual([]);
+  });
   it("maps latest, explicit and unknown versions", () => {
     const v = buildViewer({ tabs: [tab("a", 2), tab("b", 1, 3), tab("unk", 5)], active: "a" }, [], ids);
     expect(v.tabs).toEqual([

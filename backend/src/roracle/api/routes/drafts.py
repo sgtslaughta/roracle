@@ -8,11 +8,13 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import group_path, org_units
+from roracle.access import agent_visible, group_path, org_units
 from roracle.api.routes.search import get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
+from roracle.labels.policy import Policy
+from roracle.labels.textgate import require_text
 from roracle.models import Document, User
 from roracle.models_writing import Draft, DraftVersion
 from roracle.writing import drafts as svc
@@ -61,7 +63,9 @@ def list_drafts(p: Who, session: Db) -> dict:
     rows = session.execute(
         select(Draft, Document)
         .join(Document, Document.id == Draft.document_id)
-        .where(Document.deleted_at.is_(None), or_(*mine))
+        .where(
+            Document.deleted_at.is_(None), or_(*mine), *((agent_visible(),) if p.via == "pat" else ())
+        )  # gate (b)
         .order_by(Draft.updated_at.desc(), Draft.document_id)
         .limit(LIMIT)
     ).all()
@@ -75,13 +79,15 @@ def list_drafts(p: Who, session: Db) -> dict:
     session.scalars(
         select(User).where(User.id.in_({doc.owner_id for _, doc in rows}))
     )  # fills the identity map
-    return {"items": [svc.summary(session, d, doc, tops.get(doc.id, 0)) for d, doc in rows]}
+    policy = Policy.load(session)
+    return {"items": [svc.summary(session, d, doc, tops.get(doc.id, 0), policy) for d, doc in rows]}
 
 
 @router.get("/drafts/{doc_id}")
 def get_draft(doc_id: UUID, p: Who, session: Db) -> dict:
     """Version metadata only; content of older versions lives at `/drafts/{id}/versions/{n}`."""
     doc, d = svc.readable_draft(session, p, doc_id)
+    require_text(session, p, doc)  # agents never get the text of exclude_llm documents
     vs = session.execute(
         select(DraftVersion.version, DraftVersion.author_id, DraftVersion.created_at, User.username)
         .join(User, User.id == DraftVersion.author_id, isouter=True)
@@ -111,7 +117,8 @@ def get_draft(doc_id: UUID, p: Who, session: Db) -> dict:
 
 @router.get("/drafts/{doc_id}/versions/{n}")
 def get_version(doc_id: UUID, n: Ver, p: Who, session: Db) -> dict:
-    svc.readable_draft(session, p, doc_id)
+    doc, _ = svc.readable_draft(session, p, doc_id)
+    require_text(session, p, doc)
     v = session.scalar(
         select(DraftVersion).where(DraftVersion.document_id == doc_id, DraftVersion.version == n)
     )
@@ -128,7 +135,8 @@ def get_version(doc_id: UUID, n: Ver, p: Who, session: Db) -> dict:
 @router.get("/drafts/{doc_id}/checks")
 def get_checks(doc_id: UUID, p: Who, session: Db) -> dict:
     """The caller's own stored reports for the latest version (never another co-author's)."""
-    svc.readable_draft(session, p, doc_id)
+    doc, _ = svc.readable_draft(session, p, doc_id)
+    require_text(session, p, doc)  # stored reports quote the draft
     v = svc.latest_version(session, doc_id)
 
     def mine(rep: dict | None) -> dict | None:

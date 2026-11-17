@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 from roracle.api.routes import library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
+from roracle.labels.policy import Policy, label_json
 from roracle.mcp.auth import dep
 from roracle.mcp.tools_write import Run, _need_write
+from roracle.models import Document
 from roracle.writing import cite_check, drafts, skill, validate
 
 
@@ -43,7 +45,13 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
                 except ValueError:
                     raise HTTPException(404, "not found") from None
                 ver = drafts.save(session, p, doc_id, content, base_version, cap).version
-            return {"draft_id": str(doc_id), "version": ver, "url": f"/drafts/{doc_id}"}
+            lab = Policy.load(session).get(session.get(Document, doc_id).label_id)
+            return {
+                "draft_id": str(doc_id),
+                "version": ver,
+                "url": f"/drafts/{doc_id}",
+                "label": label_json(lab),
+            }
 
         return run(app, "save_draft", go, draft_id or "")
 

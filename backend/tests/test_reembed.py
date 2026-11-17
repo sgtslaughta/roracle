@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import bearer
+from es_fakes import msearch as _es_msearch
 from reembed_support import SRC, FakeEs, FakeIndices, FakeLlm, base, drain, es, vid  # noqa: F401
 from sqlalchemy import func, select
 
@@ -62,6 +63,9 @@ def test_copy_takes_acl_from_postgres_not_source(db_session, session_factory, es
         "everyone", "/", [], ["x"], "fresh",
     )  # fmt: skip
     assert t["owner_id"] == str(document.owner_id)
+    from roracle import acl_sync, search_index
+
+    assert t["acl_hash"] == search_index.acl_hash(*acl_sync.read_acl(session_factory, document.id))
     assert es.mutations == []  # nothing left to resync: written correct the first time
 
 
@@ -149,6 +153,46 @@ def test_reconcile_tags_enqueued_before_cutover_and_after_catchup(
     assert n >= 4  # end of copy, cutover, two catch-up rounds
 
 
+def test_eval_enqueued_once_by_the_final_catchup_not_by_a_timer(
+    db_session, session_factory, es, base, document, vid
+):
+    from roracle.models_eval import EvalSet
+
+    ref = EvalSet(name="ref", is_reference=True)
+    db_session.add(ref)
+    db_session.commit()
+    es.put(f"{vid}:0", document.id)
+    base = base.model_copy(update={"eval_on_reindex": True})
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    seen = []
+    for _ in range(50):
+        j = db_session.scalar(
+            select(Job).where(Job.kind == "reembed", Job.status == "queued").order_by(Job.id)
+        )
+        if j is None:
+            break
+        seen.append(
+            (
+                j.payload["phase"],
+                j.payload.get("round"),
+                db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "eval_run")),
+            )
+        )
+        j.status = "done"
+        db_session.flush()
+        reembed.handle_reembed(
+            db_session, j.payload, es=es, llm=FakeLlm(2), session_factory=session_factory, settings=base
+        )
+        db_session.commit()
+    evs = db_session.scalars(select(Job).where(Job.kind == "eval_run")).all()
+    assert len(evs) == 1 and evs[0].payload["trigger"] == "reindex"
+    assert evs[0].run_after <= datetime.now(UTC)  # no fixed delay
+    assert [n for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)] == [0] * len(
+        [1 for ph, rd, n in seen if ph == "cutover" or (ph == "catchup" and rd == 1)]
+    )
+
+
 def test_catchup_copies_chunk_ingested_during_copy(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     es.put(f"{vid}:0", document.id)
@@ -181,7 +225,7 @@ def test_start_rejects_second_running_job(db_session, es, base):
 def test_status_reports_progress(db_session, session_factory, es, base, document, vid):
     db_session.commit()
     assert reembed.status(db_session, es, base) == {
-        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "old": [],
+        "active": {"index": "chunks-old-1", "model": "old", "dims": 2}, "running": None, "failed": None, "old": [],
     }  # fmt: skip
     for n in range(2):
         es.put(f"{vid}:{n}", document.id)
@@ -192,7 +236,7 @@ def test_status_reports_progress(db_session, session_factory, es, base, document
     )
     s = reembed.status(db_session, es, base)
     assert s["running"]["target"] == {"model": "new", "dims": 2, "index": "chunks-new-1"}
-    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("cutover", 2, 2)
+    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("converge", 2, 2)
 
 
 def test_drop_old_keeps_active(db_session, es, base):
@@ -230,12 +274,16 @@ def test_retrieval_reads_active_index(db_session, base):
     seen = []
 
     class E:
+        msearch = _es_msearch
+
         def search(self, index, **kw):
             seen.append(index)
             return {"hits": {"hits": []}}
 
-    p = SimpleNamespace(user_id="u", groups=(), is_admin=True)
-    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", filters={}, qvec=[0.0, 0.0])
+    p = SimpleNamespace(user_id="u", groups=(), is_admin=True, via="jwt")
+    from roracle.labels.policy import Policy
+
+    retrieval.search_chunks(E(), FakeLlm(2), eff, p, "q", policy=Policy([]), filters={}, qvec=[0.0, 0.0])
     assert seen and set(seen) == {"chunks-new-3"}
 
 
@@ -331,14 +379,24 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     assert j.kind == "reembed" and j.payload["target"] == {"model": "m", "dims": 2, "index": "chunks-m-1"}
     assert client.post("/admin/reindex", json={"model": "m2", "dims": 2}, headers=adm).status_code == 409
     g = client.get("/admin/reindex", headers=adm).json()
-    assert g["running"] == {"target": j.payload["target"], "copied": 0, "total": None, "phase": "copy"}
+    assert g["running"] == {
+        "target": j.payload["target"], "copied": 0, "total": None, "phase": "copy", "slices": 4,
+    }  # fmt: skip
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # running
-    j.status = "done"
+    for other in db_session.scalars(select(Job).where(Job.kind == "reembed")):
+        other.status = "done"  # every slice chain
     db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # alias != active index
     runtime.set_active_embedding(db_session, "m0", 2, SRC)
     api_es.data["chunks-m-1"] = {}
     api_es.aliases["chunks-all"].add("chunks-m-1")
+    from roracle.queue import enqueue
+
+    rb = enqueue(db_session, "rebuild_units", {"version_ids": []})
+    db_session.flush()
+    assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # a shadow rebuild is queued
+    db_session.get(Job, rb).status = "done"
+    db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 204
     assert (
         "chunks-m-1" not in api_es.data and SRC in api_es.data

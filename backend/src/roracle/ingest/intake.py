@@ -65,10 +65,17 @@ def add_document(
     content_type: str,
     title: str | None = None,
     connector_id: UUID | None = None,
+    label_id: UUID | None = None,
 ) -> tuple[Document, DocumentVersion]:
     _put(session, store, staged, content_type)
+    extra = {"label_id": label_id} if label_id else {}  # else the column default (global default label)
     doc = Document(
-        owner_id=owner_id, title=title, org_unit=org_unit, visibility=visibility, connector_id=connector_id
+        owner_id=owner_id,
+        title=title,
+        org_unit=org_unit,
+        visibility=visibility,
+        connector_id=connector_id,
+        **extra,
     )
     session.add(doc)
     session.flush()

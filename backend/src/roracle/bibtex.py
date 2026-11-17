@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
+from roracle.labels.policy import exportable_clause
 from roracle.models import Document, DocumentVersion
 from roracle.notes.access import readable_doc_ids
 
@@ -79,7 +80,7 @@ def entries(session: Session, p: Principal, doc_ids: list[UUID], collection_id: 
     docs = list(
         session.scalars(
             select(Document)
-            .where(Document.id.in_(ids), Document.id.in_(readable_doc_ids(p)))
+            .where(Document.id.in_(ids), Document.id.in_(readable_doc_ids(p)), exportable_clause(p))
             .order_by(Document.title, Document.id)
         )
     )

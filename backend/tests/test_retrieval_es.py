@@ -6,6 +6,7 @@ from elasticsearch import Elasticsearch
 
 from roracle.auth import Principal
 from roracle.ingest.chunking import Chunk
+from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion
 from roracle.retrieval import search_chunks
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
@@ -71,7 +72,7 @@ def _add(es, cfg, db_session, blob, owner, title, text, *, vis="everyone", lates
 
 def _search(cfg, es, p, q, **kw):
     kw.setdefault("filters", {})
-    return search_chunks(es, FakeLLM(), cfg, p, q, **kw)
+    return search_chunks(es, FakeLLM(), cfg, p, q, policy=Policy([]), **kw)
 
 
 def test_invisible_doc_not_found(es, cfg, db_session, blob, user):
@@ -173,5 +174,5 @@ def test_summary_vector_finds_doc_and_respects_acl(es, cfg, db_session, blob, us
     llm = FakeLLM()
     llm._embed = lambda model, input: SimpleNamespace(data=[SimpleNamespace(index=0, embedding=q)])
     llm.embeddings = SimpleNamespace(create=llm._embed)
-    out = search_chunks(es, llm, cfg, _p(uuid.uuid4()), "nomatchword", filters={})
+    out = search_chunks(es, llm, cfg, _p(uuid.uuid4()), "nomatchword", policy=Policy([]), filters={})
     assert [x.title for x in out] == ["Visible"]

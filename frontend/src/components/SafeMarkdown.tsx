@@ -1,5 +1,5 @@
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { lazy, Suspense } from "react";
+import type { Components } from "react-markdown";
 
 /** Allow only same-site relative paths, fragments and absolute http(s) URLs. */
 export function safeHref(href: string | undefined): { href: string; external: boolean } | null {
@@ -31,14 +31,16 @@ export function safeComponents(rel = "noopener noreferrer nofollow"): Components
   };
 }
 
-const remarkPlugins = [remarkGfm];
 const components = safeComponents();
+const MarkdownBody = lazy(() => import("./MarkdownBody"));
 
-/** User-authored Markdown (note bodies): GFM only, no raw HTML, no math, no images. */
+/** User-authored Markdown (note bodies): GFM only, no raw HTML, no math, no images. The renderer loads on demand; meanwhile the plain text shows. */
 export function SafeMarkdown({ text, className }: { text: string; className?: string }) {
   return (
     <div className={className ? `md ${className}` : "md"}>
-      <Markdown remarkPlugins={remarkPlugins} components={components}>{text}</Markdown>
+      <Suspense fallback={<p data-md-fallback style={{ whiteSpace: "pre-wrap" }}>{text}</p>}>
+        <MarkdownBody text={text} components={components} />
+      </Suspense>
     </div>
   );
 }

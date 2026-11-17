@@ -8,6 +8,7 @@ import openai
 import pytest
 from api_seed import FakeES, seed
 from elasticsearch import ConnectionError as EsConnectionError
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle.api.routes.chats import _frames
@@ -253,6 +254,35 @@ def test_disconnect_saves_interrupted(db_session, user):
     assert (m.status, m.content, m.citations) == ("interrupted", "Alpha ", [])
 
 
+def test_close_persists_before_cleanup_closes_the_session(db_session, user):
+    chat = Chat(owner_id=user.id)
+    db_session.add(chat)
+    db_session.commit()
+    seen = []
+    cleanup = lambda: seen.append(db_session.scalars(select(ChatMessage)).all() != [])
+    gen = stream_answer(db_session, FakeStreamLLM(), chat.id, "m", [], [P(1)], cleanup=cleanup)
+    next(gen)
+    gen.close()
+    assert seen == [True]  # the interrupted row existed when cleanup (the session close) ran
+
+
+def test_prepare_may_drop_the_token_cap(db_session, user):
+    chat = Chat(owner_id=user.id)
+    db_session.add(chat)
+    db_session.commit()
+    llm = FakeStreamLLM()
+    seen = []
+    orig = llm.chat.completions.create
+    llm.chat.completions.create = lambda **kw: (seen.append(kw), orig(**kw))[1]
+
+    def prep():
+        return [], [], {}, None, [], None
+        yield
+
+    list(stream_answer(db_session, llm, chat.id, "m", [], [], max_tokens=1200, prepare=prep))
+    assert "max_tokens" not in seen[0]
+
+
 def test_disconnect_after_citations_marker(db_session, user):
     chat = Chat(owner_id=user.id)
     db_session.add(chat)
@@ -385,6 +415,8 @@ def test_retrieval_unavailable_503(client, as_ana, ana, db_session, app, setup):
     assert r.status_code == 503 and r.json() == {"detail": "inference unavailable"}
 
     class BadES(FakeES):
+        msearch = _es_msearch
+
         def search(self, **kw):
             raise EsConnectionError("down")
 
@@ -432,3 +464,12 @@ def test_persist_failure_still_sends_error(db_session, user):
     frames = list(gen)
     assert frames[-1].startswith("event: error")
     gen.close()  # must not raise
+
+
+def test_new_message_unhides_chat(client, as_ana, ana, db_session, setup):
+    setup(hits=[])
+    cid = new_chat(client, as_ana)
+    assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204
+    assert client.get("/chats", headers=as_ana).json()["items"] == []
+    assert client.post(f"/chats/{cid}/messages", headers=as_ana, json={"content": "again"}).status_code == 200
+    assert [c["id"] for c in client.get("/chats", headers=as_ana).json()["items"]] == [cid]

@@ -14,6 +14,7 @@ from roracle.api.routes.documents import get_blob_store
 from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session
+from roracle.labels.policy import Policy
 from roracle.models import Document
 from roracle.models_writing import Draft
 from roracle.storage import BlobStore
@@ -32,6 +33,7 @@ class SubmitIn(BaseModel):
     share_groups: Annotated[
         list[Annotated[str, Field(max_length=500), AfterValidator(group_path)]], Field(max_length=100)
     ] = []
+    label_id: UUID | None = None
 
 
 class ReviewIn(BaseModel):
@@ -55,7 +57,8 @@ def reviews(p: Admin, session: Db) -> dict:
         .order_by(Draft.updated_at, Draft.document_id)
         .limit(200)
     ).all()
-    return {"items": [drafts.summary(session, d, doc) for d, doc in rows]}
+    policy = Policy.load(session)
+    return {"items": [drafts.summary(session, d, doc, policy=policy) for d, doc in rows]}
 
 
 @router.post("/admin/drafts/{doc_id}/review")

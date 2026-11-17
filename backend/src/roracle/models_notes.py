@@ -61,6 +61,7 @@ class Annotation(Base):
     status: Mapped[str] = mapped_column(String, default="visible", server_default="visible")
     agent_assisted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     stale_version: Mapped[int | None] = mapped_column(Integer)
+    label_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("labels.id", ondelete="RESTRICT"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
 
@@ -106,7 +107,7 @@ class AnnotationReport(Base):
 class Proposal(Base):
     __tablename__ = "proposals"
     __table_args__ = (
-        CheckConstraint("kind IN ('note','relation','evidence')", name="ck_proposals_kind"),
+        CheckConstraint("kind IN ('note','relation','evidence','label')", name="ck_proposals_kind"),
         CheckConstraint("status IN ('pending','approved','rejected')", name="ck_proposals_status"),
         Index("ix_proposals_user_id_status_created_at", "user_id", "status", "created_at"),
     )

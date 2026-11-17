@@ -34,6 +34,15 @@ def main(argv: list[str] | None = None) -> None:
     mig = sub.add_parser("migrate", help="alembic upgrade head")
     mig.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="wait for the database first")
     mig.add_argument("--alembic-ini", default=str(DEFAULT_INI))
+    from roracle.eval.cli import add_parser
+
+    add_parser(sub)
+    from roracle.ingest.rebuild_cli import add_parser as add_rebuild
+
+    add_rebuild(sub)
+    from roracle.perf.cli import add_parser as add_perf
+
+    add_perf(sub)
     args = p.parse_args(argv)
 
     if args.cmd == "api":
@@ -44,6 +53,18 @@ def main(argv: list[str] | None = None) -> None:
         from roracle.worker import main as worker_main
 
         worker_main()
+    elif args.cmd == "rebuild":
+        from roracle.ingest.rebuild_cli import run as rebuild_run
+
+        sys.exit(rebuild_run(args))
+    elif args.cmd == "perf":
+        from roracle.perf.cli import run as perf_run
+
+        sys.exit(perf_run(args))
+    elif args.cmd == "eval":
+        from roracle.eval.cli import run
+
+        sys.exit(run(args))
     else:
         from alembic import command
         from alembic.config import Config

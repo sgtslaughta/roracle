@@ -9,6 +9,8 @@ export const ADMIN_SECTIONS: { to: string; label: string }[] = [
   { to: "/admin/needs-title", label: "Needs title" },
   { to: "/admin/settings", label: "Settings" },
   { to: "/admin/tags", label: "Tags" },
+  { to: "/admin/labels", label: "Labels" },
+  { to: "/admin/eval", label: "Eval" },
   { to: "/admin/audit", label: "Audit" },
   { to: "/admin/users", label: "Users" },
   { to: "/admin/stats", label: "Stats" },
@@ -23,7 +25,7 @@ export function AdminLayout() {
   if (!me.is_admin) {
     return (
       <section className="view">
-        <div className="empty"><ShieldAlert aria-hidden /><h1>Admins only</h1><p>This section is for rOracle administrators.</p></div>
+        <div className="empty"><ShieldAlert aria-hidden /><h1>Admins only</h1><p>This section is for rOracle administrators.</p><Link to="/library">Back to Library</Link></div>
       </section>
     );
   }

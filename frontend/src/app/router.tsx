@@ -1,27 +1,32 @@
 import {
   createMemoryHistory, createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect,
 } from "@tanstack/react-router";
-import type { RouteComponent } from "@tanstack/react-router";
+import type { ErrorRouteComponent, RouteComponent } from "@tanstack/react-router";
 import { Shell } from "./Shell";
+import { NotFound, Pending, RouteError } from "./RouterStates";
 import { LibraryRoute } from "@/routes/LibraryRoute";
-import { DraftsRoute } from "@/routes/placeholders";
-import { AskRoute } from "@/routes/AskRoute";
-import { UploadsRoute } from "@/routes/UploadsRoute";
 import { DocRoute } from "@/routes/DocRoute";
-import { HandoffRoute } from "@/routes/HandoffRoute";
 import { parseSearch, stringifySearch, validateLibrarySearch } from "@/lib/searchParams";
 
+const AskRoute = lazyRouteComponent(() => import("@/routes/AskRoute"), "AskRoute");
+const UploadsRoute = lazyRouteComponent(() => import("@/routes/UploadsRoute"), "UploadsRoute");
+const DraftsPage = lazyRouteComponent(() => import("@/features/drafts/DraftsPage"), "DraftsPage");
+const DraftPage = lazyRouteComponent(() => import("@/features/drafts/DraftPage"), "DraftPage");
+const HandoffRoute = lazyRouteComponent(() => import("@/routes/HandoffRoute"), "HandoffRoute");
 // Admin and low-traffic pages load on demand to keep the entry chunk small.
 const ProposalsPage = lazyRouteComponent(() => import("@/features/proposals/ProposalsPage"), "ProposalsPage");
 const NotificationsPage = lazyRouteComponent(() => import("@/features/notifications/NotificationsPage"), "NotificationsPage");
 const SettingsRoute = lazyRouteComponent(() => import("@/routes/SettingsRoute"), "SettingsRoute");
 const ConnectorDetailRoute = lazyRouteComponent(() => import("@/routes/AdminRoute"), "ConnectorDetailRoute");
+const EvalSetRoute = lazyRouteComponent(() => import("@/routes/AdminRoute"), "EvalSetRoute");
+const EvalPage = lazyRouteComponent(() => import("@/features/admin/EvalPage"), "EvalPage");
 const AdminLayout = lazyRouteComponent(() => import("@/features/admin/AdminLayout"), "AdminLayout");
 const ConnectorsPage = lazyRouteComponent(() => import("@/features/admin/ConnectorsPage"), "ConnectorsPage");
 const JobsPage = lazyRouteComponent(() => import("@/features/admin/JobsPage"), "JobsPage");
 const ReviewPage = lazyRouteComponent(() => import("@/features/admin/ReviewPage"), "ReviewPage");
 const SettingsPage = lazyRouteComponent(() => import("@/features/admin/SettingsPage"), "SettingsPage");
 const TagsPage = lazyRouteComponent(() => import("@/features/admin/TagsPage"), "TagsPage");
+const LabelsPage = lazyRouteComponent(() => import("@/features/admin/LabelsPage"), "LabelsPage");
 const AuditPage = lazyRouteComponent(() => import("@/features/admin/AuditPage"), "AuditPage");
 const UsersPage = lazyRouteComponent(() => import("@/features/admin/UsersPage"), "UsersPage");
 const StatsPage = lazyRouteComponent(() => import("@/features/admin/StatsPage"), "StatsPage");
@@ -43,6 +48,9 @@ const adminTree = adminRoute.addChildren([
   a("needs-title", NeedsTitlePage),
   a("settings", SettingsPage),
   a("tags", TagsPage),
+  a("labels", LabelsPage),
+  a("eval", EvalPage),
+  a("eval/sets/$id", EvalSetRoute),
   a("audit", AuditPage),
   a("users", UsersPage),
   a("stats", StatsPage),
@@ -57,7 +65,8 @@ const routeTree = rootRoute.addChildren([
   r("/uploads", UploadsRoute),
   r("/proposals", ProposalsPage),
   r("/notifications", NotificationsPage),
-  r("/drafts", DraftsRoute),
+  r("/drafts", DraftsPage),
+  r("/drafts/$id", DraftPage),
   r("/d/$docId", DocRoute),
   r("/d/$docId/v/$version", DocRoute),
   r("/settings", SettingsRoute),
@@ -68,6 +77,10 @@ const routeTree = rootRoute.addChildren([
 export function createAppRouter(initialEntries?: string[]) {
   return createRouter({
     routeTree,
+    defaultNotFoundComponent: NotFound,
+    defaultErrorComponent: RouteError as ErrorRouteComponent,
+    defaultPendingComponent: Pending,
+    defaultPendingMs: 300,
     parseSearch,
     stringifySearch,
     ...(initialEntries ? { history: createMemoryHistory({ initialEntries }) } : {}),

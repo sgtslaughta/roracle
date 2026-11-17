@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type {
   AdminJob, Connector, ConnectorBody, ConnectorRun, ConnectorRunDetail, JobsSummary, Keyset, Paged, ReviewItem, ReviewSource,
 } from "@/api/admin";
@@ -41,6 +41,7 @@ export const useConnector = (id: string | undefined) =>
 export function useSaveConnector() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ id, body }: { id?: string; body: ConnectorBody | Partial<ConnectorBody> }) =>
       id ? apiFetch<Connector>(`/admin/connectors/${seg(id)}`, { method: "PATCH", json: body }) : apiFetch<Connector>("/admin/connectors", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
@@ -50,6 +51,7 @@ export function useSaveConnector() {
 export function useDeleteConnector() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (id: string) => apiFetch<void>(`/admin/connectors/${seg(id)}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }),
   });
@@ -62,6 +64,7 @@ const QUEUED_POLL_MS = 60_000;
 export function useRunConnector() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (id: string) => apiFetch<{ job_id: number }>(`/admin/connectors/${seg(id)}/run`, { method: "POST" }),
     onSuccess: (_r, id) => { queuedAt.set(id, Date.now()); return qc.invalidateQueries({ queryKey: ["admin"] }); },
   });
@@ -94,6 +97,7 @@ export const useJobs = (status: string, kind: string) =>
 export function useRetryJob() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (id: number) => apiFetch<AdminJob>(`/admin/jobs/${seg(id)}/retry`, { method: "POST" }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["admin"] }),
   });
@@ -102,6 +106,7 @@ export function useRetryJob() {
 export function useRetryFailed() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (kind: string) => apiFetch<{ retried: number }>("/admin/jobs/retry-failed", { method: "POST", json: kind ? { kind } : {} }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["admin"] }),
   });
