@@ -39,6 +39,7 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Reference
 
 - [Reference index](reference/README.md)
+- [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md) (generated)
 
 ### Architecture
 
