@@ -69,12 +69,12 @@ def _merge(main: list[Passage], tab: list[Passage]) -> dict[str, Passage]:
     return found
 
 
-def _blocked(session: Session, p: Principal, doc_ids: set[str]) -> list[dict]:
+def _blocked(session: Session, p: Principal, doc_ids: set[str], policy: Policy | None = None) -> list[dict]:
     """Visible docs among `doc_ids` whose CURRENT label excludes LLM context: [{doc_id, label}] (gate (a))."""
     uuids = [UUID(d) for d in doc_ids]
     if not uuids:
         return []
-    policy = Policy.load(session)
+    policy = policy or Policy.load(session)
     rows = session.execute(
         select(Document.id, Document.label_id).where(
             Document.id.in_(uuids), visible_documents(p), ~llm_allowed()
@@ -130,7 +130,7 @@ def open_blocked(session: Session, p: Principal, viewer: Viewer) -> list[dict]:
 
 def _search(
     session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec,
-    units: tuple[str, ...] = ("chunk",),
+    units: tuple[str, ...] = ("chunk",), policy: Policy | None = None,
 ):  # fmt: skip
     try:
         return search_chunks(
@@ -139,7 +139,7 @@ def _search(
             settings,
             p,
             query=q,
-            policy=Policy.load(session),
+            policy=policy or Policy.load(session),
             exclude_llm=True,
             filters={},
             doc_ids=doc_ids,
@@ -208,6 +208,7 @@ def rank_for_chat(
     `excluded` (out-param) receives [{doc_id, label}] for requested tabs dropped by gate (a); `raw` (out-param,
     eval) receives the corpus-search hits before the Postgres post-filter."""
     viewer = viewer or Viewer()
+    policy = Policy.load(session)  # one per turn: gates, search filters and expansion all use it
     dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
     tab_pages: dict[str, set[int]] = {}
     for t in viewer.tabs:
@@ -215,7 +216,7 @@ def rank_for_chat(
         if tid and tid not in dropped:
             tab_pages.setdefault(tid, set()).add(t.page)
     if excluded is not None:
-        excluded.extend(_blocked(session, p, set(tab_pages)))
+        excluded.extend(_blocked(session, p, set(tab_pages), policy))
     live_tabs = _live(session, p, set(tab_pages))
     tab_ids = [d for d in tab_pages if d in live_tabs]
 
@@ -232,17 +233,15 @@ def rank_for_chat(
     if scoped is None or scoped:
         qvec = embed_query(llm, settings, question)  # embed once per turn
         units = ("chunk", "section", "document") if settings.raptor else ("chunk",)
-        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units)
+        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units, policy)
         tab = (
-            _search(session, es, llm, settings, p, question, tab_ids, 20, qvec)
+            _search(session, es, llm, settings, p, question, tab_ids, 20, qvec, policy=policy)
             if tab_ids and scope != "open"
             else []
         )
         found = _merge(main, tab)
         if any(x.unit for x in found.values()):  # R11: the LLM only ever sees real passages
-            ex = expand_units(
-                es, settings, p, Policy.load(session), question, list(found.values()), exclude_llm=True
-            )
+            ex = expand_units(es, settings, p, policy, question, list(found.values()), exclude_llm=True)
             found = {x.chunk_id: x for x in ex}
     if raw is not None:
         raw.extend(found.values())

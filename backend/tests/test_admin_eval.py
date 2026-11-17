@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from api_seed import seed
 from conftest import bearer
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle.eval import generate
@@ -144,6 +145,8 @@ class FakeES:
     def __init__(self, chunks):
         self.chunks = chunks
 
+    msearch = _es_msearch
+
     def search(self, **kw):
         d = kw["query"]["function_score"]["query"]["bool"]["filter"][0]["term"]["doc_id"]
         return {"hits": {"hits": [{"_source": self.chunks[d]}]}}
@@ -204,6 +207,8 @@ def test_generate_rechecks_label_before_each_llm_call(client, adm, world, db_ses
     es_hits = {str(w.pub.id): {"text": "alpha beta", "pages": [1], "chunk_id": "c"}}
 
     class RaceES(FakeES):  # the label is raised after sampling (ES lag)
+        msearch = _es_msearch
+
         def search(self, **kw):
             w.pub.label_id = w.sec.label_id
             db_session.flush()
@@ -339,6 +344,8 @@ def test_generate_sampler_excludes_units_and_uses_effective_index(world, db_sess
     seen = {}
 
     class ES:
+        msearch = _es_msearch
+
         def search(self, **kw):
             seen.update(kw)
             return {"hits": {"hits": []}}

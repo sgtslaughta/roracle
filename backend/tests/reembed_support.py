@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from elasticsearch import NotFoundError
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle import reembed
@@ -69,6 +70,8 @@ class FakeEs:
 
     def count(self, index):
         return {"count": len(self.data[index])}
+
+    msearch = _es_msearch
 
     def search(self, index, size=10, sort=None, search_after=None, query=None, **kw):
         docs = self.data[index]

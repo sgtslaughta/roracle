@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from api_seed import seed
+from es_fakes import msearch as _es_msearch
 
 from roracle.auth import Principal
 from roracle.chat import global_admit
@@ -19,6 +20,8 @@ class GES:
 
     def __init__(self, hits=()):
         self.hits, self.calls = list(hits), []
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)

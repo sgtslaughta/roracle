@@ -1,5 +1,6 @@
 """GET /search: hybrid query path or Postgres browse path (R15), ACL-filtered disjunctive facets (R17), sorts, paging."""
 
+import copy
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
+import httpx
 from elasticsearch import Elasticsearch, NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, case, exists, false, func, literal_column, or_, select
@@ -25,7 +27,7 @@ from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import gated_docs
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.notes.community import attach_notes
-from roracle.retrieval import DocHit, Passage, embed_query, group_by_document, search_chunks
+from roracle.retrieval import DocHit, Passage, TtlLru, embed_query, group_by_document, search_chunks
 from roracle.search_index import file_type as ext_of
 
 router = APIRouter()
@@ -59,6 +61,17 @@ def get_llm(request: Request):
     if not hasattr(app.state, "llm"):
         app.state.llm = clients.llm(app.state.settings)
     return app.state.llm
+
+
+def get_http(request: Request) -> httpx.Client:
+    """One keep-alive client for the reranker (connection and TLS reuse), closed with the app."""
+    app = request.app
+    if not hasattr(app.state, "http"):
+        app.state.http = httpx.Client()
+    return app.state.http
+
+
+PAGE_CACHE = TtlLru()  # first-stage ES results, for paging/facet clicks within search_cache_s (never shared)
 
 
 @dataclass
@@ -217,8 +230,10 @@ def _load(
     limit: int | None = None,
     columns=ROW_COLUMNS,
     after: tuple[datetime, UUID] | None = None,
+    votes: dict[str, tuple[int, int, int]] | None = None,
 ) -> list[Row]:
-    """`load_stmt` rows enriched from Postgres (tags, caller's collections, votes)."""
+    """`load_stmt` rows enriched from Postgres (tags, caller's collections, votes; pass `votes` if the caller
+    already has them for these ids)."""
     stmt = load_stmt(p, ids, wanted, limit, columns, after)
     rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
     if rows:
@@ -233,8 +248,9 @@ def _load(
             .where(Collection.owner_id == p.user_id, CollectionItem.document_id.in_(keys))
         ):
             rows[doc_id].colls.append((str(cid), name))
-        for k, v in _votes(session, keys, p.user_id).items():
-            rows[UUID(k)].votes = v
+        for k, v in (votes if votes is not None else _votes(session, keys, p.user_id)).items():
+            if UUID(k) in rows:
+                rows[UUID(k)].votes = v
     return list(rows.values())
 
 
@@ -335,6 +351,22 @@ def _response(
     }
 
 
+def _cache_key(p: Principal, q: str, filters: dict, coll_docs, light: bool, policy: Policy) -> tuple:
+    """Everything that shapes the first-stage result: the principal (never shared across principals), the
+    query, filters, collection scope and the label policy (a relabel changes the key)."""
+    return (
+        p.user_id,
+        tuple(sorted(p.groups)),
+        p.via,
+        p.is_admin,
+        q,
+        tuple(sorted((k, tuple(sorted(map(str, v)))) for k, v in filters.items() if v)),
+        None if coll_docs is None else tuple(sorted(coll_docs)),
+        light,
+        policy.version,
+    )
+
+
 def _query_rows(
     session: Session,
     es: Elasticsearch,
@@ -346,25 +378,43 @@ def _query_rows(
     coll_docs: list[str] | None,
     qvec: list[float],
     raw: list[Passage] | None = None,
+    *,
+    policy: Policy | None = None,
+    http: httpx.Client | None = None,
+    light: bool = False,
 ) -> list[Row]:
+    """ES first stage (cached for `search_cache_s`: paging and facet clicks make 0 ES calls) + the Postgres
+    visibility re-check (R19), which runs on EVERY request, cached or not."""
     if coll_docs is not None and not coll_docs:
         return []
-    try:
-        passages = search_chunks(
-            es,
-            llm,
-            settings,
-            p,
-            q,
-            policy=Policy.load(session),
-            filters=filters,
-            doc_ids=coll_docs,
-            size=100,
-            qvec=qvec,
-            min_similarity=settings.search_min_similarity or None,
-        )
-    except NotFoundError:  # nothing ingested yet: no index
-        return []
+    policy = policy or Policy.load(session)
+    key = _cache_key(p, q, filters, coll_docs, light, policy)
+    use_cache = settings.search_cache_s > 0 and raw is None
+    passages = PAGE_CACHE.get(key, settings.search_cache_s) if use_cache else None
+    if passages is not None:
+        passages = copy.deepcopy(passages)
+    else:
+        try:
+            passages = search_chunks(
+                es,
+                llm,
+                settings,
+                p,
+                q,
+                policy=policy,
+                filters=filters,
+                doc_ids=coll_docs,
+                size=100,
+                qvec=qvec,
+                min_similarity=settings.search_min_similarity or None,
+                http=http,
+                rerank_depth=settings.search_rerank_depth,
+                light=light,
+            )
+        except NotFoundError:  # nothing ingested yet: no index
+            return []
+        if use_cache and passages:  # never cache "nothing": a fresh grant must show up at once
+            PAGE_CACHE.put(key, copy.deepcopy(passages), 256)
     if raw is not None:  # eval: ES hits before the Postgres re-check
         raw.extend(passages)
     ids = []
@@ -373,9 +423,9 @@ def _query_rows(
             ids.append(UUID(x.doc_id))
         except ValueError:
             pass
-    votes = {k: (v[0], v[1]) for k, v in _votes(session, ids, p.user_id).items()} if ids else {}
-    hits: list[DocHit] = group_by_document(passages, votes)[:MAX_DOCS]
-    by_id = {str(r.doc.id): r for r in _load(session, p, ids)} if ids else {}  # PG visibility re-check
+    votes = _votes(session, ids, p.user_id) if ids else {}  # once: grouping here, row enrichment in _load
+    hits: list[DocHit] = group_by_document(passages, {k: (v[0], v[1]) for k, v in votes.items()})[:MAX_DOCS]
+    by_id = {str(r.doc.id): r for r in _load(session, p, ids, votes=votes)} if ids else {}  # R19 PG re-check
     rows = []
     for h in hits:
         if h.doc_id in by_id:
@@ -415,6 +465,7 @@ def search(
     es: Annotated[Elasticsearch, Depends(get_es)],
     llm: Annotated[object, Depends(get_llm)],
     settings: Annotated[Settings, Depends(get_app_settings)],
+    http: Annotated[httpx.Client, Depends(get_http)],
     q: Annotated[str, Query(max_length=1000)] = "",
     tags: Multi = None,
     year: Annotated[list[int] | None, Query(max_length=LIST_MAX)] = None,
@@ -453,12 +504,20 @@ def search(
             return _empty(page)
         wanted["collection"] = set(cids)
     filtered = any(wanted.values())
+    policy = Policy.load(session)  # once per request
     if q.strip():
         try:
             qvec = embed_query(llm, settings, q)  # once for both searches
-            rows = _query_rows(session, es, llm, settings, p, q, es_filters, coll_docs, qvec)
-            # R17: facets need the unfiltered match set too (second search, only when filters are active)
-            universe = _query_rows(session, es, llm, settings, p, q, {}, None, qvec) if filtered else rows
+            rows = _query_rows(
+                session, es, llm, settings, p, q, es_filters, coll_docs, qvec, policy=policy, http=http
+            )
+            # R17: facets need the unfiltered match set too (second search, only when filters are active):
+            # a light pass, ids only, no rerank
+            universe = (
+                _query_rows(session, es, llm, settings, p, q, {}, None, qvec, policy=policy, light=True)
+                if filtered
+                else rows
+            )
         except ValueError as e:  # backstop: search_chunks input errors are the client's
             raise HTTPException(422, str(e)) from None
         rows = [r for r in rows if _keep(r, wanted)]
@@ -473,7 +532,6 @@ def search(
         shown = rows[(page - 1) * size : page * size]
         out["next"] = cursor_of(shown[-1]) if shown and len(rows) > page * size else None
     counts = cited_by_counts(session, p, [UUID(h["doc_id"]) for h in out["results"]])
-    policy = Policy.load(session)
     for h in out["results"]:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
         h["label"] = label_json(policy.get(h["label"]))

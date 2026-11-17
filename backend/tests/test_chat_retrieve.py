@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from api_seed import seed
 from elasticsearch import NotFoundError
+from es_fakes import msearch as _es_msearch
 
 from roracle.auth import Principal
 from roracle.chat import retrieve as rt
@@ -16,6 +17,8 @@ class FakeES:
 
     def __init__(self, hits=(), cap=None):
         self.hits, self.calls, self.cap = list(hits), [], cap
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)
@@ -260,6 +263,8 @@ def test_keyword_only_call_and_min_similarity(db_session, settings, me, other, c
 
 def test_missing_index_is_empty(db_session, settings, me):
     class Boom:
+        msearch = _es_msearch
+
         def search(self, **kw):
             raise NotFoundError("nf", SimpleNamespace(status=404), {})
 
@@ -302,3 +307,17 @@ def test_invalid_ids_ignored(db_session, settings, me, other):
     assert ids(out) == [str(a.id)]
     with pytest.raises(ValueError):
         Tab(doc_id="a", page=0)
+
+
+def test_one_policy_load_and_one_msearch_per_chat_turn(db_session, settings, me, other, monkeypatch):
+    from roracle.chat import retrieve as chat_retrieve
+
+    mine, mv = seed(db_session, me.user_id, title="Mine")
+    es = FakeES([hit(mine, mv)])
+    loads = []
+    real = chat_retrieve.Policy.load
+    monkeypatch.setattr(chat_retrieve.Policy, "load", classmethod(lambda cls, s: loads.append(1) or real(s)))
+    v = Viewer(tabs=[Tab(doc_id=str(mine.id))])
+    run(db_session, es, settings, me, v, excludes=[str(other.id)])
+    assert len(loads) == 1  # gates, corpus search, tab search all share one Policy
+    assert len(es.calls) == 4  # corpus search (BM25 + kNN) and tab search (BM25 + kNN): 2 msearch round trips

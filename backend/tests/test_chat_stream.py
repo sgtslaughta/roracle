@@ -8,6 +8,7 @@ import openai
 import pytest
 from api_seed import FakeES, seed
 from elasticsearch import ConnectionError as EsConnectionError
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle.api.routes.chats import _frames
@@ -385,6 +386,8 @@ def test_retrieval_unavailable_503(client, as_ana, ana, db_session, app, setup):
     assert r.status_code == 503 and r.json() == {"detail": "inference unavailable"}
 
     class BadES(FakeES):
+        msearch = _es_msearch
+
         def search(self, **kw):
             raise EsConnectionError("down")
 

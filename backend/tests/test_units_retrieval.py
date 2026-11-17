@@ -4,6 +4,7 @@
 from types import SimpleNamespace
 
 from api_seed import seed
+from es_fakes import msearch as _es_msearch
 from test_chat_retrieve import FakeLLM, hit, me, other  # noqa: F401
 
 from roracle.auth import Principal
@@ -26,6 +27,8 @@ class UnitES:
 
     def __init__(self, hits):
         self.hits, self.calls = list(hits), []
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)

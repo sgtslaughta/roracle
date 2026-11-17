@@ -84,6 +84,11 @@ class Policy:
     def load(cls, session: Session) -> "Policy":
         return cls([snapshot(r) for r in session.scalars(select(Label))])
 
+    @property
+    def version(self) -> int:
+        """Changes whenever any label (or gate) changes: part of the search-cache key."""
+        return hash(self.labels)
+
     def ids(self, gate: str) -> frozenset[str]:
         if gate not in GATES:
             raise ValueError(f"unknown gate {gate!r}")

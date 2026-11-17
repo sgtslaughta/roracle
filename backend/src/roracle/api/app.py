@@ -57,6 +57,8 @@ from roracle.metrics import http_middleware
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with app.state.mcp.session_manager.run():
         yield
+    if http := getattr(app.state, "http", None):
+        http.close()
     app.state.session_factory.kw["bind"].dispose()
 
 

@@ -7,16 +7,19 @@ Every query carries `acl_filter` + `is_latest` (+ facet filters) in filter conte
 import html
 import logging
 import math
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 from elasticsearch import BadRequestError
+from elasticsearch.exceptions import HTTP_EXCEPTIONS
 
 from roracle.auth import Principal
 from roracle.config import Settings
-from roracle.ingest.embed import embed, query_prompt
+from roracle.ingest.embed import embed, prompt_sha, query_prompt
 from roracle.labels.policy import Policy
 from roracle.metrics import RERANK_FALLBACK, RERANK_SECONDS
 from roracle.search_acl import acl_filter
@@ -38,6 +41,7 @@ _SOURCE = [
     "chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title", "authors", "year",
     "unit", "source_chunks",
 ]  # fmt: skip
+LIGHT_SOURCE = ["chunk_id", "doc_id", "version_id", "title", "authors", "year"]  # facet universe: ids only
 UNIT_KINDS = ("section", "document")
 
 
@@ -135,12 +139,13 @@ def _filters(
 def _passage(hit: dict, score: float = 0.0) -> Passage:
     s = hit["_source"]
     frags = hit.get("highlight", {}).get("text")
+    text = s.get("text", "")  # absent in the light (ids-only) facet-universe pass
     return Passage(
         chunk_id=s["chunk_id"],
         doc_id=s["doc_id"],
         version_id=s["version_id"],
-        text=s["text"],
-        highlight=frags[0] if frags else html.escape(s["text"][:240]),
+        text=text,
+        highlight=frags[0] if frags else html.escape(text[:240]),
         pages=s.get("pages") or [],
         bboxes=s.get("bboxes") or [],
         score=score,
@@ -210,18 +215,42 @@ def _rerank_scored(
     return scores
 
 
+def _minmax(xs: list[float]) -> list[float]:
+    lo, hi = min(xs), max(xs)
+    return [0.0 if hi == lo else (x - lo) / (hi - lo) for x in xs]
+
+
+def blend_order(fused: list[float], rerank: list[float], blend: float) -> list[int]:
+    """Indices best-first by `blend * minmax(rerank) + (1 - blend) * minmax(fused)` (per query). blend 1.0
+    replaces the first-stage score; the stable sort keeps the first-stage order on ties."""
+    f, r = _minmax(fused), _minmax(rerank)
+    score = [blend * r[i] + (1 - blend) * f[i] for i in range(len(f))]
+    return sorted(range(len(score)), key=lambda i: -score[i])
+
+
 def _rerank(
-    settings: Settings, query: str, passages: list[Passage], http: httpx.Client | None
+    settings: Settings,
+    query: str,
+    passages: list[Passage],
+    http: httpx.Client | None,
+    depth: int | None = None,
 ) -> list[Passage]:
-    head = passages[: settings.rerank_depth]
+    depth = settings.rerank_depth if depth is None else depth
+    head = passages[:depth]
     if not head:
         return passages
     headers = {"Authorization": f"Bearer {settings.rerank_api_key}"} if settings.rerank_api_key else {}
     t0 = time.monotonic()
     try:
-        texts = [x.text[: settings.rerank_max_chars] for x in head]
+        # the title disambiguates short chunks ("the results show ..."): send it with the text
+        texts = [
+            f"{x.title}\n{x.text[: settings.rerank_max_chars]}"
+            if x.title
+            else x.text[: settings.rerank_max_chars]
+            for x in head
+        ]
         sc = _rerank_scored(settings, query, texts, http, headers, t0)
-        idx = sorted(range(len(head)), key=lambda i: -sc[i])
+        idx = blend_order([x.score for x in head], sc, settings.rerank_blend)
         scores = sorted((x.score for x in head), reverse=True)  # keep order under later score sorts
         reranked = [head[i] for i in idx]
         for x, v in zip(reranked, scores, strict=True):
@@ -239,12 +268,68 @@ def _rerank(
         return passages
     finally:
         RERANK_SECONDS.observe(time.monotonic() - t0)
-    return reranked + passages[settings.rerank_depth :]
+    return reranked + passages[depth:]
+
+
+class TtlLru:
+    """Small thread-safe LRU with a TTL (embedding memo; the search page cache uses the same type)."""
+
+    def __init__(self) -> None:
+        self._d: OrderedDict[Any, tuple[float, Any]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: Any, ttl: float) -> Any | None:
+        with self._lock:
+            hit = self._d.get(key)
+            if hit is None or time.monotonic() - hit[0] > ttl:
+                self._d.pop(key, None)
+                return None
+            self._d.move_to_end(key)
+            return hit[1]
+
+    def put(self, key: Any, value: Any, max_entries: int) -> None:
+        with self._lock:
+            self._d[key] = (time.monotonic(), value)
+            self._d.move_to_end(key)
+            while len(self._d) > max(1, max_entries):
+                self._d.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._d.clear()
+
+
+_EMBEDS = TtlLru()
 
 
 def embed_query(llm, settings: Settings, query: str) -> list[float]:
+    """Query embedding, memoized per (model, dims, prompt digest): repeated and paged searches skip the call."""
+    key = (settings.embed_model, settings.embed_dims, prompt_sha(query_prompt(query)))
+    if settings.embed_cache_size > 0 and (hit := _EMBEDS.get(key, settings.embed_cache_ttl_s)) is not None:
+        return list(hit)
     [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
+    if settings.embed_cache_size > 0:
+        _EMBEDS.put(key, tuple(vec), settings.embed_cache_size)
     return vec
+
+
+def _msearch(es, index: str, bodies: list[dict]) -> list[dict | Exception]:
+    """ONE round trip for several searches. A failed sub-search comes back as its exception (not raised), so
+    the caller decides (e.g. the optional summary kNN) exactly as it would for separate searches."""
+    searches: list[dict] = []
+    for b in bodies:
+        searches += [{}, b]
+    out: list[dict | Exception] = []
+    for r in es.msearch(index=index, searches=searches)["responses"]:
+        if "error" in r:
+            from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
+
+            status = int(r.get("status", 500))
+            meta = ApiResponseMeta(status, "1.1", HttpHeaders(), 0.0, NodeConfig("http", "es", 9200))
+            out.append(HTTP_EXCEPTIONS.get(status, Exception)(str(r["error"])[:300], meta, r["error"]))
+        else:
+            out.append(r)
+    return out
 
 
 def search_chunks(
@@ -264,34 +349,28 @@ def search_chunks(
     summary_knn: bool = True,
     exclude_llm: bool = False,
     units: tuple[str, ...] = ("chunk",),
+    rerank_depth: int | None = None,
+    light: bool = False,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
+    BM25, kNN and (summary_knn) the summary kNN go out in ONE `_msearch` round trip; RRF is client-side.
     summary_knn adds a third kNN list on the document summary vector (doc-level recall for search);
     only chunk 0 carries it, so a hit means "this document", not "this passage".
     exclude_llm=True drops chunks whose label has the `exclude_llm` gate (every LLM-bound caller sets it).
     units picks the retrieval units: "chunk" (default, library search unchanged), "section", "document"
     (summary units: LLM-bound callers must `expand_units` the result before use).
+    rerank_depth overrides `settings.rerank_depth` (search uses the smaller `search_rerank_depth`).
+    light=True is the facet-universe pass: ids only (no text/bboxes/highlight), never reranked.
     """
     if not query.strip():
         raise ValueError("empty query")
     flt = _filters(p, policy, filters, doc_ids, exclude_llm, units)
     index = active_index(settings)
-    bm25 = es.search(
-        index=index,
-        size=size,
-        source=_SOURCE,
-        query={
-            "bool": {
-                "filter": flt,
-                "must": [_bm25_clause(query, units)],
-            }
-        },
-        highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
-    )["hits"]["hits"]
+    source = LIGHT_SOURCE if light else _SOURCE
     vec = qvec if qvec is not None else embed_query(llm, settings, query)
 
-    def knn_search(field: str) -> list[dict]:
+    def knn_body(field: str) -> dict:
         knn_q: dict[str, Any] = {
             "field": field,
             "query_vector": vec,
@@ -301,21 +380,42 @@ def search_chunks(
         }
         if min_similarity:
             knn_q["similarity"] = min_similarity
-        return es.search(index=index, size=size, source=_SOURCE, knn=knn_q)["hits"]["hits"]
+        return {"size": size, "_source": source, "knn": knn_q}
 
-    knn = knn_search("embedding")
-    try:
-        sknn = knn_search("summary_embedding") if summary_knn else []
-    except BadRequestError as e:  # index predates summary_embedding and ensure_index has not run yet
-        log.warning("summary kNN skipped: %s", e)
-        sknn = []
+    bm25_body: dict[str, Any] = {
+        "size": size,
+        "_source": source,
+        "query": {"bool": {"filter": flt, "must": [_bm25_clause(query, units)]}},
+    }
+    if not light:
+        bm25_body["highlight"] = {
+            "fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}},
+            "encoder": "html",
+        }
+    bodies = [bm25_body, knn_body("embedding"), *([knn_body("summary_embedding")] if summary_knn else [])]
+    res = _msearch(es, index, bodies)
+    for r in res[:2]:
+        if isinstance(r, Exception):
+            raise r
+    bm25, knn = (r["hits"]["hits"] for r in res[:2])
+    sknn: list[dict] = []
+    if summary_knn:
+        r = res[2]
+        if isinstance(
+            r, BadRequestError
+        ):  # index predates summary_embedding and ensure_index has not run yet
+            log.warning("summary kNN skipped: %s", r)
+        elif isinstance(r, Exception):
+            raise r
+        else:
+            sknn = r["hits"]["hits"]
     by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn]}
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight
     fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25, knn, sknn)])
     ranked = sorted(fused, key=lambda c: -fused[c])
     out = [_passage(by_id[c], fused[c]) for c in ranked]
-    if settings.rerank_url:
-        out = _rerank(settings, query, out, http)
+    if settings.rerank_url and not light:
+        out = _rerank(settings, query, out, http, rerank_depth)
     return out
 
 

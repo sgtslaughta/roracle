@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from botocore.exceptions import ClientError
+from es_fakes import msearch as _es_msearch
 from ingest_helpers import FakeLLM
 from sqlalchemy import update
 
@@ -155,6 +156,8 @@ def test_bm25_includes_context():
     seen = []
 
     class E:
+        msearch = _es_msearch
+
         def search(self, index, **kw):
             seen.append(kw)
             return {"hits": {"hits": []}}

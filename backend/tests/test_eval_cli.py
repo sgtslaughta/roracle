@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from es_fakes import msearch as _es_msearch
 
 from roracle import runtime
 from roracle.eval import ci, cli, compare, fakes, gold, runner
@@ -105,6 +106,8 @@ class IdxES:
         self.indices = SimpleNamespace(
             exists=lambda index: self.exists, get_mapping=lambda index: self.mapping
         )
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         return {"hits": {"hits": self.hits}}

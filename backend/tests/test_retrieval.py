@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from es_fakes import msearch as _es_msearch
 
 from roracle.config import Settings
 from roracle.labels.policy import Policy
@@ -51,7 +52,7 @@ def test_grouping():
 def _settings():
     return Settings(
         database_url="x", s3_endpoint="x", s3_access_key="x", s3_secret_key="x", oidc_issuer="x",
-        oidc_jwks_url="x", rerank_url="http://rr/rerank", rerank_model="m",
+        oidc_jwks_url="x", rerank_url="http://rr/rerank", rerank_model="m", rerank_blend=1.0,
     )  # fmt: skip
 
 
@@ -127,6 +128,8 @@ def _knn_calls(**kw):
     calls = []
 
     class ES:
+        msearch = _es_msearch
+
         def search(self, **k):
             calls.append(k)
             return {"hits": {"hits": []}}
@@ -191,6 +194,8 @@ class _ES:
     def __init__(self, summary_error=False):
         self.calls = []
         self.summary_error = summary_error
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         from elasticsearch import BadRequestError
@@ -296,7 +301,9 @@ def test_texts_truncated_and_depth_200_sends_200():
     for x in ps:
         x.text = "x" * 50
     out = _rerank(s, "q", ps, _http(h))
-    assert Settings().rerank_depth == 200 and len(seen["texts"]) == 200 and set(seen["texts"]) == {"xxxxx"}
+    assert (
+        Settings().rerank_depth == 200 and len(seen["texts"]) == 200 and set(seen["texts"]) == {"T\nxxxxx"}
+    )  # title + newline + truncated text
     assert len(out) == 250
 
 
@@ -329,7 +336,7 @@ def test_chunked_requests_merge_scores_globally():
         calls.append(len(texts))
         # score = text number: later passages win, across chunk boundaries
         return httpx.Response(
-            200, json=[{"index": i, "score": float(t.split()[1])} for i, t in enumerate(texts)]
+            200, json=[{"index": i, "score": float(t.split()[-1])} for i, t in enumerate(texts)]
         )
 
     s = _tei().model_copy(update={"rerank_max_batch": 100, "rerank_depth": 250})
@@ -377,3 +384,61 @@ def test_chat_candidates_bounds():
         Settings(chat_candidates=0)
     with pytest.raises(ValueError):
         Settings(chat_candidates=501)
+
+
+def test_blend_default_is_03_and_reranker_stays_off():
+    s = Settings(
+        database_url="x",
+        s3_endpoint="x",
+        s3_access_key="x",
+        s3_secret_key="x",
+        oidc_issuer="x",
+        oidc_jwks_url="x",
+    )
+    assert s.rerank_blend == 0.3 and s.rerank_url == "" and s.search_rerank_depth == 50
+
+
+def test_blend_min_max_per_query_and_replace_at_one():
+    from roracle.retrieval import blend_order
+
+    fused, rr = [0.030, 0.020, 0.010], [0.1, 0.9, 0.5]  # first stage prefers a, reranker prefers b
+    assert blend_order(fused, rr, 1.0) == [1, 2, 0]  # replace
+    assert blend_order(fused, rr, 0.0) == [0, 1, 2]  # first stage only
+    # 0.3: a = .7*1 + .3*0 = .7 ; b = .7*.5 + .3*1 = .65 ; c = 0 + .3*.5 = .15
+    assert blend_order(fused, rr, 0.3) == [0, 1, 2]
+    assert blend_order(fused, [0.0, 1.0, 0.5], 0.5) == [1, 0, 2]  # a=.5 b=.5+0.25=.75... reranker lifts b
+    assert blend_order([1.0, 1.0], [0.2, 0.8], 0.3) == [1, 0]  # constant first stage: reranker decides
+
+
+def test_rerank_blend_reorders_and_sends_title_and_text():
+    seen = {}
+
+    def h(req):
+        seen.update(__import__("json").loads(req.content))
+        return httpx.Response(
+            200,
+            json={"results": [{"index": 0, "relevance_score": 0.1}, {"index": 1, "relevance_score": 0.9}]},
+        )
+
+    s = _settings().model_copy(update={"rerank_blend": 0.3})
+    out = _rerank(s, "q", [P("a", "d", 0.5, title="Alpha"), P("b", "d", 0.4, title="")], _http(h))
+    assert seen["documents"][0].startswith("Alpha\ntext ") and seen["documents"][1].startswith("text ")
+    # a: .7*1 + .3*0 = .7 ; b: .7*0 + .3*1 = .3 -> first stage still wins at 0.3
+    assert [x.chunk_id for x in out] == ["a", "b"]
+    s = _settings().model_copy(update={"rerank_blend": 1.0})
+    out = _rerank(s, "q", [P("a", "d", 0.5), P("b", "d", 0.4)], _http(h))
+    assert [x.chunk_id for x in out] == ["b", "a"] and out[0].score > out[1].score
+
+
+def test_rerank_depth_override():
+    seen = {}
+
+    def h(req):
+        seen["n"] = len(__import__("json").loads(req.content)["documents"])
+        return httpx.Response(
+            200, json={"results": [{"index": i, "relevance_score": 1.0 - i / 100} for i in range(seen["n"])]}
+        )
+
+    ps = [P(f"c{i}", "d", 1 - i / 100) for i in range(80)]
+    out = _rerank(_settings(), "q", ps, _http(h), 50)
+    assert seen["n"] == 50 and len(out) == 80

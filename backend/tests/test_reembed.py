@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import bearer
+from es_fakes import msearch as _es_msearch
 from reembed_support import SRC, FakeEs, FakeIndices, FakeLlm, base, drain, es, vid  # noqa: F401
 from sqlalchemy import func, select
 
@@ -233,6 +234,8 @@ def test_retrieval_reads_active_index(db_session, base):
     seen = []
 
     class E:
+        msearch = _es_msearch
+
         def search(self, index, **kw):
             seen.append(index)
             return {"hits": {"hits": []}}

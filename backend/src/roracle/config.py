@@ -113,7 +113,12 @@ class Settings(AliasConfig):
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = 0.6
-    rerank_depth: int = 200
+    rerank_depth: int = 200  # chat / LLM-bound callers
+    search_rerank_depth: int = 50  # /search only: the page shows ~20 documents
+    rerank_blend: float = Field(0.3, ge=0.0, le=1.0)  # weight of the min-max reranker score; 1.0 = replace
+    embed_cache_size: int = 10_000  # query embeddings memoized in process (0 = off)
+    embed_cache_ttl_s: float = 600.0
+    search_cache_s: float = 60.0  # /search first-stage result cache for paging (0 = off)
     eval_judge_model: str = ""  # P13 LLM judge; empty = first chat model
     eval_judge_sample: int = 100  # (query x principal) pairs judged per run
     eval_on_reindex: bool = True  # enqueue `eval_run` on the reference set after a re-embed cutover
