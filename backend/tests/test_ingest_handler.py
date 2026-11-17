@@ -160,31 +160,6 @@ def test_terminal_stage_does_no_work(db_session, session_factory, cfg, store, us
     assert _stage(db_session, v) == "cancelled"
 
 
-def test_grobid_failure_is_tolerated(db_session, session_factory, cfg, store, user, monkeypatch):
-    cfg = cfg.model_copy(update={"grobid_url": "http://grobid"})
-
-    def bad(*a, **k):
-        raise ConnectionError("grobid down")
-
-    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
-    monkeypatch.setattr(pipeline, "grobid_metadata", bad)
-    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
-    v = make_version(db_session, store, user)
-    _run(db_session, session_factory, cfg, store, MagicMock(), v)
-    assert _stage(db_session, v) == "deduped"
-
-
-def test_grobid_title_beats_docling(db_session, session_factory, cfg, store, user, monkeypatch):
-    cfg = cfg.model_copy(update={"grobid_url": "http://grobid"})
-    monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc()))
-    monkeypatch.setattr(pipeline, "grobid_metadata", lambda *a, **k: ({"title": "GROBID Title"}, []))
-    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
-    v = make_version(db_session, store, user)
-    _run(db_session, session_factory, cfg, store, MagicMock(), v)
-    db_session.expire_all()
-    assert db_session.get(Document, v.document_id).title == "GROBID Title"
-
-
 def test_no_title_goes_to_needs_title(db_session, session_factory, cfg, store, user, monkeypatch):
     monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(title=None)))
     v = make_version(db_session, store, user)

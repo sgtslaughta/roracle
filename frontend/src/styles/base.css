@@ -66,3 +66,8 @@ button.badge-o:hover { border-color: var(--apricot); color: var(--primary); }
 .nav .rowmenu-btn { width: 28px; padding: 0; flex: none; }
 .vis .rowmenu { margin-left: auto; }
 .empty.bare { border: 0; }
+.rids { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.rid { display: inline-flex; align-items: center; gap: 4px; }
+.rid dt { font-weight: 600; }
+.rid dd { margin: 0; font-family: ui-monospace, monospace; user-select: all; }
+.rid-copy { background: none; border: 0; padding: 2px; color: inherit; cursor: pointer; }

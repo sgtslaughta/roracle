@@ -1,13 +1,11 @@
 {{- /* Data-tier policies, always rendered for bundled modes. Labels: ECK elasticsearch.k8s.elastic.co/cluster-name,
-CNPG cnpg.io/cluster, MinIO operator v1.min.io/tenant. App pods: roracle.appPeer. */ -}}
+CNPG cnpg.io/cluster. App pods: roracle.appPeer. */ -}}
 {{- $np := .Values.networkPolicy }}
 {{- $fn := include "roracle.fullname" . }}
 {{- $esOn := eq .Values.elasticsearch.mode "eck" }}
 {{- $pgOn := eq .Values.postgres.mode "cnpg" }}
-{{- $s3On := eq .Values.minio.mode "tenant" }}
 {{- $pgSel := dict "cnpg.io/cluster" (printf "%s-pg" $fn) }}
 {{- $esSel := dict "elasticsearch.k8s.elastic.co/cluster-name" $fn }}
-{{- $s3Sel := dict "v1.min.io/tenant" (printf "%s-minio" $fn) }}
 {{- define "roracle.npDns" }}
 - to:
     - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: {{ .networkPolicy.dns.namespace | quote }}}}
@@ -20,18 +18,9 @@ CNPG cnpg.io/cluster, MinIO operator v1.min.io/tenant. App pods: roracle.appPeer
   {{- end }}
   {{ end }}ports: [{{ range $i, $p := .networkPolicy.kubeAPI.ports }}{{ if $i }}, {{ end }}{port: {{ $p }}, protocol: TCP}{{ end }}]
 {{- end }}
-{{- /* egress to object storage: bundled tenant pods, else configured CIDRs */ -}}
+{{- /* egress to object storage (external S3): CIDRs and/or an in-cluster peer (e.g. Rook-Ceph RGW), see networkPolicy.s3 */ -}}
 {{- define "roracle.npS3Egress" }}
-{{- if eq .Values.minio.mode "tenant" }}
-- to: [{podSelector: {matchLabels: {v1.min.io/tenant: {{ printf "%s-minio" (include "roracle.fullname" .) | quote }}}}}]
-  ports: [{port: 9000, protocol: TCP}]
-{{- else if .Values.networkPolicy.s3Cidrs }}
-- to:
-    {{- range .Values.networkPolicy.s3Cidrs }}
-    - ipBlock: {cidr: {{ . | quote }}}
-    {{- end }}
-  ports: [{port: 443, protocol: TCP}, {port: 9000, protocol: TCP}]
-{{- end }}
+{{- include "roracle.npCidrRule" .Values.networkPolicy.s3 }}
 {{- end }}
 {{- if $esOn }}
 apiVersion: networking.k8s.io/v1
@@ -112,31 +101,4 @@ spec:
     {{- include "roracle.npDns" .Values | nindent 4 }}
 ---
 {{- end }}
-{{- end }}
-{{- if $s3On }}
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ $fn }}-data-minio
-  labels: {{ include "roracle.labels" . | nindent 4 }}
-spec:
-  podSelector: {matchLabels: {{ toJson $s3Sel }}}
-  policyTypes: [Ingress, Egress]
-  ingress:
-    - from:
-        {{- include "roracle.appPeer" . | nindent 8 }}
-        - podSelector: {matchLabels: {{ toJson $s3Sel }}}
-        {{- if $pgOn }}
-        - podSelector: {matchLabels: {{ toJson $pgSel }}}
-        {{- end }}
-        {{- if $esOn }}
-        - podSelector: {matchLabels: {{ toJson $esSel }}}
-        {{- end }}
-        {{- include "roracle.nsPeer" $np.operatorNamespaces.minio | nindent 8 }}
-      ports: [{port: 9000, protocol: TCP}]
-  egress:
-    - to: [{podSelector: {matchLabels: {{ toJson $s3Sel }}}}]
-      ports: [{port: 9000, protocol: TCP}]
-    {{- include "roracle.npKubeApi" .Values | nindent 4 }}
-    {{- include "roracle.npDns" .Values | nindent 4 }}
 {{- end }}

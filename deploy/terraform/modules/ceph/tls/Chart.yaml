@@ -1,0 +1,4 @@
+apiVersion: v2
+name: roracle-rgw-tls
+description: cert-manager Certificate for the Rook-Ceph RGW service (local chart shipped with the Terraform module)
+version: 0.1.0

@@ -11,6 +11,7 @@ from roracle.eval.generate import handle_eval_generate
 from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
 from roracle.ingest.rebuild import handle_rebuild_units, handle_rebuild_watch
+from roracle.ingest.reparse import handle_reparse_refs
 from roracle.maintenance import (
     ensure_maintenance,
     handle_lsh_backfill,
@@ -54,6 +55,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
             handle_maintenance, settings=settings, store=blob_store_from(settings), es=clients.es(settings)
         ),
         "reconcile_tags": partial(handle_reconcile_tags, es=clients.es(settings)),
+        "reparse_refs": partial(handle_reparse_refs, settings=settings, store=blob_store_from(settings)),
         "lsh_backfill": handle_lsh_backfill,
         "eval_run": partial(
             handle_eval_run,

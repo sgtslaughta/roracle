@@ -5,6 +5,7 @@ import re
 import httpx
 from lxml import etree
 
+from roracle.identifiers import SCHEMES, add_id, extract_arxiv_stamp, extract_ids
 from roracle.queue import NonRetryable
 
 _NS = {"t": "http://www.tei-c.org/ns/1.0"}
@@ -115,6 +116,19 @@ def document_text(doc: dict) -> str:
     return "\n\n".join(out)
 
 
+def merge_page_ids(meta: dict, doc: dict) -> dict:
+    """Add the arXiv margin stamp of the FIRST page to meta["ids"]; GROBID's values win. Only a parsed GROBID
+    answer (it carries `ids`) is enriched, so a version GROBID never parsed stays eligible for reparse."""
+    if "ids" not in meta:
+        return meta
+    page1 = " ".join(
+        str(t.get("text") or "")
+        for t in doc.get("texts") or []
+        if any(isinstance(p, dict) and p.get("page_no") == 1 for p in t.get("prov") or [])
+    )
+    return {**meta, "ids": {**extract_arxiv_stamp(page1), **meta["ids"]}}
+
+
 def _t(el, path: str) -> str | None:
     n = el.find(path, _NS)
     s = " ".join("".join(n.itertext()).split()) if n is not None else ""
@@ -142,25 +156,54 @@ def _year(el) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _doi(el) -> str | None:
+def _ids(el, *, text: str = "", own: bool = False) -> dict[str, str]:
+    """Identifiers of one biblStruct: typed <idno>s first, then <ptr target> URLs, then label-anchored text.
+    `own` (the paper's header): a scheme with several distinct values is ambiguous and dropped."""
+    found: list[dict[str, str]] = []
     for i in el.findall(".//t:idno", _NS):
-        if (i.get("type") or "").lower() == "doi" and (i.text or "").strip():
-            return i.text.strip()
-    return None
+        typ = (i.get("type") or "").lower()
+        typ = "eissn" if typ == "issne" else typ
+        if typ in SCHEMES and (i.text or "").strip():
+            one: dict[str, str] = {}
+            add_id(one, typ, i.text)
+            found.append(one)
+    found.append(
+        extract_ids(" ".join(p.get("target") or "" for p in el.findall(".//t:ptr", _NS)) + " " + text)
+    )
+    ids: dict[str, str] = {}
+    for one in found:
+        for k, v in one.items():
+            ids.setdefault(k, v)
+    if own:
+        ids = {k: v for k, v in ids.items() if {o[k] for o in found if k in o} == {v}}
+    return ids
+
+
+def _raw(el) -> str:
+    return (_t(el, "t:note[@type='raw_reference']") or "")[:1000]
 
 
 def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     """GROBID TEI -> (meta, references) in document_versions shapes."""
     root = etree.fromstring(xml, _PARSER)
     bs = root.find(".//t:teiHeader//t:sourceDesc/t:biblStruct", _NS)
-    meta = {"title": None, "authors": [], "year": None, "venue": None, "doi": None, "abstract": None}
+    meta = {
+        "title": None,
+        "authors": [],
+        "year": None,
+        "venue": None,
+        "doi": None,
+        "ids": {},
+        "abstract": None,
+    }
     if bs is not None:
         ana = bs.find("t:analytic", _NS)
         meta["title"] = _t(ana, "t:title") if ana is not None else None
         meta["authors"] = _authors(ana) or _authors(bs.find("t:monogr", _NS))
         meta["year"] = _year(bs)
         meta["venue"] = _t(bs, "t:monogr/t:title")
-        meta["doi"] = _doi(bs)
+        meta["ids"] = _ids(bs, own=True)  # biblStruct only: abstract/body cite OTHER papers
+        meta["doi"] = meta["ids"].get("doi")
     if meta["title"] is None:
         meta["title"] = _t(root, ".//t:teiHeader//t:titleStmt/t:title")
     meta["abstract"] = _t(root, ".//t:teiHeader//t:abstract")
@@ -168,12 +211,15 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     for b in root.findall(".//t:back//t:listBibl/t:biblStruct", _NS):
         ana = b.find("t:analytic", _NS)
         title = (_t(ana, "t:title") if ana is not None else None) or _t(b, "t:monogr/t:title")
+        raw, ids = _raw(b), _ids(b, text=_raw(b))
         refs.append(
             {
                 "title": title,
                 "authors": _authors(ana if ana is not None else b.find("t:monogr", _NS)),
                 "year": _year(b),
-                "doi": _doi(b),
+                "doi": ids.get("doi"),
+                "ids": ids,
+                "raw": raw,
             }
         )
     return meta, refs
@@ -188,6 +234,7 @@ def grobid_metadata(
         r = c.post(
             f"{grobid_url.rstrip('/')}/api/processFulltextDocument",
             files={"input": ("paper.pdf", pdf, "application/pdf")},
+            data={"includeRawCitations": "1"},
         )
     finally:
         if client is None:

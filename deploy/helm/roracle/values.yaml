@@ -11,6 +11,7 @@ image:
 
 secrets:
   existingSecret: ""       # REQUIRED. Secret holding the keys below
+  s3Secret: ""             # optional: separate Secret for the S3 keys (s3AccessKey/s3SecretKey below); empty = existingSecret
   keys:                    # key names inside existingSecret
     databaseUrl: ROR_DATABASE_URL
     s3AccessKey: ROR_S3_ACCESS_KEY
@@ -33,7 +34,7 @@ rerank:
 
 # Non-secret ROR_* settings -> ConfigMap. Empty values are auto-filled by roracle.endpoints when possible.
 config:
-  ROR_S3_ENDPOINT: ""      # REQUIRED unless minio.mode=tenant (auto-filled to the tenant service)
+  ROR_S3_ENDPOINT: ""      # REQUIRED: external S3 (Rook-Ceph RGW, your own S3; no bundled object store)
   ROR_S3_BUCKET: roracle
   ROR_OIDC_ISSUER: ""      # REQUIRED
   ROR_OIDC_JWKS_URL: ""    # REQUIRED
@@ -157,11 +158,10 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: 1100m
 
-# ---- Data services: operator CRs (CNPG, ECK, MinIO Operator must be installed by the platform) ----
+# ---- Data services: operator CRs (CNPG, ECK must be installed by the platform) ----
 # Each can be switched to "external": nothing is rendered; point the app at your own service via
 # config / secrets.existingSecret. Credentials are always secret names + keys, never values.
-# Bundled-mode backups default to buckets on the bundled MinIO tenant; for real DR, point
-# destinations at a different cluster/site (MinIO site replication is documented, not automated).
+# Backups go to the external S3 (buckets below); for real DR keep them on a different cluster/site.
 postgres:
   mode: cnpg               # cnpg | external (external: ROR_DATABASE_URL in existingSecret, nothing rendered)
   instances: 3
@@ -190,7 +190,7 @@ postgres:
     # barmanObjectStore: legacy in-tree config (deprecated upstream, still works).
     method: plugin
     destinationPath: s3://roracle-pg-backup/
-    endpointURL: ""        # default: bundled MinIO tenant service when minio.mode=tenant
+    endpointURL: ""        # REQUIRED when backup.enabled: S3 endpoint URL (https://...)
     credentialsSecret: {name: "", accessKeyKey: ACCESS_KEY_ID, secretAccessKeyKey: ACCESS_SECRET_KEY}  # REQUIRED when enabled
     endpointCA: {name: "", key: ca.crt}   # optional Secret holding the CA of a TLS object store
     retentionPolicy: 30d
@@ -221,9 +221,9 @@ elasticsearch:
     enabled: true          # hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily
     bucket: roracle-es-snapshots
     basePath: roracle
-    endpoint: ""           # host:port without scheme; default: bundled MinIO tenant service
-    protocol: ""           # "" = https when minio.mode=tenant with requestAutoCert, http for tenant without, else https
-    # ES trusts only its JVM truststore: when protocol is https and the CA is kube-root-ca.crt (tenant auto-cert) or
+    endpoint: ""           # REQUIRED when snapshot.enabled: S3 host:port without scheme
+    protocol: ""           # "" = https
+    # ES trusts only its JVM truststore: when protocol is https and the CA comes from
     # extraCASecret, an init container builds a truststore (JDK cacerts + those CAs) and ES_JAVA_OPTS points at it.
     extraCASecret: {name: "", key: ca.crt}   # optional private CA of an external S3
     pathStyleAccess: true
@@ -234,31 +234,6 @@ elasticsearch:
       image: {repository: curlimages/curl, tag: "8.10.1", digest: "", pullPolicy: IfNotPresent}
       activeDeadlineSeconds: 1800
       runAsUser: 100
-
-minio:
-  mode: tenant             # tenant | external (external: set config.ROR_S3_ENDPOINT)
-  image: {repository: quay.io/minio/minio, tag: RELEASE.2024-10-13T13-34-11Z, digest: "", pullPolicy: IfNotPresent}
-  # REQUIRED (tenant): Secret with config.env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) supplied by the operator/platform.
-  configurationSecret: ""
-  servers: 4
-  volumesPerServer: 4      # 16 drives -> erasure coding
-  storage: {size: 250Gi, storageClass: ""}
-  requestAutoCert: true    # operator-issued TLS (signed by the cluster CA, trusted via caBundle.kubeRootCa); ROR_S3_ENDPOINT -> https
-  # Bucket names come from config.ROR_S3_BUCKET, postgres.backup.destinationPath and elasticsearch.snapshot.bucket;
-  # the two backup buckets get objectLock (=> versioning). Replicate backups to a separate site (MinIO site replication).
-  # Least-privilege users (REQUIRED, tenant): operator-supplied Secrets with CONSOLE_ACCESS_KEY / CONSOLE_SECRET_KEY.
-  # The policy hook Job (mc) creates these users with the root creds and attaches one-bucket RW policies (not Tenant users:).
-  # The app user's keys must also be in secrets.existingSecret (ROR_S3_ACCESS_KEY/SECRET_KEY); the others in the backup secrets.
-  users: {app: "", pgBackup: "", esSnapshot: ""}
-  backupRetentionDays: 30  # GOVERNANCE default retention on the backup buckets; keep >= backup/snapshot retention
-  policyJob:
-    image: {repository: quay.io/minio/mc, tag: RELEASE.2024-10-08T09-37-26Z, digest: "", pullPolicy: IfNotPresent}
-    activeDeadlineSeconds: 1800
-    runAsUser: 1000
-  runAsUser: 1000
-  resources:
-    requests: {cpu: "1", memory: 4Gi}
-    limits: {memory: 4Gi}
 
 # ---- Parser services: optional in-chart Deployments. Only the worker calls them (ingest pipeline + evidence scan). ----
 # Backend URL settings are auto-filled (roracle.endpoints) when enabled and config.ROR_* is empty; to use an external
@@ -366,20 +341,21 @@ connectors:
 # Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
 # certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
 # ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
-# Active only when ES TLS (eck), MinIO auto-cert (tenant) or extraSecrets are in play.
+# Active only when ES TLS (eck) or extraSecrets (e.g. the S3 CA) are in play.
 caBundle:
   certifiPath: /app/backend/.venv/lib/python3.12/site-packages/certifi/cacert.pem   # coupled to the backend image layout
-  kubeRootCa: true         # kube-root-ca.crt (signs MinIO operator auto-cert)
   extraSecrets: []         # [{name: my-ca, key: ca.crt}] operator CAs for external ES/S3/etc.
 
-# Data-tier policies (data-postgres/es/minio) are always rendered for bundled modes.
+# Data-tier policies (data-postgres/es) are always rendered for bundled modes.
 # Namespace values are matched by label kubernetes.io/metadata.name.
 networkPolicy:
-  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system, minio: minio-operator}
+  operatorNamespaces: {eck: elastic-system, cnpg: cnpg-system}
   monitoringNamespace: monitoring
   # Instance managers / operators need the kube-apiserver. Empty cidrs = allow these ports to any destination; tighten.
   kubeAPI: {cidrs: [], ports: [443, 6443]}
-  s3Cidrs: []              # egress CIDRs (port 443/9000) for backups/snapshots when minio.mode=external
+  # Object storage egress for api/worker/migrate and the data tier (CNPG barman, ES snapshots): CIDRs and/or an in-cluster peer
+  # (e.g. Rook-Ceph RGW: namespaceSelector + podSelector, ports = post-DNAT container ports).
+  s3: {cidrs: [], ports: [443, 9000], namespaceSelector: {}, podSelector: {}}
   dns:
     namespace: kube-system
     podLabels: {k8s-app: kube-dns}
@@ -387,7 +363,7 @@ networkPolicy:
   enabled: true
   ingressNamespaceSelector: {kubernetes.io/metadata.name: ingress-nginx}   # namespace labels of the ingress controller
   # Egress for api/worker(/migrate) to non-bundled data services. Bundled modes use pod selectors instead.
-  # External S3 uses s3Cidrs above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
+  # External S3 uses networkPolicy.s3 above. Empty cidrs = no rule (traffic stays denied). Use pod/node/LB CIDRs, never Service ClusterIP CIDRs.
   externalCIDRs:
     postgres: {cidrs: [], ports: [5432]}
     elasticsearch: {cidrs: [], ports: [9200]}

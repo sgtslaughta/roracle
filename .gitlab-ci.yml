@@ -1,6 +1,6 @@
 # Air-gapped: set REGISTRY_MIRROR (with trailing slash), UV_INDEX_URL, NPM_CONFIG_REGISTRY and
 # (optionally) KUBECONFORM_SCHEMA_LOCATION as CI/CD variables. HELM_IMAGE/KUBECONFORM_IMAGE may be overridden too.
-stages: [lint, test, build]
+stages: [lint, test, terraform, build]
 
 variables:
   REGISTRY_MIRROR: ""
@@ -13,6 +13,8 @@ variables:
   HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
   KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
+  TERRAFORM_IMAGE: "${REGISTRY_MIRROR}hashicorp/terraform:1.15.8"
+  KIND_E2E_IMAGE: ""   # REQUIRED for iac-kind-e2e (the job fails fast when empty): bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum
   ELASTICSEARCH_IMAGE: "${REGISTRY_MIRROR}docker.elastic.co/elasticsearch/elasticsearch:9.5.6"
 
 workflow:
@@ -231,6 +233,46 @@ kubeconform:
     - |
       if [ -n "$KUBECONFORM_SCHEMA_LOCATION" ]; then SCHEMA="-schema-location $KUBECONFORM_SCHEMA_LOCATION"; else SCHEMA="-schema-location default -ignore-missing-schemas"; fi
       for f in rendered/min.yaml rendered/full.yaml; do /kubeconform -strict -summary $SCHEMA "$f"; done
+
+# Air-gapped: providers (hashicorp/kubernetes, hashicorp/helm) must come from a mirror. Provide a CI/CD *file* variable
+# TF_CLI_CONFIG_FILE (Terraform CLI config with a filesystem/network provider_installation mirror).
+terraform:
+  extends: .helm-rules
+  stage: terraform
+  image:
+    name: $TERRAFORM_IMAGE
+    entrypoint: [""]
+  script:
+    - cd deploy/terraform
+    - terraform fmt -check -recursive
+    - terraform init -backend=false -input=false
+    - terraform validate
+
+# Manual apply rehearsal on kind (real cluster, local registry as air-gap mirror). Needs a PRIVILEGED runner with Docker-in-Docker
+# (it starts kind node containers and registry:2), internet for the first run (kind/kubectl/helm, upstream images) and ~8 GB RAM.
+# Not part of the default pipeline: trigger it manually. KIND_E2E_IMAGE must contain bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum.
+iac-kind-e2e:
+  stage: terraform
+  rules:
+    - when: manual
+      allow_failure: true
+  image: ${KIND_E2E_IMAGE}
+  services:
+    # dockerd listens on loopback only (the entrypoint would otherwise bind an unauthenticated tcp://0.0.0.0:2375 on the pod IP)
+    - name: ${REGISTRY_MIRROR}docker:27-dind
+      alias: docker
+      command: ["dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"]
+  variables:
+    # The script reaches the registry (127.0.0.1:5055) and the kind API server on localhost: the dind service must share the
+    # job's network namespace (Kubernetes executor, privileged pod). A Docker executor needs the host docker.sock instead.
+    DOCKER_HOST: tcp://127.0.0.1:2375
+    DOCKER_TLS_CERTDIR: ""
+  timeout: 1h
+  script:
+    - test -n "$KIND_E2E_IMAGE" || { echo "set KIND_E2E_IMAGE (see variables)"; exit 1; }
+    - deploy/terraform/test/kind-e2e.sh all
+  after_script:
+    - deploy/terraform/test/kind-e2e.sh down || true
 
 build-web:
   stage: build
