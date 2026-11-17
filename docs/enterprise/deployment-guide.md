@@ -97,10 +97,10 @@ First-install ordering:
 
 | `postgres.mode` | Migrate hook (`python -m roracle migrate --wait 600`, `backoffLimit: 0`) |
 |---|---|
-| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, `minio-policy`, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
+| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
 | `external` | `pre-install,pre-upgrade`: failure blocks the release. |
 
-Post hooks run in weight order: ES snapshot repo + SLM (0, retries repository registration up to 5 min until the MinIO user exists). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
+Post hooks run in weight order: ES snapshot repo + SLM (0, retries repository registration up to 5 min until the S3 bucket and snapshot identity exist). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
 
 Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
 `helm test` is not provided.
@@ -131,7 +131,7 @@ The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew
 |---|---|---|
 | Postgres | `postgres.mode=cnpg` (CNPG `Cluster` `roracle-pg`, `ObjectStore`, daily `ScheduledBackup`) | `external`: nothing rendered; `ROR_DATABASE_URL` in the app Secret; egress via `networkPolicy.externalCIDRs.postgres` |
 | Elasticsearch | `elasticsearch.mode=eck` (`Elasticsearch` `roracle`, snapshot hook Job) | `external`: `ROR_ELASTIC_URL` in the app Secret; `externalCIDRs.elasticsearch`; snapshots are yours |
-| Object store | removed (use Rook-Ceph or an external S3) | `external`: set `config.ROR_S3_ENDPOINT`; `networkPolicy.s3Cidrs` for egress |
+| Object store | removed (use Rook-Ceph or an external S3) | `config.ROR_S3_ENDPOINT` (required), `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint`; `networkPolicy.s3` (CIDRs and/or in-cluster peer) for egress, which also covers the CNPG/ES pods |
 | Parsers | `parsers.{gotenberg,draftgotenberg,docling,grobid,clamav}.enabled` (Deployments, no egress) | `enabled=false` + `config.ROR_*_URL` (draft builds: `config.ROR_DRAFT_GOTENBERG_URL`) / `ROR_CLAMAV_HOST` + `ROR_CLAMAV_PORT` + `egressCIDRs.parsers` |
 
 ### 4.6 NetworkPolicy values you must set
@@ -145,7 +145,7 @@ The Keycloak realm CSP `frame-ancestors` must allow the app origin (silent renew
 | `networkPolicy.egressCIDRs.{llm,oidc,otel,parsers}` | `cidrs` and/or `namespaceSelector`/`podSelector` + `ports` (pod/node/LB addresses, never Service ClusterIPs: policies apply after DNAT) |
 | `networkPolicy.kubeAPI.cidrs` | apiserver endpoint IPs. Default empty = ports 443/6443 allowed to any destination (tighten in production) |
 | `networkPolicy.operatorNamespaces` | namespaces of the ECK and CNPG operators if not the defaults |
-| `networkPolicy.externalCIDRs.*`, `s3Cidrs`, `connectors.egressCIDRs` | only for external services / connector targets |
+| `networkPolicy.externalCIDRs.*`, `networkPolicy.s3`, `connectors.egressCIDRs` | only for external services / connector targets |
 | `networkPolicy.monitoringNamespace`, `scrape.{enabled,ports}` | Prometheus namespace allowed to scrape api (8000) and worker (`worker.healthPort`, 8001) `/metrics` and Postgres; keep `ports` in step with `worker.healthPort` |
 
 ### 4.7 Web runtime environment
@@ -203,9 +203,7 @@ Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer belo
 | `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://s3.internal:9000` (Ceph RGW: `https://rook-ceph-rgw-roracle.rook-ceph.svc`), `roracle` | Blob store |
 | `ROR_OIDC_ISSUER`, `ROR_OIDC_AUDIENCE`, `ROR_OIDC_JWKS_URL` | `https://kc/realms/research`, `roracle` | Token validation |
 | `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
-| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`): the API needs no large `/tmp` (`api.tmpSize` default `1Gi`). The bucket must allow multipart uploads and server-side copy for the app user, and should expire `tmp/` after 1 day (`mc ilm rule add --prefix tmp/ --expire-days 1 <alias>/<bucket>`; the bundled MinIO hook does this) |
-| `ROR_MCP_MAX_UPLOAD_BYTES` | `26214400` | Max decoded file size for the MCP `upload` tool (25 MiB); also sizes the `/mcp` body cap |
-| `ROR_PUBLIC_BASE_URL` | `https://roracle.example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
+| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`): the API needs no large `/tmp` (`api.tmpSize` default `1Gi`). The bucket must allow multipart uploads and server-side copy for the app user, and should expire `tmp/` after 1 day and abort incomplete multipart uploads (Terraform rook-ceph sets this lifecycle; external S3: `aws s3api put-bucket-lifecycle-configuration`, runbook 2).example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
 | `ROR_PATS_ENABLED` | `true` | Personal access tokens for agents (`false` rejects all PATs) |
 | `ROR_PAT_MAX_IDENTITY_AGE_DAYS` | `30` | PAT rejected if its owner has not signed in via JWT within this many days |
 | `ROR_ELASTIC_URL`, `ROR_ELASTIC_API_KEY` | `https://es-http:9200` | Search index (plan 3) |
@@ -264,15 +262,32 @@ manual steps. Always take a Postgres backup and an ES snapshot before a minor/ma
 
 P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.
 
+### Upgrading to 0.2.0 (breaking)
+
+Chart 0.2.0 removes the bundled MinIO tenant; object storage is external only (Rook-Ceph RGW via Terraform, or your own S3).
+`helm upgrade` (or `terraform apply`) deletes the `Tenant` CR, so the MinIO pods go away (PVCs stay per operator default). **Copy the data out first**
+(`rclone sync` or `aws s3 sync` of the `roracle`, `roracle-pg-backup` and `roracle-es-snapshots` buckets to the new store, then verify object counts) and take a Postgres backup and ES snapshot.
+Then migrate the values; the chart fails the render if a removed value is still set:
+
+| Old | New |
+|---|---|
+| `minio.*` (mode, image, users, configurationSecret, policyJob, backupRetentionDays, ...) | removed. Set `config.ROR_S3_ENDPOINT`, `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint` (+ `protocol`, `extraCASecret`) |
+| backup/snapshot Secrets = MinIO users | dedicated identities per bucket that **you** (or Terraform rook-ceph) create; the app identity must not be able to delete backups |
+| `networkPolicy.s3Cidrs` | `networkPolicy.s3.cidrs` (+ `ports`, `namespaceSelector`, `podSelector`); an unmigrated value would silently drop S3 egress |
+| `caBundle.kubeRootCa` | removed; add any CA you still need through `caBundle.extraSecrets` (including the S3 CA) |
+| `networkPolicy.operatorNamespaces.minio` | removed |
+| `minio-policy` hook (users, policies, `tmp/` lifecycle, backup retention) | gone. Create the lifecycle, object lock and bucket policies yourself (Terraform README, "External S3 commands"); Terraform rook-ceph does it |
+| optional | `secrets.s3Secret`: separate Secret for `ROR_S3_ACCESS_KEY/SECRET_KEY` |
+
 ## 8. TLS trust, hooks and ordering (bundled data services)
 
 Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bundled services:
 
-- TLS: ES (ECK self-signed) is on by default; the S3 endpoint should be HTTPS (Terraform requires TLS on Rook-Ceph RGW), its CA reaching the app via `caBundle.extraSecrets`. api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `kube-root-ca.crt` + `caBundle.extraSecrets`),
+- TLS: ES (ECK self-signed) is on by default; the S3 endpoint should be HTTPS (Terraform requires TLS on Rook-Ceph RGW), its CA reaching the app via `caBundle.extraSecrets`. api/worker/migrate get an init container that builds a bundle (certifi + ES CA + `caBundle.extraSecrets`, e.g. the S3 CA),
   mounted over certifi's `cacert.pem` (`caBundle.certifiPath`, coupled to the backend image's Python layout; adjust if the image changes).
   `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `AWS_CA_BUNDLE` point at it (httpx/openai), as do `ROR_ELASTIC_CA_CERTS` and `ROR_S3_CA_BUNDLE` (ES client, boto3).
   Clusters whose CSR signer differs from the kube root CA (e.g. EKS) add the signer CA via `caBundle.extraSecrets`.
-- ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + `kube-root-ca.crt` + optional `elasticsearch.snapshot.extraCASecret`); `ES_JAVA_OPTS` points at it.
+- ES snapshots over https: an init container builds a JVM truststore (JDK cacerts + optional `elasticsearch.snapshot.extraCASecret`, the S3 CA); `ES_JAVA_OPTS` points at it.
   The post-install hook Job registers repository `roracle-s3` and SLM policy `roracle-daily`.
 - Backup/snapshot buckets: create them with a dedicated identity per bucket (write-only for backups where the store supports it) and, where available, object lock/retention (keep >= backup/snapshot retention); the chart no longer creates users or retention.
 - api/worker wait for the ECK CA Secret; after ECK CA rotation run `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.

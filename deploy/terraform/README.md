@@ -48,7 +48,7 @@ component remains, unless `allow_placeholders = true` (dry runs only: the placeh
 `secrets_mode = "create"` (default): Terraform builds the app Secret (`ROR_DATABASE_URL`, `ROR_ELASTIC_URL`, S3 and LLM keys), CNPG/ES basic-auth Secrets from sensitive `secret_data`; S3 keys come from `secret_data.s3_*` (external) or the Ceph ObjectBucketClaim Secrets (rook-ceph). The values **are stored in Terraform state**; pass them via `TF_VAR_secret_data` and protect the state.
 `secrets_mode = "existing"`: nothing is created and no secret value touches state; the Secrets named in `secret_names` (defaults in `variables-app.tf`, layout in
 deployment guide 4.2) must exist in the app namespace first (External Secrets, Vault, `kubectl`). Recommended for production.
-The chart has no confidential OIDC client secret (the web client is public); other keys can go into `secret_data.extra` (added to the app Secret) and be consumed from the extra values file via `api.extraEnv`/`worker.extraEnv` `valueFrom.secretKeyRef`. In create mode `secret_data.llm_api_key` is required while `models.llm_key_used=true` (the chart secretKeyRef is not optional) and credentials for the bundled MinIO users are checked.
+The chart has no confidential OIDC client secret (the web client is public); other keys can go into `secret_data.extra` (added to the app Secret) and be consumed from the extra values file via `api.extraEnv`/`worker.extraEnv` `valueFrom.secretKeyRef`. In create mode `secret_data.llm_api_key` is required while `models.llm_key_used=true` (the chart secretKeyRef is not optional) and, for external S3 with backups on, separate backup/snapshot identities are checked.
 
 ## Plan / apply order
 
@@ -65,7 +65,7 @@ Staged alternative (also for first installs where operator CRDs are slow): `-var
 Prod: `environments/prod.example.tfvars` (`ha = true`, `secrets_mode = "existing"`, observability on). Dev profile (`ha = false`) is single-instance with small resources.
 Anything not exposed as a variable: `extra_values_file = "my-values.yaml"` (merged last, wins).
 
-Note: the placeholder gate is replaced on every plan (`plantimestamp()`), so plans are never empty and `-detailed-exitcode` returns 2; this is deliberate (a static gate would stick after a failed apply on Terraform < 1.10). It also defers data sources (e.g. `kube-root-ca.crt`) to apply, showing an in-place update of the CA Secret on every plan.
+Note: the placeholder gate is replaced on every plan (`plantimestamp()`), so plans are never empty and `-detailed-exitcode` returns 2; this is deliberate (a static gate would stick after a failed apply on Terraform < 1.10). It also defers data sources  to apply, showing an in-place update of the CA Secret on every plan.
 
 ## State backend
 
@@ -108,9 +108,8 @@ deletes the data-tier CRs and PVCs. With `protect_data = true` the next plan err
 The chart has no bundled object store any more (MinIO community images ended in Oct 2025, see the [mirror manifest](../../docs/enterprise/airgap-mirror-manifest.md)); `ROR_S3_ENDPOINT` is required.
 
 `object_store = "external"` (variable default; small installs, dev, kind): set `s3.endpoint` (+ `s3.ca_secret` for a private CA) and `secret_data.s3_access_key/s3_secret_key`.
-Buckets (`s3.bucket`, `pg_backup_bucket`, `es_snapshot_bucket`) must exist. While `backups_enabled` (default on) the apply requires **separate identities**:
+Buckets (`s3.bucket`, `pg_backup_bucket`, `es_snapshot_bucket`) must exist and be configured as under "External S3 commands" below. While `backups_enabled` (default on) the apply requires **separate identities**:
 `secret_data.s3_pg_backup` and `s3_es_snapshot` with access keys different from the app key (the app identity must not be able to write or delete backups); `backups_enabled = { postgres = false, elasticsearch = false }` turns them off.
-Per-bucket policies: app key = `roracle/*` only; PG backup key = PG backup bucket only; ES snapshot key = ES snapshot bucket only; ideally object lock/retention on the backup buckets and no delete for the writers.
 
 `object_store = "rook-ceph"` (production example in `environments/prod.example.tfvars`): the operator layer installs `rook-ceph` + `rook-ceph-cluster` (placeholder-gated charts and
 images `docker.io/rook/ceph:v1.18.0`, `quay.io/ceph/ceph:v19.2.3`; CSI incl. the ceph-csi-operator, toolbox and monitoring off, so nothing else is pulled), `modules/ceph` claims the three buckets with ObjectBucketClaims (one Ceph user per bucket, so identities are
@@ -121,9 +120,34 @@ separate automatically), waits (`kubectl wait`, so `kubectl` must be on the runn
 - **NetworkPolicy**: RGW ingress is limited to the app namespace and the Ceph namespace; egress from api/worker/migrate **and** the CNPG/ES pods (backups, snapshots) is the chart's `networkPolicy.s3` set to the RGW pods.
 - Variables: `ceph.device_filter` / `ceph.nodes` (OSD devices: **never** all devices; empty is a gated placeholder), `mon_count` (3), `data_pool` (erasure `data_chunks`+`coding_chunks`, default 2+1, or replicated), `metadata_replicas` (3), `rgw.instances`, `resources` (mon/mgr/osd).
 - Prerequisites: >= 3 nodes with **raw, unformatted disks**, ~4-6 GiB RAM per OSD plus 1-2 GiB per mon and 2-4 GiB per RGW, low-latency network, >= 3 failure domains for erasure 2+1. For fewer nodes or no spare disks use `external`.
-- Backups: the PG/ES backup buckets sit in the same Ceph cluster (as the former bundled MinIO did): replicate them off-cluster (RGW multisite or a scheduled `rclone`) or point `s3.*_bucket` at an external S3 in another site.
+- **Backup buckets are locked and writer-only** (rook-ceph): a Job (backend image from the mirror, boto3, run as the admin object-store user `roracle-admin`; keys read from Rook's Secret, never copied) creates the PG backup and ES snapshot buckets with S3 object lock, default retention (`ceph.object_lock`, GOVERNANCE 30 d, keep >= the chart retention), a lifecycle rule (noncurrent versions, multipart abort) and a bucket policy: the per-bucket writers (`roracle-pg-backup`, `roracle-es-snapshot`, Rook `CephObjectStoreUser`s) may put/get/list/delete (marker) but are denied version deletion, lock bypass, lock/lifecycle/policy changes; the app identity has no grant. The app bucket is an OBC with a `tmp/` 1-day expiry and multipart-abort lifecycle (`obcAllowAdditionalConfigFields` allows only `bucketLifecycle`; `bucketPolicy` stays off). Unverified on live Ceph: run the pre-GA check that barman-cloud and the ES S3 repository work against locked RGW buckets.
+- Backups still live in the same Ceph cluster: replicate them off-cluster (RGW multisite or a scheduled `rclone`) or point `s3.*_bucket` at an external S3 in another site.
+- **TLS rotation**: the self-signed CA is valid 10 years, the RGW certificate 1 year (renewed 30 days before). Rook may not reload a changed certificate Secret: after a leaf renewal run `kubectl -n rook-ceph rollout restart deploy -l app=rook-ceph-rgw` (verify with `openssl s_client`). The CA copy in the app namespace (`roracle-s3-ca`) is a Terraform snapshot: after a CA renewal re-run `terraform apply`, then restart api/worker. A third-party ClusterIssuer whose Secret has no `ca.crt` is refused (use `tls_secret` + `s3.ca_secret`).
+- With rook-ceph, Terraform owns the Secret names `roracle-s3`, `roracle-pg-backup-s3` and `roracle-es-s3` in every `secrets_mode`: do not create them yourself (the create fails with "already exists").
 - Destroy: `rook-ceph-cluster` has no `protect_data` guard; Rook blocks deleting the object store while buckets exist (the destroy hangs rather than wiping data), `preservePoolsOnDelete` and the bucket class `Retain` keep pools and data.
 This path is validated only by `terraform validate/plan` and `helm template` (the kind rehearsal has no raw disks); treat the first real install as a rehearsal.
+
+### External S3 commands (object lock, lifecycle, policy)
+
+The chart no longer creates users, retention or lifecycle: with `object_store = "external"` these are operator duties. Replace `$S3` (endpoint URL), buckets and the admin
+profile; the admin identity owns the buckets, the writers are the identities in `secret_data.s3_pg_backup` / `s3_es_snapshot`. Retention must be >= the chart retention (30 d).
+```sh
+export S3=https://s3.internal.example:9000 AWS_CA_BUNDLE=/path/ca.pem
+for b in roracle-pg-backup roracle-es-snapshots; do
+  aws --endpoint-url $S3 s3api create-bucket --bucket $b --object-lock-enabled-for-bucket
+  aws --endpoint-url $S3 s3api put-object-lock-configuration --bucket $b \
+    --object-lock-configuration '{"ObjectLockEnabled":"Enabled","Rule":{"DefaultRetention":{"Mode":"GOVERNANCE","Days":30}}}'
+  aws --endpoint-url $S3 s3api put-bucket-lifecycle-configuration --bucket $b --lifecycle-configuration \
+    '{"Rules":[{"ID":"noncurrent","Status":"Enabled","Filter":{"Prefix":""},"NoncurrentVersionExpiration":{"NoncurrentDays":31},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+done
+# bucket policy per backup bucket: Allow the writer Get/Put/List/Delete/multipart, Deny version delete + lock bypass + policy changes
+# (see modules/ceph/bucket-setup.py for the exact statements; adapt the Principal to your IAM), then:
+aws --endpoint-url $S3 s3api put-bucket-policy --bucket roracle-pg-backup --policy file://pg-policy.json
+# app bucket: expire tmp/ staging and stale multipart uploads
+aws --endpoint-url $S3 s3api put-bucket-lifecycle-configuration --bucket roracle --lifecycle-configuration \
+  '{"Rules":[{"ID":"tmp-expire","Status":"Enabled","Filter":{"Prefix":"tmp/"},"Expiration":{"Days":1}},{"ID":"abort-multipart","Status":"Enabled","Filter":{"Prefix":""},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+```
+The backend does not set the lifecycle itself yet (tracked on the backend branch); until then the `tmp/` rule is an operator duty on external S3.
 
 ## Optional inference module
 

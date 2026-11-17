@@ -78,6 +78,13 @@ Each chart's images (operator, plugin sidecar, cert-manager, ECK, Prometheus, Gr
 Populate with `terraform providers mirror <dir>` on a connected host. The Terraform stack also consumes the operator charts above and,
 when the optional inference module is enabled, a vLLM-style OpenAI-spec image (also used for the reranker with `--task score`; optionally `ghcr.io/huggingface/text-embeddings-inference` for engine `tei`). Operator images are set through `operator_images`.
 
+### Operations tooling (runbook)
+
+| Image | Use |
+|---|---|
+| `amazon/aws-cli` (pin tag/digest in mirror) | S3-native checks and repairs in the runbook (`aws s3api ... --endpoint-url`): lifecycle, object lock, versions, multipart |
+| `rclone/rclone` (pin in mirror) | bucket replication to a DR site (runbook 3.3) |
+
 ### Other build-time inputs
 
 | Input | Mirror |
