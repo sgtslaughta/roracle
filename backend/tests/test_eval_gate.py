@@ -189,11 +189,6 @@ def test_markdown_has_verdict_deltas_and_config_diff():
 
 
 # ---- cutover enqueues eval_run only with a reference set -------------------------------------------
-@pytest.fixture(autouse=True)
-def _no_converge(monkeypatch):
-    monkeypatch.setattr(reembed, "_converge", lambda *a, **k: None)  # covered in test_reembed_converge
-
-
 def _cutover(db, settings, **kw):
     payload = {
         "target": {"model": "new", "dims": 3, "index": "chunks-new-1"},

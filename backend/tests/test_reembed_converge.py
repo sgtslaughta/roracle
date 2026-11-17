@@ -109,11 +109,15 @@ def test_target_is_converged_with_postgres_before_the_swap_without_clocks(
     es.drift_docs = [str(da.id)]  # what the acl_hash comparison against Postgres reports
     synced = []
     monkeypatch.setattr(
-        search_index, "sync_acl", lambda es_, d, compute: (synced.append(d), order.append("acl"), compute())
+        search_index, "sync_acl_many", lambda es_, ids, compute: (synced.extend(ids), order.append("acl"))
     )
     real_update = es.indices.update_aliases
     es.indices.update_aliases = lambda actions: (order.append("swap"), real_update(actions))
-    _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the cutover
+    for _ in range(
+        10
+    ):  # converge slices (a 0 s budget: one page each, resumed from the checkpoint), then the swap
+        if _run_one(db_session, session_factory, es, FakeLlm(2), base).payload["phase"] == "cutover":
+            break
     assert synced == [str(da.id)]  # revoke pushed to the target
     assert set(es.data["chunks-new-1"]) == {f"{va}:0"}  # soft-deleted doc and the orphan are gone
     (up,) = [u for u in es.updates if u["index"] == "chunks-new-1"]
@@ -144,3 +148,25 @@ def test_orphan_version_of_a_live_document_is_purged(db_session, session_factory
     es.data["chunks-new-1"][f"{ghost}:0"]["version_id"] = str(ghost)
     _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the cutover
     assert f"{ghost}:0" not in es.data["chunks-new-1"] and f"{va}:0" in es.data["chunks-new-1"]
+
+
+def test_converge_is_resumable_from_its_checkpoint(db_session, session_factory, es, base, two_docs):
+    from roracle import reembed_converge as rc
+
+    (da, va), (db_, vb) = two_docs
+    es.put(f"{va}:0", da.id)
+    es.put(f"{vb}:0", db_.id)
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the copy
+    es.put(f"{uuid.uuid4()}:0", uuid.uuid4(), index="chunks-new-1")  # orphan to purge at the last stages
+    target = {"index": "chunks-new-1"}
+    st, steps = None, 0
+    while True:
+        st = rc.converge_step(es, session_factory, target, st, slice_s=0)  # budget 0: yields at every page
+        steps += 1
+        assert steps < 20
+        if st is None:
+            break
+        assert st["stage"] in rc.STAGES
+    assert steps > 1 and set(es.data["chunks-new-1"]) == {f"{va}:0", f"{vb}:0"}  # orphan gone, rest intact

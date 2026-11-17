@@ -236,7 +236,7 @@ def test_status_reports_progress(db_session, session_factory, es, base, document
     )
     s = reembed.status(db_session, es, base)
     assert s["running"]["target"] == {"model": "new", "dims": 2, "index": "chunks-new-1"}
-    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("cutover", 2, 2)
+    assert (s["running"]["phase"], s["running"]["copied"], s["running"]["total"]) == ("converge", 2, 2)
 
 
 def test_drop_old_keeps_active(db_session, es, base):

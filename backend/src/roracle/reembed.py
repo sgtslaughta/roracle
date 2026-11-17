@@ -9,6 +9,7 @@ copy     scan the active index by `chunk_id` (search_after), re-embed, bulk (ref
          deleted docs / purged versions are skipped. After the write the batch is re-verified against
          Postgres and the source: deletes, ACL/tag changes, stale chunks and is_latest that raced the copy are
          converged (later mutations reach the target themselves through `chunks-all`)
+converge  resumable pre-swap convergence with Postgres (reembed_converge.py), one slice per job
 cutover  slow cleanup first, then under an advisory lock: persist the active model + ONE `update_aliases` swap of
          `chunks` (the last ES step; old stays in chunks-all). ensure_index never moves `chunks` off the PG-active index
 catchup  twice, 300 s apart: copy chunks present in the old index but missing in the target (ingest races)
@@ -16,26 +17,24 @@ catchup  twice, 300 s apart: copy chunks present in the old index but missing in
 
 import logging
 import re
-import uuid
 from typing import Any
 
 from elasticsearch import Elasticsearch, NotFoundError, helpers
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime, search_index
-from roracle.acl_sync import drifted, read_acl, read_acl_many
 from roracle.config import Settings
 from roracle.ingest.embed import BATCH_RETRIES, chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
-from roracle.models import Document, DocumentVersion, Job
+from roracle.models import DocumentVersion, Job
 from roracle.models_eval import EvalSet
 from roracle.queue import NonRetryable, check_lease, enqueue
+from roracle.reembed_converge import RECONCILE_BATCH, _dbq, _pg_state, _uuid, _verify, converge_step  # noqa: F401
 from roracle.search_index import MUTATE_ALIAS
 
 log = logging.getLogger(__name__)
 
-RECONCILE_BATCH = 500  # documents per drift query in the pre-swap convergence
 BATCH = 1000  # chunks per job page: embedding-bound, not job-bound
 HEX = "0123456789abcdef"
 CATCHUP_DELAY_S = 300
@@ -208,37 +207,6 @@ def _restore_target(es: Elasticsearch, target: dict, settings: Settings) -> None
         log.warning("force-merge of %s not started", target["index"], exc_info=True)
 
 
-def _uuid(v: str):
-    try:
-        return uuid.UUID(v)
-    except ValueError:
-        return None
-
-
-def _pg_state(sf, srcs: list[dict]) -> tuple[dict, set, dict]:
-    """Postgres (authority), read fresh: per-doc (acl+tags, title) or None, live version ids, max searchable version/doc.
-    The ACL read is batched (4 queries for all documents of the page, identical to `read_acl` per document)."""
-    dids = {x["doc_id"] for x in srcs}
-    uuids = {d: u for d in dids if (u := _uuid(d))}
-    with sf() as s0:
-        many = read_acl_many(s0, list(uuids.values()))
-    acls = {d: many.get(str(uuids[d])) if d in uuids else None for d in dids}
-    vids = {u for x in srcs if (u := _uuid(x["version_id"]))}
-    with sf() as s:
-        live = set(s.scalars(select(DocumentVersion.id).where(DocumentVersion.id.in_(vids))))
-        newest = dict(
-            s.execute(
-                select(DocumentVersion.document_id, func.max(DocumentVersion.version))
-                .where(
-                    DocumentVersion.document_id.in_(list(uuids.values())),
-                    DocumentVersion.stage == "searchable",
-                )
-                .group_by(DocumentVersion.document_id)
-            ).all()
-        )
-    return acls, live, {str(k): v for k, v in newest.items()}
-
-
 def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Settings | None = None) -> None:
     acls, live, newest = _pg_state(
         sf, [h["_source"] for h in hits]
@@ -308,41 +276,6 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
     _verify(es, sf, target["index"], source, hits, acls)
 
 
-def _dbq(es, index: str, query: dict) -> None:
-    es.delete_by_query(index=index, query=query, refresh=True, conflicts="proceed")
-
-
-def _verify(es, sf, index: str, source: str, hits: list[dict], acls: dict) -> None:
-    """Converge what changed between our reads and our write (target-only resurrection, stale ACL).
-    The target refreshes every COPY_REFRESH, so it is refreshed here ONLY when something has to be corrected:
-    update/delete_by_query only see refreshed chunks. What lands later is converged by `_converge` before the swap."""
-    srcs = [h["_source"] for h in hits]
-    ids = [h["_id"] for h in hits]
-    got = es.search(index=source, query={"ids": {"values": ids}}, source=False, size=len(ids))
-    still = {h["_id"] for h in got["hits"]["hits"]}
-    fixes: list = []
-    if gone := [i for i in ids if i not in still]:  # deleted / stale chunk removed while we copied
-        fixes.append(lambda: _dbq(es, index, {"ids": {"values": gone}}))
-    now, live, newest = _pg_state(sf, srcs)
-    for doc_id, was in acls.items():
-        if now[doc_id] is None:
-            fixes.append(lambda doc_id=doc_id: _dbq(es, index, {"term": {"doc_id": doc_id}}))
-        elif now[doc_id] != was:
-            did = _uuid(doc_id)
-            fixes.append(
-                lambda doc_id=doc_id, did=did: search_index.sync_acl(es, doc_id, lambda: read_acl(sf, did))
-            )
-    for vid in {x["version_id"] for x in srcs if _uuid(x["version_id"]) not in live}:
-        fixes.append(lambda vid=vid: _dbq(es, index, {"term": {"version_id": vid}}))
-    for doc_id, n in newest.items():
-        if any(x["doc_id"] == doc_id and x.get("is_latest") and x.get("version", 0) < n for x in srcs):
-            fixes.append(lambda doc_id=doc_id, n=n: search_index.mark_previous_versions(es, doc_id, n))
-    if fixes:
-        es.indices.refresh(index=index)
-        for fix in fixes:
-            fix()
-
-
 def _slice_query(sl: dict) -> dict | None:
     """chunk_id starts with the version uuid (uniform hex): slice i of n = a range of the first hex digit."""
     i, n = sl["i"], sl["n"]
@@ -393,86 +326,6 @@ def _pass_has_failed_slice(session: Session, payload: dict) -> bool:
         )
         is not None
     )
-
-
-def _converge(es, sf, target: dict) -> None:
-    """Right before the swap, with the target refreshed: make it agree with Postgres about everything that changed
-    while it was being copied (mutations only reach refreshed chunks). Clock-free: nothing here compares timestamps.
-    1. ACL/tags/title drift of every live document (acl_hash vs Postgres) -> `sync_acl`
-    2. target chunks of EVERY soft-deleted, not yet purged document are deleted
-    3. target chunks still `is_latest` whose Postgres version is not the latest are demoted (by version id)
-    4. orphans: target documents that no longer exist in Postgres (hard purge raced the copy) are deleted
-    Bounded by the corpus, cheap when in sync (an ES search per RECONCILE_BATCH documents, writes only for drift)."""
-    idx, after = target["index"], None
-    while True:
-        check_lease()
-        with sf() as s:
-            q = select(Document.id).where(Document.deleted_at.is_(None))
-            if after is not None:
-                q = q.where(Document.id > after)
-            ids = list(s.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)))
-            items = read_acl_many(s, ids)
-        for d in sorted(drifted(es, items, index=idx)):
-            search_index.sync_acl(es, d, lambda d=d: read_acl(sf, uuid.UUID(d)))
-        if len(ids) < RECONCILE_BATCH:
-            break
-        after = ids[-1]
-    for ids in _pages(sf, select(Document.id).where(Document.deleted_at.is_not(None))):
-        check_lease()
-        _dbq(es, idx, {"terms": {"doc_id": ids}})
-    sup = select(DocumentVersion.id).where(
-        DocumentVersion.stage == "searchable", DocumentVersion.is_latest.is_(False)
-    )
-    for ids in _pages(sf, sup):
-        check_lease()
-        es.update_by_query(
-            index=idx,
-            query={"bool": {"filter": [{"terms": {"version_id": ids}}, {"term": {"is_latest": True}}]}},
-            script={"source": "ctx._source.is_latest = false", "lang": "painless"},
-            refresh=False,
-            conflicts="proceed",
-        )
-    es.indices.refresh(index=idx)  # one refresh for all the demotion pages
-    _purge_orphans(es, sf, idx)
-    _purge_orphans(es, sf, idx, field="version_id", model=DocumentVersion)
-
-
-def _pages(sf, stmt, size: int = RECONCILE_BATCH):
-    """Keyset pages (as strings) of a one-column id select, ordered by id."""
-    col = stmt.selected_columns[0]
-    after = None
-    while True:
-        with sf() as s:
-            q = stmt if after is None else stmt.where(col > after)
-            ids = list(s.scalars(q.order_by(col).limit(size)))
-        if not ids:
-            return
-        yield [str(i) for i in ids]
-        if len(ids) < size:
-            return
-        after = ids[-1]
-
-
-def _purge_orphans(es, sf, idx: str, field: str = "doc_id", model=Document) -> None:
-    """Target documents (or versions, `field="version_id"`) with no Postgres row (purged while we copied):
-    composite aggregation over the id field."""
-    after = None
-    while True:
-        check_lease()
-        comp: dict = {"size": 1000, "sources": [{"d": {"terms": {"field": field}}}]}
-        if after:
-            comp["after"] = after
-        agg = es.search(index=idx, size=0, aggs={"docs": {"composite": comp}})["aggregations"]["docs"]
-        keys = [b["key"]["d"] for b in agg["buckets"]]
-        if keys:
-            uu = [u for k in keys if (u := _uuid(k))]
-            with sf() as s:
-                have = {str(i) for i in s.scalars(select(model.id).where(model.id.in_(uu)))}
-            if gone := [k for k in keys if k not in have]:
-                _dbq(es, idx, {"terms": {field: gone}})
-        after = agg.get("after_key")
-        if not after or len(keys) < 1000:
-            return
 
 
 def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> None:
@@ -526,7 +379,13 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
             enqueue(
                 session,
                 "reembed",
-                {**payload, "phase": "cutover", "cursor": None, "slice": {"i": 0, "n": sl["n"]}},
+                {
+                    **payload,
+                    "phase": "converge",
+                    "cursor": None,
+                    "conv": None,
+                    "slice": {"i": 0, "n": sl["n"]},
+                },
             )
     elif payload["round"] == 1:
         enqueue(session, "reembed", {**payload, "cursor": None, "round": 2}, run_after_s=CATCHUP_DELAY_S)
@@ -540,14 +399,25 @@ def _enqueue_eval(session: Session, settings: Settings) -> None:
         enqueue(session, "eval_run", {"set_id": str(ref), "trigger": "reindex", "judge": True})
 
 
+def _converge_job(session: Session, payload: dict, es, settings: Settings, sf) -> None:
+    """One resumable slice of the pre-swap convergence (`converge_step`); continues itself with the checkpoint, then
+    hands over to the cutover. The target is back at its normal refresh interval from the first slice on, so what
+    changes meanwhile reaches it through `chunks-all`."""
+    if _pass_has_failed_slice(session, payload):
+        raise NonRetryable("a copy slice failed permanently; cutover refused")
+    if payload.get("conv") is None:  # first slice: normal refresh/replicas back, one refresh, async merge
+        _restore_target(es, payload["target"], settings)
+    nxt = converge_step(es, sf, payload["target"], payload.get("conv"))
+    if nxt is not None:
+        enqueue(session, "reembed", {**payload, "conv": nxt})
+    else:
+        enqueue(session, "reembed", {**payload, "phase": "cutover", "conv": None})
+
+
 def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> None:
     target, src, alias = payload["target"], payload["source"], settings.read_alias
     if _pass_has_failed_slice(session, payload):  # belt and braces: never swap onto an incomplete index
         raise NonRetryable("a copy slice failed permanently; cutover refused")
-    _restore_target(
-        es, target, settings
-    )  # FIRST and idempotent: whatever fails below, the index is back to normal
-    _converge(es, sf, target)  # mutations that raced the copy, before readers move
     before = runtime.effective(session, settings)
     if (before.embed_model, before.embed_dims) != (target["model"], target["dims"]):
         clear_summary_embeddings(sf)  # slow, derived cache of the old model: BEFORE the swap (R2-I)
@@ -588,7 +458,9 @@ def handle_reembed(
     settings: Settings,
 ) -> None:
     payload = dict(payload)
-    if payload["phase"] == "cutover":
+    if payload["phase"] == "converge":
+        _converge_job(session, payload, es, settings, session_factory)
+    elif payload["phase"] == "cutover":
         _cutover(session, payload, es, settings, session_factory)
     else:
         try:
