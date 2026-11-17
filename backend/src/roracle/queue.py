@@ -100,6 +100,19 @@ MAX_REFUNDS = (
 )
 
 
+RELEASE_CAP_ERROR = (
+    "released at shutdown too many times: the job does not finish within the drain window "
+    "(raise ROR_JOB_DRAIN_S and terminationGracePeriodSeconds, or keep the worker running until it completes)"
+)
+
+
+def _notify_if_failed(s: Session, jid: int) -> None:
+    job = s.get(Job, jid)
+    if job is not None and job.status == "failed":
+        s.refresh(job)
+        _notify_failed(s, job)
+
+
 def _requeue_later(sf, jid: int, token: int, delay_s: float) -> None:
     with sf() as s:
         s.execute(
@@ -112,6 +125,7 @@ def _requeue_later(sf, jid: int, token: int, delay_s: float) -> None:
             ),
             {"d": delay_s, "id": jid, "n": token, "cap": MAX_REFUNDS},
         )
+        _notify_if_failed(s, jid)
         s.commit()
 
 
@@ -344,11 +358,15 @@ def release_active() -> bool:
     with cur["sf"]() as s:
         r = s.execute(
             text(
-                "UPDATE jobs SET status = 'queued', released = released + 1, lease_until = NULL, run_after = now(),"
-                " updated_at = now() WHERE id = :id AND status = 'running' AND claim_token = :n"
+                "UPDATE jobs SET status = CASE WHEN released >= :cap THEN 'failed' ELSE 'queued' END,"
+                " last_error = CASE WHEN released >= :cap THEN :err ELSE last_error END,"
+                " released = released + 1, lease_until = NULL, run_after = now(), updated_at = now()"
+                " WHERE id = :id AND status = 'running' AND claim_token = :n"
             ),
-            {"id": cur["id"], "n": cur["token"]},
+            {"id": cur["id"], "n": cur["token"], "cap": MAX_REFUNDS, "err": RELEASE_CAP_ERROR},
         )
+        if r.rowcount == 1:
+            _notify_if_failed(s, cur["id"])
         s.commit()
         return r.rowcount == 1
 
