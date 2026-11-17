@@ -124,6 +124,9 @@ metadata:
   labels: {{ include "roracle.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ .comp }}
 spec:
+  {{- with .minReady }}
+  minReadySeconds: {{ . }}
+  {{- end }}
   {{- if not .v.autoscaling.enabled }}
   replicas: {{ .v.replicas }}
   {{- end }}
@@ -336,29 +339,38 @@ from sqlalchemy import create_engine, text
 from roracle.config import get_settings
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.end_headers(); self.wfile.write(b"waiting for schema")
+        ok = self.path.startswith("/healthz")
+        self.send_response(200 if ok else 404); self.end_headers()
+        if ok:
+            self.wfile.write(b"waiting for schema")
     def log_message(self, *a):
         pass
 port = int(os.environ.get("ROR_WORKER_HEALTH_PORT") or 0)
 srv = HTTPServer(("0.0.0.0", port), H) if port else None
 if srv:
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
-engine = create_engine(get_settings().database_url)
+script = ScriptDirectory.from_config(Config("alembic.ini"))
+head = script.get_current_head()
+known = {r.revision for r in script.walk_revisions()}
+engine = create_engine(get_settings().database_url, connect_args={"connect_timeout": 5})
 end = time.time() + 1500
 while True:
     try:
         with engine.connect() as c:
             cur = c.execute(text("select version_num from alembic_version")).scalar()
     except Exception as e:
-        cur = "unavailable (%s)" % type(e).__name__
-    if cur == head:
-        print("schema at head", head, flush=True)
+        cur = None
+        why = "unavailable (%s)" % type(e).__name__
+    else:
+        why = "at %s" % cur
+    # proceed at head, or when the DB is NEWER than this image (rollback/old tag: expand-first schema is compatible)
+    if cur == head or (cur is not None and cur not in known):
+        print("schema ok: db %s, image head %s" % (why, head), flush=True)
         break
     if time.time() > end:
-        print("TIMEOUT waiting for migrations: db=%s head=%s" % (cur, head), file=sys.stderr, flush=True)
+        print("TIMEOUT waiting for migrations: db %s, image head %s" % (why, head), file=sys.stderr, flush=True)
         sys.exit(1)
-    print("waiting for migrations: db=%s head=%s" % (cur, head), flush=True)
+    print("waiting for migrations: db %s, image head %s" % (why, head), flush=True)
     time.sleep(5)
 if srv:
     srv.shutdown(); srv.server_close()
