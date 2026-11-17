@@ -19,8 +19,8 @@ One task at a time:
 1. **Brief.** The controller writes the task requirements, with exact values, into a per-plan workspace directory `.superpowers/sdd/<plan>/` (gitignored), next to shared notes and the implementer rules.
 2. **Writer.** One implementer works only on its task, in its own git worktree and branch, owns only the files the task lists, and never spawns further agents. It follows the brief exactly, runs the checks, commits with semantic commits, and writes a report: what changed, commands and output, claims it could not verify, concerns. Docs tasks add a claim table that maps each claim to `path:line`. It replies with a short status: DONE, DONE_WITH_CONCERNS, BLOCKED or NEEDS_CONTEXT.
 3. **Reviewer.** A separate reviewer checks the result against the brief and the code. For docs it audits the claim table and spot-checks claims against the code; for code it checks spec and quality. Security-sensitive tasks get a stronger model.
-4. **Fix loop.** Findings go back to the writer, which fixes, re-runs the checks, commits and appends a fix report. The loop repeats up to five rounds, then the controller decides.
-5. **Ledger.** The controller records the outcome of each task and each ruling in `progress.md` in the workspace, in the form `Ruling: <decision> - <why> - <cost if wrong>`.
+4. **Fix loop.** Findings go back to the writer, which fixes, re-runs the checks, commits and appends a fix report. The loop repeats up to five rounds, then the controller decides (a team process rule, not enforced by the repository).
+5. **Ledger.** The controller records the outcome of each task and each ruling in `progress.md` in the workspace, in the team's form `Ruling: <decision> - <why> - <cost if wrong>` (a team convention, not enforced by the repository).
 
 At the end of a plan: one whole-branch review, one fix wave and a scoped re-review. The controller pushes and opens the merge request; writers never push, merge or open it.
 

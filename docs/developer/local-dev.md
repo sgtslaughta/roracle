@@ -14,13 +14,13 @@ The script runs `docker compose -f deploy/dev/compose.yaml up -d`, waits until P
 
 | Service | Image | Host port |
 |---|---|---|
-| Postgres | `postgres:16` | 55433 (`ROR_PG_PORT` overrides) |
+| Postgres | `postgres:16` | 55433 (compose-only `ROR_PG_PORT` overrides) |
 | MinIO (bucket `roracle` made by `minio-init`) | `bitnamilegacy/minio:2025.5.24` | 9000, console 9001 |
 | Keycloak (realm import, see below) | `keycloak:26.0` | 8080 |
 | Elasticsearch, single node, security off, 1 GB heap | `elasticsearch:9.5.6` | 9200 |
 | Docling | `docling-serve-cpu:latest` | 5001 |
 
-Profile `full` adds GROBID (8070), two Gotenberg instances (3300 for office conversion, 3301 for draft PDFs, both bound to 127.0.0.1) and ClamAV (3310). `scripts/dev-up.sh` does not start them. Start them with `docker compose -f deploy/dev/compose.yaml --profile full up -d grobid clamav gotenberg gotenberg-drafts`, then set the matching `ROR_GROBID_URL`, `ROR_CLAMAV_HOST`, `ROR_GOTENBERG_URL` and `ROR_DRAFT_GOTENBERG_URL` values in `backend/.env` (commented examples are in `backend/.env.example`; every setting is in the [settings reference](../reference/settings.md)). An empty URL skips that stage.
+Profile `full` adds GROBID (8070), two Gotenberg instances (3300 for office conversion, 3301 for draft PDFs, both bound to 127.0.0.1; the compose-only variables `ROR_GOTENBERG_PORT` and `ROR_GOTENBERG_DRAFTS_PORT` change the host ports) and ClamAV (3310). `scripts/dev-up.sh` does not start them. Start them with `docker compose -f deploy/dev/compose.yaml --profile full up -d grobid clamav gotenberg gotenberg-drafts`, then set the matching `ROR_GROBID_URL`, `ROR_CLAMAV_HOST`, `ROR_GOTENBERG_URL` and `ROR_DRAFT_GOTENBERG_URL` values in `backend/.env` (commented examples are in `backend/.env.example`; every setting is in the [settings reference](../reference/settings.md)). An empty URL skips that stage.
 
 Notes:
 
@@ -46,7 +46,7 @@ uv run python -m roracle worker  # second shell, same environment
 
 `backend/.env.example` points at the dev stack. It expects an OpenAI-compatible endpoint for the LLM and embeddings on `localhost:21434` (an SSH tunnel to the inference box, or a local Ollama on 11434), `embeddinggemma` with 768 dimensions and `qwen2.5:14b`. Unit tests need none of it. The reranker, contextual notes and agentic retrieval are off while their settings are empty or `false`.
 
-Run the API without `source .env` and the tests will refuse to start, by design: see [testing](testing.md).
+Source `.env` for the API and worker, but not in the shell where you run pytest, or the `_test` guard aborts the run (see [testing](testing.md)).
 
 ### Get a token
 
@@ -89,7 +89,7 @@ To try the admin screens, give `researcher` the `roracle-admin` realm role in th
 
 ## The inference box (`deploy/game-01`)
 
-Production-like inference runs on a GPU host called game-01. The repository carries what is needed to reproduce its parts; it is not part of the dev stack.
+Production-like inference runs on a GPU host called game-01 (one site's host name; use your own SSH alias). The repository carries what is needed to reproduce its parts; it is not part of the dev stack.
 
 - `deploy/game-01/reranker.sh` installs and runs a Hugging Face TEI reranker with `bge-reranker-v2-m3`, bound to `127.0.0.1:28080` only. Subcommands: `pull` (connected host: pinned model revision, `SHA256SUMS`, image tar), `install` (copy to the host and verify), `run`, `health`. The container runs with `HF_HUB_OFFLINE=1`, so nothing downloads at runtime.
 - Dev access is an SSH tunnel (`ssh -N -L 21480:127.0.0.1:28080 game-01`), then `ROR_RERANK_URL=http://localhost:21480/rerank`, `ROR_RERANK_API=tei`, `ROR_RERANK_MODEL=bge-reranker-v2-m3`. On a timeout, HTTP error or malformed reply the fused order is kept and `roracle_rerank_fallback_total` increments.

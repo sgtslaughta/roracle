@@ -11,7 +11,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run pytest -q -m "not integration and not e2e"
 ```
 
-That pair is what the CI jobs `lint` and `test` run. There is no mypy step.
+That pair is what the CI jobs `lint` and `test` run. There is no mypy step. The `test` job's MinIO service image comes from the `MINIO_IMAGE` variable (default `bitnamilegacy/minio:2025.5.24` under `REGISTRY_MIRROR`); override it if that image is not available.
 
 ### Unit and integration split
 
