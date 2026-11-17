@@ -19,7 +19,7 @@ from starlette.responses import StreamingResponse
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
-from roracle.chat import agentic
+from roracle.chat import agentic, summarize
 from roracle.chat.access import owned_chat
 from roracle.chat.answer import build_messages, frame, split_notes, stream_answer
 from roracle.chat.global_answer import route_question, stream_prepare
@@ -141,6 +141,10 @@ def _release(prep, ss: Session, own: bool):
     return go
 
 
+def _close(ss: Session, own: bool):
+    return ss.close if own else (lambda: None)
+
+
 def _leave(p: Principal, ss: Session, own: bool):
     def go() -> None:
         agentic.leave(p)
@@ -256,9 +260,17 @@ def post_message(
     meta: dict | None = None
     prep = None
     agent = False
+    target = None
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
+    elif (dec := summarize.decide(session, p, body.content, body.viewer, chat.scope, chat.excludes))[
+        0
+    ] or dec[1]:
+        target = dec[0] and dec[0].document_id  # open-paper rule: no corpus search, no global routing
+        if target is None:  # contentless and nothing usable open: canned guard, no LLM, no search
+            excluded = open_blocked(session, p, body.viewer)
+            canned, model = summarize.GUARD, None
     else:
         try:
             if settings.router:
@@ -296,18 +308,22 @@ def post_message(
         session.commit()  # no transaction (and no pooled connection) stays open into the stream
         passages, notes = split_notes(passages)
         hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
-        messages = [] if prep or agent else build_messages(body.content, passages, history, HISTORY, notes)
+        messages = (
+            [] if prep or agent or target else build_messages(body.content, passages, history, HISTORY, notes)
+        )
         versions = _versions(session, [*passages, *notes])
         fact = None
         if prep:  # the global stream gets its OWN session (independent of the request's teardown timing)
             fact = _fact_fallback(ss, es, llm, settings, p, body, chat, history)
         gen = stream_answer(
-            ss if prep or agent else session, llm, chat.id, model, messages, passages, versions, canned, notes,
+            ss if prep or agent or target else session, llm, chat.id, model, messages, passages, versions, canned, notes,
             excluded, meta, settings.global_reduce_tokens if prep else None,
             stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact)
             if prep
+            else (summarize.prepare(ss, es, llm, settings, p, body.content, target, history, HISTORY) if target else None)
+            if target
             else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
-            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else None),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else (_close(ss, ss is not session) if target else None)),
         )  # fmt: skip
     except BaseException:
         if prep:

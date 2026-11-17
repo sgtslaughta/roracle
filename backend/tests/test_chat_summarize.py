@@ -1,0 +1,198 @@
+# ruff: noqa: F811
+"""Open-paper rule, whole-document summaries and the contentless guard. ES and the LLM are faked."""
+
+import dataclasses
+import json
+from types import SimpleNamespace
+
+import pytest
+from api_seed import seed
+from test_labels_gates import admin, label, mk  # noqa: F401
+
+from roracle.api.routes.library import get_es
+from roracle.api.routes.search import get_llm
+from roracle.auth import Principal, get_app_settings
+from roracle.chat import summarize
+from roracle.chat.retrieve import Tab, Viewer
+
+pytestmark = pytest.mark.usefixtures("_blob_store_override")
+GUARD = summarize.GUARD
+
+
+def hit(doc, ver, n, text, page=1, **extra):
+    return {"_source": {
+        "chunk_id": f"{ver.id}:{n}", "doc_id": str(doc.id), "version_id": str(ver.id), "text": text,
+        "pages": [page], "bboxes": [], "title": doc.title, "authors": [], "year": 2020, **extra}}  # fmt: skip
+
+
+class SummES:
+    """Answers a per-version read; anything else (a corpus search) gets decoys and is recorded as a corpus call."""
+
+    def __init__(self, chunks=(), units=(), decoys=()):
+        self.chunks, self.units, self.decoys, self.calls = list(chunks), list(units), list(decoys), []
+
+    def search(self, **kw):
+        self.calls.append(kw)
+        f = json.dumps(kw.get("query"))
+        if '"version_id"' not in f:
+            return {"hits": {"hits": self.decoys}}
+        return {"hits": {"hits": self.units if '"unit": ["section"' in f else self.chunks}}
+
+    msearch = search
+
+    @property
+    def corpus_calls(self):
+        return [c for c in self.calls if '"version_id"' not in json.dumps(c.get("query"))]
+
+
+class LLM:
+    def __init__(self):
+        self.streams, self.maps = [], []
+        self.embeddings = SimpleNamespace(create=lambda **kw: pytest.fail("embedded a query"))
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kw):
+        if kw.get("stream"):
+            self.streams.append(kw)
+            return iter(
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t))])
+                for t in ("It says [1] ", "and [2].")
+            )
+        self.maps.append(kw)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="part summary"))])
+
+    @property
+    def calls(self):
+        return len(self.streams) + len(self.maps)
+
+
+@pytest.fixture
+def run(client, as_ana, app, settings):
+    def go(es, content="give me a summary", tabs=(), scope="all", chars=48000, headers=None, ignored=()):
+        llm = LLM()
+        small = settings.model_copy(update={"summary_doc_chars": chars})
+        app.dependency_overrides[get_es] = lambda: es
+        app.dependency_overrides[get_llm] = lambda: llm
+        app.dependency_overrides[get_app_settings] = lambda: small
+        h = headers or as_ana
+        cid = client.post("/chats", headers=h, json={"scope": scope}).json()["id"]
+        viewer = {"tabs": [{"doc_id": str(d.id)} for d in tabs], "ignored": [str(i) for i in ignored]}
+        r = client.post(f"/chats/{cid}/messages", headers=h, json={"content": content, "viewer": viewer})
+        assert r.status_code == 200, r.text
+        ev = []
+        for block in r.text.strip().split("\n\n"):
+            e, d = block.split("\n")
+            ev.append((e.removeprefix("event: "), json.loads(d.removeprefix("data: "))))
+        return llm, ev
+
+    return go
+
+
+def cites(ev):
+    return next(d for e, d in ev if e == "citations")["items"]
+
+
+def text(ev):
+    return "".join(d["text"] for e, d in ev if e == "token")
+
+
+def test_live_repro_open_paper_only(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Paper A")
+    decoy, dv = seed(db_session, ana, title="Decoy")
+    es = SummES(
+        chunks=[hit(a, av, i, f"A text {i}", page=i + 1) for i in range(3)],
+        decoys=[hit(decoy, dv, 0, "Summary: unrelated")],
+    )
+    llm, ev = run(es, tabs=[a])
+    items = cites(ev)
+    assert items and {c["doc_id"] for c in items} == {str(a.id)}
+    assert es.corpus_calls == [] and len(llm.streams) == 1 and llm.maps == []
+    msg = llm.streams[0]["messages"]
+    assert msg[0]["content"] == summarize.SYSTEM and "Decoy" not in msg[-1]["content"]
+    assert msg[-1]["content"].index("A text 0") < msg[-1]["content"].index("A text 2")  # reading order
+    assert any(e == "meta" and d["summarize"]["doc_id"] == str(a.id) for e, d in ev)
+
+
+def test_active_tab_wins_and_ignored_skipped(run, db_session, ana):
+    a, av = seed(db_session, ana, title="A")
+    b, bv = seed(db_session, ana, title="B")
+    es = SummES(chunks=[hit(b, bv, 0, "b text")])
+    _, ev = run(es, tabs=[a, b], ignored=[a.id])
+    assert {c["doc_id"] for c in cites(ev)} <= {str(b.id)}
+    assert all(f'"{av.id}"' not in json.dumps(c["query"]) for c in es.calls)
+
+
+def test_exclude_llm_never_reaches_llm(run, client, admin, db_session, ana):
+    sec = mk(client, admin, "NoLLM", 4, exclude_llm=True)
+    a, av = seed(db_session, ana, title="Secret")
+    label(db_session, a, sec)
+    es = SummES(chunks=[hit(a, av, 0, "secret text")])
+    llm, ev = run(es, tabs=[a])
+    assert llm.calls == 0 and es.calls == []
+    assert text(ev) == GUARD and cites(ev) == []
+    assert any(e == "meta" and d.get("excluded_by_label") for e, d in ev)
+
+
+def test_invisible_doc_is_no_open_doc(run, db_session, bob):
+    d, v = seed(db_session, bob, title="Bobs", visibility="private")
+    es = SummES(chunks=[hit(d, v, 0, "bob text")])
+    llm, ev = run(es, tabs=[d])
+    assert llm.calls == 0 and es.calls == [] and text(ev) == GUARD and cites(ev) == []
+
+
+def test_no_open_doc_contentless_guard(run):
+    es = SummES()
+    llm, ev = run(es)
+    assert llm.calls == 0 and es.calls == []
+    assert text(ev) == GUARD and cites(ev) == [] and ev[-1][0] == "done"
+
+
+def test_pat_block_agents_not_summarized(client, admin, db_session, ana):
+    sec = mk(client, admin, "NoAgent", 3, block_agents=True)
+    d, _ = seed(db_session, ana, title="Hidden")
+    label(db_session, d, sec)
+    jwt = Principal(user_id=ana, sub="ana", username="ana", groups=(), is_admin=False)
+    pat = dataclasses.replace(jwt, via="pat", pat_id="x")
+    view = Viewer(tabs=[Tab(doc_id=str(d.id))])
+    assert summarize.decide(db_session, jwt, "summarize", view, "all")[0].document_id == d.id
+    assert summarize.decide(db_session, pat, "summarize", view, "all") == (None, True)
+
+
+def test_summary_intent_scope_open_single_tab(run, db_session, ana):
+    a, av = seed(db_session, ana, title="A")
+    es = SummES(chunks=[hit(a, av, 0, "alpha")])
+    llm, ev = run(es, content="summarize the effects of statins", tabs=[a], scope="open")
+    assert len(llm.streams) == 1 and es.corpus_calls == []
+    assert {c["doc_id"] for c in cites(ev)} == {str(a.id)}
+
+
+def test_long_doc_map_reduce_cites_real_chunks(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Long")
+    chunks = [hit(a, av, i, "x" * 100, page=i + 1) for i in range(10)]
+    llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=300)
+    assert len(llm.maps) == 4 and len(llm.streams) == 1  # 3 chunks per window
+    real = {c["_source"]["chunk_id"] for c in chunks}
+    items = cites(ev)
+    assert items and {c["chunk_id"] for c in items} <= real
+    assert [c["page"] for c in items] == [1, 4]  # windows start at chunks 0, 3, 6, 9
+
+
+def test_window_cap(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Huge")
+    chunks = [hit(a, av, i, "x" * 100, page=i + 1) for i in range(60)]
+    llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=150)
+    assert len(llm.maps) == summarize.MAX_WINDOWS
+    assert {c["chunk_id"] for c in cites(ev)} <= {c["_source"]["chunk_id"] for c in chunks}
+
+
+def test_units_used_when_over_budget(run, db_session, ana):
+    a, av = seed(db_session, ana, title="Raptor")
+    chunks = [hit(a, av, i, "x" * 100, page=i + 1) for i in range(10)]
+    units = [hit(a, av, "s0", "section one", unit="section", source_chunks=[f"{av.id}:4", f"{av.id}:5"]),
+             hit(a, av, "d", "whole doc", unit="document", source_chunks=[f"{av.id}:0"])]  # fmt: skip
+    units[0]["_source"]["chunk_id"], units[1]["_source"]["chunk_id"] = f"{av.id}:s0", f"{av.id}:d"
+    llm, ev = run(SummES(chunks=chunks, units=units), tabs=[a], chars=1000 - 1 - 0)
+    assert llm.maps == []
+    body = llm.streams[0]["messages"][-1]["content"]
+    assert "section one" in body and "whole doc" in body
+    assert {c["chunk_id"] for c in cites(ev)} <= {c["_source"]["chunk_id"] for c in chunks}
