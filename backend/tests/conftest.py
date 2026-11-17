@@ -329,11 +329,12 @@ def prefix(s3_client, test_bucket):
 @pytest.fixture(autouse=True)
 def _clear_search_caches():
     """Process-wide memo/page caches must never leak between tests."""
-    from roracle import retrieval
-    from roracle.api.routes import search as search_routes
+    from roracle import retrieval, search_fields
     from roracle.ingest import neardup
+    from roracle.search_cache import PAGE_CACHE
 
     neardup._ready = False  # the LSH-ready marker lives in app_settings (truncated per test)
     retrieval._EMBEDS.clear()
-    search_routes.PAGE_CACHE.clear()
+    PAGE_CACHE.clear()
+    search_fields._READY.clear()  # fields_ready memo: per index name, so per test
     yield

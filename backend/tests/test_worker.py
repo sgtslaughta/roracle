@@ -19,6 +19,7 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "reparse_refs",
         "eval_run",
         "eval_generate",
+        "search_signals",
     } and callable(h["ingest"])
     assert isinstance(HANDLERS, dict)
 

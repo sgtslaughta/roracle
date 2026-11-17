@@ -9,14 +9,13 @@ from elasticsearch import NotFoundError
 from fastapi import FastAPI, HTTPException
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import Field
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle.access import readable_documents
 from roracle.api.routes import documents_read, library
 from roracle.api.routes import search as search_routes
-from roracle.api.routes.search import BadInput
 from roracle.audit import audit
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
@@ -29,6 +28,8 @@ from roracle.models import CollectionItem, Document
 from roracle.notes.community import attach_notes, strict_gate
 from roracle.search_acl import acl_filter
 from roracle.search_index import ALIAS
+from roracle.search_limits import Q_MAX, VALUE_MAX, BadInput
+from roracle.search_params import SearchParams
 
 log = logging.getLogger(__name__)
 MAX_IDS = 50
@@ -158,8 +159,8 @@ def build_mcp(app: FastAPI) -> MCPServer:
 
     @mcp.tool()
     def search(
-        query: Annotated[str, Field(max_length=search_routes.Q_MAX)],
-        collection: Annotated[str | None, Field(max_length=search_routes.VALUE_MAX)] = None,
+        query: Annotated[str, Field(max_length=Q_MAX)],
+        collection: Annotated[str | None, Field(max_length=VALUE_MAX)] = None,
         limit: Annotated[int, Field(ge=1, le=50)] = 10,
     ) -> dict:
         """Search the research library (hybrid keyword + semantic). Returns documents the caller may see,
@@ -168,7 +169,10 @@ def build_mcp(app: FastAPI) -> MCPServer:
 
         def go(session: Session, p: Principal) -> dict:
             cols = [collection] if collection else None
-            search_routes.validate_search_params(query, {"collection": cols}, limit)
+            try:
+                f = SearchParams(q=query, collection=cols or [], size=limit, notes=False)
+            except ValidationError as e:
+                raise BadInput(e.errors()[0]["msg"]) from None
             settings = dep(app, get_app_settings, session)
             body = search_routes.search(
                 p,
@@ -177,17 +181,7 @@ def build_mcp(app: FastAPI) -> MCPServer:
                 dep(app, search_routes.get_llm),
                 settings,
                 dep(app, search_routes.get_http),
-                q=query,
-                tags=None,
-                year=None,
-                file_type=None,
-                org_unit=None,
-                collection=cols,
-                author=None,
-                sort="relevance",
-                page=1,
-                size=limit,
-                notes=False,
+                f,
             )
             # notes reach an agent's LLM: strict gate (own, or well-upvoted), never the raw R8 set
             attach_notes(session, p, body["results"], True, strict_gate(settings))

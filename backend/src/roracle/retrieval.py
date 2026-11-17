@@ -292,6 +292,10 @@ def search_chunks(
     units: tuple[str, ...] = ("chunk",),
     rerank_depth: int | None = None,
     light: bool = False,
+    bm25: dict | None = None,
+    extra_filter: list[dict] | None = None,
+    must_not: list[dict] | None = None,
+    knn: bool = True,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
@@ -303,13 +307,18 @@ def search_chunks(
     (summary units: LLM-bound callers must `expand_units` the result before use).
     rerank_depth overrides `settings.rerank_depth` (search uses the smaller `search_rerank_depth`).
     light=True is the facet-universe pass: ids only (no text/bboxes/highlight), never reranked.
+    bm25 replaces the default BM25 clause; extra_filter is ANDed into the filter; must_not excludes from BM25
+    and every kNN; knn=False sends the BM25 body only (head-only field scopes).
     """
     if not query.strip():
         raise ValueError("empty query")
-    flt = _filters(p, policy, filters, doc_ids, exclude_llm, units)
+    flt = [*_filters(p, policy, filters, doc_ids, exclude_llm, units), *(extra_filter or [])]
     index = active_index(settings)
     source = LIGHT_SOURCE if light else _SOURCE
-    vec = qvec if qvec is not None else embed_query(llm, settings, query, p.user_id)
+    vec = None
+    if knn:
+        vec = qvec if qvec is not None else embed_query(llm, settings, query, p.user_id)
+    knn_flt: Any = {"bool": {"filter": flt, "must_not": must_not}} if must_not else flt
 
     def knn_body(field: str) -> dict:
         knn_q: dict[str, Any] = {
@@ -317,7 +326,7 @@ def search_chunks(
             "query_vector": vec,
             "k": size,
             "num_candidates": 4 * size,
-            "filter": flt,
+            "filter": knn_flt,
         }
         if min_similarity:
             knn_q["similarity"] = min_similarity
@@ -326,21 +335,30 @@ def search_chunks(
     bm25_body: dict[str, Any] = {
         "size": size,
         "_source": source,
-        "query": {"bool": {"filter": flt, "must": [_bm25_clause(query, units)]}},
+        "query": {
+            "bool": {
+                "filter": flt,
+                "must": [bm25 or _bm25_clause(query, units)],
+                **({"must_not": must_not} if must_not else {}),
+            }
+        },
     }
     if not light:
         bm25_body["highlight"] = {
             "fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}},
             "encoder": "html",
         }
-    bodies = [bm25_body, knn_body("embedding"), *([knn_body("summary_embedding")] if summary_knn else [])]
+    bodies = [bm25_body]
+    if knn:
+        bodies += [knn_body("embedding"), *([knn_body("summary_embedding")] if summary_knn else [])]
     res = _msearch(es, index, bodies)
-    for r in res[:2]:
+    for r in res[: 2 if knn else 1]:
         if isinstance(r, Exception):
             raise r
-    bm25, knn = (r["hits"]["hits"] for r in res[:2])
+    bm25_hits = res[0]["hits"]["hits"]
+    knn_hits = res[1]["hits"]["hits"] if knn else []
     sknn: list[dict] = []
-    if summary_knn:
+    if knn and summary_knn:
         r = res[2]
         if isinstance(
             r, BadRequestError
@@ -350,9 +368,9 @@ def search_chunks(
             raise r
         else:
             sknn = r["hits"]["hits"]
-    by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn]}
-    by_id.update({h["_source"]["chunk_id"]: h for h in bm25})  # BM25 hit carries the highlight
-    fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25, knn, sknn)])
+    by_id = {h["_source"]["chunk_id"]: h for h in [*sknn, *knn_hits]}
+    by_id.update({h["_source"]["chunk_id"]: h for h in bm25_hits})  # BM25 hit carries the highlight
+    fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25_hits, knn_hits, sknn)])
     ranked = sorted(fused, key=lambda c: -fused[c])
     out = [_passage(by_id[c], fused[c]) for c in ranked]
     if settings.rerank_url and not light:

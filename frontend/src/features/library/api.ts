@@ -2,17 +2,16 @@ import { useRef } from "react";
 import { toast } from "sonner";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { apiFetch, seg } from "@/api/client";
-import type { Collection, DocumentDetail, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
-import { stringifySearch, type LibrarySearch } from "@/lib/searchParams";
+import { useDebounced } from "@/lib/useDebounced";
+import type { Collection, DocumentDetail, FacetValue, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
+import { toApiQuery, type LibrarySearch } from "@/lib/searchParams";
 
 export const PAGE_SIZE = 20;
-/** The backend caps `total` here; at the cap the count reads "200+". */
-export const RESULT_CAP = 200;
 
 export const useSearch = (s: LibrarySearch) =>
   useQuery({
     queryKey: ["search", s],
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch(s, { size: PAGE_SIZE, notes: true })}`),
+    queryFn: () => apiFetch<SearchResponse>(`/search${toApiQuery(s, { size: PAGE_SIZE, notes: true })}`),
     placeholderData: keepPreviousData,
   });
 
@@ -127,5 +126,21 @@ export function useDeleteCollection() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/collections/${seg(id)}`, { method: "DELETE" }),
     onSuccess: () => refreshCollections(qc),
+  });
+}
+
+export type FindName = "author" | "venue" | "tags" | "journal";
+
+/** Facet find box: debounced 200 ms, off while empty. Counts follow the current search. */
+export function useFacetFind(name: FindName, find: string, s: LibrarySearch) {
+  const f = useDebounced(find.trim(), 200);
+  return useQuery({
+    queryKey: ["facet-find", name, f, s],
+    queryFn: () => {
+      const rest = toApiQuery({ ...s, page: undefined }).slice(1);
+      return apiFetch<{ values: FacetValue[] }>(`/search/facets/${name}?find=${encodeURIComponent(f)}${rest ? `&${rest}` : ""}`);
+    },
+    enabled: f !== "",
+    placeholderData: keepPreviousData,
   });
 }

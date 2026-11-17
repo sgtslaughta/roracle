@@ -112,3 +112,17 @@ def test_enqueue_ignores_jobs_without_version_id(db_session, ana):
     enqueue(db_session, "reparse_refs", {})  # NOT IN (..NULL..) would hide every version
     db_session.flush()
     assert reparse.enqueue_missing(db_session) == 1
+
+
+def test_new_edges_refresh_cited_upper_bound(db_session, ana, grobid):
+    """R2: `cited_by_global` must stay an upper bound, so the new and the dropped targets get a signals job."""
+    target, tv = seed(db_session, ana, title="Totally Different Title", year=2017)
+    tv.meta = {**tv.meta, "ids": {"arxiv": "1706.03762"}}
+    gone, _ = seed(db_session, ana, title="Gone")
+    d, v = seed(db_session, ana, title="User Edited Title", authors=("Me",))
+    db_session.add(DocCitation(src_version_id=v.id, ref_no=9, target_document_id=gone.id, confidence=1.0))
+    db_session.flush()
+    reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store())
+    jobs = db_session.scalars(select(Job).where(Job.kind == "search_signals")).all()
+    queued = {i for j in jobs for i in j.payload["doc_ids"]}
+    assert {str(target.id), str(gone.id), str(d.id)} <= queued

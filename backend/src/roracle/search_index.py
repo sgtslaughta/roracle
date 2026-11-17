@@ -16,6 +16,7 @@ from roracle import runtime
 from roracle.config import AliasConfig
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
 from roracle.queue import NonRetryable
+from roracle.search_fields import SEARCH_FIELDS_VERSION, SEARCH_PROPS, doc_fields, head_fields
 
 if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeline -> here)
     from roracle.ingest.chunking import Chunk
@@ -75,7 +76,9 @@ def _mapping(dims: int, settings: Any = None) -> dict[str, Any]:
         "index_options": vector_index_options(settings),
     }
     return {
+        "_meta": {"search_fields": SEARCH_FIELDS_VERSION},
         "properties": {
+            **SEARCH_PROPS,
             "doc_id": kw,
             "version_id": kw,
             "version": {"type": "integer"},
@@ -106,7 +109,7 @@ def _mapping(dims: int, settings: Any = None) -> dict[str, Any]:
             "prompt_sha": kw,
             "embedding": vec,
             "summary_embedding": vec,
-        }
+        },
     }
 
 
@@ -264,7 +267,8 @@ def _ensure_index(
     missing = {
         f: t
         for f, t in _mapping(dims)["properties"].items()
-        if f not in props and (t["type"] in ("keyword", "dense_vector") or f == "context")
+        if f not in props
+        and (t["type"] in ("keyword", "dense_vector") or f == "context" or f in SEARCH_PROPS)
     }
     if missing:  # fields added after the index was created (R9)
         es.indices.put_mapping(index=name, properties=missing)
@@ -316,6 +320,7 @@ def _base(version, document, acl, model, title, is_latest, tags) -> dict[str, An
         "tags": tags or [],
         "file_type": file_type(version.filename),
         "embedding_model": model,
+        **doc_fields(version, document),
     }
 
 
@@ -336,6 +341,7 @@ def index_chunks(
     index: str | None = None,
     contexts: list[str] | None = None,
     refresh: bool | str = "wait_for",
+    signals: dict | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
     base = _base(version, document, acl, model, title, is_latest, tags)
@@ -355,6 +361,7 @@ def index_chunks(
                 **({"prompt_sha": prompt_shas[i]} if prompt_shas else {}),
                 **({"context": contexts[i]} if contexts and contexts[i] else {}),
                 **({"summary_embedding": summary_vector} if c.n == 0 and summary_vector else {}),
+                **({**head_fields(version), **(signals or {})} if c.n == 0 else {}),
             },
         }
         for i, (c, v) in enumerate(zip(chunks, vectors, strict=True))

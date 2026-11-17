@@ -3,6 +3,7 @@
 @import "./base.css" layer(base);
 @import "./shell.css";
 @import "./library.css";
+@import "./library-search.css";
 @import "./reader.css";
 @import "./uploads.css";
 @import "./ask.css";

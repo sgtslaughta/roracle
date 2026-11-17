@@ -1,0 +1,72 @@
+import { BookOpen, Newspaper, Building2, File, Folder, ShieldHalf, Tag, User } from "lucide-react";
+import { Fragment } from "react";
+import type { FacetName, FacetValue } from "@/api/types";
+import { useLabelName } from "@/features/labels/api";
+import type { FacetKey, LibrarySearch } from "@/lib/searchParams";
+import { useCollectionName } from "./api";
+import { SignalFilters } from "./SignalFilters";
+import { YearFacet } from "./YearFacet";
+import { FacetGroup, type FacetRow } from "./FacetGroup";
+import type { useLibraryNav } from "./useLibraryNav";
+import { useUpgrading } from "./upgrading";
+
+/** Rail order. */
+export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> = {
+  collection: { label: "Collection", icon: Folder },
+  tags: { label: "Tags", icon: Tag },
+  author: { label: "Author", icon: User },
+  venue: { label: "Venue", icon: BookOpen },
+  journal: { label: "Journal", icon: Newspaper },
+  file_type: { label: "File type", icon: File },
+  org_unit: { label: "Org unit", icon: Building2 },
+  label: { label: "Sensitivity", icon: ShieldHalf },
+};
+const ORDER = Object.keys(FACET_META) as FacetKey[];
+
+/** Rows for one facet group: server counts, with selected and excluded values kept at 0. */
+export function facetRows(k: FacetKey, facets: Record<FacetName, FacetValue[]> | undefined, search: LibrarySearch, collName: (id: string) => string, labelName: (id: string) => string) {
+  const fv = facets?.[k] ?? [];
+  const labels = new Map(fv.map((f) => [f.value, f.label]));
+  const ranks = new Map(fv.map((f) => [f.value, typeof f.label === "object" ? f.label.rank : 0]));
+  const nameOf = (v: string) => {
+    const l = labels.get(v);
+    return typeof l === "string" ? l : l ? l.name : k === "collection" ? collName(v) : k === "label" ? labelName(v) : v;
+  };
+  const sel = search[k] ?? [];
+  const exc = search[`${k}_not`] ?? [];
+  const counts = new Map(fv.map((f) => [f.value, f.count]));
+  [...sel, ...exc].forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
+  const vals = [...counts.keys()];
+  if (k === "label") vals.sort((a, b) => (ranks.get(a) ?? 0) - (ranks.get(b) ?? 0)); // most sensitive last
+  const values: FacetRow[] = vals.map((v) => ({ value: v, name: nameOf(v), count: counts.get(v) ?? 0 }));
+  const opKey = k === "author" ? "author_op" as const : k === "tags" ? "tags_op" as const : undefined;
+  return { values, sel, exc, nameOf, opKey };
+}
+
+type Nav = Pick<ReturnType<typeof useLibraryNav>, "toggle" | "patch">;
+
+/** Values come from the server's facet counts; selected and excluded values stay visible at 0. */
+export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, FacetValue[]> | undefined; search: LibrarySearch; nav: Nav }) {
+  const collName = useCollectionName();
+  const labelName = useLabelName();
+  const upgrading = useUpgrading();
+  return (
+    <aside className="facets" aria-label="Filters">
+      <p className="fnote">{search.q ? "Counts cover these results." : "Counts cover everything you can see."}</p>
+      {ORDER.map((k) => {
+        const { values, sel, exc, nameOf, opKey } = facetRows(k, facets, search, collName, labelName);
+        return (
+          <Fragment key={k}>
+          {k === "venue" && <fieldset className="fs-plain" disabled={upgrading}><YearFacet buckets={facets?.year ?? []} min={search.year_min} max={search.year_max} onCommit={(a, b) => nav.patch({ year_min: a, year_max: b })} /></fieldset>}
+          <FacetGroup
+            k={k} facet={FACET_META[k]} values={values} selected={sel} excluded={exc} search={search} nameOf={nameOf}
+            onToggle={(v, mode) => nav.toggle(k, v, mode)}
+            op={opKey ? search[opKey] : undefined} onOp={opKey ? (o) => nav.patch({ [opKey]: o }) : undefined}
+          />
+          </Fragment>
+        );
+      })}
+      <fieldset className="fs-plain" disabled={upgrading}><SignalFilters search={search} nav={nav} /></fieldset>
+    </aside>
+  );
+}

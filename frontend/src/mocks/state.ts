@@ -10,7 +10,7 @@ import type { OpsState } from "./adminOps";
 import type { DataState } from "./adminData";
 import type { EvalMock } from "./eval";
 import type { MockDraft } from "./drafts";
-import type { AdminLabel } from "@/api/types";
+import type { AdminLabel, SavedSearch } from "@/api/types";
 
 export interface MockState {
   votes: Record<string, 1 | -1 | 0>;
@@ -59,6 +59,8 @@ export interface MockState {
   owners: Record<string, string>;
   collRenamed: Record<string, string>;
   collDeleted: string[];
+  /** mocks/savedSearches.ts; seeded lazily there */
+  savedSearches: SavedSearch[] | null;
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -95,6 +97,7 @@ const fresh = (): MockState => ({
   owners: {},
   collRenamed: {},
   collDeleted: [],
+  savedSearches: null,
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

@@ -15,6 +15,8 @@ matching nodes) and `index.mapping.exclude_source_vectors` (vectors are not stor
 reindex and ACL `update_by_query`, and `fields`/`_source.includes` still return them).
 The kNN `index_options` are always explicit: ES 9.1+ silently defaults to `bbq_hnsw` for >= 384 dims otherwise.
 
+Library search adds bibliographic fields to every chunk and the abstract to each document's head chunk: < 2 KB per document.
+
 ## RAM and disk (768 dims, HNSW m=16): ESTIMATES from formulas, not measured
 
 Per copy of the index; with one replica double the numbers. Page cache must hold the quantized vectors plus the graph;

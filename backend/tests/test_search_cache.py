@@ -7,7 +7,7 @@ from api_seed import FakeES, seed
 from test_search_api import FakeLLM, get, hit
 
 from roracle import http_pool, retrieval
-from roracle.api.routes import search as search_mod
+from roracle import search_legacy as search_mod
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
 from roracle.auth import Principal
@@ -175,9 +175,9 @@ def test_universe_pass_is_light_and_unreranked_and_the_client_is_shared(
         return real(*a, **kw)
 
     monkeypatch.setattr(search_mod, "search_chunks", spy)
-    get(client, as_ana, q="alpha", year=2020)
+    get(client, as_ana, q="alpha", file_type="pdf")
     assert [(s[0], s[1]) for s in seen] == [(False, 50), (True, 50)]
-    get(client, as_ana, q="alpha2", year=2020)
+    get(client, as_ana, q="alpha2", file_type="pdf")
     clients = {id(s[2]) for s in seen if s[2] is not None}
     assert len(clients) == 1 and client.app.state.http is seen[0][2] is http_pool.get()
 

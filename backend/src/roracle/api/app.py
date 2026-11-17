@@ -42,6 +42,7 @@ from roracle.api.routes import (
     near_dup,
     notifications,
     proposals,
+    saved_searches,
     search,
     skills,
     tokens,
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_manage.router)
     app.include_router(citations.router)
     app.include_router(search.router)
+    app.include_router(saved_searches.router)
     app.include_router(chats_read.router)
     app.include_router(chats.router)
     _mount_mcp(app)

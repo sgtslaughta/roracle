@@ -10,6 +10,7 @@ from typing import Any
 from elasticsearch import Elasticsearch, NotFoundError
 
 from roracle.config import AliasConfig
+from roracle.search_fields import sort_key
 
 MUTATE_ALIAS = AliasConfig().mutate_alias  # same value search_index exposes (both or neither override)
 
@@ -54,6 +55,10 @@ def acl_payload(acl: dict[str, Any], title: str | None) -> dict[str, Any]:
     fields = {k: acl.get(k) for k in ACL_KEYS}
     if title is not None:
         fields["title"] = title
+        if (
+            title != "none"
+        ):  # read_acl's placeholder for a title-less doc: keep ingest's key (meta title/filename)
+            fields["title_sort"] = sort_key(title)  # a rename re-keys the title sort too
     if acl.get("tags") is not None:
         fields["tags"] = acl["tags"]
     full = title is not None and acl.get("tags") is not None

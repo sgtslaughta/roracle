@@ -61,7 +61,7 @@ def test_owner_updates_and_es_params(client, as_ana, ana, bob, db_session, fes):
     assert call["refresh"] is True and call["conflicts"] == "proceed"
     assert "New" not in call["script"]["source"]
     assert F(call) == {
-        "owner_id": str(ana), "visibility": "shared", "org_unit": "/", "title": "New",
+        "owner_id": str(ana), "visibility": "shared", "org_unit": "/", "title": "New", "title_sort": "new",
         "share_users": [str(bob)], "share_groups": ["/Math/Sub", "/Physics"], "coauthor_users": [],
         "label_id": str(d.label_id),
     }  # fmt: skip

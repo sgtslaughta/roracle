@@ -49,6 +49,7 @@ from roracle.labels.policy import Policy
 from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
 from roracle.queue import NonRetryable, RequeueLater, check_lease, fence, payload_uuid
+from roracle.search_signals import signals_for
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -274,6 +275,7 @@ def _index(
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
         summary_vector=sv, prompt_shas=shas, index=index, contexts=notes, refresh=False,
+        signals=signals_for(session, [d.id]).get(str(v.id)),
     )  # fmt: skip
     keep_units = None
     if (

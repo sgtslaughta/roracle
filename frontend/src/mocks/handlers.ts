@@ -3,7 +3,7 @@ import { API_BASE } from "@/api/client";
 import type { CitedByItem, Collection, DocumentDetail, NearDupAction, ReferenceItem, VoteRequest } from "@/api/types";
 import { DOCS } from "./docs";
 import { buildPdf, docById, docling } from "./pdf";
-import { citedBy, COLLECTION_NAMES, ownerOf, runSearch, tagsOf, votesOf } from "./search";
+import { citedBy, COLLECTION_NAMES, findFacet, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { adminHandlers } from "./admin";
 import { adminOpsHandlers } from "./adminOps";
@@ -16,6 +16,7 @@ import { proposalHandlers } from "./proposals";
 import { notificationHandlers } from "./notifications";
 import { draftDocument, draftHandlers } from "./drafts";
 import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
+import { savedSearchHandlers } from "./savedSearches";
 import { evalHandlers } from "./eval";
 import { DIR_USERS, directoryHandlers } from "./directory";
 
@@ -45,6 +46,11 @@ export const handlers = [
   http.get(url("/search"), ({ request }) => {
     const sp = new URL(request.url).searchParams;
     return HttpResponse.json(withCommunityNotes(runSearch(sp), sp.get("notes") !== "false"));
+  }),
+  http.get(url("/search/facets/:name"), ({ request, params }) => {
+    const sp = new URL(request.url).searchParams;
+    const find = (sp.get("find") ?? "").toLowerCase();
+    return HttpResponse.json({ values: findFacet(String(params.name), find, sp) });
   }),
   http.get(url("/collections"), () => {
     return HttpResponse.json(allCollections().map(({ id, name }): Collection => ({ id, name, count: DOCS.filter((d) => d.collections.includes(name) && !(state.collRemoved[id] ?? []).includes(d.id)).length + (state.collItems[id]?.length ?? 0) })));
@@ -206,4 +212,5 @@ export const handlers = [
   ...proposalHandlers,
   ...notificationHandlers,
   ...draftHandlers,
+  ...savedSearchHandlers,
 ];

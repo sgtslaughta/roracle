@@ -24,7 +24,7 @@ Each admin API call also writes the generic `admin.<handler>` audit row ([audit]
 Use this when the embedding model or its vector size changes, or to rebuild the index from scratch with the same model. Search stays up throughout.
 
 1. Make sure the new model is served by the embedding endpoint and Elasticsearch has room for a second copy of the vectors.
-2. `POST /api/admin/reindex` with `{"model": "<name>", "dims": <n>}` (`dims` from 1 to 4096). It answers `202` with a `job_id`. The same model name is allowed: it builds the next generation. `409 reindex already running` is returned while a re-embed or a [rebuild](#rebuild-derived-index-fields) is queued or running.
+2. `POST /api/admin/reindex` with `{"model": "<name>", "dims": <n>}` (`dims` from 1 to 4096). It answers `202` with a `job_id`. The same model name is allowed: it builds the next generation, copying each stored vector whose prompt is unchanged (same `prompt_sha`) and embedding only chunks whose title, summary, context note or prompt version changed since they were indexed. `409 reindex already running` is returned while a re-embed or a [rebuild](#rebuild-derived-index-fields) is queued or running.
 3. Follow `GET /api/admin/reindex`:
 
    | Field | Meaning |

@@ -15,7 +15,7 @@ const cards = () => screen.getAllByRole("listitem").filter((li) => li.classList.
 describe("remove from collection", () => {
   it("is offered only when filtered to one collection, and the document leaves the list", async () => {
     await renderLibrary("/library?collection=c1");
-    await screen.findByText(/of \d+ documents/);
+    await screen.findByText(/of \d+ papers/);
     const before = cards().length;
     await userEvent.click(within(cards()[0]).getByRole("button", { name: /^Actions for/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Remove from collection" }));
@@ -24,7 +24,7 @@ describe("remove from collection", () => {
 
   it("is absent without a collection filter", async () => {
     await renderLibrary("/library");
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.click(within(cards()[0]).getByRole("button", { name: /^Actions for/ }));
     expect(await screen.findByRole("menuitem", { name: "Open" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Remove from collection" })).toBeNull();

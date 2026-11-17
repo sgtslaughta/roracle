@@ -33,6 +33,13 @@ def test_payload_without_title_or_tags_drops_the_hash():
     assert "tags" not in no_tags["fields"] and no_tags["drop_hash"]
 
 
+def test_payload_title_rewrites_title_sort():
+    """A rename must re-key the title sort as well as the searchable title."""
+    assert acl_payload(ACL, "  Zebra   Stripes ")["fields"]["title_sort"] == "zebra stripes"
+    assert "title_sort" not in acl_payload(ACL, None)["fields"]
+    assert "title_sort" not in acl_payload(ACL, "none")["fields"]  # title-less doc: ingest's sort key stands
+
+
 def test_script_is_noop_aware_and_compares_every_field():
     for k in search_index.ACL_KEYS:
         assert k in ACL  # keys the script iterates come from the payload, all ACL keys included

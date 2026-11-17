@@ -19,12 +19,12 @@ async function renderLibrary(path = "/library") {
   );
   return router;
 }
-const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], label: [] };
+const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [], journal: [], label: [] };
 const hit = (o: Partial<SearchHit> = {}): SearchHit => ({
   doc_id: "d1", title: "A paper", authors: ["A. Author"], year: 2020, score: 1, passages: [], tags: [], votes: { up: 0, down: 0, mine: 0 },
-  file_type: "PDF", version: 1, venue: "Journal", org_unit: "Math", owner_id: "x", flag: null, cited_by_count: 0, ...o,
+  file_type: "PDF", version: 1, venue: "Journal", org_unit: "Math", owner_id: "x", flag: null, cited_by_count: 0, page_count: null, added_at: "2026-01-01T00:00:00Z", ...o,
 });
-const respond = (r: Partial<SearchResponse>) => server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 0, page: 1, results: [], facets: EMPTY_FACETS, ...r })));
+const respond = (r: Partial<SearchResponse>) => server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 0, total_capped: false, next: null, page: 1, results: [], facets: EMPTY_FACETS, ...r })));
 
 describe("P3 contract: collections by id", () => {
   it("sidebar collection link filters by id", async () => {
@@ -36,9 +36,9 @@ describe("P3 contract: collections by id", () => {
 
   it("the collection chip and facet show the name, not the id", async () => {
     const router = await renderLibrary("/library?collection=c1");
-    expect(await screen.findByRole("button", { name: "Remove filter Collection: Thesis reading list" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Remove: in collection “Thesis reading list”" })).toBeInTheDocument();
     const g = await screen.findByRole("group", { name: "Collection" });
-    expect(await within(g).findByRole("checkbox", { name: "Collection: Thesis reading list" })).toBeChecked();
+    expect(await within(g).findByRole("checkbox", { name: "Include Collection: Thesis reading list" })).toBeChecked();
     expect(router.state.location.search).toMatchObject({ collection: ["c1"] });
     await waitFor(() => expect(document.querySelectorAll(".result").length).toBeGreaterThan(0));
   });
@@ -47,7 +47,7 @@ describe("P3 contract: collections by id", () => {
     respond({ facets: { ...EMPTY_FACETS, collection: [{ value: "c9", count: 3, label: "Reading group" }] } });
     await renderLibrary();
     const g = await screen.findByRole("group", { name: "Collection" });
-    expect(within(g).getByRole("checkbox", { name: "Collection: Reading group" })).toBeInTheDocument();
+    expect(within(g).getByRole("checkbox", { name: "Include Collection: Reading group" })).toBeInTheDocument();
   });
 });
 
@@ -87,25 +87,20 @@ describe("P3 contract: nullable fields and caps", () => {
     expect(lines).toEqual(["A. Author.", "A. Author. Journal."]);
   });
 
-  it("total at the cap shows 200+ and the pager stops at ceil(total/size)", async () => {
-    respond({ total: 200, results: [hit()] });
-    await renderLibrary();
-    expect(await screen.findByText(/of 200\+ documents/)).toBeInTheDocument();
+  it("cited window at the cap shows 200+ and the pager stops at ceil(total/size)", async () => {
+    respond({ total: 200, total_capped: true, results: [hit()] });
+    await renderLibrary("/library?sort=cited");
+    expect(await screen.findByText(/of 200\+ papers/)).toBeInTheDocument();
     const nav = await screen.findByRole("navigation", { name: "Pages" });
     expect(within(nav).getByRole("button", { name: "Page 10" })).toBeInTheDocument();
     expect(within(nav).queryByRole("button", { name: "Page 11" })).toBeNull();
   });
 
-  it("browse facets at the cap are labelled approximate; a search is not", async () => {
-    respond({ total: 200, results: [hit()] });
-    await renderLibrary();
-    expect(await screen.findAllByText("Counts cover the 200 newest documents.")).not.toHaveLength(0);
-  });
-
-  it("no approximate note below the cap or with a query", async () => {
+  it("one note: browse counts cover everything visible", async () => {
     respond({ total: 5, results: [hit()] });
     await renderLibrary();
-    await screen.findByText(/of 5 documents/);
+    await screen.findByText(/of 5 papers/);
+    expect(screen.getAllByText("Counts cover everything you can see.")).not.toHaveLength(0);
     expect(screen.queryByText("Counts cover the 200 newest documents.")).toBeNull();
   });
 

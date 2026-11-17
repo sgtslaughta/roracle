@@ -1,6 +1,11 @@
 import type { ReactNode } from "react";
+import { splitQuery } from "./queryBuilder";
 
-export const searchTerms = (q: string) => q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length > 2);
+/** Highlight the words of the positive words and phrases; excluded terms and quotes are ignored. */
+export const searchTerms = (q: string) => {
+  const { words, phrases } = splitQuery(q);
+  return [words, ...phrases].join(" ").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length > 2);
+};
 
 /** Wrap query terms in <mark>. Pure text in, React nodes out (no HTML injection). */
 export function highlight(text: string, terms: string[]): ReactNode {

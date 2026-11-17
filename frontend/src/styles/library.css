@@ -1,8 +1,6 @@
 /* library: search header, facets, result cards (raised) in a sunken feel, votes, pager */
 .shead { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .sortrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.active { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 28px; margin-bottom: 10px; }
-.active .badge-o { background: var(--primary-soft); border-color: transparent; color: var(--primary); }
 .sbody { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; }
 .facets { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; align-self: start; }
 .facets p.fnote { margin: 0 0 2px; color: var(--muted); font-size: 12px; }
@@ -15,6 +13,7 @@
 .fgroup .more { background: none; border: 0; padding: 4px 0 0; }
 .fgroup .more.badge-o { border: 0; background: none; color: var(--primary); font-size: 12px; padding: 4px 0 0; }
 .results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.results[hidden] { display: none; }
 .result {
   display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; padding: 16px 18px; border: 1px solid var(--border);
   border-radius: 12px; background: var(--surface); box-shadow: var(--elev); transition: border-color .15s, box-shadow .15s;

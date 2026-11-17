@@ -115,7 +115,7 @@ describe("reader pane", () => {
 
   it("focus toggle cycles the pane and Esc steps back", async () => {
     await renderApp("/library");
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     act(() => openDoc("00000000-0000-4000-8000-000000000002"));
     const app = document.getElementById("app")!;
     expect(app).toHaveAttribute("data-focus", "split");

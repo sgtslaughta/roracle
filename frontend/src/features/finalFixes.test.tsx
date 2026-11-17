@@ -72,7 +72,7 @@ describe("remove from collection", () => {
     const puts: string[] = [];
     server.use(http.put(`${API_BASE}/collections/:cid/items/:doc`, ({ params }) => { puts.push(String(params.doc)); return HttpResponse.json({ id: "c1", count: 1 }); }));
     await go("/library?collection=c1");
-    await screen.findByText(/of \d+ documents/);
+    await screen.findByText(/of \d+ papers/);
     const card = screen.getAllByRole("listitem").find((li) => li.classList.contains("result"))!;
     await userEvent.click(within(card).getByRole("button", { name: /^Actions for/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Remove from collection" }));

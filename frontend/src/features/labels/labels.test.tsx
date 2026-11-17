@@ -89,20 +89,20 @@ describe("picker", () => {
 describe("library", () => {
   it("shows a badge on each card and the label facet filters results", async () => {
     await renderApp("/library");
-    await screen.findByText(/of \d+ documents/);
+    await screen.findByText(/of \d+ papers/);
     expect(document.querySelectorAll(".result .slabel").length).toBeGreaterThan(0);
     const g = await screen.findByRole("group", { name: "Sensitivity" });
-    await userEvent.click(within(g).getByRole("checkbox", { name: "Sensitivity: Confidential" }));
+    await userEvent.click(within(g).getByRole("checkbox", { name: "Include Sensitivity: Confidential" }));
     await waitFor(() => expect(document.querySelectorAll(".result")).toHaveLength(1));
     expect(sent("GET", /\/search$/).some((r) => new URL(r.url).searchParams.get("label") === CONF.id)).toBe(true);
     expect(document.querySelector(".result .slabel")).toHaveTextContent("Confidential");
-    expect(screen.getByRole("button", { name: "Remove filter Sensitivity: Confidential" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove: labelled Confidential" })).toBeInTheDocument();
   });
   it("orders label facet values by rank", async () => {
     await renderApp("/library");
     const g = await screen.findByRole("group", { name: "Sensitivity" });
     const names = within(g).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
-    expect(names).toEqual(["Sensitivity: General", "Sensitivity: Internal", "Sensitivity: Confidential"]);
+    expect(names).toEqual(["Include Sensitivity: General", "Include Sensitivity: Internal", "Include Sensitivity: Confidential"]);
   });
 });
 

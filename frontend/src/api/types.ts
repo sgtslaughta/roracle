@@ -40,17 +40,22 @@ export interface SearchHit {
   org_unit: string;
   flag: string | null; // always null today; render when present
   cited_by_count: number;
+  page_count: number | null;
+  added_at: string;
   owner_id: string;
   label?: Label;
   /** community notes (search with notes=true); absent in older responses */
   notes?: CommunityNote[];
 }
 
-export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author" | "label";
+export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author" | "venue" | "journal" | "label";
 /** `label` is the collection name (collection facet) or the label JSON (label facet; value is the label id). */
 export interface FacetValue { value: string; count: number; label?: string | Label }
 export interface SearchResponse {
   total: number;
+  total_capped: boolean;
+  next: string | null;
+  upgrading?: boolean;
   page: number;
   results: SearchHit[];
   facets: Record<FacetName, FacetValue[]>;
@@ -127,3 +132,6 @@ export interface UploadsResponse { items: UploadItem[]; total: number }
 export interface UploadCreated { document_id: string; version_id: string; sha256: string }
 export interface DuplicateDetail { code: "duplicate"; document_id: string }
 export type NearDupAction = "new_version" | "separate" | "cancel";
+
+/** /me/saved-searches (`query` is the library URL query string, no leading `?`) */
+export interface SavedSearch { id: string; name: string; query: string; created_at: string; updated_at: string }
