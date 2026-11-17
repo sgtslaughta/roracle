@@ -6,7 +6,7 @@
 # apply   gate checks (separate state), terraform init/plan/apply of environments/kind.tfvars
 # verify  pods Ready, migrate job, API /healthz, web, images only from the mirror, protect_data blocks destroy
 # destroy protect_data flip (state mv) + terraform destroy      down  delete cluster + registry (+ tools untouched)
-# Needs docker, terraform, curl, jq, tar. Idempotent: every step skips what already exists. Never touches ~/.kube/config.
+# Needs bash 4+, docker, terraform, curl, jq, tar, openssl, sha256sum. KIND_E2E_KEEP=1: `all` keeps the cluster on failure. Idempotent: every step skips what already exists. Never touches ~/.kube/config.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +17,7 @@ CLUSTER=rorac-kind
 REG_NAME=rorac-kind-registry
 REG_PORT=5055 # must match environments/kind.tfvars
 REG="localhost:$REG_PORT"
+REGISTRY_IMAGE=registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
 export KUBECONFIG="$TOOLS/kubeconfig"
 export TF_DATA_DIR="$TOOLS/tfdata"
 export HELM_PLUGINS="$TOOLS/helm/plugins" HELM_CONFIG_HOME="$TOOLS/helm/config" HELM_CACHE_HOME="$TOOLS/helm/cache" HELM_DATA_HOME="$TOOLS/helm/data" HELM_REGISTRY_CONFIG="$TOOLS/helm/registry.json"
@@ -27,7 +28,7 @@ VERSION="$(cat "$REPO/VERSION")"
 TFVARS=environments/kind.tfvars
 export PATH="$TOOLS/bin:$PATH"
 
-# Pinned tools. sha256 verified on download (linux). kubectl/helm3 on PATH are used when present.
+# Pinned tools (kind, kubectl, helm 3), sha256 verified on download (linux); the tools dir shadows anything on PATH.
 KIND_VERSION=v0.33.0
 KUBECTL_VERSION=v1.34.12
 HELM_VERSION=v3.17.3
@@ -71,7 +72,7 @@ IMAGES=(
 
 log() { printf '\n== %s (%ss)\n' "$*" "$SECONDS" >&2; }
 die() { echo "FAIL: $*" >&2; exit 1; }
-tf() { (cd "$TF_DIR" && TF_VAR_secret_data="$(cat "$TOOLS/secrets.json")" terraform "$@"); }
+tf() { [ -s "$TOOLS/secrets.json" ] || die "missing $TOOLS/secrets.json (run apply first)"; (cd "$TF_DIR" && TF_VAR_secret_data="$(cat "$TOOLS/secrets.json")" terraform "$@"); }
 tfargs=(-input=false -var-file="$TFVARS")
 
 fetch() { # name url dest sha
@@ -85,7 +86,7 @@ tools() {
     fetch kind "https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-linux-$ARCH" x "${SHA[kind-$ARCH]}"
     install -m755 "$TOOLS/dl/kind" "$TOOLS/bin/kind"
   fi
-  if ! command -v kubectl >/dev/null; then
+  if [ ! -x "$TOOLS/bin/kubectl" ]; then
     fetch kubectl "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/$ARCH/kubectl" x "${SHA[kubectl-$ARCH]}"
     install -m755 "$TOOLS/dl/kubectl" "$TOOLS/bin/kubectl"
   fi
@@ -105,7 +106,7 @@ mirror_image() { # src dst-path
 
 registry() {
   if ! docker inspect "$REG_NAME" >/dev/null 2>&1; then
-    docker run -d --restart=always -p "127.0.0.1:$REG_PORT:5000" --name "$REG_NAME" registry:2 >/dev/null
+    docker run -d --restart=always -p "127.0.0.1:$REG_PORT:5000" --name "$REG_NAME" "$REGISTRY_IMAGE" >/dev/null
   fi
   docker start "$REG_NAME" >/dev/null 2>&1 || true
   for _ in $(seq 30); do curl -fsS "http://$REG/v2/" >/dev/null 2>&1 && return 0; sleep 1; done
@@ -157,11 +158,10 @@ build_app() {
 secrets() {
   [ -f "$TOOLS/secrets.json" ] && return 0
   local r='openssl rand -hex 16'
-  jq -n --arg db "$($r)" --arg es "$($r)" --arg mu "u$($r)" --arg mp "$($r)" \
+  (umask 077; jq -n --arg db "$($r)" --arg es "$($r)" --arg mu "u$($r)" --arg mp "$($r)" \
     --arg s1 "$($r)" --arg s2 "$($r)" --arg a1 "a$($r)" --arg a2 "$($r)" --arg b1 "b$($r)" --arg b2 "$($r)" --arg c1 "c$($r)" --arg c2 "$($r)" \
     '{db_password:$db, es_app_password:$es, minio_root_user:$mu, minio_root_pass:$mp,
-      s3_access_key:$s1, s3_secret_key:$s2, minio_app:{access:$a1,secret:$a2}, minio_pg_backup:{access:$b1,secret:$b2}, minio_es_snapshot:{access:$c1,secret:$c2}}' >"$TOOLS/secrets.json"
-  chmod 600 "$TOOLS/secrets.json"
+      s3_access_key:$s1, s3_secret_key:$s2, minio_app:{access:$a1,secret:$a2}, minio_pg_backup:{access:$b1,secret:$b2}, minio_es_snapshot:{access:$c1,secret:$c2}}' >"$TOOLS/secrets.json")
 }
 
 cmd_up() {
@@ -184,6 +184,10 @@ gate_checks() { # fresh state: nothing is created in the cluster
   tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var mirror_registry=MIRROR.example.com -var allow_placeholders=true \
     -target=terraform_data.placeholder_gate >/dev/null || die "allow_placeholders=true did not pass the gate"
   echo "gate: allow_placeholders=true passes (ok)"
+  # 3. minio_mode=tenant without explicit minio_images is refused (community images ended Oct 2025)
+  if out="$(tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var minio_mode=tenant 2>&1)"; then die "tenant applied without minio_images"; fi
+  grep -q "minio_images" <<<"$out" || { echo "$out" >&2; die "tenant refusal did not name minio_images"; }
+  echo "gate: minio_mode=tenant without minio_images refused (ok)"
   rm -f "$gs" "$gs.backup"
 }
 
@@ -192,13 +196,14 @@ cmd_apply() {
   secrets
   log "s3 stand-in"
     kubectl apply -f "$HERE/s3-stub.yaml" >/dev/null
-  kubectl -n rorac-s3 create secret generic s3-stub --from-literal=access="$(jq -r .s3_access_key "$TOOLS/secrets.json")" \
-    --from-literal=secret="$(jq -r .s3_secret_key "$TOOLS/secrets.json")" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n rorac-s3 create secret generic s3-stub --from-env-file=<(jq -r '"access=\(.s3_access_key)\nsecret=\(.s3_secret_key)"' "$TOOLS/secrets.json") \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n rorac-s3 rollout status deploy/s3-stub --timeout=180s
   log "terraform init"; tf init -input=false >/dev/null
   log "gate checks"; gate_checks
   log "terraform plan"; tf plan "${tfargs[@]}" -state="$STATE" -out="$TOOLS/kind.tfplan" | tail -5
   log "terraform apply"; tf apply -auto-approve -input=false -state="$STATE" "$TOOLS/kind.tfplan" | tail -15
+  rm -f "$TOOLS/kind.tfplan" # holds the secrets in clear text
 }
 
 wait_api() { # background port-forward + curl; $1 = svc, $2 = remote port, $3 = path
@@ -264,7 +269,9 @@ cmd_down() {
 
 case "${1:-}" in
   up) cmd_up ;; apply) cmd_apply ;; verify) cmd_verify ;; destroy) cmd_destroy ;; down) cmd_down ;;
-  all) cmd_up; cmd_apply; cmd_verify; cmd_destroy; cmd_down ;;
+  all)
+    trap '[ "${KIND_E2E_KEEP:-0}" = 1 ] || cmd_down' EXIT
+    cmd_up; cmd_apply; cmd_verify; cmd_destroy ;;
   *) sed -n '2,10p' "$0"; exit 2 ;;
 esac
 echo "done in ${SECONDS}s"
