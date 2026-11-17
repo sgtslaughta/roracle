@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from roracle import acl_sync, maintenance, search_index, search_index_acl
 from roracle.models import Document, DocumentCoauthor, DocumentShare, Job, Label, Tag
+from roracle.search_fields import sort_key
 from roracle.search_index import acl_hash
 
 pytestmark = pytest.mark.integration
@@ -42,6 +43,7 @@ def _index(es, db, docs, chunks=2, *, hashed=True):
     for did, (acl, title) in items.items():
         for n in range(chunks):
             src = {**{k: v for k, v in acl.items()}, "doc_id": did, "title": title, "chunk_id": f"{did}:{n}"}
+            src["title_sort"] = sort_key(title)  # doc_fields() writes it on every chunk
             if hashed:
                 src["acl_hash"] = acl_hash(acl, title)
             acts.append({"_index": es.test_index, "_id": f"{did}:{n}", "_source": src})
