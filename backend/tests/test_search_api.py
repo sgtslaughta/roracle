@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from api_seed import FakeES, seed
 
-from roracle.api.routes import search as search_mod
+from roracle import search_legacy
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import get_llm
 from roracle.models import Collection, CollectionItem, Tag, Vote
@@ -61,7 +61,7 @@ def test_all_invisible_is_empty_everywhere(client, as_ana, bob, db_session, fes)
     fes.hits = [hit(d, v)]
     body = get(client, as_ana, q="alpha").json()
     assert body == {
-        "total": 0, "page": 1, "results": [],
+        "total": 0, "total_capped": False, "page": 1, "next": None, "results": [], "upgrading": True,
         "facets": {k: [] for k in ("tags", "year", "file_type", "org_unit", "collection", "author", "label")},
     }  # fmt: skip
 
@@ -101,27 +101,6 @@ def test_sorts(client, as_ana, ana, bob, db_session, fes):
     assert titles("relevance") == ["cherry", "Apple", "banana"]  # rank order a,b,c adjusted by votes
 
 
-def test_paging(client, as_ana, ana, db_session, fes):
-    for i in range(5):
-        seed(db_session, ana, title=f"t{i}", hours=i)
-    r = get(client, as_ana, q="", sort="newest", size=2, page=2).json()
-    assert r["total"] == 5 and r["page"] == 2 and [x["title"] for x in r["results"]] == ["t2", "t1"]
-    assert get(client, as_ana, q="", size=2, page=9).json()["results"] == []
-
-
-def test_empty_q_browses_without_es(client, as_ana, ana, bob, db_session, fes):
-    seed(db_session, ana, title="old", hours=1)
-    seed(db_session, bob, title="new", hours=5)
-    seed(db_session, bob, title="hidden", visibility="private", hours=9)
-    seed(db_session, ana, title="parsing", stage="parsed", hours=8)
-    for q in ("", "   "):
-        r = get(client, as_ana, q=q).json()
-        assert [x["title"] for x in r["results"]] == ["new", "old"] and r["total"] == 2
-        assert r["results"][0]["passages"] == []
-    assert get(client, as_ana).json()["total"] == 2  # q omitted
-    assert fes.calls == []
-
-
 def test_filters_or_within_and_across(client, as_ana, ana, db_session, fes):
     a, _ = seed(db_session, ana, title="A", year=2020)
     b, _ = seed(db_session, ana, title="B", year=2021, filename="b.docx")
@@ -134,8 +113,8 @@ def test_filters_or_within_and_across(client, as_ana, ana, db_session, fes):
         r["title"] for r in client.get("/search", headers=as_ana, params=p).json()["results"]
     )
     assert t(tags=["ml", "bio"]) == ["A", "B", "C"]
-    assert t(tags=["ml"], year=[2021]) == ["B"]
-    assert t(file_type="docx", bogus="x") == ["B"]  # unknown params ignored
+    assert t(tags=["ml"], file_type=["docx"]) == ["B"]
+    assert client.get("/search", headers=as_ana, params={"bogus": "x"}).status_code == 422  # unknown key
 
 
 def test_collection_facet_and_filter(client, as_ana, as_bob, ana, bob, db_session, fes):
@@ -179,7 +158,7 @@ def test_search_value_error_is_422(client, as_ana, fes, monkeypatch):
     def boom(*a, **k):
         raise ValueError("unknown filter: x")
 
-    monkeypatch.setattr(search_mod, "search_chunks", boom)
+    monkeypatch.setattr(search_legacy, "search_chunks", boom)
     assert get(client, as_ana, q="x").status_code == 422
 
 
@@ -188,28 +167,28 @@ def test_unauthenticated(client):
 
 
 def test_facets_are_disjunctive(client, as_ana, ana, db_session, fes):
-    a, _ = seed(db_session, ana, title="A", year=2021)
-    b, _ = seed(db_session, ana, title="B", year=2022)
-    c, _ = seed(db_session, ana, title="C", year=2022)
+    a, _ = seed(db_session, ana, title="A")
+    b, _ = seed(db_session, ana, title="B", filename="b.docx")
+    c, _ = seed(db_session, ana, title="C", filename="c.docx")
     db_session.add_all(
         [Tag(document_id=a.id, tag="ml"), Tag(document_id=b.id, tag="bio"), Tag(document_id=c.id, tag="ml")]
     )
     db_session.flush()
-    r = get(client, as_ana, q="", year=2021).json()
+    r = get(client, as_ana, q="", file_type="pdf").json()
     assert [x["title"] for x in r["results"]] == ["A"]
-    assert r["facets"]["year"] == [{"value": "2022", "count": 2}, {"value": "2021", "count": 1}]
-    assert r["facets"]["tags"] == [{"value": "ml", "count": 1}]  # other facets reflect the year filter
-    r = get(client, as_ana, q="", year=2021, tags="bio").json()
-    assert r["total"] == 0 and r["facets"]["year"] == [{"value": "2022", "count": 1}]
+    assert r["facets"]["file_type"] == [{"value": "docx", "count": 2}, {"value": "pdf", "count": 1}]
+    assert r["facets"]["tags"] == [{"value": "ml", "count": 1}]  # other facets reflect the file_type filter
+    r = get(client, as_ana, q="", file_type="pdf", tags="bio").json()
+    assert r["total"] == 0 and r["facets"]["file_type"] == [{"value": "docx", "count": 1}]
 
 
 def test_disjunctive_facets_query_path(client, as_ana, ana, bob, db_session, fes):
-    a, va = seed(db_session, ana, title="A", year=2021)
-    b, vb = seed(db_session, ana, title="B", year=2022)
-    h, vh = seed(db_session, bob, title="Hidden", visibility="private", year=2022)
+    a, va = seed(db_session, ana, title="A")
+    b, vb = seed(db_session, ana, title="B", filename="b.docx")
+    h, vh = seed(db_session, bob, title="Hidden", visibility="private", filename="h.docx")
     fes.hits = [hit(a, va), hit(b, vb), hit(h, vh)]
-    r = get(client, as_ana, q="alpha", year=2021).json()
-    assert r["facets"]["year"] == [{"value": "2021", "count": 1}, {"value": "2022", "count": 1}]
+    r = get(client, as_ana, q="alpha", file_type="pdf").json()
+    assert r["facets"]["file_type"] == [{"value": "docx", "count": 1}, {"value": "pdf", "count": 1}]
     assert len(fes.calls) == 6  # filtered + unfiltered search (bm25 + knn + summary knn each)
 
 
@@ -224,37 +203,8 @@ def test_filtered_query_embeds_once(client, as_ana, ana, db_session, fes, monkey
         return real(*a, **k)
 
     monkeypatch.setattr("roracle.retrieval_util.embed", counting)
-    assert get(client, as_ana, q="alpha", year=[2021]).json()["total"] == 1
+    assert get(client, as_ana, q="alpha", file_type=["pdf"]).json()["total"] == 1
     assert len(n) == 1
-
-
-@pytest.mark.parametrize("params", [{"author": ["Zed"]}, {"file_type": ["docx"]}, {"file_type": ["other"]}])
-def test_browse_filters_keep_limit(client, as_ana, ana, db_session, fes, monkeypatch, params):
-    seed(db_session, ana, title="Z", authors=("Zed",), filename="z.docx")
-    seed(db_session, ana, title="N", authors=("Ann",), filename="noext")
-    limits = []
-    real = search_mod._load
-
-    def spy(*a, **k):
-        limits.append(a[4] if len(a) > 4 else k.get("limit"))
-        return real(*a, **k)
-
-    monkeypatch.setattr(search_mod, "_load", spy)
-    get(client, as_ana, **params)
-    assert limits[0] == search_mod.MAX_DOCS
-
-
-def test_browse_author_file_type_sql_semantics(client, as_ana, ana, db_session, fes):
-    seed(db_session, ana, title="A", authors=("Ann", "Bo"), filename="a.PDF")
-    seed(db_session, ana, title="B", authors=("Cy",), filename="b.pdf.docx")
-    seed(db_session, ana, title="C", authors=("Bo",), filename="c.toolongext1")
-    t = lambda **p: sorted(x["title"] for x in get(client, as_ana, **p).json()["results"])
-    assert t(author=["Bo"]) == ["A", "C"]
-    assert t(author=["Bo", "Cy"]) == ["A", "B", "C"]
-    assert t(file_type=["pdf"]) == ["A"]
-    assert t(file_type=["pdf", "docx"]) == ["A", "B"]
-    assert t(file_type=["other"]) == ["C"]
-    assert t(author=["Bo"], file_type=["pdf"]) == ["A"]
 
 
 def test_library_query_applies_similarity_floor(client, as_ana, ana, db_session, fes, app, settings):

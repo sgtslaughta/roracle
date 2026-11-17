@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from roracle.search_limits import LIST_MAX, Q_MAX, VALUE_MAX
+from roracle.search_limits import AFTER_MAX, FIND_MAX, LIST_MAX, Q_MAX, VALUE_MAX
 
 Scope = Literal["anywhere", "title", "authors", "abstract", "fulltext"]
 Sort = Literal[
@@ -79,7 +79,7 @@ class SearchParams(BaseModel):
     sort: Sort = "relevance"
     page: int = Field(1, ge=1)
     size: int = Field(20, ge=1, le=50)
-    after: str | None = Field(None, max_length=100)
+    after: str | None = Field(None, max_length=AFTER_MAX)
     notes: bool = True
     mode: Literal["full", "quick"] = "full"
 
@@ -95,6 +95,12 @@ class SearchParams(BaseModel):
             if out:
                 setattr(self, k, [v for v in getattr(self, k) if v not in out])
         return self
+
+
+class FindParams(SearchParams):
+    """`GET /search/facets/{name}`: the browse filters plus the find-box text."""
+
+    find: str = Field(min_length=1, max_length=FIND_MAX)
 
 
 def uses_new_params(f: SearchParams) -> bool:

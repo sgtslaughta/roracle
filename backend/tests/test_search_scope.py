@@ -4,9 +4,9 @@ import pytest
 from api_seed import seed
 from test_citations import citing
 
-from roracle.api.routes.search import BadInput
 from roracle.auth import Principal
 from roracle.models import Collection, CollectionItem, DocCitation
+from roracle.search_limits import BadInput
 from roracle.search_params import SearchParams
 from roracle.search_scope import SCOPE_IDS_MAX, resolve_scope
 

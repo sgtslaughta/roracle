@@ -113,14 +113,13 @@ def test_search_inputs_bounded(mc, as_ana, fes):
 
 
 def test_validator_and_rest_limits(client, as_ana, fes):
-    from roracle.api.routes.search import BadInput, validate_search_params
+    from pydantic import ValidationError
 
-    with pytest.raises(BadInput):
-        validate_search_params("q", {"tags": ["t"] * 51}, 10)
-    with pytest.raises(BadInput):
-        validate_search_params("q", {"tags": ["t" * 201]}, 10)
-    with pytest.raises(BadInput):
-        validate_search_params("q", {}, 51)
+    from roracle.search_params import SearchParams
+
+    for bad in ({"tags": ["t"] * 51}, {"tags": ["t" * 201]}, {"size": 51}):
+        with pytest.raises(ValidationError):
+            SearchParams(q="q", **bad)
     assert client.get("/search", headers=as_ana, params={"q": "x" * 1001}).status_code == 422
     assert client.get("/search", headers=as_ana, params={"tags": ["t"] * 51}).status_code == 422
 

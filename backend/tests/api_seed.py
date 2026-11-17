@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
@@ -43,6 +44,8 @@ def seed(db, owner_id, *, title="Doc", visibility="everyone", org_unit="/", year
 class FakeES:
     def __init__(self, hits=()):
         self.hits, self.calls = list(hits), []
+        # no search-fields marker on the index: `/search` runs the legacy path (R5)
+        self.indices = SimpleNamespace(get_mapping=lambda index: {index: {"mappings": {}}})
 
     msearch = _es_msearch
 

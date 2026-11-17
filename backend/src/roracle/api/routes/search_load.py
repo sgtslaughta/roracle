@@ -1,4 +1,4 @@
-"""Row loading for /search: Postgres-side visibility, facet filters, keyset cursor, narrow version columns."""
+"""Row loading for /search: Postgres-side visibility, facet filters, keyset cursor, narrow version columns; hit shape."""
 
 import re
 from dataclasses import dataclass, field
@@ -93,6 +93,7 @@ ROW_COLUMNS = (
     DocumentVersion.filename,
     DocumentVersion.created_at,
     DocumentVersion.meta,
+    DocumentVersion.page_count,
 )
 
 
@@ -195,3 +196,51 @@ def _load(
             if UUID(k) in rows:
                 rows[UUID(k)].votes = v
     return list(rows.values())
+
+
+def _own_collections(session: Session, p: Principal, values: list[str]) -> tuple[list[str], list[str]]:
+    """R4/R10: the caller's collections among `values` -> (collection ids, member doc ids), both str."""
+    cids = [UUID(v) for v in values if _is_uuid(v)]
+    owned = list(
+        session.scalars(
+            select(Collection.id).where(Collection.owner_id == p.user_id, Collection.id.in_(cids))
+        )
+    )
+    docs = session.scalars(
+        select(CollectionItem.document_id).where(CollectionItem.collection_id.in_(owned)).distinct()
+    )
+    return [str(c) for c in owned], [str(d) for d in docs]
+
+
+def _passage(x: Passage) -> dict:
+    bbox = {k: v for k, v in x.bboxes[0].items() if k != "page"} if x.bboxes else None
+    return {
+        "page": x.pages[0] if x.pages else 1,
+        "chunk_id": x.chunk_id,
+        "text": x.text,
+        "highlight": x.highlight,
+        "bbox": bbox,
+    }
+
+
+def _hit(r: Row) -> dict:
+    return {
+        "doc_id": str(r.doc.id),
+        "title": r.title,
+        "authors": list(r.meta.get("authors") or []),
+        "year": r.meta.get("year"),
+        "score": r.score,
+        "passages": [_passage(x) for x in r.passages],
+        "tags": r.tags,
+        "votes": {"up": r.votes[0], "down": r.votes[1], "mine": r.votes[2]},
+        "file_type": ext_of(r.ver.filename),
+        "version": r.ver.version,
+        "venue": r.meta.get("venue"),
+        "org_unit": r.doc.org_unit,
+        "owner_id": str(r.doc.owner_id),
+        "label": str(r.doc.label_id),  # id here; the route swaps in the label JSON
+        "flag": None,  # outdated-flag lands later
+        "cited_by_count": 0,  # filled by the route in one batched query
+        "page_count": r.ver.page_count,
+        "added_at": r.doc.created_at.isoformat() if r.doc.created_at else None,
+    }
