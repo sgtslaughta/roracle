@@ -10,6 +10,7 @@ from uuid import UUID
 
 from elasticsearch import Elasticsearch
 from sqlalchemy import func, select
+from sqlalchemy import text as text_
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import notify, runtime, search_index
@@ -104,25 +105,37 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
 def _dedupe(
     session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf, es=None
 ) -> bool:
-    """True if the version was parked for a near-dup decision."""
+    """True if the version was parked for a near-dup decision.
+
+    Everything from the MinHash/band write to the `deduped`/`review` stage runs under a per-OWNER transaction-scoped
+    advisory lock (PgBouncer-safe): of two simultaneous uploads of one paper the second checker always sees the
+    first, so exactly one is parked."""
     mh = minhash(text)
-    update_version(sf, v.id, minhash=mh)
-    with sf() as s:  # LSH bands first: a concurrent upload of the same paper then finds this one
-        write_bands(s, v.id, mh)
-        s.commit()
-    session.refresh(v)
     settings = runtime.effective(session, settings)
-    match = find_near_duplicate(
-        session,
-        principal_for_user(session, d.owner_id),
-        v,
-        settings.near_dup_threshold,
-        settings.near_dup_summary_threshold,
-        es=es,
-        settings=settings,
-    )
+    match = None
+    with sf() as ls:  # short lock transaction: not the (long) handler transaction
+        ls.execute(
+            text_("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"dedupe:{d.owner_id}"}
+        )
+        update_version(sf, v.id, minhash=mh)
+        write_bands(ls, v.id, mh)  # visible to the next checker once this transaction commits
+        ls.flush()
+        match = find_near_duplicate(
+            ls,
+            principal_for_user(ls, d.owner_id),
+            ls.get(DocumentVersion, v.id),
+            settings.near_dup_threshold,
+            settings.near_dup_summary_threshold,
+            es=es,
+            settings=settings,
+        )
+        if match is not None:
+            update_version(sf, v.id, near_dup_of=match.id, stage="review")
+        else:
+            set_stage(sf, v.id, "deduped")
+        ls.commit()
+    session.refresh(v)
     if match is not None:
-        update_version(sf, v.id, near_dup_of=match.id, stage="review")
         if d.connector_id is None:
             notify.emit(
                 session,
@@ -136,7 +149,6 @@ def _dedupe(
                 },
             )
         return True
-    set_stage(sf, v.id, "deduped")
     return False
 
 

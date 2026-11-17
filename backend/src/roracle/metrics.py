@@ -10,6 +10,11 @@ from sqlalchemy import text
 HTTP_REQUESTS = Counter("roracle_http_requests_total", "HTTP requests", ["method", "route", "status"])
 HTTP_DURATION = Histogram("roracle_http_request_duration_seconds", "HTTP latency", ["method", "route"])
 JOB_RUNS = Counter("roracle_job_runs_total", "Job runs by outcome (done|retry|failed)", ["kind", "outcome"])
+NEARDUP_EXHAUSTIVE = Counter(
+    "roracle_neardup_exhaustive_total",
+    "Near-dup checks that fell back to the exhaustive scan because of an operational problem",
+    ["reason"],
+)
 INGEST_STAGE_FAILURES = Counter(
     "roracle_ingest_stage_failures_total", "Ingest failures by the stage being advanced", ["stage"]
 )

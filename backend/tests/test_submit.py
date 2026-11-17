@@ -43,7 +43,9 @@ def _null_es(app):
 
     from roracle.api.routes.library import get_es
 
-    app.dependency_overrides[get_es] = NullEs
+    es = NullEs()
+    app.dependency_overrides[get_es] = lambda: es
+    return es
 
 
 @pytest.fixture

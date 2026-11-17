@@ -55,7 +55,7 @@ config:
   ROR_DB_POOL_SIZE: "8"              # api
   ROR_DB_MAX_OVERFLOW: "4"
   ROR_WORKER_DB_POOL_SIZE: "3"       # worker (claim session + stage session)
-  ROR_WORKER_DB_MAX_OVERFLOW: "1"
+  ROR_WORKER_DB_MAX_OVERFLOW: "2"
   ROR_DB_POOL_TIMEOUT_S: "10"
   ROR_JOB_LEASE_S: "300"             # job lease; a crashed worker's job is requeued after it (heartbeat every lease/3)
   ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream

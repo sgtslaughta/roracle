@@ -131,7 +131,13 @@ def test_invisible_candidate_is_never_returned_even_with_a_band_match(db_session
     assert find_near_duplicate(db_session, principal(ana), new, TH, STH, es=NoEs(), settings=_s()) is None
     _, mine = version(
         db_session, ana, sig, stage="uploaded"
-    )  # her own in-flight copy still counts (as before)
+    )  # her own in-flight copy still counts (as before) when it is the OLDER upload
+    db_session.execute(
+        DocumentVersion.__table__.update()
+        .where(DocumentVersion.id == mine.id)
+        .values(created_at=new.created_at - __import__("datetime").timedelta(seconds=5))
+    )
+    db_session.refresh(mine)
     got = find_near_duplicate(db_session, principal(ana), new, TH, STH, es=NoEs(), settings=_s())
     assert got is not None and got.id == mine.id
 
@@ -320,3 +326,110 @@ def test_two_simultaneous_uploads_park_only_the_later_one(db_session):
     )  # B is newer: ignored
     got = find_near_duplicate(db_session, p, b, TH, STH, es=NoEs(), settings=_s())
     assert got is not None and got.id == a.id  # only the later upload is parked
+
+
+def test_newer_copy_that_already_passed_its_own_check_parks_the_older_one(db_session):
+    """B (newer) dedupes first and goes on to indexing; A (older) dedupes while B is `chunked`: A must be parked."""
+    rng = np.random.default_rng(11)
+    ana = user(db_session, "ana")
+    sig = rand_sig(rng)
+    _, a = version(db_session, ana, sig, stage="summarized")
+    _, b = version(db_session, ana, sig, stage="chunked")  # B already finished its own check, unparked
+    db_session.execute(
+        DocumentVersion.__table__.update()
+        .where(DocumentVersion.id == b.id)
+        .values(created_at=a.created_at + __import__("datetime").timedelta(seconds=5))
+    )
+    db_session.refresh(a)
+    db_session.refresh(b)
+    got = find_near_duplicate(db_session, principal(ana), a, TH, STH, es=NoEs(), settings=_s())
+    assert got is not None and got.id == b.id
+    for stage in ("deduped", "embedded"):  # every stage after the check counts
+        db_session.execute(
+            DocumentVersion.__table__.update().where(DocumentVersion.id == b.id).values(stage=stage)
+        )
+        db_session.refresh(b)
+        assert (
+            find_near_duplicate(db_session, principal(ana), a, TH, STH, es=NoEs(), settings=_s()).id == b.id
+        )
+    db_session.execute(
+        DocumentVersion.__table__.update().where(DocumentVersion.id == b.id).values(stage="parsed")
+    )
+    db_session.refresh(b)  # still mid-check: it will find A itself, so A ignores it
+    assert find_near_duplicate(db_session, principal(ana), a, TH, STH, es=NoEs(), settings=_s()) is None
+
+
+def test_dedupe_is_serialised_per_owner_so_exactly_one_of_two_copies_is_parked(
+    db_session, session_factory, settings, store, monkeypatch
+):
+    import threading
+
+    from ingest_helpers import docling_doc, make_version
+
+    from roracle.ingest import pipeline
+
+    text = pipeline.document_text(docling_doc(paras=12))
+    owner = user(db_session, "dave")
+    a, b = (make_version(db_session, store, owner) for _ in range(2))
+    for v in (a, b):
+        v.stage = "summarized"
+    db_session.commit()
+    in_find, release, order = threading.Event(), threading.Event(), []
+    real = pipeline.find_near_duplicate
+
+    def slow_find(*args, **kw):
+        order.append(args[2].id)
+        in_find.set()
+        release.wait(5)  # the first checker holds the owner lock here; the second must wait for it
+        return real(*args, **kw)
+
+    monkeypatch.setattr(pipeline, "find_near_duplicate", slow_find)
+    results = {}
+
+    def run(v):
+        with session_factory() as s:
+            ver = s.get(DocumentVersion, v.id)
+            d = s.get(Document, ver.document_id)
+            results[v.id] = pipeline._dedupe(
+                s, ver, d, text, settings.model_copy(update={"embed_dims": 4}), session_factory
+            )
+            s.commit()
+
+    t1 = threading.Thread(target=run, args=(a,))
+    t1.start()
+    in_find.wait(5)
+    t2 = threading.Thread(target=run, args=(b,))
+    t2.start()
+    t2.join(0.5)
+    assert t2.is_alive() and len(order) == 1  # B is blocked on the owner's advisory lock
+    release.set()
+    t1.join(10)
+    t2.join(10)
+    assert sorted(results.values()) == [False, True]  # exactly one parked: the one that checked second
+    assert results[order[0]] is False
+
+
+def test_failed_backfill_logs_and_counts_when_no_job_is_pending(db_session, caplog):
+    from roracle.ingest import neardup
+    from roracle.metrics import NEARDUP_EXHAUSTIVE
+
+    before = NEARDUP_EXHAUSTIVE.labels("backfill_missing_or_failed")._value.get()
+    neardup._ready = False
+    db_session.execute(text_delete_marker())
+    with caplog.at_level("WARNING"):
+        assert not lsh_ready(db_session)
+    assert "exhaustive scan" in caplog.text
+    assert NEARDUP_EXHAUSTIVE.labels("backfill_missing_or_failed")._value.get() == before + 1
+    enqueue(db_session, "lsh_backfill", {})  # a pending backfill is expected: no alarm
+    neardup._ready = False
+    caplog.clear()
+    assert not lsh_ready(db_session)
+    assert "exhaustive scan" not in caplog.text
+
+
+def text_delete_marker():
+    from sqlalchemy import delete
+
+    from roracle.models import AppSetting
+
+    return delete(AppSetting).where(AppSetting.key == "lsh_backfilled")
