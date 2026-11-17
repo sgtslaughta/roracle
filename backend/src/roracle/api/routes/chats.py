@@ -19,8 +19,9 @@ from starlette.responses import StreamingResponse
 from roracle.api.routes.library import get_es
 from roracle.api.routes.search import _own_collections, get_llm
 from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.chat import agentic
 from roracle.chat.access import owned_chat
-from roracle.chat.answer import build_messages, split_notes, stream_answer
+from roracle.chat.answer import build_messages, frame, split_notes, stream_answer
 from roracle.chat.global_answer import route_question, stream_prepare
 from roracle.chat.retrieve import Viewer, _uids, has_open_context, open_blocked, retrieve_for_chat
 from roracle.config import Settings
@@ -140,6 +141,15 @@ def _release(prep, ss: Session, own: bool):
     return go
 
 
+def _leave(p: Principal, ss: Session, own: bool):
+    def go() -> None:
+        agentic.leave(p)
+        if own:
+            ss.close()
+
+    return go
+
+
 def _fact_fallback(
     ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
 ):
@@ -161,6 +171,47 @@ def _fact_fallback(
         )
         ss.commit()
         return out
+
+    return run
+
+
+def _agentic_prepare(
+    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
+):
+    """For `AnswerStream(prepare=...)`: the agentic retrieval loop INSIDE the stream, after the first `meta` frame
+    (no pooled connection is held while the planner model runs). Yields `progress` frames, then a `meta` frame with the
+    sub-queries; returns (messages, passages, versions, canned, notes). Retrieval uses the stream's own session."""
+
+    pins, excludes, scope = (
+        list(chat.pins),
+        list(chat.excludes),
+        chat.scope,
+    )  # read now: `chat` is the request's
+
+    def run():
+        ss.commit()
+        gen = agentic.iter_retrieve(
+            ss, es, llm, settings, p, body.content, viewer=body.viewer, scope=scope, excludes=excludes
+        )
+        try:
+            while True:
+                step, n = next(gen)
+                yield frame("progress", {"step": step, "subqueries": n})
+        except StopIteration as e:
+            ranked, subqueries = e.value
+        excluded: list[dict] = []
+        ps = retrieve_for_chat(
+            ss, es, llm, settings, p, body.content, body.viewer, scope, pins, excludes,
+            include_notes=body.include_notes, excluded=excluded, ranked=ranked,
+        )  # fmt: skip
+        ps, notes = split_notes(ps)
+        msgs = build_messages(body.content, ps, history, HISTORY, notes)
+        versions = _versions(ss, [*ps, *notes])
+        ss.commit()
+        yield frame(
+            "meta", {"subqueries": subqueries, **({"excluded_by_label": excluded} if excluded else {})}
+        )
+        return msgs, ps, versions, None, notes
 
     return run
 
@@ -192,6 +243,7 @@ def post_message(
     excluded: list[dict] = []
     meta: dict | None = None
     prep = None
+    agent = False
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
@@ -203,7 +255,14 @@ def post_message(
                     chat.scope == "all" and not body.viewer.tabs and not body.viewer.selection,
                     dropped=set(_uids(chat.excludes)) | set(_uids(body.viewer.ignored)), pins=_uids(chat.pins),
                 )  # fmt: skip
-            if prep is None:
+            if (
+                prep is None
+                and settings.agentic_retrieval
+                and (meta is None or meta.get("route") == "multihop")
+            ):
+                agent = agentic.admit(settings, p)  # busy / already running for this user: the plain path
+                meta = {**(meta or {}), "agentic": agent}
+            if prep is None and not agent:
                 passages = retrieve_for_chat(
                     session, es, llm, settings, p, body.content, body.viewer, chat.scope,
                     list(chat.pins), list(chat.excludes), include_notes=body.include_notes,
@@ -224,20 +283,24 @@ def post_message(
         session.commit()  # no transaction (and no pooled connection) stays open into the stream
         passages, notes = split_notes(passages)
         hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]
-        messages = [] if prep else build_messages(body.content, passages, history, HISTORY, notes)
+        messages = [] if prep or agent else build_messages(body.content, passages, history, HISTORY, notes)
         versions = _versions(session, [*passages, *notes])
         fact = None
         if prep:  # the global stream gets its OWN session (independent of the request's teardown timing)
             fact = _fact_fallback(ss, es, llm, settings, p, body, chat, history)
         gen = stream_answer(
-            ss if prep else session, llm, chat.id, model, messages, passages, versions, canned, notes, excluded,
-            meta, settings.global_reduce_tokens if prep else None,
-            stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact) if prep else None,
-            _release(prep, ss, ss is not session) if prep else None,
+            ss if prep or agent else session, llm, chat.id, model, messages, passages, versions, canned, notes,
+            excluded, meta, settings.global_reduce_tokens if prep else None,
+            stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact)
+            if prep
+            else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history) if agent else None),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else None),
         )  # fmt: skip
     except BaseException:
         if prep:
             prep.release()
+        if agent:
+            agentic.leave(p)
         raise
     return ClosingStreamingResponse(
         _frames(gen),

@@ -170,6 +170,16 @@ class Settings(AliasConfig):
     global_doc_chars: int = 6000  # one document's own text sent per map call
     global_map_tokens: int = 200  # hard cap per map note
     global_reduce_tokens: int = 1200  # hard cap on the streamed reduce answer
+    agentic_retrieval: bool = (
+        False  # P13 T8: query decomposition loop on multihop questions (flips on a PASS)
+    )
+    agentic_max_steps: int = Field(3, ge=1, le=6)  # planner rounds after the first retrieval
+    agentic_max_subqueries: int = Field(4, ge=1, le=8)  # sub-queries per planner round
+    agentic_timeout_s: float = 30.0  # deadline of the whole loop (the first retrieval always completes)
+    agentic_call_timeout_s: float = 8.0  # one planner call, also bounded by the remaining deadline
+    agentic_max_admitted: int = (
+        4  # loops admitted per process at once (one per user); the rest take the fact path
+    )
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     db_connect_timeout_s: int = (
         5  # PG connect timeout (api/worker/readyz); a ?connect_timeout= in the URL wins

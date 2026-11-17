@@ -280,8 +280,11 @@ def retrieve_for_chat(
     k: int | None = None,
     include_notes: bool = True,
     excluded: list[dict] | None = None,
+    ranked: list[Passage] | None = None,
 ) -> list[Passage]:
-    """`excluded` (out-param) receives [{doc_id, label}] for requested tabs/selection/pins dropped by gate (a)."""
+    """`excluded` (out-param) receives [{doc_id, label}] for requested tabs/selection/pins dropped by gate (a).
+    `ranked`: the ranking was already done by `rank_for_chat` (the agentic loop fuses several of them); pins, selection
+    and notes are applied to it exactly as to a single ranking."""
     k = max(MIN_K, min(MAX_K, k or settings.chat_passages))
     dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
     sel = viewer.selection
@@ -291,10 +294,11 @@ def retrieve_for_chat(
         excluded.extend(
             _blocked(session, p, (tabs | set(_uids(pins)) | ({sel_id} if sel_id else set())) - dropped)
         )
-    ranked = rank_for_chat(
-        session, es, llm, settings, p, question,
-        viewer=viewer, scope=scope, excludes=excludes, depth=settings.chat_candidates,
-    )  # fmt: skip
+    if ranked is None:
+        ranked = rank_for_chat(
+            session, es, llm, settings, p, question,
+            viewer=viewer, scope=scope, excludes=excludes, depth=settings.chat_candidates,
+        )  # fmt: skip
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
     if sel and sel_id and sel_id not in dropped:
         live = _live(session, p, {sel_id})

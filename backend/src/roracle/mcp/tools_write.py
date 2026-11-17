@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import json
 import mimetypes
+import time
 from collections.abc import Callable
 from io import BytesIO
 from typing import Annotated, Any, Literal
@@ -25,6 +26,7 @@ from roracle import handoff
 from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
 from roracle.auth import Principal, get_app_settings
+from roracle.chat import agentic
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
 from roracle.chat.global_answer import answer_sync, route_question
 from roracle.chat.retrieve import Viewer, retrieve_for_chat
@@ -65,6 +67,21 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             plan = answer_sync(session, es, llm, s, p, question, prep) if prep else None
             if prep and plan is None:  # nothing citable in the global pass: answer from the fact path
                 meta = {"route": "fact"}
+        ranked = None
+        if (
+            not plan
+            and s.agentic_retrieval
+            and meta.get("route") in (None, "multihop")
+            and agentic.admit(s, p)
+        ):
+            try:  # blocking loop inside the MCP budget; every sub-query goes through rank_for_chat
+                ranked, subqueries = agentic.retrieve(
+                    session, dep(app, library.get_es), llm, s, p, question, scope=scope,
+                    deadline=time.monotonic() + min(s.agentic_timeout_s, s.global_mcp_budget_s),
+                )  # fmt: skip
+                meta = {**meta, "subqueries": subqueries}
+            finally:
+                agentic.leave(p)
         passages = (
             plan[1]
             if plan
@@ -79,6 +96,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
                 scope=scope,
                 pins=[],
                 excludes=[],
+                ranked=ranked,
             )
         )  # gate (a): retrieve_for_chat applies exclude_llm in ES and Postgres
         passages, notes = split_notes(passages)

@@ -43,6 +43,7 @@ class SettingsIn(BaseModel):
     rate_limit_per_minute: Annotated[StrictInt, Field(ge=0, le=MAXINT)] | None = None
     pats_enabled: StrictBool | None = None
     router: StrictBool | None = None
+    agentic_retrieval: StrictBool | None = None
 
     @field_validator("chat_models")
     @classmethod
