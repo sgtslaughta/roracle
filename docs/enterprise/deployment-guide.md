@@ -112,6 +112,7 @@ Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a ques
 `deploy/terraform` wraps the steps above (namespaces, pull secret, operator charts, Secrets, the `roracle` release) for an existing cluster
 reached through a kubeconfig; it creates no cloud resources and does not replace the chart ([ADR-0016](../adr/0016-terraform-iac.md)).
 Operator chart repositories/versions are placeholders until you set your mirror values; `apply` refuses to run while any remain.
+Object storage is `object_store = "rook-ceph"` (Terraform installs Rook-Ceph RGW, buckets and credentials; needs >= 3 nodes with raw disks) or `"external"` (your S3, recommended for small installs); Terraform never deploys a MinIO tenant (community images ended Oct 2025).
 See [deploy/terraform/README.md](../../deploy/terraform/README.md) for prerequisites, the placeholder table, plan/apply order, state backends and destroy cautions.
 
 ### 4.4 Ingress

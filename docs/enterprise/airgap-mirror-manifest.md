@@ -27,7 +27,17 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
 
-**MinIO images (no public upstream).** MinIO stopped publishing community container images in Oct 2025 (the community edition is source-only) and `quay.io/minio/minio` / `quay.io/minio/mc` now answer 401, so the two chart defaults above cannot be mirrored and a default install would hit ImagePullBackOff and a stuck `minio-policy` hook. Supply an image you control, pushed to the mirror, and set `minio.image` / `minio.policyJob.image` (Terraform: `minio_images.server` / `.mc`, **required** for `minio_mode = "tenant"`: the placeholder gate refuses apply without them). Options: (1) build MinIO and mc from source at a pinned `RELEASE.*` tag with an internal Dockerfile; (2) a vetted rebuild such as `cgr.dev/chainguard/minio`; (3) the commercial AIStor image (licence); (4) the frozen `bitnamilegacy/minio` (unmaintained, not for production; the kind rehearsal uses it behind `minio_mode = "external"`); (5) `minio_mode = "external"` against an existing S3 service. The MinIO Operator also injects `quay.io/minio/operator-sidecar:<operator version>` (for operator v7.0.0: `v7.0.0`) into tenant pods; mirror it with the operator (`quay.io/minio/operator` is still pullable) and point the CRI registry mirror at it, since it is not set through Terraform.
+**MinIO images (no public upstream).** MinIO stopped publishing community container images in Oct 2025 (the community edition is source-only) and `quay.io/minio/minio` / `quay.io/minio/mc` now answer 401, so the two chart defaults above cannot be mirrored. The Terraform stack therefore does **not** deploy MinIO: use `object_store = "rook-ceph"` (images below) or `"external"` (your S3). Only plain-Helm installs with `minio.mode=tenant` still need them: supply an image you control (build from source at a pinned `RELEASE.*` tag, a vetted rebuild such as `cgr.dev/chainguard/minio`, or the commercial AIStor image) and set `minio.image` / `minio.policyJob.image`; the operator also injects `quay.io/minio/operator-sidecar:<operator version>` into tenant pods. The frozen `bitnamilegacy/minio` is used by dev compose, CI and the kind rehearsal only and is never shipped.
+
+### Rook-Ceph object storage (`object_store = "rook-ceph"`)
+
+| Image / chart | Tag | Mirror path (default) | Used by |
+|---|---|---|---|
+| `docker.io/rook/ceph` | `v1.18.0` | `<mirror_registry>/rook/ceph` (`operator_images.rook_ceph`) | rook-ceph operator |
+| `quay.io/ceph/ceph` | `v19.2.3` | `<mirror_registry>/ceph/ceph` (`ceph.image`) | mon, mgr, osd, rgw |
+| chart `rook-ceph`, `rook-ceph-cluster` | `v1.18.0` | `oci://<mirror>/charts` (`charts.rook_ceph`, `charts.rook_ceph_cluster`) | Terraform `helm_release` |
+
+CSI drivers, toolbox and monitoring are disabled by the Terraform values, so their images (cephcsi, csi-operator, sidecars) are not needed. Confirm the tags against the mirrored charts (`helm show values`) before pinning.
 
 
 ### Build and CI
@@ -55,7 +65,7 @@ Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 G
 | `plugin-barman-cloud` | version compatible with the CNPG release; pin in mirror | platform |
 | `cert-manager` | any supported release (required by the plugin); pin in mirror | platform |
 | `eck-operator` | release that supports Elasticsearch 8.15.3; pin in mirror | platform |
-| `minio-operator` | release supporting the `Tenant` CRD and the MinIO image above; pin in mirror | platform |
+| `rook-ceph`, `rook-ceph-cluster` | v1.18.0 (Ceph v19.2.3); only for `object_store = "rook-ceph"`; pin in mirror | platform |
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 
 Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator, Prometheus, Grafana, Loki, collector-contrib) must be mirrored at the tag the chosen chart version pins.
