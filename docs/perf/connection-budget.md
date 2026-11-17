@@ -4,13 +4,13 @@
 
 - **No pooled connection is held across slow external calls.** Request sessions (the API's session factory sets
   `release_before_io`) `commit()` right before the query embedding, the ES `msearch`, the reranker and the LLM
-  embedding in `/search`, chat retrieval and the global-answer candidates. A committed session returns its connection
+  embedding in `/api/search`, chat retrieval and the global-answer candidates. A committed session returns its connection
   to the pool and checks one out again on its next statement. Worker/eval sessions never do this (they run inside the
   job transaction, ADR-0003). The chat SSE stream already commits before streaming and uses its own session.
 - **Explicit pools** (`ROR_DB_POOL_SIZE` / `ROR_DB_MAX_OVERFLOW` for the API, `ROR_WORKER_DB_POOL_SIZE` /
   `ROR_WORKER_DB_MAX_OVERFLOW` for workers, `ROR_DB_POOL_TIMEOUT_S`). Defaults 8+4 for the API and 3+1 for a worker, PLUS a separate one-connection engine for the lease heartbeat (it must never wait behind handler sessions): a worker holds at most handler session + dedupe/lock session + stage-write session (3) from its pool and 1 heartbeat connection.
 - **Threads:** every sync route and every streamed answer holds one anyio worker thread for its whole run (a blocking
-  LLM stream cannot yield it). anyio's default is 40 tokens, so ~40 concurrent chats would stall `/search`, MCP and the
+  LLM stream cannot yield it). anyio's default is 40 tokens, so ~40 concurrent chats would stall `/api/search`, MCP and the
   readiness probes. The lifespan raises the limiter to `ROR_API_THREADS` (256: 200 concurrent chats + headroom for search/MCP). `/healthz` is `async` and needs no thread.
   Threads are cheap (stack only); the DB pool, not the thread count, bounds database load: a request waiting for a
   connection fails after `ROR_DB_POOL_TIMEOUT_S`.

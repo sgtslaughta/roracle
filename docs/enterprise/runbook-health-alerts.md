@@ -57,7 +57,7 @@ Budgets are in `docs/perf/budgets.yaml` and the measured state in [the perf repo
 
 ## 4. Admin API
 
-All `/api/admin/*` routes need an admin JWT (PATs get 403) and every call is written to `audit_log`. Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, next_before_id}`; `/api/admin/users` and `/api/admin/review` use offset `page=`.
+All `/api/admin/*` routes need an admin JWT (PATs get 403) and each successful call is written to `audit_log` as `admin.<handler>` (a refused call is `admin.denied`, best effort). Lists page with `?before_id=&limit=` (default 50, max 200) and return `{items, next_before_id}`; `/api/admin/users` and `/api/admin/review` use offset `page=`.
 
 | Endpoint | Operator use |
 |---|---|

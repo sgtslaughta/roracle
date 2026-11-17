@@ -75,5 +75,5 @@ Earlier versions of this runbook were one page with numbered sections. Links to 
 ## Conventions
 
 - Routes are written as the client sees them, with the `/api` prefix; `/healthz`, `/readyz`, `/metrics` and `/mcp` are served without it.
-- Admin routes need an admin JWT; personal access tokens are refused with 403, and every admin call is audited.
+- Admin routes need an admin JWT; personal access tokens are refused with 403, and each successful admin call is audited as `admin.<handler>` (a refused call is written as `admin.denied`, best effort).
 - Environment variables are `ROR_<UPPER>` ([settings reference](../reference/settings.md)); chart keys are in the [Helm values reference](../reference/helm-values.md).

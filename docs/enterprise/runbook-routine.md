@@ -136,7 +136,7 @@ removes objects; check it with `aws s3api get-bucket-lifecycle-configuration --b
 
 - DB / S3 / Elastic credentials: update secret → `kubectl rollout restart deploy/roracle-api deploy/roracle-worker`.
 - Keycloak signing keys: rotate in Keycloak; rOracle refetches JWKS on unknown `kid` automatically.
-- PAT pepper: rotating invalidates all PATs — announce first.
+- PATs have no pepper or signing key (plain SHA-256 of the token): there is no secret to rotate. To invalidate tokens, users revoke their own tokens, an admin can revoke one user's tokens (`DELETE /api/admin/users/{id}/pats`) or turn PATs off for everyone (`ROR_PATS_ENABLED`, runtime setting `pats_enabled`).
 
 ## Sensitivity labels
 

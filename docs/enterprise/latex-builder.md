@@ -1,6 +1,6 @@
 # latex-builder service contract
 
-Optional, **not shipped**. `ROR_LATEX_BUILDER=disabled` (default) makes `POST /drafts/{id}/build` return 501
+Optional, **not shipped**. `ROR_LATEX_BUILDER=disabled` (default) makes `POST /api/drafts/{id}/build` return 501
 `LaTeX builds are not enabled` for drafts with `format: latex`. A site that needs LaTeX implements this
 contract and a `Builder` (`roracle/writing/build.py`) that calls it; the service is the only place TeX runs.
 

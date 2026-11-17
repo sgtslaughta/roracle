@@ -2,7 +2,9 @@
 
 Goal: users authenticate with their client certificate (mTLS at the org proxy); Keycloak issues
 RS256 JWTs that rOracle validates. Agents use OAuth (MCP clients) or rOracle PATs.
-Dev equivalent (no mTLS): `deploy/dev/keycloak/realm-roracle.json`.
+Dev equivalent (no mTLS): `deploy/dev/keycloak/realm-roracle.json` (it defines only the `roracle-web` client).
+
+rOracle accepts a token only if it is an RS256 `Bearer` access token whose `iss` equals `ROR_OIDC_ISSUER`, whose `aud` contains `ROR_OIDC_AUDIENCE` (default `roracle`) and whose `azp` (the client id) is listed in `ROR_OIDC_ALLOWED_CLIENTS` (default `roracle-web`, `roracle-mcp`). Keys come from `ROR_OIDC_JWKS_URL`. If you name your clients differently, set `ROR_OIDC_ALLOWED_CLIENTS` to match.
 
 ## 1. Realm
 
@@ -60,7 +62,7 @@ pointing at this realm.
 
 ```bash
 # with a token from the realm (dev: password grant is enabled for the test user only)
-curl -s -H "Authorization: Bearer $TOKEN" https://roracle.<domain>/me
+curl -s -H "Authorization: Bearer $TOKEN" https://roracle.<domain>/api/me
 # → {"id": "...", "username": "...", "groups": ["/Physics/Computational"], "is_admin": false}
 ```
 
@@ -70,4 +72,4 @@ Expected failures: wrong audience, expired token or unknown key → `401 invalid
 
 Disabling or removing a user in Keycloak stops their JWTs, but their rOracle PATs keep working until
 the owner's last sign-in is older than `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30). To cut access
-immediately, an admin calls `DELETE /admin/users/{user_id}/pats` (revokes all of that user's PATs).
+immediately, an admin calls `DELETE /api/admin/users/{user_id}/pats` (revokes all of that user's PATs).

@@ -39,5 +39,5 @@ Admins see an **Admin** entry in the web app. It opens `/admin` with one tab per
 ## Rules that apply to every admin call
 
 - Admin routes need an interactive sign-in (a JWT). A personal access token is refused with `403 admin only`, even one minted by an admin.
-- Every admin request is written to the audit log as `admin.<handler>`, and a refused one as `admin.denied`. See [audit](audit.md#what-is-recorded).
+- Each successful admin request is written to the audit log as `admin.<handler>`; a refused one is written as `admin.denied` on a best-effort basis. See [audit](audit.md#what-is-recorded).
 - All admin routes live under `/api/admin/`. The full list is in the [OpenAPI schema](../reference/openapi.json); settings are in the [settings reference](../reference/settings.md).
