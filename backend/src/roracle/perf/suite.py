@@ -165,9 +165,9 @@ def _reconcile_row(profile, pg_url, es_url, budgets, f) -> dict:
     with redirect_stdout(buf):
         _reconcile(Namespace(url=pg_url, es_url=es_url, index=INDEX))
     res = json.loads(buf.getvalue().strip().splitlines()[-1])
-    return _row("reconcile_es_writes", budgets.get("reconcile_es_writes", {}), {"value": res["es_writes"] + res["drift_repairs_enqueued"]}, f,
+    return _row("reconcile_es_writes", budgets.get("reconcile_es_writes", {}), {"value": res["es_writes"] + res["drift_found"]}, f,
                 f"full walk of {profile['docs']:,} documents in {res['batches']} batches, {res['seconds']} s; "
-                f"{res['es_writes']} ES writes + {res['drift_repairs_enqueued']} repairs enqueued")  # fmt: skip
+                f"{res['es_writes']} ES writes + {res['drift_repairs_enqueued']} documents with drift")  # fmt: skip
 
 
 def _seed(profile: dict, pg_url: str, es: Elasticsearch) -> None:

@@ -47,10 +47,13 @@ uv run roracle perf suite --profile full --url "$ROR_DATABASE_URL" --es-url http
   databases whose name lacks `perf`.
 - Models are `perf/fake_models.py` (OpenAI-style embeddings, TEI-style rerank, fixed latency: `--embed-ms 10`,
   `--rerank-ms 50`), so results mean "our code + a model answering in X ms".
-- In-process: claim (4 concurrent claimers, warm-up discarded), near-dup (LSH over the seeded versions), ingest overhead
-  (`handle_ingest` from `parsed`, instant fake models), reconcile (full no-drift walk, counts ES index operations),
+- In-process: claim (one claimer, warm-up discarded; a 4-claimer row is informational), near-dup (LSH over the seeded versions), ingest overhead
+  (`handle_ingest` from `parsed`, instant fake models), reconcile (full no-drift walk: counts ES index operations and documents found drifted, also those with a repair already queued),
   rebuild (the real `reembed._copy` page pipeline with an embedding service modelled as 4 replicas x 250 chunks/s).
 - Warm-up: `load.run(warmup_s=)` and `perf explain claim --warmup/--workers` discard the warm-up samples.
 - `--profile ci` loosens latency limits x1.5 and `min` limits / 1.5 (shared runners); `reconcile_es_writes` stays 0.
+
+`--url` must name a database matching `roracle_perf[a-z0-9_]*`; `--es-url` is NOT guarded beyond the `perf-*` index names,
+so never point it at a production cluster (it would still receive load and `perf-*` indices).
 
 Drop the scratch database when done: `dropdb -h localhost -p 55433 -U roracle roracle_perf`.

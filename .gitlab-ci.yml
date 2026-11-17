@@ -111,6 +111,7 @@ perf:
       when: manual
       allow_failure: true
   timeout: 40m
+  retry: {max: 1, when: script_failure}  # one retry on a budget miss: shared runners are noisy
   services:
     - name: ${REGISTRY_MIRROR}postgres:16
       alias: postgres

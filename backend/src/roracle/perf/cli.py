@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -88,12 +89,15 @@ def add_parser(sub) -> None:
     ex.add_argument("--budget", default=DEFAULT_BUDGETS)
 
 
+SCRATCH_DB = re.compile(r"roracle_perf[a-z0-9_]*")
+
+
 def _require_scratch(url: str) -> None:
     from sqlalchemy.engine import make_url
 
     db = make_url(url).database or ""
-    if "perf" not in db:
-        sys.exit(f"refusing to touch database {db!r}: scratch databases must contain 'perf' in the name")
+    if not SCRATCH_DB.fullmatch(db):
+        sys.exit(f"refusing to touch database {db!r}: scratch databases must match {SCRATCH_DB.pattern}")
 
 
 def run(args: argparse.Namespace) -> int:
@@ -208,18 +212,6 @@ def _explain_claim(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def _queued_repairs(url: str) -> int:
-    from sqlalchemy import create_engine, text
-
-    with create_engine(url).connect() as c:
-        return (
-            c.execute(
-                text("SELECT count(*) FROM jobs WHERE kind = 'acl_sync' AND status = 'queued'")
-            ).scalar()
-            or 0
-        )
-
-
 def _reconcile(args: argparse.Namespace) -> int:
     """Walk the whole corpus with `handle_reconcile_tags`; report duration, batches and ES index operations
     (indexing.index_total delta of the scratch index: updates count, no-ops do not)."""
@@ -242,7 +234,19 @@ def _reconcile(args: argparse.Namespace) -> int:
         ]
 
     before, t0, batches, payload = ops(), time.perf_counter(), 0, {}
-    queued_before = _queued_repairs(args.url)
+    from roracle import maintenance
+
+    found = [0]
+    real_drifted = maintenance.drifted
+
+    def counting(es_, items, *a, **k):
+        out = real_drifted(es_, items, *a, **k)
+        found[0] += len(
+            out
+        )  # drift found, whatever is already queued (reconcile dedupes against queued repairs)
+        return out
+
+    maintenance.drifted = counting
     sf = make_session_factory(args.url)
     with sf() as s:
         while True:
@@ -254,13 +258,11 @@ def _reconcile(args: argparse.Namespace) -> int:
             if nxt is None:
                 break
             payload = nxt.payload
-    repairs = (
-        _queued_repairs(args.url) - queued_before
-    )  # drift found = acl_sync jobs enqueued (they do the writes)
+    maintenance.drifted = real_drifted
     print(
         json.dumps(
             {"batches": batches, "seconds": round(time.perf_counter() - t0, 1), "es_writes": ops() - before,
-             "drift_repairs_enqueued": repairs}
+             "drift_found": found[0]}
         )
     )  # fmt: skip
     return 0

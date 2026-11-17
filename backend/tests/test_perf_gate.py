@@ -66,3 +66,19 @@ def test_doc_read_scenario_only_asks_for_documents_everybody_can_read():
     for n in range(300):
         _, path, _ = load.build_request("doc_read", n, docs=docs)
         assert path.rsplit("/", 1)[1] in everyone
+
+
+def test_scratch_database_guard_is_an_exact_pattern():
+    from roracle.perf.cli import SCRATCH_DB
+
+    for ok in ("roracle_perf", "roracle_perfci", "roracle_perf_2"):
+        assert SCRATCH_DB.fullmatch(ok)
+    for bad in (
+        "roracle",
+        "roracle_perf_prod-x",
+        "prod_roracle_perf",
+        "perf",
+        "roracle_perf;drop",
+        "my_roracle_perf",
+    ):
+        assert not SCRATCH_DB.fullmatch(bad)
