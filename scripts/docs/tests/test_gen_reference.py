@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import gen_reference as g  # noqa: E402
+import gen_reference as g
 
 
 class DriftTest(unittest.TestCase):

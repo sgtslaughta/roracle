@@ -44,6 +44,18 @@ lint:
     - ruff check .
     - ruff format --check .
 
+# Doc checks (offline): generated reference drift, links/anchors, prose-vs-code refs, markdown lint, 500-line cap.
+docs:
+  extends: .backend
+  stage: lint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [docs/**/*, README.md, backend/README.md, frontend/README.md, backend/src/**/*, backend/pyproject.toml, deploy/**/*, scripts/docs/**/*, .pymarkdown.json, .gitlab-ci.yml]
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+  script:
+    - cd "$CI_PROJECT_DIR"
+    - scripts/docs/check.sh
+
 test:
   extends: .backend
   stage: test

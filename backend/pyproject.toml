@@ -36,7 +36,12 @@ otel = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "httpx"]
+dev = [
+    "pytest",
+    "ruff",
+    "httpx",
+    "pymarkdownlnt>=0.9.42",
+]
 
 [build-system]
 requires = ["hatchling"]
