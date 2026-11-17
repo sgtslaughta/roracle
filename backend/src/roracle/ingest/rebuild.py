@@ -134,6 +134,9 @@ def handle_rebuild_units(
         doc = json.loads(store.get_bytes(pipeline.docling_key(vid)))
     except Exception as e:
         raise NonRetryable("parsed document is missing; re-ingest the version") from e
+    if into is None and set(what) == {"raptor"}:  # in place: units only, chunks/vectors untouched
+        pipeline.index_units_only(session, v, d, doc, settings, es, llm, session_factory, store)
+        return
     pipeline._index(session, v, d, doc, settings, es, llm, session_factory, store, into=into, rebuild=True)
 
 

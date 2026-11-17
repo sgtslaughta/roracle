@@ -204,6 +204,24 @@ def file_type(filename: str | None) -> str:
     return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else "other"
 
 
+def _base(version, document, acl, model, title, is_latest, tags) -> dict[str, Any]:
+    """Fields shared by a document's chunks and summary units (parity: ACL, label, latest, tags)."""
+    meta = version.meta or {}
+    return {
+        **acl,
+        "doc_id": str(document.id),
+        "version_id": str(version.id),
+        "version": version.version,
+        "is_latest": version.is_latest if is_latest is None else is_latest,
+        "title": title,
+        "authors": meta.get("authors") or [],
+        "year": meta.get("year"),
+        "tags": tags or [],
+        "file_type": file_type(version.filename),
+        "embedding_model": model,
+    }
+
+
 def index_chunks(
     es: Elasticsearch,
     version: DocumentVersion,
@@ -222,20 +240,7 @@ def index_chunks(
     contexts: list[str] | None = None,
 ) -> int:
     """Bulk index with deterministic `_id` (re-runs overwrite); raise on any item error."""
-    meta = version.meta or {}
-    base = {
-        **acl,
-        "doc_id": str(document.id),
-        "version_id": str(version.id),
-        "version": version.version,
-        "is_latest": version.is_latest if is_latest is None else is_latest,
-        "title": title,
-        "authors": meta.get("authors") or [],
-        "year": meta.get("year"),
-        "tags": tags or [],
-        "file_type": file_type(version.filename),
-        "embedding_model": model,
-    }
+    base = _base(version, document, acl, model, title, is_latest, tags)
     actions = [
         {
             "_op_type": "index",
@@ -278,20 +283,7 @@ def index_units(
     prompt_shas: list[str] | None = None,
 ) -> int:
     """Bulk index per-document summary units (same ACL/label fields as the document's chunks)."""
-    meta = version.meta or {}
-    base = {
-        **acl,
-        "doc_id": str(document.id),
-        "version_id": str(version.id),
-        "version": version.version,
-        "is_latest": version.is_latest if is_latest is None else is_latest,
-        "title": title,
-        "authors": meta.get("authors") or [],
-        "year": meta.get("year"),
-        "tags": tags or [],
-        "file_type": file_type(version.filename),
-        "embedding_model": model,
-    }
+    base = _base(version, document, acl, model, title, is_latest, tags)
     actions = [
         {
             "_op_type": "index",
@@ -350,16 +342,20 @@ def cached_vectors(
     return out
 
 
-def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = MUTATE_ALIAS) -> None:
-    """Remove chunks of this version with n >= keep (a re-run may produce fewer chunks)."""
+def delete_stale_chunks(
+    es: Elasticsearch, version_id, keep: int, alias: str = MUTATE_ALIAS, keep_units: list[str] | None = None
+) -> None:
+    """Remove chunks of this version with n >= keep (a re-run may produce fewer chunks). Summary units are left
+    alone unless `keep_units` is given: then ONE query also removes units not in it (raptor ingest)."""
+    keep_ids = [f"{version_id}:{n}" for n in range(keep)]
     es.delete_by_query(
         index=alias,
         query={
             "bool": {
                 "filter": [{"term": {"version_id": str(version_id)}}],
                 "must_not": [
-                    {"ids": {"values": [f"{version_id}:{n}" for n in range(keep)]}},
-                    {"exists": {"field": "unit"}},  # summary units have their own lifecycle
+                    {"ids": {"values": keep_ids + (keep_units or [])}},
+                    *([] if keep_units is not None else [{"exists": {"field": "unit"}}]),
                 ],
             }
         },

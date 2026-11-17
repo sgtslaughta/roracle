@@ -161,13 +161,8 @@ def _index(
         set_stage(sf, v.id, "embedded")
     acl = search_index.acl_fields(session, d)
     session.refresh(v)
-    newest = session.scalar(
-        select(func.max(DocumentVersion.version)).where(
-            DocumentVersion.document_id == d.id, DocumentVersion.stage == "searchable"
-        )
-    )
     tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
-    latest = v.version >= (newest or 0)  # a newer version may have finished first: never demote it
+    latest = _is_latest(session, v, d)
     sv = from_bytes(v.summary_embedding).tolist() if v.summary_embedding else None
     backfill = False
     runtime.assert_embedding_unchanged(
@@ -189,8 +184,13 @@ def _index(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
         summary_vector=sv, prompt_shas=shas, index=index, contexts=notes,
     )  # fmt: skip
-    if settings.raptor:
-        _index_units(session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index)
+    keep_units = None
+    if (
+        settings.raptor
+    ):  # None = units skipped (LLM outage): existing ones stay, `rebuild --what raptor` retries
+        keep_units = _index_units(
+            session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, soft=not rebuild
+        )
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
@@ -204,7 +204,7 @@ def _index(
         return
     if fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
-    search_index.delete_stale_chunks(es, v.id, len(chunks))
+    search_index.delete_stale_chunks(es, v.id, len(chunks), keep_units=keep_units)
     if rebuild:
         return
     if latest:
@@ -215,10 +215,20 @@ def _index(
     mark_searchable_and_enqueue(sf, v.id, demote_doc=d.id if latest else None)
 
 
-def _index_units(session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index) -> None:
+def _index_units(
+    session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, *, soft: bool = True
+) -> list[str] | None:
     """Per-document summary units (retrieval aids; citations resolve to the source chunks). Written before the
-    ACL convergence below so a racing PATCH reaches them too; old units that were not rewritten are removed."""
-    units = build_units(session, llm, settings, store, v, d, chunks)
+    ACL convergence so a racing PATCH reaches them too. Returns the unit ids to keep (the caller's single
+    delete_by_query removes the rest), or None when generation failed and `soft` (a summary-LLM outage must not
+    block searchability; `roracle rebuild --what raptor` fills the gap later)."""
+    try:
+        units = build_units(session, llm, settings, store, v, d, chunks)
+    except Exception:
+        if not soft:
+            raise
+        log.warning("summary units skipped for version %s", v.id, exc_info=True)
+        return None
     if units:
         prompts = [doc_prompt(title, u.text) for u in units]
         shas = [prompt_sha(p) for p in prompts]
@@ -231,7 +241,46 @@ def _index_units(session, v, d, chunks, settings, es, llm, store, acl, title, la
             es, v, d, units, vecs, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
             index=index, prompt_shas=shas,
         )  # fmt: skip
-    search_index.delete_stale_units(es, v.id, [f"{v.id}:{u.key}" for u in units])
+    return [f"{v.id}:{u.key}" for u in units]
+
+
+def index_units_only(
+    session: Session, v: DocumentVersion, d: Document, doc: dict, settings: Settings, es, llm, sf, store
+) -> None:
+    """In-place `rebuild --what raptor`: write the summary units only. Chunks and their vectors are NOT
+    re-bulked (no HNSW re-insert); ACL/tags are converged like a normal index run."""
+    title = d.title or "none"
+    chunks = chunk(doc, title, settings.embed_tokenizer)
+    if not chunks:
+        raise NonRetryable("no text extracted")
+    acl = search_index.acl_fields(session, d)
+    session.refresh(v)
+    latest = _is_latest(session, v, d)
+    tags = list(session.scalars(select(Tag.tag).where(Tag.document_id == d.id).order_by(Tag.tag)))
+    index = search_index.active_index(settings)
+    runtime.assert_embedding_unchanged(session, settings)
+    keep = _index_units(
+        session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, soft=False
+    )
+    fresh = read_acl(sf, d.id)
+    if fresh is None:
+        es.delete_by_query(
+            index=search_index.MUTATE_ALIAS, query={"term": {"doc_id": str(d.id)}}, refresh=True,
+            conflicts="proceed",
+        )  # fmt: skip
+        return
+    if fresh[0] != {**acl, "tags": tags}:
+        search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
+    search_index.delete_stale_units(es, v.id, keep or [])
+
+
+def _is_latest(session: Session, v: DocumentVersion, d: Document) -> bool:
+    newest = session.scalar(
+        select(func.max(DocumentVersion.version)).where(
+            DocumentVersion.document_id == d.id, DocumentVersion.stage == "searchable"
+        )
+    )
+    return v.version >= (newest or 0)  # a newer version may have finished first: never demote it
 
 
 def handle_ingest(

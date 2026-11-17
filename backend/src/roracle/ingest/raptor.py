@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 RAPTOR_PROMPT_VERSION = "1"
 WINDOW = 8  # chunks per section when the document has no headings
-MAX_UNIT_CHARS = 1500
+MAX_UNIT_CHARS = 1800
 MAX_SOURCES = 200  # source chunk ids kept on the document unit
 SECTION_SYSTEM = (
     "You write retrieval summaries. Summarise this section of a research document in 3-5 sentences, "
@@ -35,7 +35,7 @@ SECTION_SYSTEM = (
 )
 DOC_SYSTEM = (
     "You write retrieval summaries. Given the section summaries of one research document, write a "
-    "5-8 sentence summary of the whole document covering its goal, methods, findings and terminology. "
+    "150-250 word summary of the whole document covering its goal, methods, findings and terminology. "
     "Plain text, no preamble."
 )
 
@@ -97,9 +97,31 @@ def _chat(llm, model: str, system: str, text: str) -> str:
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
         temperature=0,
-        max_tokens=400,
+        max_tokens=450,
     )
     return " ".join((resp.choices[0].message.content or "").split())[:MAX_UNIT_CHARS]
+
+
+def merge_sections(secs: list[list[Chunk]], min_chars: int, max_sections: int) -> list[list[Chunk]]:
+    """Bound the unit count: fold adjacent sections until each holds >= min_chars of text, then, above
+    max_sections, into equal runs (one LLM call and one vector per unit, so this caps cost per document)."""
+    out: list[list[Chunk]] = []
+    size = 0
+    for sec in secs:
+        if out and size < min_chars:
+            out[-1] = out[-1] + sec
+        else:
+            out.append(list(sec))
+            size = 0
+        size += sum(len(c.text) for c in sec)
+    if len(out) > max_sections:
+        k = -(-len(out) // max_sections)
+        out = [[c for sec in out[i : i + k] for c in sec] for i in range(0, len(out), k)]
+    return out
+
+
+def _strided(ids: list[str]) -> list[str]:
+    return ids[:: max(1, -(-len(ids) // MAX_SOURCES))]
 
 
 def build_units(
@@ -111,51 +133,64 @@ def build_units(
     d: Document,
     chunks: list[Chunk],
 ) -> list[Unit]:
-    """Section units + one document unit for this version; `[]` for an `exclude_llm` document."""
+    """Section units + one document unit for this version; `[]` for an `exclude_llm` document.
+    R10: text longer than `raptor_section_chars` is summarised in windows, then summary-of-summaries; the
+    document unit is built from ALL section summaries (never cut)."""
     if not chunks or _excluded(session, d):
         return []
     model = settings.raptor_model or settings.summary_model
+    limit = settings.raptor_section_chars
     key = cache_key(v.id)
     cache = _load(store, key)
     fresh = False
-    units: list[Unit] = []
+    gone = False
 
-    def summary(system: str, text: str) -> str | None:
-        nonlocal fresh
+    def one(system: str, text: str) -> str:
+        nonlocal fresh, gone
         sha = _sha(system, text)
         if sha in cache:  # reused even after a later label raise (same as notes/summaries, R9)
             return cache[sha]
-        if _excluded(session, d):
-            return None
+        if gone or _excluded(session, d):
+            gone = True
+            return ""
         cache[sha] = out = _chat(llm, model, system, text)
         fresh = True
         return out
 
+    def reduce(system: str, text: str) -> str:
+        """One call when it fits, else windows -> summaries -> repeat on the joined summaries."""
+        while len(text) > limit:
+            wins = [text[i : i + limit] for i in range(0, len(text), limit)]
+            nxt = "\n\n".join(one(SECTION_SYSTEM, w) for w in wins)
+            if gone or len(nxt) >= len(text):
+                return ""
+            text = nxt
+        return one(system, text)
+
+    units: list[Unit] = []
     try:
-        for i, sec in enumerate(sections(chunks)):
-            body = "\n\n".join(c.text for c in sec)[: settings.raptor_section_chars]
+        secs = merge_sections(sections(chunks), limit // 4, settings.raptor_max_sections)
+        for i, sec in enumerate(secs):
             heads = sec[0].headings
-            text = summary(SECTION_SYSTEM, ("\n".join(heads) + "\n\n" if heads else "") + body)
-            if text is None:
+            body = ("\n".join(heads) + "\n\n" if heads else "") + "\n\n".join(c.text for c in sec)
+            text = reduce(SECTION_SYSTEM, body)
+            if gone:
                 return []
             if text:
                 units.append(
                     Unit(
                         "section", f"s{i}", text, list(heads),
-                        [f"{v.id}:{c.n}" for c in sec], sorted({p for c in sec for p in c.pages}),
+                        _strided([f"{v.id}:{c.n}" for c in sec]), sorted({p for c in sec for p in c.pages}),
                     )
                 )  # fmt: skip
         if not units:
             return []
-        text = summary(DOC_SYSTEM, "\n\n".join(u.text for u in units)[: settings.raptor_section_chars])
-        if text is None:
+        text = reduce(DOC_SYSTEM, "\n\n".join(u.text for u in units))
+        if gone:
             return []
         if text:
-            srcs = [s for u in units for s in u.source_chunks]
-            step = max(1, -(-len(srcs) // MAX_SOURCES))
-            units.append(
-                Unit("document", "d", text, [], srcs[::step], sorted({p for u in units for p in u.pages}))
-            )
+            srcs = _strided([s for u in units for s in u.source_chunks])
+            units.append(Unit("document", "d", text, [], srcs, sorted({p for u in units for p in u.pages})))
     finally:
         if fresh:  # keep progress on a mid-document failure
             store.put_bytes(key, json.dumps(cache).encode(), "application/json")

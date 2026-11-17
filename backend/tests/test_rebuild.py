@@ -43,6 +43,22 @@ def test_reembed_copy_reproduces_pipeline_prompts(db_session, session_factory, e
     assert tgt[f"{vid}:0"]["context"] == "the note"  # source note carried over verbatim
 
 
+def test_reembed_copy_carries_units(db_session, session_factory, es, base, document, vid):
+    from roracle.ingest.embed import doc_prompt
+
+    v = _searchable(db_session, vid)
+    v.summary = "Sum."
+    db_session.commit()
+    es.put(f"{vid}:0", document.id, text="body")
+    es.put(f"{vid}:s0", document.id, text="unit text", unit="section", source_chunks=[f"{vid}:0"])
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    drain(db_session, session_factory, es, FakeLlm(2), base)
+    u = es.data["chunks-new-1"][f"{vid}:s0"]
+    assert u["unit"] == "section" and u["source_chunks"] == [f"{vid}:0"]
+    assert u["prompt_sha"] == prompt_sha(doc_prompt("t", "unit text")) and "summary_embedding" not in u
+
+
 def test_enqueue_all_selects_latest_searchable_live(db_session, document, vid, blob):
     v = _searchable(db_session, vid)
     other = Document(owner_id=document.owner_id, title="x", org_unit="/", visibility="private")
@@ -76,6 +92,7 @@ def test_enqueue_all_selects_latest_searchable_live(db_session, document, vid, b
 def calls(monkeypatch):
     seen = []
     monkeypatch.setattr(pipeline, "_index", lambda *a, **k: seen.append((a, k)))
+    monkeypatch.setattr(pipeline, "index_units_only", lambda *a, **k: seen.append((a, "units_only")))
     return seen
 
 
@@ -195,7 +212,7 @@ def test_raptor_only_unit_turns_raptor_on_keeps_notes_setting(db_session, sessio
     _searchable(db_session, vid)
     _units(db_session, session_factory, es, {"version_id": vid, "what": ["raptor"]})
     ((a, k),) = calls
-    assert a[4].raptor is True and a[4].context_notes is False and k["rebuild"] is True
+    assert k == "units_only" and a[4].raptor is True  # in place: chunks and vectors are not re-bulked
 
 
 def test_rebuild_does_not_starve_ingest(db_session, document, vid):

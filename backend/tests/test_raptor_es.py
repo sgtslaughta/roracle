@@ -100,3 +100,66 @@ class _Llm:
         from ingest_helpers import FakeLLM
 
         self.embeddings = FakeLLM(dims).embeddings
+
+
+def test_demotion_reaches_units(ingested, es, db_session):
+    cfg, v = ingested
+    search_index.mark_previous_versions(es, v.document_id, v.version + 1)
+    es.indices.refresh(index=search_index.active_index(cfg))
+    assert {u["is_latest"] for u in _docs(es, cfg, v.id, True)} == {False}
+
+
+def test_doc_delete_query_removes_units(ingested, es, db_session):
+    cfg, v = ingested
+    from roracle.models import User
+
+    d = db_session.get(Document, v.document_id)
+    owner = db_session.get(User, d.owner_id)
+    assert _docs(es, cfg, v.id, True)
+    # the DELETE route and the purge both delete by doc_id over chunks-all: same query, units match
+    es.delete_by_query(
+        index=MUTATE_ALIAS, query={"term": {"doc_id": str(d.id)}}, refresh=True, conflicts="proceed"
+    )
+    assert _docs(es, cfg, v.id, True) == [] and owner is not None
+
+
+def test_units_only_rebuild_leaves_chunks_untouched(ingested, es, db_session, session_factory, store):
+    import json
+
+    from ingest_helpers import FakeLLM
+    from test_embed_reuse import det_doc
+
+    from roracle.ingest import pipeline
+
+    cfg, v = ingested
+    before = {
+        c["_id"]: es.get(index=search_index.active_index(cfg), id=c["_id"])["_seq_no"]
+        for c in _docs(es, cfg, v.id, False)
+    }
+    d = db_session.get(Document, v.document_id)
+    doc = json.loads(store.get_bytes(pipeline.docling_key(v.id)))
+    search_index.delete_stale_units(es, v.id, [])
+    assert _docs(es, cfg, v.id, True) == []
+    pipeline.index_units_only(db_session, v, d, doc, cfg, es, FakeLLM(4), session_factory, store)
+    after = {
+        c["_id"]: es.get(index=search_index.active_index(cfg), id=c["_id"])["_seq_no"]
+        for c in _docs(es, cfg, v.id, False)
+    }
+    assert after == before and {u["unit"] for u in _docs(es, cfg, v.id, True)} == {"section", "document"}
+    assert det_doc  # keep import used
+
+
+def test_expand_drops_source_pointing_at_another_document(
+    ingested, es, db_session, session_factory, store, user
+):
+    cfg, v = ingested
+    other = make_version(db_session, store, user, visibility="everyone")
+    ingest(db_session, session_factory, cfg, store, es, other, paras(2))
+    foreign = _docs(es, cfg, other.id, False)[0]["chunk_id"]
+    mine = next(u for u in _docs(es, cfg, v.id, True) if u["unit"] == "document")
+    from roracle.retrieval import Passage
+
+    u = Passage(mine["chunk_id"], mine["doc_id"], mine["version_id"], "s", "", [], [], 1.0, unit="document",
+                source_chunks=[foreign])  # fmt: skip
+    me = Principal(user.id, "s", "u", (), False)
+    assert expand_units(es, cfg, me, Policy.load(db_session), "q", [u], exclude_llm=True) == []

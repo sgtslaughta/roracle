@@ -87,7 +87,7 @@ def test_expand_replaces_unit_by_source_passages(db_session, settings, me, other
         c["_source"]["chunk_id"] for c in chunks
     }
     q = es.calls[0]["query"]["bool"]["filter"]
-    assert acl_filter(me, Policy.load(db_session)) in q and {"term": {"doc_id": str(d.id)}} in q
+    assert acl_filter(me, Policy.load(db_session)) in q and {"terms": {"doc_id": [str(d.id)]}} in q
 
 
 def test_expand_drops_unit_pointing_at_another_document(db_session, settings, me, other):
@@ -124,3 +124,36 @@ def test_chat_default_off_searches_chunks_only(db_session, settings, me, other):
     es = UnitES([hit(d, v, chunk=0)])
     rank_for_chat(db_session, es, FakeLLM(), settings, me, "alpha")
     assert "section" not in str(es.calls[0]["query"]["bool"]["filter"])
+
+
+def test_expand_is_one_search_for_many_units(db_session, settings, me, other):
+    d, v = seed(db_session, other.id, title="D")
+    hs = [hit(d, v, chunk=n, text=f"alpha {n}") for n in range(6)]
+    es = UnitES(hs)
+    us = [
+        Passage(f"{v.id}:s{i}", str(d.id), str(v.id), "sum", "", [], [], 0.9 - i / 10, unit="section",
+                source_chunks=[f"{v.id}:{2 * i}", f"{v.id}:{2 * i + 1}"])
+        for i in range(3)
+    ]  # fmt: skip
+    out = expand_units(es, settings, me, Policy.load(db_session), "alpha", us, exclude_llm=True)
+    assert len(es.calls) == 1 and len(out) == 6 and all(x.unit is None for x in out)
+
+
+def test_expand_only_top_units(db_session, settings, me, other):
+    d, v = seed(db_session, other.id, title="D")
+    es = UnitES([hit(d, v, chunk=n) for n in range(4)])
+    us = [
+        Passage(f"{v.id}:s{i}", str(d.id), str(v.id), "s", "", [], [], 1.0 - i / 10, unit="section",
+                source_chunks=[f"{v.id}:{i}"])
+        for i in range(4)
+    ]  # fmt: skip
+    out = expand_units(es, settings, me, Policy.load(db_session), "q", us, exclude_llm=True, max_units=2)
+    assert {x.chunk_id for x in out} == {f"{v.id}:0", f"{v.id}:1"}
+
+
+def test_unit_bm25_demoted_only_when_units_requested():
+    from roracle.retrieval import _bm25_clause
+
+    assert "multi_match" in _bm25_clause("q", ("chunk",))
+    b = _bm25_clause("q", ("chunk", "section"))["boosting"]
+    assert b["negative"] == {"exists": {"field": "unit"}} and b["negative_boost"] < 1

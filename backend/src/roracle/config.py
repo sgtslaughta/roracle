@@ -107,7 +107,8 @@ class Settings(BaseSettings):
         False  # P13 T6: per-document section/document summary units (flips on a PASS in docs/eval/)
     )
     raptor_model: str = ""  # empty = summary_model
-    raptor_section_chars: int = 12000  # section text sent per summary call
+    raptor_section_chars: int = 12000  # text per summary call (longer: windows, then summary of summaries)
+    raptor_max_sections: int = Field(64, ge=1)  # section units per document (adjacent sections are folded)
     router: bool = False  # P13 T7: query router + global map-reduce (flips on a PASS in docs/eval/)
     router_llm: bool = (
         False  # ambiguous questions: one small-model call; off = heuristic only (no hot-path LLM)

@@ -95,6 +95,22 @@ def _unit_filter(units: tuple[str, ...]) -> dict[str, Any]:
     return {"bool": {"should": should, "minimum_should_match": 1}}
 
 
+UNIT_BM25_FACTOR = 0.6  # summary units repeat the title: demote them so one document cannot crowd the list
+
+
+def _bm25_clause(query: str, units: tuple[str, ...]) -> dict[str, Any]:
+    mm = {"multi_match": {"query": query, "fields": ["text^1", "title^2", "headings", "context"]}}
+    if not any(u in UNIT_KINDS for u in units):
+        return mm
+    return {
+        "boosting": {
+            "positive": mm,
+            "negative": {"exists": {"field": "unit"}},
+            "negative_boost": UNIT_BM25_FACTOR,
+        }
+    }
+
+
 def _filters(
     p: Principal,
     policy: Policy,
@@ -268,9 +284,7 @@ def search_chunks(
         query={
             "bool": {
                 "filter": flt,
-                "must": [
-                    {"multi_match": {"query": query, "fields": ["text^1", "title^2", "headings", "context"]}}
-                ],
+                "must": [_bm25_clause(query, units)],
             }
         },
         highlight={"fields": {"text": {"fragment_size": 200, "number_of_fragments": 1}}, "encoder": "html"},
@@ -326,6 +340,10 @@ def _overlap(query: str, text: str) -> int:
     return len(q & set(text.casefold().split()))
 
 
+MAX_EXPAND_UNITS = 24  # top units expanded per call; the rest are dropped (never shown as summaries)
+CANDS_PER_UNIT = 12  # source chunks fetched per unit (evenly strided over its sources)
+
+
 def expand_units(
     es,
     settings: Settings,
@@ -337,40 +355,54 @@ def expand_units(
     exclude_llm: bool,
     per_unit: int = 2,
     http: httpx.Client | None = None,
+    max_units: int = MAX_EXPAND_UNITS,
 ) -> list[Passage]:
-    """R11: replace every summary unit with up to `per_unit` of its own source chunks, so only real passages
-    (real chunk ids and pages) reach the LLM and citations. The fetch re-applies the ACL + label filters and
-    pins the unit's own document and version; a source id pointing elsewhere is dropped. A unit without
-    surviving sources is dropped. Chunks already present keep their place (score = max of the two)."""
+    """R11: replace summary units with up to `per_unit` of their own source chunks, so only real passages
+    (real chunk ids and pages) reach the LLM and citations. Cost is constant per call: ONE `ids` search for the
+    candidate sources of the top `max_units` units, ONE rerank over their union. The fetch re-applies the ACL +
+    label filters; every candidate must be a source of a unit of the SAME document and version, else it is
+    dropped. A unit without surviving sources is dropped. Chunks already present keep their place (max score)."""
     out: dict[str, Passage] = {x.chunk_id: x for x in passages if not x.unit}
-    flt = _filters(p, policy, {}, None, exclude_llm)
-    for u in (x for x in passages if x.unit):
-        if not u.source_chunks:
-            continue
-        hits = es.search(
-            index=active_index(settings),
-            size=min(len(u.source_chunks), 200),
-            source=_SOURCE,
-            query={
-                "bool": {
-                    "filter": [
-                        *flt,
-                        {"ids": {"values": u.source_chunks[:200]}},
-                        {"term": {"doc_id": u.doc_id}},
-                        {"term": {"version_id": u.version_id}},
-                    ]
-                }
-            },
-        )["hits"]["hits"]
-        cands = [_passage(h, u.score) for h in hits if not h["_source"].get("unit")]
-        if not cands:
-            continue
-        cands.sort(key=lambda c: -_overlap(query, c.text))  # lexical order when no reranker answers
-        if settings.rerank_url:
-            cands = _rerank(settings, query, cands, http)
-        for c in cands[:per_unit]:
+    units = sorted((x for x in passages if x.unit and x.source_chunks), key=lambda x: -x.score)[:max_units]
+    if not units:
+        return sorted(out.values(), key=lambda x: -x.score)
+    wanted: dict[str, list[Passage]] = {}  # source chunk id -> units listing it
+    for u in units:
+        src = u.source_chunks
+        for cid in src[:: max(1, -(-len(src) // CANDS_PER_UNIT))][:CANDS_PER_UNIT]:
+            wanted.setdefault(cid, []).append(u)
+    hits = es.search(
+        index=active_index(settings),
+        size=len(wanted),
+        source=_SOURCE,
+        query={
+            "bool": {
+                "filter": [
+                    *_filters(p, policy, {}, None, exclude_llm),
+                    {"ids": {"values": list(wanted)}},
+                    {"terms": {"doc_id": sorted({u.doc_id for u in units})}},
+                ]
+            }
+        },
+    )["hits"]["hits"]
+    cands = [_passage(h, 0.0) for h in hits if not h["_source"].get("unit")]
+    cands = [
+        c
+        for c in cands
+        if any(u.doc_id == c.doc_id and u.version_id == c.version_id for u in wanted.get(c.chunk_id, []))
+    ]
+    cands.sort(key=lambda c: -_overlap(query, c.text))  # lexical order when no reranker answers
+    if settings.rerank_url:
+        cands = _rerank(settings, query, cands, http)
+    taken: dict[int, int] = {}
+    for c in cands:
+        for u in wanted[c.chunk_id]:
+            if u.doc_id != c.doc_id or u.version_id != c.version_id or taken.get(id(u), 0) >= per_unit:
+                continue
+            taken[id(u)] = taken.get(id(u), 0) + 1
             old = out.get(c.chunk_id)
             if old is None:
+                c.score = u.score
                 out[c.chunk_id] = c
             else:
                 old.score = max(old.score, u.score)

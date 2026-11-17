@@ -313,7 +313,12 @@ def docling(
             index=ALIAS,
             size=MAX_CHUNKS,
             source=["chunk_id", "bboxes"],
-            query={"term": {"version_id": str(v.id)}},
+            query={
+                "bool": {
+                    "filter": [{"term": {"version_id": str(v.id)}}],
+                    "must_not": [{"exists": {"field": "unit"}}],  # units must not eat the cap
+                }
+            },
         )["hits"]["hits"]
     except NotFoundError:
         hits = []

@@ -14,7 +14,7 @@ from roracle.ingest import raptor
 from roracle.ingest.chunking import Chunk
 from roracle.models import Document, DocumentVersion
 
-CFG = Settings(raptor=True, raptor_model="rm", raptor_section_chars=50)
+CFG = Settings(raptor=True, raptor_model="rm", raptor_section_chars=400)
 
 
 class SpyLLM(FakeLLM):
@@ -64,7 +64,6 @@ def test_build_units_per_document_and_cached(db_session, vd):
     assert units[0].headings == ["A"]
     assert units[2].source_chunks == [f"{v.id}:{i}" for i in range(3)] and units[2].pages == [1, 2, 3]
     assert all(c["model"] == "rm" for c in llm.calls) and len(llm.calls) == 3
-    assert len(llm.calls[0]["messages"][1]["content"]) <= 50 + 3  # section chars cap (+ heading)
     assert f"derived/{v.id}/raptor-v1.json" in store.data
     again = SpyLLM()
     assert raptor.build_units(db_session, again, CFG, store, v, d, cs) == units and again.calls == []
@@ -126,3 +125,72 @@ def test_delete_stale_queries_keep_units_apart():
     assert units_q["must_not"] == [{"ids": {"values": ["v:s0"]}}]
     search_index.delete_stale_units(es, "v", [])
     assert calls[-1]["query"]["bool"]["must_not"] == []
+
+
+def test_long_section_windowed_and_document_sees_every_section(db_session, vd):
+    v, d = vd
+    cfg = CFG.model_copy(update={"raptor_section_chars": 300})
+    cs = [C(i, "A") for i in range(6)] + [
+        C(6, "B")
+    ]  # section A ~840 chars > 300 -> windows -> summary of summaries
+    llm = SpyLLM()
+    units = raptor.build_units(db_session, llm, cfg, Store(), v, d, cs)
+    assert [u.key for u in units] == ["s0", "s1", "d"]
+    assert len(llm.calls) > 3 and all(len(c["messages"][1]["content"]) <= 300 for c in llm.calls)
+    last = llm.calls[-1]["messages"][1]["content"]  # document call: built from section summaries only
+    assert units[0].text in last and units[1].text in last
+    assert units[0].source_chunks == [f"{v.id}:{i}" for i in range(6)]
+
+
+def test_small_sections_merged_and_capped():
+    cs = [Chunk(i, "x" * 10, "", [f"H{i}"], [1], []) for i in range(10)]
+    secs = raptor.sections(cs)
+    assert len(secs) == 10
+    assert [len(s) for s in raptor.merge_sections(secs, 30, 99)] == [3, 3, 3, 1]  # folded until >= 30 chars
+    capped = raptor.merge_sections(secs, 0, 3)
+    assert len(capped) == 3 and [c.n for s in capped for c in s] == list(range(10))
+
+
+def test_source_chunks_strided_to_cap(db_session, vd):
+    v, d = vd
+    cfg = CFG.model_copy(update={"raptor_section_chars": 10**6})
+    cs = [Chunk(i, "t", "", ["A"], [1], []) for i in range(450)]
+    units = raptor.build_units(db_session, SpyLLM(), cfg, Store(), v, d, cs)
+    assert all(len(u.source_chunks) <= raptor.MAX_SOURCES for u in units)
+
+
+def test_label_raise_during_windows_returns_nothing(db_session, vd):
+    v, d = vd
+    lab = _label(db_session, exclude_llm=True)
+    cfg = CFG.model_copy(update={"raptor_section_chars": 300})
+
+    def raise_label(n):
+        if n == 1:
+            db_session.execute(update(Document).where(Document.id == d.id).values(label_id=lab.id))
+
+    llm = SpyLLM(raise_label)
+    assert raptor.build_units(db_session, llm, cfg, Store(), v, d, [C(i, "A") for i in range(6)]) == []
+    assert len(llm.calls) == 1
+
+
+def test_delete_stale_chunks_single_query_with_keep_units():
+    calls = []
+    es = SimpleNamespace(delete_by_query=lambda **k: calls.append(k))
+    search_index.delete_stale_chunks(es, "v", 2, keep_units=["v:s0", "v:d"])
+    (q,) = calls
+    assert q["query"]["bool"]["must_not"] == [{"ids": {"values": ["v:0", "v:1", "v:s0", "v:d"]}}]
+
+
+def test_llm_outage_does_not_block_ingest_units(db_session, vd, monkeypatch):
+    from roracle.ingest import pipeline
+
+    v, d = vd
+
+    def boom(*a, **k):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(pipeline, "build_units", boom)
+    args = (db_session, v, d, [C(0)], CFG, None, None, Store(), {}, "t", True, [], "idx")
+    assert pipeline._index_units(*args) is None  # keep existing units, retry via rebuild
+    with pytest.raises(RuntimeError):
+        pipeline._index_units(*args, soft=False)  # a rebuild job fails loudly instead
