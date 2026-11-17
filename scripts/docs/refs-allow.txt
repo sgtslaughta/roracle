@@ -6,3 +6,6 @@ docs/reference/metrics.md|roracle_search_seconds  # named only to say it does no
 docs/reference/metrics.md|roracle_chat_ttft_seconds  # named only to say it does not exist
 docs/reference/metrics.md|roracle_ingest_seconds  # named only to say it does not exist
 docs/reference/metrics.md|roracle_llm_errors_total  # named only to say it does not exist
+docs/developer/conventions.md|ROR_VERSION  # env var read by roracle/__init__.py resolve_version, not a Settings field
+docs/developer/local-dev.md|ROR_PG_PORT  # compose variable for the Postgres host port in deploy/dev/compose.yaml, not a Settings field
+docs/developer/testing.md|ROR_E2E  # test-only switch read by tests/e2e_support.py, not a Settings field

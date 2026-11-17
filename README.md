@@ -4,7 +4,7 @@ rOracle is an air-gapped research-paper RAG service. It ingests papers, indexes 
 
 ## Quickstart
 
-See `docs/developer/local-dev.md` (planned; not yet published).
+See [local development](docs/developer/local-dev.md).
 
 ## Documentation
 

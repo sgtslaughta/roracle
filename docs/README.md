@@ -106,6 +106,13 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Developer
 
 - [Developer index](developer/README.md)
+- [Repository layout](developer/repo-layout.md): backend modules, frontend structure, deploy, scripts
+- [Local development](developer/local-dev.md): dev stack, Keycloak dev realm, inference box, image builds
+- [Testing](developer/testing.md): unit and integration split, integration lock, ES 9.5.6, frontend tests, Helm checks
+- [Eval harness](developer/eval-harness.md): `roracle eval`, fixture, CI job
+- [Perf suite](developer/perf-suite.md): `roracle perf`, scratch-only guards, budgets, CI job
+- [Conventions](developer/conventions.md): semantic commits, single SemVer, 500-line rule, docs rules, ADRs
+- [Subagent-driven development](developer/sdd-workflow.md): optional plan and writer/reviewer workflow
 
 ### Decisions
 
