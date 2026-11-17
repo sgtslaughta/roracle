@@ -504,3 +504,23 @@ def test_different_docs_not_summary_near_dup(db_session, session_factory, cfg, s
         db_session.commit()
         stages.append(db_session.get(DocumentVersion, v.id).near_dup_of)
     assert stages == [None, None]
+
+
+def test_first_page_ids_merged_without_overriding_grobid(
+    db_session, session_factory, cfg, store, user, monkeypatch
+):
+    cfg = cfg.model_copy(update={"grobid_url": "http://grobid"})
+    doc = docling_doc()
+    doc["texts"][0]["prov"] = [{"page_no": 1}]
+    doc["texts"][0]["text"] = "arXiv:2611.20773v1 [cs.MA] 20 Nov 2026 doi:10.1234/stamp"
+    monkeypatch.setattr(pipeline, "convert", fake_convert(doc))
+    monkeypatch.setattr(
+        pipeline,
+        "grobid_metadata",
+        lambda *a, **k: ({"title": "T", "doi": "10.9999/g", "ids": {"doi": "10.9999/g"}}, []),
+    )
+    monkeypatch.setattr(pipeline, "_index", lambda *a, **k: None)
+    v = make_version(db_session, store, user)
+    _run(db_session, session_factory, cfg, store, MagicMock(), v)
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, v.id).meta["ids"] == {"doi": "10.9999/g", "arxiv": "2611.20773"}

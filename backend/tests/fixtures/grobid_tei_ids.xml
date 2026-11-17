@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <sourceDesc>
+        <biblStruct>
+          <analytic><title level="a" type="main">Agents Everywhere</title></analytic>
+          <monogr>
+            <title level="j">Journal of Agents</title>
+            <idno type="ISSN">0378-5955</idno>
+            <idno type="eISSN">2049-3630</idno>
+            <imprint><date type="published" when="2026"/></imprint>
+          </monogr>
+          <idno type="arXiv">arXiv:2611.20773v1</idno>
+          <idno type="PMCID">PMC5834102</idno>
+          <idno type="DOI">https://doi.org/10.1234/Agents.1</idno>
+        </biblStruct>
+      </sourceDesc>
+    </fileDesc>
+    <profileDesc><abstract><p>Cites arXiv:1111.2222 in passing.</p></abstract></profileDesc>
+  </teiHeader>
+  <text><back><div type="references"><listBibl>
+    <biblStruct xml:id="b0">
+      <analytic><title level="a">Typed idno</title></analytic>
+      <monogr><imprint><date when="2020"/></imprint></monogr>
+      <idno type="arXiv">arXiv:1706.03762v5</idno>
+    </biblStruct>
+    <biblStruct xml:id="b1">
+      <analytic><title level="a">Ptr url</title></analytic>
+      <monogr><imprint><date when="2019"/></imprint></monogr>
+      <ptr target="https://aclanthology.org/2020.acl-main.1.pdf"/>
+    </biblStruct>
+    <biblStruct xml:id="b2">
+      <analytic><title level="a">Raw only</title></analytic>
+      <monogr><imprint><date when="2018"/></imprint></monogr>
+      <note type="raw_reference">Devlin J. BERT. arXiv preprint arXiv:1810.04805, 2018. PMID: 31452104</note>
+    </biblStruct>
+    <biblStruct xml:id="b3"><analytic><title level="a">No ids</title></analytic></biblStruct>
+  </listBibl></div></back></text>
+</TEI>

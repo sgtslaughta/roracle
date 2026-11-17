@@ -5,6 +5,7 @@ import re
 import httpx
 from lxml import etree
 
+from roracle.identifiers import SCHEMES, add_id, extract_ids
 from roracle.queue import NonRetryable
 
 _NS = {"t": "http://www.tei-c.org/ns/1.0"}
@@ -115,6 +116,22 @@ def document_text(doc: dict) -> str:
     return "\n\n".join(out)
 
 
+def merge_page_ids(meta: dict, doc: dict) -> dict:
+    """Add label-anchored identifiers from the FIRST page (e.g. the arXiv margin stamp) to meta["ids"]; GROBID's
+    values win and the body is never scanned (it cites other papers)."""
+    page1 = " ".join(
+        str(t.get("text") or "")
+        for t in doc.get("texts") or []
+        if any(isinstance(p, dict) and p.get("page_no") == 1 for p in t.get("prov") or [])
+    )
+    ids = {**extract_ids(page1), **(meta.get("ids") or {})}
+    if ids:
+        meta = {**meta, "ids": ids}
+        if not meta.get("doi") and ids.get("doi"):
+            meta["doi"] = ids["doi"]
+    return meta
+
+
 def _t(el, path: str) -> str | None:
     n = el.find(path, _NS)
     s = " ".join("".join(n.itertext()).split()) if n is not None else ""
@@ -142,25 +159,45 @@ def _year(el) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _doi(el) -> str | None:
+def _ids(el, *, text: str = "") -> dict[str, str]:
+    """Identifiers of one biblStruct: typed <idno>s first, then <ptr target> URLs, then label-anchored text."""
+    ids: dict[str, str] = {}
     for i in el.findall(".//t:idno", _NS):
-        if (i.get("type") or "").lower() == "doi" and (i.text or "").strip():
-            return i.text.strip()
-    return None
+        typ = (i.get("type") or "").lower()
+        if typ in SCHEMES and (i.text or "").strip():
+            add_id(ids, typ, i.text)
+    for k, v in extract_ids(
+        " ".join(p.get("target") or "" for p in el.findall(".//t:ptr", _NS)) + " " + text
+    ).items():
+        ids.setdefault(k, v)
+    return ids
+
+
+def _raw(el) -> str:
+    return (_t(el, "t:note[@type='raw_reference']") or "")[:1000]
 
 
 def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     """GROBID TEI -> (meta, references) in document_versions shapes."""
     root = etree.fromstring(xml, _PARSER)
     bs = root.find(".//t:teiHeader//t:sourceDesc/t:biblStruct", _NS)
-    meta = {"title": None, "authors": [], "year": None, "venue": None, "doi": None, "abstract": None}
+    meta = {
+        "title": None,
+        "authors": [],
+        "year": None,
+        "venue": None,
+        "doi": None,
+        "ids": {},
+        "abstract": None,
+    }
     if bs is not None:
         ana = bs.find("t:analytic", _NS)
         meta["title"] = _t(ana, "t:title") if ana is not None else None
         meta["authors"] = _authors(ana) or _authors(bs.find("t:monogr", _NS))
         meta["year"] = _year(bs)
         meta["venue"] = _t(bs, "t:monogr/t:title")
-        meta["doi"] = _doi(bs)
+        meta["ids"] = _ids(bs)  # biblStruct only: abstract/body cite OTHER papers
+        meta["doi"] = meta["ids"].get("doi")
     if meta["title"] is None:
         meta["title"] = _t(root, ".//t:teiHeader//t:titleStmt/t:title")
     meta["abstract"] = _t(root, ".//t:teiHeader//t:abstract")
@@ -168,12 +205,15 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     for b in root.findall(".//t:back//t:listBibl/t:biblStruct", _NS):
         ana = b.find("t:analytic", _NS)
         title = (_t(ana, "t:title") if ana is not None else None) or _t(b, "t:monogr/t:title")
+        raw, ids = _raw(b), _ids(b, text=_raw(b))
         refs.append(
             {
                 "title": title,
                 "authors": _authors(ana if ana is not None else b.find("t:monogr", _NS)),
                 "year": _year(b),
-                "doi": _doi(b),
+                "doi": ids.get("doi"),
+                "ids": ids,
+                "raw": raw,
             }
         )
     return meta, refs
@@ -188,6 +228,7 @@ def grobid_metadata(
         r = c.post(
             f"{grobid_url.rstrip('/')}/api/processFulltextDocument",
             files={"input": ("paper.pdf", pdf, "application/pdf")},
+            data={"includeRawCitations": "1"},
         )
     finally:
         if client is None:

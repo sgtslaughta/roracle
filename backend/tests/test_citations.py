@@ -399,3 +399,58 @@ def test_scoped_counts_and_best_targets_equal_the_unscoped_query(db_session, ana
             )
         }
         assert all(ref[k] == t for k, t in winners.items())
+
+
+def _meta(v, db, **ids):
+    v.meta = {**v.meta, "ids": ids}
+    db.flush()
+
+
+def test_arxiv_only_ref_links_despite_different_title(db_session, ana):
+    t, tv = lib(db_session, ana, "Published Title Differs Entirely", year=2019)
+    _meta(tv, db_session, arxiv="1706.03762")
+    _, v = citing(
+        db_session, ana, [{"title": "Something Else Wholly", "year": 1999, "ids": {"arxiv": "1706.03762"}}]
+    )
+    assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [t.id]
+
+
+@pytest.mark.parametrize(
+    "ref", [{"doi": "10.48550/arXiv.1706.03762"}, {"ids": {"arxiv": "arXiv:1706.03762v5"}}]
+)
+def test_doi_10_48550_and_versioned_ids_link_to_arxiv_doc(db_session, ana, ref):
+    t, tv = lib(db_session, ana, "Target")
+    _meta(tv, db_session, arxiv="1706.03762")
+    _, v = citing(db_session, ana, [ref])
+    assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [t.id]
+
+
+def test_legacy_rows_without_ids_still_match_by_doi(db_session, ana):
+    t, _ = lib(db_session, ana, "Legacy", doi="10.1000/legacy")
+    _, v = citing(db_session, ana, [{"doi": "10.1000/LEGACY"}])
+    assert resolve_references(db_session, v) == 1 and targets(db_session, v) == [t.id]
+
+
+def test_issn_never_matches(db_session, ana):
+    _, tv = lib(db_session, ana, "Paper One About Graph Things", year=2001)
+    _meta(tv, db_session, issn="0378-5955", eissn="2049-3630")
+    _, v = citing(
+        db_session,
+        ana,
+        [
+            {
+                "title": "Another Paper Entirely",
+                "year": 1990,
+                "ids": {"issn": "0378-5955", "eissn": "2049-3630"},
+            }
+        ],
+    )
+    assert resolve_references(db_session, v) == 0 and targets(db_session, v) == []
+
+
+def test_backfill_links_earlier_refs_by_arxiv_id(db_session, ana):
+    _, v = citing(db_session, ana, [{"title": "Unrelated", "year": 1999, "ids": {"arxiv": "2611.20773"}}])
+    assert resolve_references(db_session, v) == 0
+    t, tv = lib(db_session, ana, "Late Arrival Paper")
+    _meta(tv, db_session, arxiv="2611.20773")
+    assert backfill_for(db_session, t) == 1 and targets(db_session, v) == [t.id]

@@ -1,9 +1,7 @@
 """Link a version's parsed references to library documents; ACL is applied at READ time only."""
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from urllib.parse import unquote
 from uuid import UUID
 
 from rapidfuzz import fuzz, utils
@@ -12,6 +10,7 @@ from sqlalchemy.orm import Session, aliased
 
 from roracle.access import visible_documents
 from roracle.auth import Principal
+from roracle.identifiers import MATCHABLE, add_id
 from roracle.models import DocCitation, Document, DocumentVersion
 from roracle.queue import payload_uuid
 
@@ -21,16 +20,22 @@ FUZZY_MIN = 92
 @dataclass(frozen=True)
 class Cand:
     id: UUID
-    doi: str
+    ids: frozenset[tuple[str, str]]
     title: str
     year: int | None
     norm: str = ""
 
 
-def norm_doi(s) -> str:
-    s = unquote(str(s or "")).strip().lower()
-    s = re.sub(r"^(https?://(www\.)?(dx\.)?doi\.org/|doi:\s*)", "", s)
-    return s.strip().rstrip(".,;)")
+def match_ids(rec: dict | None) -> frozenset[tuple[str, str]]:
+    """(scheme, value) pairs of a meta/reference dict: `ids` plus the legacy `doi` key. Journal-level ids (ISSN)
+    are never matchable: they would link unrelated papers."""
+    rec = rec or {}
+    ids: dict[str, str] = {}
+    raw = rec.get("ids") if isinstance(rec.get("ids"), dict) else {}
+    for k in MATCHABLE:
+        add_id(ids, k, raw.get(k))
+    add_id(ids, "doi", rec.get("doi"))  # also derives arxiv/acl from 10.48550 / 10.18653 DOIs
+    return frozenset((k, v) for k, v in ids.items() if k in MATCHABLE)
 
 
 def _year(y) -> int | None:
@@ -48,7 +53,7 @@ def _tokens_ok(norm: str) -> bool:
 def _cand(doc_id: UUID, title: str | None, meta: dict | None) -> Cand:
     m = meta or {}
     t = (title or m.get("title") or "").strip()
-    return Cand(doc_id, norm_doi(m.get("doi")), t, _year(m.get("year")), utils.default_process(t))
+    return Cand(doc_id, match_ids(m), t, _year(m.get("year")), utils.default_process(t))
 
 
 def _candidates(session: Session, *, exclude: UUID | None = None, only: UUID | None = None) -> list[Cand]:
@@ -60,7 +65,7 @@ def _candidates(session: Session, *, exclude: UUID | None = None, only: UUID | N
             DocumentVersion.is_latest.is_(True),
             DocumentVersion.stage == "searchable",
         )
-        .order_by(Document.created_at, Document.id)  # deterministic: oldest document wins DOI clashes
+        .order_by(Document.created_at, Document.id)  # deterministic: oldest document wins identifier clashes
     )
     if exclude:
         stmt = stmt.where(Document.id != exclude)
@@ -75,21 +80,21 @@ class _Index:
     flip briefly dips cited-by counts; upgrade = a periodic reconcile pass re-running resolve."""
 
     def __init__(self, cands: list[Cand]):
-        self.by_doi: dict[str, list[Cand]] = {}
+        self.by_id: dict[tuple[str, str], list[Cand]] = {}
         for c in cands:
-            if c.doi:
-                self.by_doi.setdefault(c.doi, []).append(c)
+            for k in c.ids:
+                self.by_id.setdefault(k, []).append(c)
         self.by_year: dict[int, list[Cand]] = {}
         for c in cands:
             if c.year is not None and _tokens_ok(c.norm):
                 self.by_year.setdefault(c.year, []).append(c)
 
     def match_all(self, ref: dict) -> dict[UUID, float]:
-        """Every candidate the reference may denote (R18): DOI hits score 1.0, fuzzy hits ratio/100."""
+        """Every candidate the reference may denote (R18): identifier hits score 1.0, fuzzy hits ratio/100."""
         out: dict[UUID, float] = {}
-        doi = norm_doi(ref.get("doi"))
-        for c in self.by_doi.get(doi, ()) if doi else ():
-            out[c.id] = 1.0
+        for k in match_ids(ref):
+            for c in self.by_id.get(k, ()):
+                out[c.id] = 1.0
         title, year = utils.default_process(str(ref.get("title") or "")), _year(ref.get("year"))
         if year is not None and _tokens_ok(title):
             for c in self.by_year.get(year, ()):
@@ -121,7 +126,7 @@ def backfill_for(session: Session, document: Document) -> int:
     """Rebuild the edges INTO `document` from other documents' latest searchable versions."""
     index = _Index(_candidates(session, only=document.id))
     session.execute(delete(DocCitation).where(DocCitation.target_document_id == document.id))
-    if not index.by_doi and not index.by_year:
+    if not index.by_id and not index.by_year:
         return 0
     versions = session.scalars(
         select(DocumentVersion).where(
