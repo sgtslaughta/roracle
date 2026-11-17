@@ -18,7 +18,7 @@ from roracle.maintenance import (
     handle_reconcile_tags,
 )
 from roracle.notes.evidence import handle_evidence_scan
-from roracle.queue import Handler, run_forever
+from roracle.queue import Handler, run_forever, set_lease
 from roracle.reembed import handle_reembed
 from roracle.storage import blob_store_from
 
@@ -105,6 +105,7 @@ def main() -> None:
     ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
+    set_lease(settings.job_lease_s)
     http_pool.init()  # shared keep-alive client for rerank calls made by eval/chat-shaped jobs
     try:
         run_forever(sf, HANDLERS)

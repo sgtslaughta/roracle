@@ -177,6 +177,9 @@ class Settings(AliasConfig):
     db_disable_prepared: bool = (
         False  # True behind PgBouncer transaction pooling (set by the chart with the pooler)
     )
+    job_lease_s: float = Field(
+        300.0, ge=5.0
+    )  # a running job's lease; the worker heartbeat renews it every lease/3
     db_pool_timeout_s: float = 10.0  # wait for a pooled connection before failing the request (503-ish)
     api_threads: int = Field(
         256, ge=10

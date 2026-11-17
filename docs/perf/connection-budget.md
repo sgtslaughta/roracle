@@ -39,8 +39,8 @@ Point `ROR_DATABASE_URL` in `secrets.existingSecret` at `<release>-pg-pooler-rw`
 `<release>-pg-rw` service. With the pooler on the chart sets `ROR_DB_DISABLE_PREPARED=true` (psycopg `prepare_threshold=None`), so the app never
 uses server-side prepared statements and works with any PgBouncer; `max_prepared_statements` (needs PgBouncer >= 1.21
 and a CNPG operator that passes the parameter through) is only a safety net. Transaction pooling is safe here: the only advisory locks are `pg_advisory_xact_lock`, and
-`SET LOCAL` is transaction-scoped. Workers hold a connection for a whole job transaction (until Task 10.3 lands the
-lease model), so size `defaultPoolSize` x instances (default 40 x 2 = 80) must cover workers 12 x 4 = 48 plus API concurrency.
+`SET LOCAL` is transaction-scoped. Since the lease model (ADR-0003 amendment, Task 10.3) workers hold a server connection only for the claim, the
+handler's statements and the heartbeat (a read-then-wait handler session idles in a transaction but holds no xid), so size `defaultPoolSize` x instances (default 40 x 2 = 80) must cover workers 12 x 4 = 48 plus API concurrency.
 
 ## Other Postgres settings
 `shared_buffers` 2GB (25% of 8Gi), `work_mem` 16MB (values.yaml). Migration `0014d` sets aggressive per-table

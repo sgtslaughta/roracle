@@ -170,6 +170,7 @@ class Job(Base):
             postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=True)}"),
         ),
         Index("ix_jobs_kind_status", "kind", "status"),
+        Index("ix_jobs_lease", "lease_until", postgresql_where=text("status = 'running'")),  # requeue_expired
         Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),
     )
 
@@ -179,6 +180,9 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String, default="queued", server_default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     run_after: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    lease_until: Mapped[datetime | None] = mapped_column(
+        TZ
+    )  # while running: extended by the worker heartbeat
     last_error: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())

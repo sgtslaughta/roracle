@@ -1,7 +1,7 @@
 """Ingest state writes.
 
 RULE: during ingest ALL writes to document_versions (and documents) go through these helpers.
-The handler's own session (inside run_once's SAVEPOINT, holding the job claim lock) is read-only
+The handler's own session (its own transaction, inside run_once's SAVEPOINT; completion happens in it) is read-only
 for those tables and must never commit. Each helper uses its OWN short session and commits; if the
 handler session had already written the same row, the helper would wait on that lock forever, so
 every helper sets a lock_timeout and fails loudly (retryable) instead.
