@@ -73,7 +73,7 @@ def test_complete_marks_done(session_factory, db_session):
     jid = _job(session_factory)
     with session_factory() as s:
         claim(s, ["ingest"])
-        complete(s, jid)
+        complete(s, jid, 1)
         s.commit()
         assert s.get(Job, jid).status == "done"
 

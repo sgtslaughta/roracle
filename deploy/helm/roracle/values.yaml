@@ -55,9 +55,10 @@ config:
   ROR_DB_POOL_SIZE: "8"              # api
   ROR_DB_MAX_OVERFLOW: "4"
   ROR_WORKER_DB_POOL_SIZE: "3"       # worker (claim session + stage session)
-  ROR_WORKER_DB_MAX_OVERFLOW: "2"
+  ROR_WORKER_DB_MAX_OVERFLOW: "1"
   ROR_DB_POOL_TIMEOUT_S: "10"
-  ROR_JOB_LEASE_S: "300"             # job lease; a crashed worker's job is requeued after it (heartbeat every lease/3)
+  ROR_JOB_LEASE_S: "90"              # job lease; a crashed worker's job is requeued after it (heartbeat every lease/3)
+  ROR_JOB_DRAIN_S: "3300"            # SIGTERM: a running job gets this long (< worker.terminationGracePeriodSeconds), then it is released
   ROR_API_THREADS: "256"             # worker threads per api pod: one per in-flight sync route / SSE stream
   # Elasticsearch index settings, applied when an index is CREATED (docs/enterprise/capacity-planning.md for sizing)
   ROR_ES_SHARDS: "1"                 # ~30-50 GB per shard: 12 for 50M chunks

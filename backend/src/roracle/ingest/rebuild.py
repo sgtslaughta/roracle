@@ -20,7 +20,7 @@ from roracle.config import Settings
 from roracle.ingest import pipeline
 from roracle.models import Document, DocumentVersion, Job
 from roracle.models_eval import EvalSet
-from roracle.queue import NonRetryable, enqueue, payload_uuid
+from roracle.queue import NonRetryable, check_lease, enqueue, payload_uuid
 from roracle.search_index import MUTATE_ALIAS
 
 WATCH_S = 60
@@ -126,6 +126,7 @@ def handle_rebuild_units(
     v = session.get(DocumentVersion, vid)
     if v is None:
         return
+    check_lease()
     session.refresh(v)
     d = session.get(Document, v.document_id)
     session.refresh(d)

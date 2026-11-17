@@ -31,7 +31,7 @@ Why: with the P1 design every running job held one open transaction (an xid, row
 could not reclaim dead tuples in `jobs`, `notifications`, `votes`, `audit_log`, `document_versions` (perf audit H1), and
 each worker pinned a connection for the job's duration.
 
-Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=300`):
+Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=90`, heartbeat every 30 s):
 1. **Claim commits at once.** `claim` sets `status='running'`, `attempts += 1` and `lease_until = now() + lease` and
    `run_once` commits: the row lock lasts milliseconds. `attempts` is also the **fencing token** of the claim.
 2. **The handler runs in its own session/transaction**, inside a SAVEPOINT, with the same contract as before (it must
@@ -48,16 +48,38 @@ Decision (migration 0015, `jobs.lease_until`, `ROR_JOB_LEASE_S=300`):
    notification). Because `attempts` is incremented at claim, a worker that dies mid-job **spends an attempt**: a
    poison job that kills workers now stops after 5 tries (before: it looped forever, "a process crash does not bump
    attempts"). Recovery latency after a crash: `lease_s` (+ up to 30 s sweep).
-6. No long-lived transactions: the claim transaction is gone and the handler transaction is a read-only snapshot
-   holder until its first write (READ COMMITTED does not pin the xmin horizon between statements; handlers write
-   near the end or through short sessions). Measured in the task report.
+6. No xid-holding long transaction in the common case: the claim transaction is gone and a read-then-wait handler
+   transaction is `idle in transaction` WITHOUT an xid or snapshot (READ COMMITTED), so vacuum is not blocked. Known
+   exceptions that do hold an xid/locks for part of a job: `maintenance` purge (writes PG rows per document through the
+   handler session while making ES calls) and the re-embed cutover (`ALIAS_LOCK` advisory lock across ES alias calls);
+   both predate this amendment. Under PgBouncer transaction mode an idle-in-transaction handler still pins one server
+   connection; `idle_in_transaction_session_timeout` must stay unset on the worker role (connection-budget.md).
+7. **A lost lease no longer implies a dead worker.** A worker can lose its lease while alive (partition, long pause,
+   shutdown release). Then two runs may overlap. Protection, in layers: (a) the heartbeat sets `lost` and handlers abort
+   cooperatively at checkpoints (`queue.check_lease()`: ingest stage boundaries, reembed/rebuild/connector/eval loops)
+   by raising `LeaseLost` (the transaction rolls back, nothing is recorded); (b) every write made through an OWN short
+   session (the R9 helpers in `ingest/state.py`, the near-dup decision, connector items) is FENCED: `queue.fence(session)`
+   takes `FOR SHARE` on the job row of this claim (`id`, `attempts`, `status='running'`) inside the same transaction
+   and raises `LeaseLost` otherwise; `FOR SHARE` also keeps `requeue_expired` from stealing the job between the check and
+   the write; (c) `mark_searchable_and_enqueue` is a compare-and-set on `stage <> 'searchable'` (a repeat enqueues no
+   second `citations` job and no second notification); (d) completion is fenced by `attempts`. So the earlier statement
+   "stages are resumable and monotonic" holds for sequential re-runs, and for overlapping runs the stale one is stopped
+   by (a)-(c). External effects (ES writes, S3, LLM spend) of a stale run can still happen once more; they are
+   idempotent by design.
+8. **Latency of recovery and shutdown.** Crash recovery latency is the lease (90 s) plus up to one sweep interval
+   (idle workers every 30 s, busy workers on every heartbeat tick). The lease is deliberately short; the heartbeat is
+   one single-row UPDATE per 30 s on its own connection (bounded by statement/lock timeouts and TCP keepalives).
+   On SIGTERM a worker stops claiming and lets the running job finish for `ROR_JOB_DRAIN_S` (3300 s in the chart, below
+   the 3600 s pod grace period); at the deadline it RELEASES the job (`release_active`: the handler is told to abort,
+   the job goes back to `queued` with its attempt refunded, no lease wait): a rolling deploy therefore does not spend
+   attempts. A SIGKILL/OOM/node loss is the only path that spends an attempt (the claim already counted it).
 
 Guarantees per handler (the contract is **at-least-once execution, exactly-once for DB writes made through the handler
 session, idempotent for everything else**). A crash after an external effect and before completion re-runs the job:
 
 | handler | re-run is safe because |
 |---|---|
-| `ingest` | stages are resumable and monotonic (`set_stage`/`update_version` use their own short sessions and commit at once); ES chunk ids are deterministic (`<version>:<n>`), stale chunks are pruned; `mark_searchable_and_enqueue` is one transaction (stage + `citations` job) and a re-run on a terminal stage returns early; `ingest_attempts` bounds crash loops independently |
+| `ingest` | stages are resumable (`set_stage`/`update_version` use their own short sessions, are fenced to the claim, and commit at once); ES chunk ids are deterministic (`<version>:<n>`), stale chunks are pruned; `mark_searchable_and_enqueue` is one transaction (stage + `citations` job) and a re-run on a terminal stage returns early; `ingest_attempts` bounds crash loops independently |
 | `citations`, `evidence_scan`, `acl_sync`, `lsh_backfill`, `rebuild_units`, `rebuild_watch` | recompute from Postgres and overwrite (`write_bands` = delete+insert; `acl_sync` converges ES to PG; edges/units are replaced) |
 | `reconcile_tags`, `maintenance` | follow-up jobs are enqueued through the handler session (atomic with completion); reconcile dedups queued `acl_sync` per document; purge/gc are idempotent deletes (ES first, then Postgres) |
 | `reembed` | progress is the `cursor` payload of the next job, enqueued in the handler transaction; the copy indexes by `_id` (overwrite) |
@@ -69,7 +91,7 @@ Notifications/audit rows written through the handler session are atomic with com
 rolled back, not duplicated); rows written through another session (`sf`) are not, and today only ingest stage
 writes do that.
 
-Operations: workers must be drained before applying migration 0015 (a pre-0015 worker holds its claim in an open
+Operations: workers must be drained before applying migration 0015 (it takes `lock_timeout 10s` on `jobs` and is re-runnable) (a pre-0015 worker holds its claim in an open
 transaction and has no lease; new workers simply claim through leases). `ROR_JOB_LEASE_S` must exceed the longest
 gap between two heartbeats a stalled process could have (a stop-the-world pause longer than the lease makes the
 job be requeued; the fencing token still prevents double completion). The invariants doc

@@ -7,7 +7,7 @@
   to the pool and checks one out again on its next statement. Worker/eval sessions never do this (they run inside the
   job transaction, ADR-0003). The chat SSE stream already commits before streaming and uses its own session.
 - **Explicit pools** (`ROR_DB_POOL_SIZE` / `ROR_DB_MAX_OVERFLOW` for the API, `ROR_WORKER_DB_POOL_SIZE` /
-  `ROR_WORKER_DB_MAX_OVERFLOW` for workers, `ROR_DB_POOL_TIMEOUT_S`). Defaults 8+4 and 3+2 (a worker can hold the handler session, the dedupe lock session, a stage-write session and the heartbeat at once).
+  `ROR_WORKER_DB_MAX_OVERFLOW` for workers, `ROR_DB_POOL_TIMEOUT_S`). Defaults 8+4 for the API and 3+1 for a worker, PLUS a separate one-connection engine for the lease heartbeat (it must never wait behind handler sessions): a worker holds at most handler session + dedupe/lock session + stage-write session (3) from its pool and 1 heartbeat connection.
 - **Threads:** every sync route and every streamed answer holds one anyio worker thread for its whole run (a blocking
   LLM stream cannot yield it). anyio's default is 40 tokens, so ~40 concurrent chats would stall `/search`, MCP and the
   readiness probes. The lifespan raises the limiter to `ROR_API_THREADS` (256: 200 concurrent chats + headroom for search/MCP). `/healthz` is `async` and needs no thread.
@@ -26,7 +26,7 @@ direct      : clients + postgres.reservedConnections            <= postgres.para
 pooled      : pooler.instances x defaultPoolSize + reserved     <= max_connections
               clients                                            <= pooler.instances x maxClientConn
 ```
-Chart defaults (`values.yaml`): API 10 x 12 = 120, workers 12 x 5 = 60, reserved 15 -> 195 <= `max_connections` 200.
+Chart defaults (`values.yaml`): API 10 x 12 = 120, workers 12 x (3+1+1) = 60, reserved 15 -> 195 <= `max_connections` 200.
 `helm template` fails with the numbers when the budget is exceeded (so CI catches a values change). Each idle backend costs
 about 10 MB of RAM; active ones add up to `work_mem` (16 MB) per sort/hash node, so budget `work_mem x concurrently
 active queries` besides `shared_buffers` (2 GB of the 8 Gi limit). Past ~300 connections enable the pooler.
@@ -39,8 +39,14 @@ Point `ROR_DATABASE_URL` in `secrets.existingSecret` at `<release>-pg-pooler-rw`
 `<release>-pg-rw` service. With the pooler on the chart sets `ROR_DB_DISABLE_PREPARED=true` (psycopg `prepare_threshold=None`), so the app never
 uses server-side prepared statements and works with any PgBouncer; `max_prepared_statements` (needs PgBouncer >= 1.21
 and a CNPG operator that passes the parameter through) is only a safety net. Transaction pooling is safe here: the only advisory locks are `pg_advisory_xact_lock`, and
-`SET LOCAL` is transaction-scoped. Since the lease model (ADR-0003 amendment, Task 10.3) workers hold a server connection only for the claim, the
-handler's statements and the heartbeat (a read-then-wait handler session idles in a transaction but holds no xid), so size `defaultPoolSize` x instances (default 40 x 2 = 80) must cover workers 12 x 5 = 60 plus API concurrency.
+`SET LOCAL` is transaction-scoped. Transaction pooling and the lease model (ADR-0003 amendment, Task 10.3): a handler session that has read something
+and then waits on external I/O is `idle in transaction`. It holds no xid and no snapshot (vacuum is not blocked), but
+in PgBouncer transaction mode **it still pins one server connection for the whole job**: a busy worker pins ONE server
+connection for the job's duration (plus transient ones for the short stage-write/lock sessions, and the heartbeat's own
+connection), exactly as before the lease model. Size `defaultPoolSize` x instances (default 40 x 2 = 80) for
+`running workers x ~2 pinned-or-transient` plus API concurrency: 12 workers x 5 = 60 at full autoscale. Therefore
+`idle_in_transaction_session_timeout` (PostgreSQL) and `idle_transaction_timeout` (PgBouncer) MUST stay unset on the worker
+role, or exceed the longest job; they would kill healthy long handlers. The API role may use them.
 
 ## Other Postgres settings
 `shared_buffers` 2GB (25% of 8Gi), `work_mem` 16MB (values.yaml). Migration `0014d` sets aggressive per-table

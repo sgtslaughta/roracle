@@ -27,11 +27,14 @@ def make_session_factory(
     pool_timeout_s: float = 30.0,
     release_before_io: bool = False,
     disable_prepared: bool = False,
+    keepalives: bool = False,
 ) -> sessionmaker[Session]:
     """`?connect_timeout=` in the URL wins over `connect_timeout_s` (ROR_DB_CONNECT_TIMEOUT_S).
     The process holds at most `pool_size + max_overflow` connections (the Helm budget multiplies this by the
     replica count); the defaults are SQLAlchemy's, long-running callers pass the settings."""
     args: dict = {} if "connect_timeout" in make_url(url).query else {"connect_timeout": connect_timeout_s}
+    if keepalives:  # worker: a blackholed TCP connection must fail in ~1 min, not after the OS default of ~15
+        args.update(keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
     if (
         disable_prepared
     ):  # PgBouncer transaction mode: server-side prepared statements do not survive a switch
@@ -68,6 +71,20 @@ def worker_session_factory(settings) -> sessionmaker[Session]:
         max_overflow=settings.worker_db_max_overflow,
         pool_timeout_s=settings.db_pool_timeout_s,
         disable_prepared=settings.db_disable_prepared,
+        keepalives=True,
+    )
+
+
+def heartbeat_session_factory(settings) -> sessionmaker[Session]:
+    """The lease heartbeat's OWN engine (one connection): it never waits behind handler sessions for the pool."""
+    return make_session_factory(
+        settings.database_url,
+        settings.db_connect_timeout_s,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout_s=settings.db_pool_timeout_s,
+        disable_prepared=settings.db_disable_prepared,
+        keepalives=True,
     )
 
 

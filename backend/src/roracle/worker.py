@@ -6,7 +6,7 @@ from roracle.acl_sync import handle_acl_sync
 from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
-from roracle.db import worker_session_factory
+from roracle.db import heartbeat_session_factory, worker_session_factory
 from roracle.eval.generate import handle_eval_generate
 from roracle.eval.jobs import handle_eval_run
 from roracle.ingest import handle_ingest
@@ -18,7 +18,7 @@ from roracle.maintenance import (
     handle_reconcile_tags,
 )
 from roracle.notes.evidence import handle_evidence_scan
-from roracle.queue import Handler, run_forever, set_lease
+from roracle.queue import Handler, run_forever, set_heartbeat_factory, set_lease
 from roracle.reembed import handle_reembed
 from roracle.storage import blob_store_from
 
@@ -105,7 +105,8 @@ def main() -> None:
     ensure_active_index(settings, sf)
     ensure_tick(sf)
     ensure_maintenance(sf)
-    set_lease(settings.job_lease_s)
+    set_lease(settings.job_lease_s, settings.job_drain_s)
+    set_heartbeat_factory(heartbeat_session_factory(settings))
     http_pool.init()  # shared keep-alive client for rerank calls made by eval/chat-shaped jobs
     try:
         run_forever(sf, HANDLERS)

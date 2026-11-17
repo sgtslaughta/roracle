@@ -29,6 +29,7 @@ from roracle.eval.gold import GoldSet, resolve_principals
 from roracle.labels.textgate import gated_docs
 from roracle.models import Document
 from roracle.models_eval import EvalSet
+from roracle.queue import check_lease
 from roracle.retrieval import Passage
 
 Rank = Callable[[Principal, str, list[Passage]], list[Passage]]  # (principal, query, raw out-param) -> hits
@@ -144,6 +145,7 @@ def run_set(
         try:
             pairs = []
             for q in gs.queries:
+                check_lease()
                 for ref in q.principals:
                     for key in (ref, ref + ":pat") if q.as_pat else (ref,):
                         r, ranked, found = _pair(session, principals[key], key, q, path, rank)

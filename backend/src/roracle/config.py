@@ -173,13 +173,16 @@ class Settings(AliasConfig):
     db_pool_size: int = Field(8, ge=1)  # api process
     db_max_overflow: int = Field(4, ge=0)
     worker_db_pool_size: int = Field(3, ge=1)  # worker process: claim session + stage-update session
-    worker_db_max_overflow: int = Field(2, ge=0)
+    worker_db_max_overflow: int = Field(1, ge=0)
     db_disable_prepared: bool = (
         False  # True behind PgBouncer transaction pooling (set by the chart with the pooler)
     )
     job_lease_s: float = Field(
-        300.0, ge=5.0
+        90.0, ge=5.0
     )  # a running job's lease; the worker heartbeat renews it every lease/3
+    job_drain_s: float = Field(
+        0.0, ge=0.0
+    )  # after SIGTERM a running job gets this long, then it is released (0 = wait)
     db_pool_timeout_s: float = 10.0  # wait for a pooled connection before failing the request (503-ish)
     api_threads: int = Field(
         256, ge=10

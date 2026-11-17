@@ -30,7 +30,7 @@ from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
 from roracle.models import DocumentVersion, Job
 from roracle.models_eval import EvalSet
-from roracle.queue import enqueue
+from roracle.queue import check_lease, enqueue
 from roracle.search_index import MUTATE_ALIAS
 
 log = logging.getLogger(__name__)
@@ -255,6 +255,7 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
     phase, target, src = payload["phase"], payload["target"], payload["source"]
     if phase == "catchup" and _alias_indices(es, settings.read_alias) != {target["index"]}:
         raise AliasMismatch  # read alias drifted after cutover: fail loudly, never copy blindly
+    check_lease()
     _ensure_target(es, target, settings)
     if payload["total"] is None:
         payload["total"] = es.count(index=src)["count"]

@@ -3,6 +3,7 @@
 import threading
 import time
 
+import pytest
 from sqlalchemy import select, text
 
 from roracle import queue
@@ -94,7 +95,7 @@ def test_a_job_that_keeps_killing_workers_fails_after_max_attempts_and_notifies(
 
 
 def test_slow_but_alive_worker_is_never_double_claimed(session_factory, db_session):
-    """Handler runs 1.5 s on a 0.6 s lease: the heartbeat keeps it alive while another worker sweeps and claims."""
+    """Handler runs 3 s on a 1.5 s lease: the heartbeat keeps it alive while another worker sweeps and claims."""
     jid = add(session_factory)
     claimed_by_other, stop, started = [], threading.Event(), threading.Event()
 
@@ -205,3 +206,175 @@ def test_long_handler_keeps_extending_the_lease(session_factory, db_session):
     assert run_once(session_factory, {"ingest": handler}, lease_s=0.6)
     assert leases[0] < leases[-1]  # the heartbeat moved lease_until forward during the job
     assert job_row(session_factory, jid)[:2] == ("done", 1)
+
+
+# ---- Task 10.3 fix round: cooperative abort, fencing of own-session writes, release at shutdown
+
+
+def _steal(sf):
+    """Another worker takes the job: the lease runs out, a sweep requeues it, it is claimed again (attempt + 1)."""
+    with sf() as s:
+        s.execute(text("UPDATE jobs SET lease_until = now() - interval '1 s' WHERE status = 'running'"))
+        requeue_expired(s)
+        s.execute(text("UPDATE jobs SET run_after = now()"))
+        s.commit()
+    with sf() as s:
+        job = claim(s, ["ingest"], lease_s=60)
+        s.commit()
+        return job.attempts
+
+
+def test_a_handler_aborts_cooperatively_when_the_lease_is_lost(session_factory, db_session):
+    jid = add(session_factory)
+    steps = []
+
+    def handler(session, payload):
+        enqueue(session, "side", {})
+        for i in range(50):
+            queue.check_lease()  # the checkpoint every long loop has
+            steps.append(i)
+            if i == 2:
+                assert _steal(session_factory) == 2
+            time.sleep(0.15)  # the heartbeat (period 0.1 s) notices the loss meanwhile
+
+    assert run_once(session_factory, {"ingest": handler}, lease_s=60, heartbeat_s=0.1)
+    assert len(steps) < 10  # stopped soon after the loss, not after 50 iterations
+    status, attempts, _, _ = job_row(session_factory, jid)
+    assert (status, attempts) == ("running", 2)  # the new owner's claim is untouched (no fail, no complete)
+    with session_factory() as s:
+        assert s.scalar(select(Job.id).where(Job.kind == "side")) is None  # handler work rolled back
+
+
+def test_stale_workers_own_session_writes_are_fenced_and_nothing_is_duplicated(
+    session_factory, db_session, document, blob, user
+):
+    """Lease stolen mid-ingest: the stale worker's R9 stage writes raise LeaseLost; the new owner finishes; there is
+    exactly one citations job and one notification, and the stage never goes backwards."""
+    from roracle.ingest.state import mark_searchable_and_enqueue, set_stage
+    from roracle.models import DocumentVersion
+
+    v = DocumentVersion(
+        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="f", content_type="x", size=1,
+        stage="embedded", is_latest=True,
+    )  # fmt: skip
+    db_session.add(v)
+    db_session.commit()
+    jid = add(session_factory, payload={"version_id": str(v.id)})
+    stale_done = []
+
+    def handler(session, payload):
+        set_stage(session_factory, v.id, "chunked")  # fenced but still ours: fine
+        assert _steal(session_factory) == 2
+        # the new owner (worker B) completes the ingest through the same helpers, outside our context
+        tok = queue._current.set(None)
+        try:
+            mark_searchable_and_enqueue(session_factory, v.id)
+        finally:
+            queue._current.reset(tok)
+        for fn in (
+            lambda: set_stage(session_factory, v.id, "parsed"),  # would DEMOTE the version
+            lambda: mark_searchable_and_enqueue(session_factory, v.id),  # would double the job + notification
+        ):
+            with pytest.raises(queue.LeaseLost):
+                fn()
+            stale_done.append(1)
+
+    assert run_once(session_factory, {"ingest": handler}, lease_s=60, heartbeat_s=1000)
+    assert stale_done == [1, 1]
+    with session_factory() as s:
+        assert s.get(DocumentVersion, v.id).stage == "searchable"
+        assert len(s.scalars(select(Job).where(Job.kind == "citations")).all()) == 1
+        assert len(s.scalars(select(Notification).where(Notification.kind == "upload.searchable")).all()) == 1
+    assert job_row(session_factory, jid)[:2] == ("running", 2)  # the new owner's claim, untouched
+
+
+def test_mark_searchable_twice_is_a_noop_the_second_time(session_factory, db_session, document, blob):
+    from roracle.ingest.state import mark_searchable_and_enqueue
+    from roracle.models import DocumentVersion
+
+    v = DocumentVersion(
+        document_id=document.id, version=1, blob_sha256=blob.sha256, filename="f", content_type="x", size=1,
+        stage="embedded",
+    )  # fmt: skip
+    db_session.add(v)
+    db_session.commit()
+    for _ in range(2):
+        mark_searchable_and_enqueue(session_factory, v.id)
+    with session_factory() as s:
+        assert len(s.scalars(select(Job).where(Job.kind == "citations")).all()) == 1
+
+
+def test_fence_is_a_noop_outside_a_worker_job(session_factory):
+    with session_factory() as s:
+        queue.fence(s)  # API / CLI / tests: no current job
+        queue.check_lease()
+
+
+def test_release_at_shutdown_returns_the_job_without_spending_the_attempt(session_factory, db_session):
+    jid = add(session_factory)
+    started, released = threading.Event(), []
+
+    def handler(session, payload):
+        enqueue(session, "side", {})
+        started.set()
+        for _ in range(100):
+            queue.check_lease()
+            time.sleep(0.05)
+
+    def shutdown():
+        started.wait(5)
+        time.sleep(0.2)
+        released.append(queue.release_active())
+
+    t = threading.Thread(target=shutdown)
+    t.start()
+    assert run_once(session_factory, {"ingest": handler}, lease_s=60)
+    t.join()
+    assert released == [True]
+    assert job_row(session_factory, jid) == (
+        "queued",
+        0,
+        None,
+        None,
+    )  # attempt refunded, lease cleared, no error
+    with session_factory() as s:
+        assert s.scalar(select(Job.id).where(Job.kind == "side")) is None  # the aborted handler rolled back
+    assert queue.release_active() is False  # nothing running any more
+
+
+def test_a_busy_worker_still_sweeps_a_crashed_peers_job(session_factory, db_session):
+    add(session_factory, "ingest")
+    peer = add(session_factory, "peer")
+    with session_factory() as s:
+        queue.claim(s, ["peer"], lease_s=0.05)  # a worker claimed it and died
+        s.commit()
+    time.sleep(0.1)
+
+    def long_job(session, payload):
+        time.sleep(0.6)  # no idle loop here: only the heartbeat thread can sweep
+
+    assert run_once(session_factory, {"ingest": long_job}, lease_s=30, heartbeat_s=0.1)
+    assert job_row(session_factory, peer)[:2] == ("queued", 1)
+
+
+def test_heartbeat_thread_is_joined_at_completion_and_makes_no_false_loss_warning(
+    session_factory, db_session, caplog
+):
+    add(session_factory)
+    with caplog.at_level("WARNING"):
+        assert run_once(
+            session_factory, {"ingest": lambda s, p: time.sleep(0.35)}, lease_s=30, heartbeat_s=0.1
+        )
+    assert not [t for t in threading.enumerate() if t.name.startswith("lease-")]
+    assert "lease lost" not in caplog.text
+
+
+def test_complete_requires_the_claim_generation(session_factory, db_session):
+    jid = add(session_factory)
+    with session_factory() as s:
+        queue.claim(s, ["ingest"], lease_s=60)
+        s.commit()
+    with session_factory() as s:
+        with pytest.raises(TypeError):
+            queue.complete(s, jid)  # type: ignore[call-arg]
+        assert queue.complete(s, jid, 99) is False and queue.complete(s, jid, 1) is True

@@ -17,7 +17,7 @@ from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
 from roracle.labels import service
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
-from roracle.queue import enqueue, payload_uuid
+from roracle.queue import check_lease, enqueue, fence, payload_uuid
 from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
 
 log = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
         stream.close()
     try:
         with sf() as s:
+            fence(s)  # a stale (lease-lost) run must not ingest items
             # key-share lock: a concurrent DELETE of the connector waits for this commit; checked before any put
             if (
                 s.scalar(select(Connector.id).where(Connector.id == cid).with_for_update(key_share=True))
@@ -188,6 +189,7 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     try:
         with closing(source_for(c, eff, deadline, warn)) as it:
             for item in it:
+                check_lease()  # per item: a lost lease aborts the run cooperatively
                 # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
                 if (
                     stats["seen"] - stats["unchanged"] >= settings.connector_max_items

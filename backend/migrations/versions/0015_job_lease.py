@@ -24,7 +24,9 @@ def _invalid(name: str) -> bool:
 
 
 def upgrade() -> None:
-    op.add_column("jobs", sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True))
+    # re-runnable (the CONCURRENTLY step below commits the ADD COLUMN first); never queue behind an undrained worker
+    op.execute("SET LOCAL lock_timeout = '10s'")
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lease_until timestamptz")
     with op.get_context().autocommit_block():
         if _invalid("ix_jobs_lease"):
             op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_jobs_lease")
