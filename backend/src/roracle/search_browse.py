@@ -185,14 +185,19 @@ def _cited(
     scope: DocScope,
 ) -> dict:
     """R2 cited window: the top `MAX_DOCS` head docs by `cited_by_global` (an upper bound, so `cited_min` never
-    misses) or by the chosen sort, then VISIBLE counts from Postgres; filter, sort and page in memory. With
-    `cited_min` the facets are counted over the kept documents only: no count ever derives from invisible citers."""
+    misses), then VISIBLE counts from Postgres; filter, sort and page in memory. `total` counts the kept rows
+    (never ES `hits.total`, which would count invisible citers); with `cited_min` the facets and the user's sort
+    come from a re-query over the kept documents only."""
     if f.after:
         raise HTTPException(422, "after does not apply to the cited window: use page")
     exact = f.cited_min is not None
-    base = {"sort": ES_SORTS[f.sort], "_source": ["doc_id"]}
-    body: dict[str, Any] = {**base, "query": _query(p, policy, f, scope), "size": MAX_DOCS}
-    body["track_total_hits"] = BROWSE_WINDOW
+    body: dict[str, Any] = {
+        "query": _query(p, policy, f, scope),
+        "sort": ES_SORTS["cited"],
+        "_source": ["doc_id"],
+        "size": MAX_DOCS,
+        "track_total_hits": False,
+    }
     if not exact:  # no cited filter: facets are the browse facets (corpus-wide, nothing citation-derived)
         body.update(post_filter=_post(f), aggs=facet_aggs(f, scope.colls))
     release_before_io(session)
@@ -200,15 +205,14 @@ def _cited(
         resp = _search(es, settings, body)
     except NotFoundError:
         return {**empty_body(f.page, policy), "rows": []}
-    total = resp["hits"]["total"]
-    capped = total["value"] > MAX_DOCS or total["relation"] == "gte"
-    ids = [h["_source"]["doc_id"] for h in resp["hits"]["hits"]]
+    hits = resp["hits"]["hits"]
+    ids = [h["_source"]["doc_id"] for h in hits]
     by_id = _rows(session, p, ids)  # R19
     counts = cited_by_counts(session, p, [r.doc.id for r in by_id.values()])
     ids = [i for i in ids if i in by_id and counts.get(i, 0) >= (f.cited_min or 0)]
     facets = read_facets(resp.get("aggregations", {}), policy, scope.colls)
     if exact:
-        ids, facets = _exact(session, es, settings, p, policy, f, scope, ids, base)
+        ids, facets = _exact(session, es, settings, p, policy, f, scope, ids)
     keep = [by_id[i] for i in ids]
     if f.sort == "cited":  # visible count desc, ties newest-added first, then id
         keep.sort(key=lambda r: str(r.doc.id))
@@ -218,23 +222,25 @@ def _cited(
     return {
         "rows": keep[start : start + f.size],
         "total": len(keep),
-        "total_capped": capped,
+        "total_capped": len(hits) == MAX_DOCS and bool(keep),
         "next": None,
         "facets": facets,
     }
 
 
-def _exact(session, es, settings, p, policy, f: SearchParams, scope, ids: list[str], base: dict):
-    """Facet filters and disjunctive facets over the window documents that passed the visible cited filter."""
+def _exact(session, es, settings, p, policy, f: SearchParams, scope, ids: list[str]):
+    """Facet filters, the user's sort and disjunctive facets over the window docs that passed the visible filter."""
     if not ids:
         return [], empty_body(1, policy)["facets"]
     wide = f.model_copy(update={"cited_min": None})  # applied above, from visible citers
     body = {
-        **base,
         "query": _query(p, policy, wide, scope, extra=[{"terms": {"doc_id": ids}}]),
         "post_filter": _post(wide),
         "aggs": facet_aggs(wide, scope.colls),
+        "sort": ES_SORTS[f.sort],
+        "_source": ["doc_id"],
         "size": len(ids),
+        "track_total_hits": False,
     }
     release_before_io(session)
     resp = _search(es, settings, body)

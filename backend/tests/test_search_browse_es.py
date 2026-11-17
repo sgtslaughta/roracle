@@ -267,3 +267,74 @@ def test_legacy_index_upgrading(client, as_ana, legacy_index):
     assert get(client, as_ana)["upgrading"] is True
     r = client.get("/search", headers=as_ana, params={"tags_not": "x"})
     assert r.status_code == 503 and r.json() == {"detail": "search index upgrade in progress"}
+
+
+def _cite(db, target, owner, visibility, n):
+    for _ in range(n):
+        _, cv = seed(db, owner, title="citer", visibility=visibility)
+        db.add(DocCitation(src_version_id=cv.id, ref_no=1, target_document_id=target.id, confidence=1.0))
+
+
+def test_cited_window_ranks_by_global_not_user_sort(
+    client, as_ana, ana, db_session, es, wired, session_factory, monkeypatch
+):
+    monkeypatch.setattr("roracle.search_browse.MAX_DOCS", 2)
+    docs = {t: seed(db_session, ana, title=t) for t in ("a", "b", "z")}
+    for t, n in (("a", 1), ("b", 1), ("z", 3)):
+        _cite(db_session, docs[t][0], ana, "everyone", n)
+    for d, v in docs.values():
+        put(es, wired, db_session, d, v)
+    sync(es, wired, db_session, session_factory, [d for d, _ in docs.values()])
+    r = get(client, as_ana, cited_min=1, sort="title")
+    titles = [x["title"] for x in r["results"]]
+    assert (
+        "z" in titles and titles == sorted(titles) and len(titles) == 2
+    )  # most cited sorts last, still kept
+    assert r["total_capped"] is True and r["total"] == 2
+
+
+@pytest.mark.parametrize("max_docs", [1, 200])
+def test_cited_min_never_reveals_invisible_citers(
+    client, as_ana, ana, bob, db_session, es, wired, session_factory, monkeypatch, max_docs
+):
+    monkeypatch.setattr("roracle.search_browse.MAX_DOCS", max_docs)
+    a, va = seed(db_session, ana, title="A")  # 2 visible + 3 invisible citers: global 5
+    b, vb = seed(db_session, ana, title="B")  # 6 visible: global 6
+    _cite(db_session, a, ana, "everyone", 2)
+    _cite(db_session, a, bob, "private", 3)
+    _cite(db_session, b, ana, "everyone", 6)
+    put(es, wired, db_session, a, va, ["t"])
+    put(es, wired, db_session, b, vb, ["t"])
+    sync(es, wired, db_session, session_factory, [a, b])
+    five, six = get(client, as_ana, cited_min=5), get(client, as_ana, cited_min=6)
+    assert five == six  # A enters the cited_min=5 window only through invisible citers
+    assert [x["title"] for x in five["results"]] == ["B"] and five["total"] == 1
+    assert five["total_capped"] is (max_docs == 1) and five["facets"]["tags"] == [{"value": "t", "count": 1}]
+    for s in ("cited", "title"):
+        assert get(client, as_ana, cited_min=5, sort=s) == get(client, as_ana, cited_min=6, sort=s)
+
+
+@pytest.mark.parametrize("sort", ["venue", "first_author", "pages", "published_desc", "published_asc"])
+def test_after_walks_missing_values(client, as_ana, ana, db_session, es, wired, session_factory, sort):
+    rows = [("v1", "Beta", ("Bo",), 2001, 4), ("v2", None, (), None, None), ("v3", "Alpha", ("Al",), 2003, 2),
+            ("v4", None, (), None, None), ("v5", "Gamma", ("Cy",), 2002, 9)]  # fmt: skip
+    docs = []
+    for title, venue, authors, year, pages in rows:
+        d, v = seed(db_session, ana, title=title, venue=venue, authors=authors, year=year)
+        v.page_count = pages
+        docs.append((d, v))
+    for d, v in docs:
+        put(es, wired, db_session, d, v)
+    sync(es, wired, db_session, session_factory, [d for d, _ in docs])
+    by_page = [
+        x["title"] for p in (1, 2, 3) for x in get(client, as_ana, sort=sort, size=2, page=p)["results"]
+    ]
+    assert sorted(by_page) == [f"v{i}" for i in range(1, 6)] and set(by_page[-2:]) == {"v2", "v4"}
+    seen, after = [], None
+    for _ in range(6):
+        r = get(client, as_ana, sort=sort, size=2, **({"after": after} if after else {}))
+        seen += [x["title"] for x in r["results"]]
+        after = r["next"]
+        if after is None:
+            break
+    assert seen == by_page
