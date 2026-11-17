@@ -1,12 +1,13 @@
 """Task 10.5: near-duplicate candidates through LSH bands + ES kNN; ACL-correct and equivalent to the scan."""
 
 import random
+import time
 import uuid
 
 import numpy as np
 import pytest
 from elasticsearch import Elasticsearch
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from roracle import maintenance
 from roracle.auth import Principal
@@ -359,54 +360,196 @@ def test_newer_copy_that_already_passed_its_own_check_parks_the_older_one(db_ses
     assert find_near_duplicate(db_session, principal(ana), a, TH, STH, es=NoEs(), settings=_s()) is None
 
 
-def test_dedupe_is_serialised_per_owner_so_exactly_one_of_two_copies_is_parked(
-    db_session, session_factory, settings, store, monkeypatch
-):
-    import threading
+def _two_versions(db_session, store, name="dave"):
+    from ingest_helpers import make_version
 
-    from ingest_helpers import docling_doc, make_version
+    owner = user(db_session, name)
+    a, b = (make_version(db_session, store, owner) for _ in range(2))
+    for v in (a, b):
+        v.stage, v.is_latest = "summarized", True  # a first version is latest from intake on
+    db_session.commit()
+    return owner, a, b
+
+
+def _dedupe(session_factory, settings, vid, text):
+    from roracle.ingest import pipeline
+
+    with session_factory() as s:
+        ver = s.get(DocumentVersion, vid)
+        d = s.get(Document, ver.document_id)
+        out = pipeline._dedupe(
+            s, ver, d, text, settings.model_copy(update={"embed_dims": 4}), session_factory
+        )
+        s.commit()
+        return out
+
+
+_TEXT: list[str] = []
+
+
+def _text():
+    """One fixed document text (docling_doc invents fresh unique words on every call)."""
+    from ingest_helpers import docling_doc
 
     from roracle.ingest import pipeline
 
-    text = pipeline.document_text(docling_doc(paras=12))
-    owner = user(db_session, "dave")
-    a, b = (make_version(db_session, store, owner) for _ in range(2))
-    for v in (a, b):
-        v.stage = "summarized"
-    db_session.commit()
-    in_find, release, order = threading.Event(), threading.Event(), []
-    real = pipeline.find_near_duplicate
+    if not _TEXT:
+        _TEXT.append(pipeline.document_text(docling_doc(paras=12)))
+    return _TEXT[0]
 
-    def slow_find(*args, **kw):
-        order.append(args[2].id)
-        in_find.set()
-        release.wait(5)  # the first checker holds the owner lock here; the second must wait for it
+
+def test_two_simultaneous_copies_exactly_one_is_parked_the_one_that_decides_second(
+    db_session, session_factory, settings, store, monkeypatch
+):
+    """Both finish their lock-free search before either decides; the lock section then serialises the decisions."""
+    import threading
+
+    from roracle.ingest import pipeline
+
+    _, a, b = _two_versions(db_session, store)
+    barrier, real, results = threading.Barrier(2, timeout=10), pipeline.find_near_duplicate, {}
+
+    def find(*args, **kw):
+        out = real(*args, **kw)
+        barrier.wait()  # both searched (and found nothing) before any decision is written
+        return out
+
+    monkeypatch.setattr(pipeline, "find_near_duplicate", find)
+    ts = [
+        threading.Thread(
+            target=lambda v=v: results.__setitem__(v.id, _dedupe(session_factory, settings, v.id, _text()))
+        )
+        for v in (a, b)
+    ]
+    [t.start() for t in ts]
+    [t.join(20) for t in ts]
+    assert sorted(results.values()) == [False, True]
+    db_session.expire_all()
+    parked = next(v for v in (a, b) if results[v.id])
+    other = b if parked is a else a
+    got = db_session.get(DocumentVersion, parked.id)
+    assert (got.stage, got.near_dup_of) == ("review", other.id)
+    assert db_session.get(DocumentVersion, other.id).stage == "deduped"
+    assert db_session.scalar(select(func.count()).select_from(VersionLsh)) == 2 * 16  # both wrote their bands
+
+
+def test_a_slow_search_never_holds_the_owner_lock(db_session, session_factory, settings, store, monkeypatch):
+    """Bulk imports by one owner must not serialise on the (possibly 100 s) scan: B decides while A is still searching."""
+    import threading
+
+    from roracle.ingest import pipeline
+
+    _, a, b = _two_versions(db_session, store, "erin")
+    in_find, release, real, calls = threading.Event(), threading.Event(), pipeline.find_near_duplicate, []
+
+    def find(*args, **kw):
+        calls.append(args[2].id)
+        if len(calls) == 1:  # A's search stalls
+            in_find.set()
+            release.wait(10)
         return real(*args, **kw)
 
-    monkeypatch.setattr(pipeline, "find_near_duplicate", slow_find)
-    results = {}
-
-    def run(v):
-        with session_factory() as s:
-            ver = s.get(DocumentVersion, v.id)
-            d = s.get(Document, ver.document_id)
-            results[v.id] = pipeline._dedupe(
-                s, ver, d, text, settings.model_copy(update={"embed_dims": 4}), session_factory
-            )
-            s.commit()
-
-    t1 = threading.Thread(target=run, args=(a,))
-    t1.start()
+    monkeypatch.setattr(pipeline, "find_near_duplicate", find)
+    ta = threading.Thread(target=lambda: _dedupe(session_factory, settings, a.id, _text()))
+    ta.start()
     in_find.wait(5)
-    t2 = threading.Thread(target=run, args=(b,))
-    t2.start()
-    t2.join(0.5)
-    assert t2.is_alive() and len(order) == 1  # B is blocked on the owner's advisory lock
+    t0 = time.monotonic()
+    assert _dedupe(session_factory, settings, b.id, _text()) is False  # B is not blocked by A's search
+    assert time.monotonic() - t0 < 5 and ta.is_alive()
     release.set()
-    t1.join(10)
-    t2.join(10)
-    assert sorted(results.values()) == [False, True]  # exactly one parked: the one that checked second
-    assert results[order[0]] is False
+    ta.join(20)
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, a.id).stage == "review"  # A decides last: it sees B and is parked
+
+
+def test_bands_minhash_and_decision_are_atomic_and_a_crash_leaves_nothing(
+    db_session, session_factory, settings, store, monkeypatch
+):
+    from roracle.ingest import neardup, pipeline
+
+    _, a, _b = _two_versions(db_session, store, "frank")
+    real = neardup.write_bands
+
+    def crash(*args, **kw):
+        real(*args, **kw)
+        raise RuntimeError("worker died between the band write and the commit")
+
+    monkeypatch.setattr(pipeline, "write_bands", crash)
+    with pytest.raises(RuntimeError):
+        _dedupe(session_factory, settings, a.id, _text())
+    db_session.expire_all()
+    v = db_session.get(DocumentVersion, a.id)
+    assert (v.stage, v.minhash) == ("summarized", None)  # nothing committed: not "deduped without bands"
+    assert db_session.scalar(select(func.count()).select_from(VersionLsh)) == 0
+    monkeypatch.setattr(pipeline, "write_bands", real)
+    assert _dedupe(session_factory, settings, a.id, _text()) is False  # the retry decides normally
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, a.id).stage == "deduped"
+    assert db_session.scalar(select(func.count()).select_from(VersionLsh)) == 16
+
+
+def test_a_second_run_cannot_overwrite_the_first_decision(db_session, session_factory, settings, store):
+    _, a, b = _two_versions(db_session, store, "gina")
+    assert _dedupe(session_factory, settings, b.id, _text()) is False
+    assert _dedupe(session_factory, settings, a.id, _text()) is True  # parked next to B
+    for _ in range(
+        2
+    ):  # stale re-runs (lease lost / retried job): compare-and-set on stage='summarized' matches nothing
+        assert _dedupe(session_factory, settings, a.id, _text()) is True
+        assert _dedupe(session_factory, settings, b.id, _text()) is False
+    db_session.expire_all()
+    got = db_session.get(DocumentVersion, a.id)
+    assert (got.stage, got.near_dup_of) == ("review", b.id)
+    assert db_session.get(DocumentVersion, b.id).stage == "deduped"
+
+
+def test_owner_lock_is_try_with_bounded_backoff(db_session, session_factory, settings, store, monkeypatch):
+    from roracle.ingest import pipeline
+
+    owner, a, _b = _two_versions(db_session, store, "hugo")
+    monkeypatch.setattr(pipeline, "LOCK_TRIES", 3)
+    monkeypatch.setattr(pipeline, "LOCK_SLEEP_S", 0.01)
+    holder = session_factory()
+    holder.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"dedupe:{owner.id}"})
+    try:
+        with pytest.raises(pipeline.DedupeBusy):  # gives up instead of pinning a connection forever
+            _dedupe(session_factory, settings, a.id, _text())
+    finally:
+        holder.rollback()
+        holder.close()
+    db_session.expire_all()
+    assert db_session.get(DocumentVersion, a.id).stage == "summarized"  # nothing written
+
+
+def test_a_stale_worker_cannot_decide(db_session, session_factory, settings, store):
+    """Job fencing: the dedupe's own-session writes raise LeaseLost once the claim is gone."""
+    import threading
+
+    from roracle import queue
+
+    _, a, _b = _two_versions(db_session, store, "ivy")
+    jid = enqueue(db_session, "ingest", {"version_id": str(a.id)})
+    db_session.commit()
+    with session_factory() as s:
+        queue.claim(s, ["ingest"], 60)
+        s.commit()
+    with session_factory() as s:  # the job is requeued and reclaimed by someone else
+        s.execute(text("UPDATE jobs SET lease_until = now() - interval '1 s'"))
+        queue.requeue_expired(s)
+        s.execute(text("UPDATE jobs SET run_after = now()"))
+        s.commit()
+    with session_factory() as s:
+        queue.claim(s, ["ingest"], 60)
+        s.commit()
+    token = queue._current.set((jid, 1, threading.Event()))  # we are the STALE worker (attempt 1 of 2)
+    try:
+        with pytest.raises(queue.LeaseLost):
+            _dedupe(session_factory, settings, a.id, _text())
+    finally:
+        queue._current.reset(token)
+    db_session.expire_all()
+    v = db_session.get(DocumentVersion, a.id)
+    assert (v.stage, v.minhash) == ("summarized", None)
 
 
 def test_failed_backfill_logs_and_counts_when_no_job_is_pending(db_session, caplog):

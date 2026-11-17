@@ -6,10 +6,12 @@ read-only for those tables. chunk -> embed -> index re-run as one unit (R7).
 
 import json
 import logging
+import time
+from datetime import timedelta
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy import text as text_
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,7 +22,7 @@ from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.context import notes_for
 from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, from_bytes, prompt_sha, to_bytes
-from roracle.ingest.neardup import find_near_duplicate, minhash, write_bands
+from roracle.ingest.neardup import find_near_duplicate, find_sibling_duplicate, minhash, write_bands
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
 from roracle.ingest.raptor import build_units
@@ -37,7 +39,7 @@ from roracle.ingest.summary import summarize
 from roracle.labels.policy import Policy
 from roracle.metrics import INGEST_STAGE_FAILURES
 from roracle.models import Document, DocumentVersion, Tag
-from roracle.queue import NonRetryable, payload_uuid
+from roracle.queue import NonRetryable, check_lease, fence, payload_uuid
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -102,37 +104,76 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
     return doc
 
 
+class DedupeBusy(Exception):
+    """The owner's dedupe lock stayed busy beyond the bounded backoff: retry the job later (the lock is held for
+    milliseconds, so this only happens when something is badly wrong)."""
+
+
+LOCK_TRIES, LOCK_SLEEP_S = 40, 0.05  # ~ up to 40 tries with a growing sleep, a few seconds in total
+
+
+def _owner_lock(ls: Session, owner_id) -> None:
+    """Transaction-scoped (PgBouncer-safe) per-owner advisory lock, TRY + bounded backoff: a bulk import by one owner
+    queues for milliseconds, never blocks a worker connection indefinitely."""
+    key = {"k": f"dedupe:{owner_id}"}
+    for i in range(LOCK_TRIES):
+        if ls.execute(text_("SELECT pg_try_advisory_xact_lock(hashtextextended(:k, 0))"), key).scalar():
+            return
+        time.sleep(min(LOCK_SLEEP_S * (1 + i / 4), 0.5))
+    raise DedupeBusy(f"dedupe lock of owner {owner_id} busy")
+
+
 def _dedupe(
     session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf, es=None
 ) -> bool:
     """True if the version was parked for a near-dup decision.
 
-    Everything from the MinHash/band write to the `deduped`/`review` stage runs under a per-OWNER transaction-scoped
-    advisory lock (PgBouncer-safe): of two simultaneous uploads of one paper the second checker always sees the
-    first, so exactly one is parked."""
+    1. Lock-free: search everything visible (LSH bands, ES kNN, or the exhaustive scan: can take long).
+    2. In ONE short transaction under the per-owner lock, fenced to the running job: compare-and-set minhash on
+       `stage = 'summarized'`, write the bands, check the owner's own racing siblings (cheap), then compare-and-set
+       the decision (`review` + near_dup_of, or `deduped`) and commit. Bands and decision are atomic: a crash leaves
+       the version at `summarized` with nothing written (the retry redoes it), and a stale run changes nothing.
+    Of two simultaneous uploads of one paper the second to take the lock sees the first's bands: exactly one parks."""
     mh = minhash(text)
     settings = runtime.effective(session, settings)
-    match = None
-    with sf() as ls:  # short lock transaction: not the (long) handler transaction
-        ls.execute(
-            text_("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": f"dedupe:{d.owner_id}"}
-        )
-        update_version(sf, v.id, minhash=mh)
-        write_bands(ls, v.id, mh)  # visible to the next checker once this transaction commits
-        ls.flush()
+    principal = principal_for_user(session, d.owner_id)
+    with sf() as ps:  # phase 1: no lock, no write
+        since = ps.scalar(select(func.now())) - timedelta(seconds=1)
+        probe = ps.get(DocumentVersion, v.id)
+        ps.expunge(probe)
+        probe.minhash = mh  # detached: never flushed
         match = find_near_duplicate(
-            ls,
-            principal_for_user(ls, d.owner_id),
-            ls.get(DocumentVersion, v.id),
-            settings.near_dup_threshold,
-            settings.near_dup_summary_threshold,
-            es=es,
-            settings=settings,
+            ps, principal, probe, settings.near_dup_threshold, settings.near_dup_summary_threshold,
+            es=es, settings=settings,
+        )  # fmt: skip
+    with sf() as ls:  # phase 2
+        _owner_lock(ls, d.owner_id)
+        fence(ls)
+        if (  # compare-and-set: only the run that still sees `summarized` decides
+            ls.execute(
+                update(DocumentVersion)
+                .where(DocumentVersion.id == v.id, DocumentVersion.stage == "summarized")
+                .values(minhash=mh)
+            ).rowcount
+            == 0
+        ):
+            stage = ls.scalar(select(DocumentVersion.stage).where(DocumentVersion.id == v.id))
+            ls.rollback()
+            session.refresh(v)
+            return stage == "review"  # already decided by another run
+        write_bands(ls, v.id, mh)
+        lv = ls.get(DocumentVersion, v.id)
+        if match is None:
+            match = find_sibling_duplicate(
+                ls, principal, lv, settings.near_dup_threshold, settings.near_dup_summary_threshold, since
+            )
+        ls.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.id == v.id, DocumentVersion.stage == "summarized")
+            .values(
+                stage="review" if match is not None else "deduped", near_dup_of=match.id if match else None
+            )
         )
-        if match is not None:
-            update_version(sf, v.id, near_dup_of=match.id, stage="review")
-        else:
-            set_stage(sf, v.id, "deduped")
         ls.commit()
     session.refresh(v)
     if match is not None:
@@ -323,6 +364,7 @@ def handle_ingest(
 ) -> None:
     vid = payload_uuid(payload, "version_id")
     sf = session_factory
+    check_lease()
     settings = runtime.effective(session, settings)  # active model/index persisted by re-embed cutover (R4)
     if bump_attempts(sf, vid) > MAX_STARTS:
         raise NonRetryable("ingest crashed repeatedly")
@@ -377,4 +419,5 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         if _dedupe(session, v, d, document_text(doc), settings, sf, es):
             return
         session.refresh(v)
+    check_lease()  # before the expensive embed + index phase
     _index(session, v, d, doc, settings, es, llm, sf, store)

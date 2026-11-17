@@ -277,6 +277,45 @@ def _knn_candidates(session, es, settings, principal, version) -> list:
     return out
 
 
+def find_sibling_duplicate(
+    session: Session,
+    principal: Principal,
+    version: DocumentVersion,
+    threshold: float,
+    summary_threshold: float,
+    since,
+) -> DocumentVersion | None:
+    """The uploader's OWN versions that raced us: in flight (not searchable) or created since `since` (the start of the
+    lock-free global search). Cheap by construction (band lookup restricted to one owner, no ES, no scan), so it can run
+    inside the per-owner lock; `version`'s bands must already be written."""
+    q = (
+        select(DocumentVersion)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(
+            *_visible(principal, version),
+            Document.owner_id == principal.user_id,
+            DocumentVersion.id != version.id,
+            or_(DocumentVersion.stage != "searchable", DocumentVersion.created_at >= since),
+        )
+    )
+    match = []
+    if version.minhash:
+        match.append(
+            DocumentVersion.id.in_(
+                select(VersionLsh.version_id).where(
+                    tuple_(VersionLsh.band, VersionLsh.hash).in_(bands(version.minhash))
+                )
+            )
+        )
+    if version.summary_embedding:
+        match.append(DocumentVersion.summary_embedding.is_not(None))
+    if not match:
+        return None
+    return _best(
+        version, session.scalars(q.where(or_(*match)).limit(MAX_CANDIDATES)), threshold, summary_threshold
+    )
+
+
 def _find_exhaustive(
     session: Session,
     principal: Principal,
