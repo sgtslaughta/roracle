@@ -39,7 +39,7 @@ adm = client(os.environ["ADMIN_AK"], os.environ["ADMIN_SK"])
 if os.environ["PHASE"] == "app":
     check("app: put/get/delete in app bucket", code(lambda: (app.put_object(Bucket=BK["app"], Key="tmp/rehearsal", Body=b"x"),
           app.get_object(Bucket=BK["app"], Key="tmp/rehearsal"), app.delete_object(Bucket=BK["app"], Key="tmp/rehearsal"))) == "OK")
-    rules = [r["ID"] for r in adm.get_bucket_lifecycle_configuration(Bucket=BK["app"])["Rules"]]
+    rules = [r["ID"] for r in app.get_bucket_lifecycle_configuration(Bucket=BK["app"])["Rules"]]
     check("app bucket lifecycle has tmp-expire", "tmp-expire" in rules, rules)
     for k in ("pg", "es"):
         c = code(lambda: app.list_objects_v2(Bucket=BK[k]))

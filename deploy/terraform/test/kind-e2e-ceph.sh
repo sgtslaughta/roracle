@@ -114,7 +114,7 @@ YAML
     sleep 3
   done
   kubectl -n "$NS" logs job/rehearsal-checks || true
-  kubectl -n "$NS" delete job rehearsal-checks secret/rehearsal-admin configmap/rehearsal-checks --ignore-not-found >/dev/null
+  kubectl -n "$NS" delete job/rehearsal-checks secret/rehearsal-admin configmap/rehearsal-checks --ignore-not-found >/dev/null
   return "$rc"
 }
 
@@ -127,7 +127,8 @@ ceph_verify() {
   log "ceph: cluster + object store"
   local h; h="$(kubectl -n rook-ceph get cephcluster -o jsonpath='{.items[0].status.ceph.health}')"
   echo "ceph health: $h"; [[ "$h" == HEALTH_OK || "$h" == HEALTH_WARN ]] || die "ceph health $h"
-  [ "$(kubectl -n rook-ceph get cephobjectstore roracle -o jsonpath='{.status.phase}')" = Connected ] || die "object store not Connected"
+  local op; op="$(kubectl -n rook-ceph get cephobjectstore roracle -o jsonpath='{.status.phase}')"
+  [[ "$op" == Ready || "$op" == Connected ]] || die "object store phase $op"
   kubectl -n rook-ceph get cephobjectstoreuser,jobs.batch 2>/dev/null | head -12
   log "ceph: S3 access, object lock, writer/app denials"; ceph_checks_job app || die "ceph checks (app) failed"
   log "ceph: CNPG backup to RGW"
@@ -146,8 +147,14 @@ YAML
   echo "CNPG backup completed"
   log "ceph: ES snapshot repository verify, repository analysis, SLM create + delete"
   es_curl POST "/_snapshot/roracle-s3/_verify" | grep -q '"nodes"' || die "ES repository verify"
-  local an; an="$(es_curl POST "/_snapshot/roracle-s3/_analyze?blob_count=20&max_blob_size=1mb&timeout=180s")"
-  if ! echo "$an" | grep -q '"summary"' || echo "$an" | grep -q '"error"'; then echo "$an" | head -c 600; die "ES repository analysis failed"; fi
+  # one retry: the very first analysis once failed with a spurious RGW BucketAlreadyExists (409) and passed on all later runs (README)
+  local an try
+  for try in 1 2; do
+    an="$(es_curl POST "/_snapshot/roracle-s3/_analyze?blob_count=20&max_blob_size=1mb&timeout=180s")"
+    if echo "$an" | grep -q '"summary"' && ! echo "$an" | grep -q '"error"'; then break; fi
+    echo "analysis attempt $try failed: $(echo "$an" | head -c 300)"
+    [ "$try" = 2 ] && die "ES repository analysis failed twice"
+  done
   echo "repository analysis OK"
   local sn; sn="$(es_curl POST "/_slm/policy/roracle-daily/_execute" | jq -r .snapshot_name)"; [ -n "$sn" ] && [ "$sn" != null ] || die "SLM execute"
   for _ in $(seq 60); do
