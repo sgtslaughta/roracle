@@ -20,12 +20,12 @@ Send `Authorization: Bearer <token>` on every request. The API is stateless and 
 | Looks like | RS256 access token | `ror_pat_` followed by a random string |
 | Used by | The web app and people | Agents, scripts, MCP clients |
 | Identity | The signed-in user | The user who minted it, as an agent |
-| Scopes | `read` and `write` | `read`, or `read` and `write`, set at creation |
+| Scopes | Always `read` and `write` (implicit, not taken from token claims) | `read`, or `read` and `write`, set at creation |
 | Admin | Yes, with the `roracle-admin` realm role | Never, even for an admin owner |
 
 **JWT checks.** The signature is verified against the identity provider's signing keys. The `exp`, `iss`, `aud` and `sub` claims are required. `iss` must equal `ROR_OIDC_ISSUER`, `aud` must equal `ROR_OIDC_AUDIENCE` (default `roracle`), the token type must be `Bearer`, and the `azp` client must be in `ROR_OIDC_ALLOWED_CLIENTS` (default `roracle-web`, `roracle-mcp`). Clock skew of 30 seconds is tolerated. Groups and the admin flag are read from the token on every request. Any failure is the same `401`. Identity provider setup is in [Keycloak setup](../enterprise/keycloak-setup.md).
 
-**PAT checks.** A PAT works only while `ROR_PATS_ENABLED` is on. It must be unexpired and not revoked. Its owner must have signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30), otherwise the call fails with `401 token owner session stale`. A PAT carries a snapshot of the owner's groups from creation, and only groups the owner still belongs to are honoured. The secret is shown once, at creation, and only its hash is stored. Every PAT call is recorded in the audit log as `pat.use`.
+**PAT checks.** A PAT works only while `ROR_PATS_ENABLED` is on. It must be unexpired and not revoked. Its owner must have signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30), otherwise the call fails with `401 token owner session stale`. A PAT carries a snapshot of the owner's groups from creation, and only groups the owner still belongs to are honoured. The secret is shown once, at creation, and only its hash is stored. Each successful REST call made with a PAT is recorded in the audit log as `pat.use`. Rejected or failed calls (rate limited, insufficient scope, handler errors) are not, because the row is committed only with a successful request. Calls to `/mcp` are audited as `mcp.<tool>` instead.
 
 **Scopes.** A PAT without `write` is limited to GET, HEAD and OPTIONS. Anything else gives `403 insufficient scope`. A JWT always has both scopes.
 
@@ -103,7 +103,7 @@ The chat body takes `content` (1 to 4000 characters), optional `model` (must be 
 
 A `201` returns `document_id`, `version_id` and `sha256`. Ingestion then runs in the background: poll `GET /api/me/uploads` for `stage` and `status`. A version in the `needs_title` stage waits for `PUT /api/documents/{doc_id}/versions/{version_id}/title`.
 
-**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"code": "duplicate", "document_id": "..."}`, which makes a retry after a timeout safe. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
+**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"code": "duplicate", "document_id": "..."}`, which usually makes a retry after a timeout harmless. The check is best effort: it does not see another upload of the same file that is still in flight, so two concurrent uploads can both succeed. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
 
 An `org_unit` visibility needs the uploader to belong to an organisational unit, else `422`.
 
@@ -126,7 +126,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 | Route | Purpose |
 |---|---|
 | `POST /api/documents` | Upload (see [Uploads](#uploads)) |
-| `GET /api/documents/{doc_id}` | Document detail |
+| `GET /api/documents/{doc_id}` | Document detail. The `ids` field maps an identifier kind (for example `doi`) to its value, with the DOI folded in, and is `{}` when there are none. The schema in [openapi.json](openapi.json) does not show it because the route returns an untyped object |
 | `PATCH /api/documents/{doc_id}`, `DELETE /api/documents/{doc_id}`, `POST /api/documents/{doc_id}/transfer` | Edit, delete, transfer ownership |
 | `GET /api/documents/{doc_id}/versions/{n}/file`, `/pdf`, `/docling` | Original file, PDF rendering, parsed structure |
 | `PUT /api/documents/{doc_id}/versions/{version_id}/title` | Supply a title for a version that needs one |
@@ -175,7 +175,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 
 ### Admin
 
-Admin routes sit under `/api/admin/` and need a JWT with the admin role: users and groups, labels, connectors, jobs and maintenance, reindex, runtime settings, eval, writing profiles, audit, tags, drafts review. Each admin call is audited. Operations are described in the [admin guide](../admin/README.md); the routes are in [openapi.json](openapi.json).
+Admin routes sit under `/api/admin/` and need a JWT with the admin role: users and groups, labels, connectors, jobs and maintenance, reindex, runtime settings, eval, writing profiles, audit, tags, drafts review. Each successful admin call is audited as `admin.<endpoint>` (failed calls roll the row back), and a denied call is audited as `admin.denied`. Operations are described in the [admin guide](../admin/README.md); the routes are in [openapi.json](openapi.json).
 
 ### Operations
 
@@ -248,7 +248,7 @@ Add `-F force=true` to bypass the duplicate check.
 ```bash
 curl -sS --get "https://roracle.example.internal/api/me/uploads" \
   -H "Authorization: Bearer $TOKEN" --data-urlencode "limit=2"
-# -> {"items": [...], "total": 7, "total_capped": false, "next": "MjAyNi0x..."}
+# -> illustrative: {"items": [...], "total": 7, "total_capped": false, "next": "MjAyNi0x..."}
 
 curl -sS --get "https://roracle.example.internal/api/me/uploads" \
   -H "Authorization: Bearer $TOKEN" \

@@ -18,7 +18,7 @@ Match on the status code first. Treat the `detail` text as a hint for humans: on
 | Status | Meaning | Typical `detail` |
 |---|---|---|
 | 400 | Malformed upload | `empty file`, `form part header too large` |
-| 401 | Missing, invalid, expired or revoked credential. Always the same message, so the cause is not revealed. Carries `WWW-Authenticate: Bearer` | `invalid token` |
+| 401 | Missing, invalid, expired or revoked credential. The same message in every case except the stale-owner case below, so the cause is not revealed. Carries `WWW-Authenticate: Bearer` | `invalid token` |
 | 401 | A PAT whose owner has not signed in recently (see `ROR_PAT_MAX_IDENTITY_AGE_DAYS`). The owner signs in again | `token owner session stale — sign in again` |
 | 403 | Read-only PAT used on a method other than GET, HEAD or OPTIONS | `insufficient scope` |
 | 403 | PAT used on token management | `personal access tokens cannot manage tokens` |
@@ -28,7 +28,7 @@ Match on the status code first. Treat the `detail` text as a hint for humans: on
 | 403 | Posting to a chat that was shared with you read-only | `read-only` |
 | 404 | Unknown, deleted or not visible to you. Hidden and absent look the same. Path ids above 2^63 - 1 also give 404 | `not found` |
 | 405 | `GET /mcp` (only POST is served) | plain text `method not allowed`, `Allow: POST` |
-| 409 | Duplicate upload, or an action not valid in the current state | see above |
+| 409 | Duplicate upload (see above), or the action conflicts with current state: not awaiting a title or a near-duplicate decision, a reindex, rebuild, run or job already active, only failed jobs can be retried, a name or key that already exists, draft documents that must use the `/drafts` endpoints | for example `not awaiting a title`, `reindex running` |
 | 413 | Upload larger than `ROR_MAX_UPLOAD_BYTES`; upload quota exceeded; JSON body over the cap | `file exceeds <n> MB limit`, `upload quota exceeded`, `request body too large` |
 | 422 | Invalid parameter or body, NUL character, unknown model or scope | see [Input rejections](#input-rejections) |
 | 429 | Rate limit hit. Carries `Retry-After` (whole seconds, at least 1) | `rate limited` |
