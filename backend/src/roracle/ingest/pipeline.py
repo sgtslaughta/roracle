@@ -272,7 +272,7 @@ def _index(
     )  # fmt: skip
     search_index.index_chunks(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
-        summary_vector=sv, prompt_shas=shas, index=index, contexts=notes, refresh=False,
+        summary_vector=sv, prompt_shas=shas, index=index, contexts=notes, refresh=False, signals=None,
     )  # fmt: skip
     keep_units = None
     if (
