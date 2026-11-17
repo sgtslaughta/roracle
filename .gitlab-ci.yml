@@ -50,7 +50,7 @@ docs:
   stage: lint
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [docs/**/*, README.md, backend/README.md, frontend/README.md, backend/src/**/*, backend/pyproject.toml, backend/uv.lock, frontend/nginx/**/*, frontend/Dockerfile, VERSION, deploy/**/*, scripts/docs/**/*, .pymarkdown.json, .gitlab-ci.yml]
+      changes: [docs/**/*, README.md, backend/README.md, frontend/README.md, backend/src/**/*, backend/pyproject.toml, backend/uv.lock, frontend/nginx/**/*, frontend/Dockerfile, zensical.toml, VERSION, deploy/**/*, scripts/docs/**/*, .pymarkdown.json, .gitlab-ci.yml]
     - if: $CI_PIPELINE_SOURCE != "merge_request_event"
   script:
     - cd "$CI_PROJECT_DIR"

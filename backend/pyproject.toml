@@ -42,6 +42,11 @@ dev = [
     "ruff",
     "httpx",
     "pymarkdownlnt>=0.9.42",
+    {include-group = "docs"},
+]
+
+docs = [
+    "zensical==0.1.2",
 ]
 
 [build-system]

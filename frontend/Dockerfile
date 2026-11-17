@@ -17,6 +17,19 @@ RUN corepack pnpm build && corepack pnpm check:dist \
  && grep -rl __ROR_OIDC_AUTHORITY__ dist/assets >/dev/null \
  && grep -rl __ROR_OIDC_CLIENT_ID__ dist/assets >/dev/null
 
+# Docs site: pinned zensical from the Python mirror (hash-pinned export of the `docs` dependency group), offline build.
+FROM ${REGISTRY_MIRROR}python:3.12-slim AS docs
+ARG UV_INDEX_URL=https://pypi.org/simple
+WORKDIR /src
+RUN pip install --no-cache-dir --index-url "$UV_INDEX_URL" uv==0.10.4
+COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN cd backend && uv export --frozen --only-group docs --no-emit-project --format requirements-txt -o /tmp/req.txt \
+ && uv venv /tmp/venv && uv pip install --python /tmp/venv --require-hashes --index-url "$UV_INDEX_URL" -r /tmp/req.txt
+COPY zensical.toml ./
+COPY docs ./docs
+COPY scripts/docs ./scripts/docs
+RUN ROR_DOCS_NO_UV=1 PATH=/tmp/venv/bin:$PATH scripts/docs/build-site.sh
+
 FROM ${REGISTRY_MIRROR}nginxinc/nginx-unprivileged:1.27-alpine
 ARG VERSION=0.0.0
 LABEL org.opencontainers.image.title="roracle-web" org.opencontainers.image.version="${VERSION}"
@@ -26,10 +39,12 @@ USER root
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY frontend/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY frontend/nginx/security-headers.conf /etc/nginx/security-headers.conf
+COPY frontend/nginx/docs-security-headers.conf /etc/nginx/docs-security-headers.conf
 COPY frontend/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY frontend/nginx/05-ror-env.envsh /docker-entrypoint.d/05-ror-env.envsh
 COPY frontend/nginx/25-api-proxy.sh /docker-entrypoint.d/25-api-proxy.sh
 RUN chmod 0755 /docker-entrypoint.d/05-ror-env.envsh /docker-entrypoint.d/25-api-proxy.sh
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=docs /src/site /usr/share/nginx/html/docs
 USER 101
 EXPOSE 8080

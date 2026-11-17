@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Doc checks: generated reference drift, links, code refs, Markdown lint, line cap, script lint + tests.
+# Doc checks: site build + air-gap guard, generated reference drift, links, code refs, Markdown lint, line cap, script lint + tests.
 # Runs from backend/ (ruff first-party detection). Local: `uv run`; CI (CI set): backend venv already on PATH.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -21,4 +21,5 @@ if [ -n "$over" ]; then echo "over 500 lines:"; echo "$over"; exit 1; fi
 echo "== scripts lint + tests"
 run ruff check "$ROOT/scripts/docs"; run ruff format --check "$ROOT/scripts/docs"
 run python -m unittest discover -s "$ROOT/scripts/docs/tests" -t "$ROOT/scripts/docs"
+echo "== site build + air-gap check"; "$ROOT/scripts/docs/build-site.sh"
 echo "docs checks OK"
