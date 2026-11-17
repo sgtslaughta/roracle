@@ -225,3 +225,31 @@ def test_sync_acl_many_rereads_postgres_on_every_try(es, db_session, user):
 
     search_index.sync_acl_many(es, [str(d.id)], compute)
     assert len(calls) == 1 and _src(es, d.id)["share_groups"] == []
+
+
+def test_sync_ensures_keyword_mapping_even_on_a_bare_index(
+    settings, db_session, user, session_factory, monkeypatch
+):
+    """An index of chunks-all that never went through ensure_index: the first ACL write must not dynamic-map
+    label_id as text (the must_not terms label_id gate would never match)."""
+    c = Elasticsearch(settings.elastic_url)
+    name = f"chunks-bare-{uuid.uuid4().hex[:8]}"
+    c.indices.create(
+        index=name,
+        aliases={search_index.MUTATE_ALIAS: {}},
+        mappings={"properties": {"doc_id": {"type": "keyword"}}},
+    )
+    monkeypatch.setattr(search_index, "_mapping_ensured", False)
+    d = _doc(db_session, user, 0)
+    db_session.flush()
+    try:
+        c.index(index=name, id="x:0", document={"doc_id": str(d.id), "chunk_id": "x:0"}, refresh=True)
+        items = acl_sync.read_acl_many(db_session, [d.id])
+        assert search_index.sync_acl_many(c, list(items), lambda ids: items) == 1
+        props = c.indices.get_mapping(index=name)[name]["mappings"]["properties"]
+        assert props["label_id"]["type"] == "keyword" and props["acl_hash"]["type"] == "keyword"
+        got = c.search(index=name, query={"bool": {"must_not": [{"terms": {"label_id": [str(d.label_id)]}}]}})
+        assert got["hits"]["total"]["value"] == 0  # the label gate matches
+    finally:
+        c.indices.delete(index=name, ignore_unavailable=True)
+        c.close()

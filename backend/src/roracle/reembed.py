@@ -211,6 +211,7 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str) -> None:
         acl, title = acls[x["doc_id"]]
         doc = {k: val for k, val in x.items() if k not in _VECTORS}
         doc.update(acl, title=title)  # ACL/tags/title from the fresh Postgres read, never from the source
+        doc["acl_hash"] = search_index.acl_hash(acl, title)  # describes exactly the fields written above
         doc["is_latest"] = bool(x.get("is_latest")) and x.get("version", 0) >= newest.get(x["doc_id"], 0)
         doc.update(embedding=v, embedding_model=target["model"], prompt_sha=prompt_sha(p))
         if i in sv:

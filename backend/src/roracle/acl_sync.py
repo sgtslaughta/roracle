@@ -19,7 +19,9 @@ def read_acl(session_factory: sessionmaker[Session], doc_id: UUID) -> tuple[dict
         d = s.get(Document, doc_id)
         if d is None or d.deleted_at is not None:
             return None
-        tags = list(s.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
+        tags = sorted(
+            s.scalars(select(Tag.tag).where(Tag.document_id == doc_id))
+        )  # Python order, as read_acl_many
         return {**search_index.acl_fields(s, d), "tags": tags}, d.title or "none"  # "none" matches ingest
 
 
@@ -63,31 +65,37 @@ def read_acl_many(session: Session, doc_ids: Collection[UUID]) -> dict[str, tupl
     }
 
 
+DRIFT_QUERY_DOCS = 200  # docs per search: keeps the bool clause count (3 per doc) far below max_clause_count
+
+
 def drifted(es: Elasticsearch, items: dict[str, tuple[dict, str]]) -> set[str]:
     """Doc ids with at least one chunk/unit whose `acl_hash` differs from Postgres (or has none)."""
-    if not items:
-        return set()
-    should = [
-        {
-            "bool": {
-                "filter": [{"term": {"doc_id": d}}],
-                "must_not": [{"term": {"acl_hash": search_index.acl_hash(a, t)}}],
+    found: set[str] = set()
+    keys = list(items)
+    for i in range(0, len(keys), DRIFT_QUERY_DOCS):
+        part = keys[i : i + DRIFT_QUERY_DOCS]
+        should = [
+            {
+                "bool": {
+                    "filter": [{"term": {"doc_id": d}}],
+                    "must_not": [{"term": {"acl_hash": search_index.acl_hash(*items[d])}}],
+                }
             }
-        }
-        for d, (a, t) in items.items()
-    ]
-    try:
-        r = es.search(
-            index=search_index.MUTATE_ALIAS,
-            query={"bool": {"should": should, "minimum_should_match": 1}},
-            collapse={"field": "doc_id"},
-            source=False,
-            size=len(items),
-            docvalue_fields=["doc_id"],
-        )
-    except NotFoundError:
-        return set()
-    return {h["fields"]["doc_id"][0] for h in r["hits"]["hits"]}
+            for d in part
+        ]
+        try:
+            r = es.search(
+                index=search_index.MUTATE_ALIAS,
+                query={"bool": {"should": should, "minimum_should_match": 1}},
+                collapse={"field": "doc_id"},
+                source=False,
+                size=len(part),
+                docvalue_fields=["doc_id"],
+            )
+        except NotFoundError:
+            return found
+        found |= {h["fields"]["doc_id"][0] for h in r["hits"]["hits"]}
+    return found
 
 
 def handle_acl_sync(

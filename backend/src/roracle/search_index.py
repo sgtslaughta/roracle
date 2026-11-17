@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -473,6 +474,26 @@ def _acl_request(items: dict[str, tuple[dict[str, Any], str | None]]) -> dict[st
     }
 
 
+_mapping_ensured = False
+
+
+def _ensure_acl_mapping(es: Elasticsearch) -> None:
+    """Once per process, before any ACL script write: `label_id` and `acl_hash` must be keywords on EVERY index of
+    `chunks-all`, or dynamic mapping makes them `text` and the `must_not terms label_id` gate (PAT block_agents)
+    silently never matches. Idempotent; a failure is logged and retried on the next sync."""
+    global _mapping_ensured
+    if _mapping_ensured:
+        return
+    try:
+        kw = {"type": "keyword"}
+        es.indices.put_mapping(index=MUTATE_ALIAS, properties={"label_id": kw, "acl_hash": kw})
+        _mapping_ensured = True
+    except NotFoundError:
+        pass  # nothing indexed yet: the first index is created with the right mapping
+    except Exception:
+        logging.getLogger(__name__).warning("could not ensure the label_id/acl_hash mapping", exc_info=True)
+
+
 def sync_acl_many(
     es: Elasticsearch,
     doc_ids: "list[str]",
@@ -481,6 +502,7 @@ def sync_acl_many(
     """Converge ACL/title/tags of many documents, `ACL_BATCH` per update_by_query; unchanged documents are
     no-ops. `compute(ids)` re-reads Postgres on EVERY try (documents it omits are skipped), so a concurrent
     revocation is never overwritten with data read earlier. Returns the number of chunks actually updated."""
+    _ensure_acl_mapping(es)
     updated = 0
     for i in range(0, len(doc_ids), ACL_BATCH):
         ids = doc_ids[i : i + ACL_BATCH]
@@ -502,4 +524,5 @@ def sync_acl(
             return {"index": MUTATE_ALIAS, "query": {"match_none": {}}, "script": {"source": "return"}}
         return _acl_request({str(doc_id): got})
 
+    _ensure_acl_mapping(es)
     run_update_by_query(es, build)

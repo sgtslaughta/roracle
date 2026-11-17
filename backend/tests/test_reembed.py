@@ -62,6 +62,9 @@ def test_copy_takes_acl_from_postgres_not_source(db_session, session_factory, es
         "everyone", "/", [], ["x"], "fresh",
     )  # fmt: skip
     assert t["owner_id"] == str(document.owner_id)
+    from roracle import acl_sync, search_index
+
+    assert t["acl_hash"] == search_index.acl_hash(*acl_sync.read_acl(session_factory, document.id))
     assert es.mutations == []  # nothing left to resync: written correct the first time
 
 

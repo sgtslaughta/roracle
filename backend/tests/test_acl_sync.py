@@ -60,3 +60,43 @@ def test_read_acl_many_matches_read_acl(db_session, session_factory, user):
     assert len(many) == 3
     for d in docs:
         assert many[str(d.id)] == acl_sync.read_acl(session_factory, d.id)
+
+
+class _Es:
+    def __init__(self):
+        self.puts, self.searches = [], []
+
+    class indices:
+        pass
+
+    def search(self, **kw):
+        self.searches.append(kw)
+        return {"hits": {"hits": []}}
+
+    def update_by_query(self, **kw):
+        return {"updated": 0}
+
+
+def test_mapping_guard_runs_once_per_process(monkeypatch):
+    calls = []
+
+    class Indices:
+        def put_mapping(self, **kw):
+            calls.append(kw)
+
+    es = _Es()
+    es.indices = Indices()
+    monkeypatch.setattr(search_index, "_mapping_ensured", False)
+    items = {"d": (ACL, "T")}
+    search_index.sync_acl_many(es, ["d"], lambda ids: items)
+    search_index.sync_acl(es, "d", lambda: items["d"])
+    assert len(calls) == 1
+    assert calls[0]["index"] == search_index.MUTATE_ALIAS
+    assert calls[0]["properties"] == {"label_id": {"type": "keyword"}, "acl_hash": {"type": "keyword"}}
+
+
+def test_drift_search_is_batched():
+    es = _Es()
+    items = {f"d{i}": (ACL, "T") for i in range(450)}
+    assert acl_sync.drifted(es, items) == set()
+    assert [len(q["query"]["bool"]["should"]) for q in es.searches] == [200, 200, 50]
