@@ -454,3 +454,26 @@ def test_backfill_links_earlier_refs_by_arxiv_id(db_session, ana):
     t, tv = lib(db_session, ana, "Late Arrival Paper")
     _meta(tv, db_session, arxiv="2611.20773")
     assert backfill_for(db_session, t) == 1 and targets(db_session, v) == [t.id]
+
+
+def test_isbn_is_metadata_only_never_links(db_session, ana):
+    a, av = lib(db_session, ana, "Paper From The Proceedings One")
+    _, bv = lib(db_session, ana, "Paper From The Proceedings Two")
+    _meta(av, db_session, isbn="9781450367080")
+    _meta(bv, db_session, isbn="9781450367080")
+    _, v = citing(db_session, ana, [{"title": "Proceedings", "year": 1999, "ids": {"isbn": "9781450367080"}}])
+    assert resolve_references(db_session, v) == 0 and targets(db_session, v) == []
+    assert backfill_for(db_session, a) == 0
+
+
+def test_citation_writers_take_the_advisory_lock(db_session, ana):
+    from sqlalchemy import text
+
+    from roracle.citations import CITATIONS_LOCK
+
+    lib(db_session, ana, "Lock Target Paper Here")
+    _, v = citing(db_session, ana, [{"title": "x", "year": 1}])
+    q = text("select count(*) from pg_locks where locktype='advisory' and pid=pg_backend_pid() and objid=:k")
+    assert db_session.scalar(q, {"k": CITATIONS_LOCK}) == 0
+    resolve_references(db_session, v)
+    assert db_session.scalar(q, {"k": CITATIONS_LOCK}) == 1  # held to the end of the transaction

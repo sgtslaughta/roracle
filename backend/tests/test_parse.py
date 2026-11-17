@@ -229,13 +229,30 @@ def _doc(*texts):
     return {"texts": [{"text": t, "prov": [{"page_no": p}]} for t, p in texts]}
 
 
-def test_merge_page_ids_first_page_only_grobid_wins():
+def test_merge_page_ids_stamp_only_first_page_grobid_wins():
     from roracle.ingest.parse import merge_page_ids
 
     doc = _doc(
-        ("arXiv:2611.20773v1 [cs.MA] 20 Nov 2026", 1), ("see arXiv:1111.2222", 2), ("doi:10.1234/x", 1)
+        ("arXiv:2611.20773v1 [cs.MA] 20 Nov 2026", 1),
+        ("see arXiv:1111.2222 [cs.CL]", 2),
+        ("doi:10.1234/x", 1),
     )
-    assert merge_page_ids({}, doc) == {"ids": {"arxiv": "2611.20773", "doi": "10.1234/x"}, "doi": "10.1234/x"}
-    m = merge_page_ids({"ids": {"arxiv": "9999.00001"}, "doi": None}, doc)
-    assert m["ids"]["arxiv"] == "9999.00001"
+    assert merge_page_ids({"ids": {}}, doc) == {"ids": {"arxiv": "2611.20773"}}  # no page-1 DOI
+    assert merge_page_ids({"ids": {"arxiv": "9999.00001"}}, doc)["ids"]["arxiv"] == "9999.00001"
+    assert merge_page_ids({"ids": {}}, _doc(("BERT (arXiv:1810.04805)", 1), ("arXiv:2611.20773 [cs.MA]", 1)))[
+        "ids"
+    ] == {"arxiv": "2611.20773"}
+    assert merge_page_ids({"ids": {}}, _doc(("BERT (arXiv:1810.04805)", 1))) == {"ids": {}}
+    assert merge_page_ids({}, doc) == {}  # GROBID gave nothing: no marker is invented
     assert merge_page_ids({"title": "T"}, _doc(("nothing", 1))) == {"title": "T"}
+
+
+def test_parse_tei_header_ambiguous_scheme_dropped_issne_and_isbn_kept_as_meta():
+    xml = (
+        b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><sourceDesc><biblStruct>'
+        b'<analytic><title>T</title><idno type="DOI">10.1/a</idno><idno type="DOI">10.1/b</idno></analytic>'
+        b'<monogr><idno type="ISSNe">2049-3630</idno><idno type="ISBN">978-0-306-40615-7</idno></monogr>'
+        b'<idno type="arXiv">1706.03762</idno></biblStruct></sourceDesc></fileDesc></teiHeader></TEI>'
+    )
+    meta, _ = parse_tei(xml)
+    assert meta["ids"] == {"eissn": "2049-3630", "isbn": "9780306406157", "arxiv": "1706.03762"}

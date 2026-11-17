@@ -50,7 +50,7 @@ def test_handler_empty_grobid_keeps_refs_and_skips_when_disabled(db_session, ana
     db_session.flush()
     monkeypatch.setattr(reparse, "grobid_metadata", lambda *a, **k: ({}, []))
     reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store())
-    assert v.references == [{"title": "keep", "year": 1}] and v.meta["ids"] == {}
+    assert v.references == [{"title": "keep", "year": 1}] and "ids" not in v.meta  # stays eligible
     _, v2 = seed(db_session, ana)
     off = SimpleNamespace(grobid_url="", grobid_timeout_s=5.0)
     reparse.handle_reparse_refs(db_session, {"version_id": str(v2.id)}, settings=off, store=_store())
@@ -74,3 +74,41 @@ def test_enqueue_missing_only_versions_without_ids_and_dedupes(db_session, ana):
     seed(db_session, ana)
     db_session.flush()
     assert reparse.enqueue_missing(db_session, limit=1) == 1
+
+
+def test_lease_checked_after_grobid_and_backfill_only_when_matchable_ids_change(
+    db_session, ana, grobid, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(reparse, "check_lease", lambda: calls.append("lease"))
+    monkeypatch.setattr(reparse, "backfill_for", lambda *a: calls.append("backfill"))
+    _, v = seed(db_session, ana)
+    db_session.flush()
+    reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store())
+    assert calls == ["lease", "backfill"]  # first parse learned doi/arxiv ids
+    calls.clear()
+    reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store())
+    assert calls == ["lease"]  # same matchable ids: no corpus-wide backfill
+
+
+def test_journal_and_container_ids_alone_do_not_trigger_backfill(db_session, ana, monkeypatch):
+    calls = []
+    monkeypatch.setattr(reparse, "backfill_for", lambda *a: calls.append(1))
+    monkeypatch.setattr(
+        reparse,
+        "grobid_metadata",
+        lambda *a, **k: ({"ids": {"issn": "0378-5955", "isbn": "9781450367080"}}, []),
+    )
+    _, v = seed(db_session, ana)
+    db_session.flush()
+    reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store())
+    assert calls == [] and v.meta["ids"]["issn"] == "0378-5955"
+
+
+def test_enqueue_ignores_jobs_without_version_id(db_session, ana):
+    from roracle.queue import enqueue
+
+    seed(db_session, ana)
+    enqueue(db_session, "reparse_refs", {})  # NOT IN (..NULL..) would hide every version
+    db_session.flush()
+    assert reparse.enqueue_missing(db_session) == 1

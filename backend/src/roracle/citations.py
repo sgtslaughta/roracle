@@ -15,6 +15,14 @@ from roracle.models import DocCitation, Document, DocumentVersion
 from roracle.queue import payload_uuid
 
 FUZZY_MIN = 92
+CITATIONS_LOCK = (
+    0x52454653  # advisory key serialising citation-edge writers (resolve_references/backfill_for)
+)
+
+
+def lock_citations(session: Session) -> None:
+    """Held to the end of the transaction: concurrent writers would otherwise leave edges for renumbered refs."""
+    session.execute(select(func.pg_advisory_xact_lock(CITATIONS_LOCK)))
 
 
 @dataclass(frozen=True)
@@ -108,6 +116,7 @@ def resolve_references(session: Session, version: DocumentVersion) -> int:
     """Replace the version's citation rows (idempotent); returns the number of references with a candidate.
 
     Matching is global: ALL candidates are stored; the viewer's best visible one is chosen at read time."""
+    lock_citations(session)
     index = _Index(_candidates(session, exclude=version.document_id))
     session.execute(delete(DocCitation).where(DocCitation.src_version_id == version.id))
     matched = 0
@@ -124,6 +133,7 @@ def resolve_references(session: Session, version: DocumentVersion) -> int:
 
 def backfill_for(session: Session, document: Document) -> int:
     """Rebuild the edges INTO `document` from other documents' latest searchable versions."""
+    lock_citations(session)
     index = _Index(_candidates(session, only=document.id))
     session.execute(delete(DocCitation).where(DocCitation.target_document_id == document.id))
     if not index.by_id and not index.by_year:

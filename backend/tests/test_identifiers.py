@@ -1,6 +1,6 @@
 import pytest
 
-from roracle.identifiers import extract_ids, normalize
+from roracle.identifiers import extract_arxiv_stamp, extract_ids, normalize
 
 
 @pytest.mark.parametrize(
@@ -13,11 +13,17 @@ from roracle.identifiers import extract_ids, normalize
         ("arxiv", "arXiv:1706.03762v5", "1706.03762"),
         ("arxiv", "https://arxiv.org/pdf/1706.03762v2.pdf", "1706.03762"),
         ("arxiv", "1706.03762", "1706.03762"),
-        ("arxiv", "arXiv:Math.GT/0309136v2", "math.GT/0309136"),
+        ("arxiv", "arXiv:Math.GT/0309136v2", "math/0309136"),
         ("arxiv", "hep-th/9901001", "hep-th/9901001"),
         ("arxiv", "17.03762", None),
         ("pmid", "PMID: 0123", "123"),
         ("pmid", "1234567890", None),
+        ("pmid", "PMID: 0", None),
+        ("pmid", "000", None),
+        ("doi", "10.1000/x y", None),
+        ("doi", "10.1002/(SICI)1097-4571(199806)", "10.1002/(sici)1097-4571(199806)"),
+        ("doi", "10.1000/abc(1))", "10.1000/abc(1)"),
+        ("isbn", "9780306404000", None),
         ("pmcid", "pmc5834102", "PMC5834102"),
         ("pmcid", "PMC12", None),
         ("isbn", "ISBN 0-306-40615-2", "9780306406157"),
@@ -73,7 +79,33 @@ def test_normalize(scheme, raw, want):
         ("ISSN 0378-5954", {}),
         ("0378-5955 unlabelled", {}),
         ("", {}),
+        ("arXiv preprint 1706.03762", {"arxiv": "1706.03762"}),
+        ("arXiv preprint arXiv:1706.03762v2", {"arxiv": "1706.03762"}),
+        ("ArXiv abs/1706.03762", {"arxiv": "1706.03762"}),
+        ("arXiv:math.GT/0309136v2", {"arxiv": "math/0309136"}),
+        ("https://aclweb.org/anthology/P/P19/P19-1001.pdf", {"acl": "P19-1001"}),
+        ("ISBN-13: 978-0-306-40615-7", {"isbn": "9780306406157"}),
+        ("ISBN 13: 978-0-306-40615-7", {"isbn": "9780306406157"}),
+        ("ISBN-10: 0-306-40615-2", {"isbn": "9780306406157"}),
+        ("ISBN 9780306404000", {}),
+        ("doi:10.1002/(SICI)1097-4571(199806)", {"doi": "10.1002/(sici)1097-4571(199806)"}),
+        ("(see doi:10.1000/abc.1)", {"doi": "10.1000/abc.1"}),
     ],
 )
 def test_extract(text, want):
     assert extract_ids(text) == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("arXiv:2611.20773v1 [cs.MA] 20 Nov 2026", {"arxiv": "2611.20773"}),
+        ("arXiv:math.GT/0309136v2 [math.GT]", {"arxiv": "math/0309136"}),
+        ("built on BERT (arXiv:1810.04805) and more", {}),
+        ("BERT (arXiv:1810.04805) ... arXiv:2611.20773v1 [cs.MA]", {"arxiv": "2611.20773"}),
+        ("arXiv:2611.20773 [cs.MA] arXiv:1810.04805 [cs.CL]", {}),
+        ("doi:10.1234/x PMID: 12345678", {}),
+    ],
+)
+def test_arxiv_stamp(text, want):
+    assert extract_arxiv_stamp(text) == want

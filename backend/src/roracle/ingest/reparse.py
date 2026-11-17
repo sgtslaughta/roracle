@@ -4,16 +4,16 @@
 import json
 import sys
 
-from sqlalchemy import String, cast, select, text
+from sqlalchemy import String, cast, exists, select, text
 from sqlalchemy.orm import Session
 
-from roracle.citations import backfill_for, resolve_references
+from roracle.citations import backfill_for, match_ids, resolve_references
 from roracle.config import Settings, get_settings
 from roracle.db import make_session_factory
 from roracle.ingest.parse import grobid_metadata, merge_page_ids
 from roracle.ingest.pipeline import docling_key
 from roracle.models import Document, DocumentVersion, Job
-from roracle.queue import enqueue, payload_uuid
+from roracle.queue import check_lease, enqueue, payload_uuid
 from roracle.storage import BlobStore
 
 KIND = "reparse_refs"
@@ -35,23 +35,24 @@ def handle_reparse_refs(session: Session, payload: dict, *, settings: Settings, 
     meta, refs = grobid_metadata(
         store.open(v.blob_sha256).read(), settings.grobid_url, timeout=settings.grobid_timeout_s
     )
+    check_lease()  # the slow call is done: stop here if the lease was lost
+    if "ids" not in meta:  # no parsed TEI: nothing learned, the version stays eligible for another reparse
+        return
     try:
         doc = json.loads(store.get_bytes(docling_key(v.id)))
     except Exception:  # noqa: BLE001  no parsed doc: header/reference ids only
         doc = {}
     new = merge_page_ids(meta, doc)
     old = v.meta or {}
-    ids = {**(old.get("ids") or {}), **(new.get("ids") or {})}
-    v.meta = {
-        **old,
-        "ids": ids,
-        "doi": ids.get("doi") or old.get("doi"),
-    }  # marker: ids present even when empty
+    ids = {**(old.get("ids") or {}), **new["ids"]}
+    before = match_ids(old)
+    v.meta = {**old, "ids": ids, "doi": ids.get("doi") or old.get("doi")}
     if refs:  # a failed/empty GROBID answer must not wipe the references we already have
         v.references = refs
     session.flush()
     resolve_references(session, v)
-    backfill_for(session, d)
+    if match_ids(v.meta) != before:  # edges INTO this document only depend on its matchable ids
+        backfill_for(session, d)
 
 
 def add_parser(sub) -> None:
@@ -61,8 +62,11 @@ def add_parser(sub) -> None:
 
 def enqueue_missing(session: Session, limit: int = 0) -> int:
     """Latest searchable PDF versions without meta.ids and with no queued/running reparse job; returns the count."""
-    pending = Job.payload["version_id"].astext
-    busy = select(pending).where(Job.kind == KIND, Job.status.in_(("queued", "running")))
+    busy = exists().where(
+        Job.kind == KIND,
+        Job.status.in_(("queued", "running")),
+        Job.payload["version_id"].astext == cast(DocumentVersion.id, String),
+    )
     q = (
         select(DocumentVersion.id)
         .join(Document, Document.id == DocumentVersion.document_id)
@@ -72,7 +76,7 @@ def enqueue_missing(session: Session, limit: int = 0) -> int:
             DocumentVersion.stage == "searchable",
             text("NOT (document_versions.meta ? 'ids')"),
             (DocumentVersion.filename.ilike("%.pdf")) | (DocumentVersion.content_type == "application/pdf"),
-            cast(DocumentVersion.id, String).not_in(busy),
+            ~busy,
         )
         .order_by(DocumentVersion.created_at, DocumentVersion.id)
     )

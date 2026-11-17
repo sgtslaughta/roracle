@@ -5,7 +5,7 @@ import re
 import httpx
 from lxml import etree
 
-from roracle.identifiers import SCHEMES, add_id, extract_ids
+from roracle.identifiers import SCHEMES, add_id, extract_arxiv_stamp, extract_ids
 from roracle.queue import NonRetryable
 
 _NS = {"t": "http://www.tei-c.org/ns/1.0"}
@@ -117,19 +117,16 @@ def document_text(doc: dict) -> str:
 
 
 def merge_page_ids(meta: dict, doc: dict) -> dict:
-    """Add label-anchored identifiers from the FIRST page (e.g. the arXiv margin stamp) to meta["ids"]; GROBID's
-    values win and the body is never scanned (it cites other papers)."""
+    """Add the arXiv margin stamp of the FIRST page to meta["ids"]; GROBID's values win. Only a parsed GROBID
+    answer (it carries `ids`) is enriched, so a version GROBID never parsed stays eligible for reparse."""
+    if "ids" not in meta:
+        return meta
     page1 = " ".join(
         str(t.get("text") or "")
         for t in doc.get("texts") or []
         if any(isinstance(p, dict) and p.get("page_no") == 1 for p in t.get("prov") or [])
     )
-    ids = {**extract_ids(page1), **(meta.get("ids") or {})}
-    if ids:
-        meta = {**meta, "ids": ids}
-        if not meta.get("doi") and ids.get("doi"):
-            meta["doi"] = ids["doi"]
-    return meta
+    return {**meta, "ids": {**extract_arxiv_stamp(page1), **meta["ids"]}}
 
 
 def _t(el, path: str) -> str | None:
@@ -159,17 +156,26 @@ def _year(el) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _ids(el, *, text: str = "") -> dict[str, str]:
-    """Identifiers of one biblStruct: typed <idno>s first, then <ptr target> URLs, then label-anchored text."""
-    ids: dict[str, str] = {}
+def _ids(el, *, text: str = "", own: bool = False) -> dict[str, str]:
+    """Identifiers of one biblStruct: typed <idno>s first, then <ptr target> URLs, then label-anchored text.
+    `own` (the paper's header): a scheme with several distinct values is ambiguous and dropped."""
+    found: list[dict[str, str]] = []
     for i in el.findall(".//t:idno", _NS):
         typ = (i.get("type") or "").lower()
+        typ = "eissn" if typ == "issne" else typ
         if typ in SCHEMES and (i.text or "").strip():
-            add_id(ids, typ, i.text)
-    for k, v in extract_ids(
-        " ".join(p.get("target") or "" for p in el.findall(".//t:ptr", _NS)) + " " + text
-    ).items():
-        ids.setdefault(k, v)
+            one: dict[str, str] = {}
+            add_id(one, typ, i.text)
+            found.append(one)
+    found.append(
+        extract_ids(" ".join(p.get("target") or "" for p in el.findall(".//t:ptr", _NS)) + " " + text)
+    )
+    ids: dict[str, str] = {}
+    for one in found:
+        for k, v in one.items():
+            ids.setdefault(k, v)
+    if own:
+        ids = {k: v for k, v in ids.items() if {o[k] for o in found if k in o} == {v}}
     return ids
 
 
@@ -196,7 +202,7 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
         meta["authors"] = _authors(ana) or _authors(bs.find("t:monogr", _NS))
         meta["year"] = _year(bs)
         meta["venue"] = _t(bs, "t:monogr/t:title")
-        meta["ids"] = _ids(bs)  # biblStruct only: abstract/body cite OTHER papers
+        meta["ids"] = _ids(bs, own=True)  # biblStruct only: abstract/body cite OTHER papers
         meta["doi"] = meta["ids"].get("doi")
     if meta["title"] is None:
         meta["title"] = _t(root, ".//t:teiHeader//t:titleStmt/t:title")
