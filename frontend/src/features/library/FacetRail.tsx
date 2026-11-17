@@ -1,4 +1,4 @@
-import { BookOpen, Building2, File, Folder, ShieldHalf, Tag, User } from "lucide-react";
+import { BookOpen, Newspaper, Building2, File, Folder, ShieldHalf, Tag, User } from "lucide-react";
 import { Fragment } from "react";
 import type { FacetName, FacetValue } from "@/api/types";
 import { useLabelName } from "@/features/labels/api";
@@ -15,6 +15,7 @@ export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> =
   tags: { label: "Tags", icon: Tag },
   author: { label: "Author", icon: User },
   venue: { label: "Venue", icon: BookOpen },
+  journal: { label: "Journal", icon: Newspaper },
   file_type: { label: "File type", icon: File },
   org_unit: { label: "Org unit", icon: Building2 },
   label: { label: "Sensitivity", icon: ShieldHalf },

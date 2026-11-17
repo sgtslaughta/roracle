@@ -18,7 +18,7 @@ from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import gated_docs
 from roracle.notes.community import attach_notes
 from roracle.search_acl import acl_filter
-from roracle.search_facets import facet_aggs, find_aggs, read_facets
+from roracle.search_facets import facet_aggs, find_aggs, journal_rows, read_facets
 from roracle.search_filters import facet_clauses, head_clauses, plain_clauses
 from roracle.search_index import active_index
 from roracle.search_limits import BROWSE_TRIES, BROWSE_WINDOW, MAX_DOCS
@@ -275,4 +275,6 @@ def find_values(
     except NotFoundError:
         return []
     buckets = resp.get("aggregations", {}).get("find", {}).get("v", {}).get("buckets", [])
+    if name == "journal":
+        return journal_rows(buckets)
     return [{"value": str(b["key"]), "count": b["doc_count"]} for b in buckets]

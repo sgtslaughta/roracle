@@ -1,7 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { X } from "lucide-react";
 import { ApiError } from "@/api/client";
-import type { LibrarySearch } from "@/lib/searchParams";
+import { ID_KINDS, type IdKind, type LibrarySearch } from "@/lib/searchParams";
+import { idName } from "./querySentence";
 import { useDoc } from "@/features/reader/api";
 import { RangeFields } from "./RangeFields";
 import type { useLibraryNav } from "./useLibraryNav";
@@ -50,6 +51,28 @@ export function HasFields({ search, nav }: { search: LibrarySearch; nav: Nav }) 
   ));
 }
 
+/** "Has identifier": one any / has / lacks select per kind, writing has_id / has_id_not. */
+export function IdFields({ search, nav }: { search: LibrarySearch; nav: Nav }) {
+  const set = (k: IdKind, v: string) => {
+    const drop = (a?: IdKind[]) => { const r = (a ?? []).filter((x) => x !== k); return r.length ? r : undefined; };
+    const add = (a?: IdKind[]) => [...(a ?? []), k];
+    nav.patch({ has_id: v === "has" ? add(drop(search.has_id)) : drop(search.has_id), has_id_not: v === "lacks" ? add(drop(search.has_id_not)) : drop(search.has_id_not) });
+  };
+  return (
+    <fieldset className="sids">
+      <legend>Has identifier</legend>
+      {ID_KINDS.map((k) => (
+        <label className="sfield" key={k}>
+          <span>{idName(k)}</span>
+          <select value={search.has_id?.includes(k) ? "has" : search.has_id_not?.includes(k) ? "lacks" : ""} onChange={(e) => set(k, e.target.value)}>
+            <option value="">Any</option><option value="has">Has</option><option value="lacks">Lacks</option>
+          </select>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 export function OwnerField({ search, nav }: { search: LibrarySearch; nav: Nav }) {
   const gid = useId();
   return (
@@ -75,6 +98,7 @@ export function SignalFilters({ search, nav }: { search: LibrarySearch; nav: Nav
     <div className="fgroup signals">
       {(["added", "pages", "votes", "cited"] as const).map((w) => <SignalField key={w} which={w} search={search} nav={nav} />)}
       <HasFields search={search} nav={nav} />
+      <IdFields search={search} nav={nav} />
       <OwnerField search={search} nav={nav} />
       {search.cites && <CitingRow id={search.cites} onRemove={() => nav.patch({ cites: undefined })} />}
     </div>

@@ -7,7 +7,7 @@ import { useFacetFind, type FindName } from "./api";
 
 export type FacetRow = { value: string; name: string; count: number };
 const LIMIT = 8;
-const FINDABLE: readonly string[] = ["author", "venue", "tags"];
+const FINDABLE: readonly string[] = ["author", "venue", "tags", "journal"];
 
 type Props = {
   k: FacetKey;
@@ -30,13 +30,13 @@ export function FacetGroup({ k, facet: { label, icon: Icon }, values, selected, 
   const findable = FINDABLE.includes(k);
   const found = useFacetFind(findable ? (k as FindName) : "author", findable ? find : "", search);
   const finding = findable && find.trim() !== "";
-  const rows: FacetRow[] = finding ? (found.data?.values ?? []).map((f) => ({ value: f.value, name: nameOf?.(f.value) ?? f.value, count: f.count })) : values;
+  const rows: FacetRow[] = finding ? (found.data?.values ?? []).map((f) => ({ value: f.value, name: (k === "journal" && typeof f.label === "string" ? f.label : nameOf?.(f.value)) ?? f.value, count: f.count })) : values;
   if (!values.length && !findable) return null;
 
   const row = (r: FacetRow) => {
     const ex = excluded.includes(r.value);
     return (
-      <div className="frow" key={r.value} title={r.name} data-excluded={ex || undefined}>
+      <div className="frow" key={r.value} title={k === "journal" ? r.value : r.name} data-excluded={ex || undefined}>
         <label>
           <Checkbox checked={selected.includes(r.value)} onCheckedChange={() => onToggle(r.value, "include")} aria-label={`Include ${label}: ${r.name}`} />
           <span className="v">{r.name}</span>

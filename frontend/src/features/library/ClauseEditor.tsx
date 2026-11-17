@@ -6,7 +6,7 @@ import { FacetGroup } from "./FacetGroup";
 import { FACET_META, facetRows } from "./FacetRail";
 import { Refine, ScopeSelect } from "./QueryBar";
 import type { EditTarget } from "./querySentence";
-import { CitingRow, HasFields, OwnerField, SignalField } from "./SignalFilters";
+import { CitingRow, HasFields, IdFields, OwnerField, SignalField } from "./SignalFilters";
 import { SortSelect } from "./SortSelect";
 import type { useLibraryNav } from "./useLibraryNav";
 import { YearFacet } from "./YearFacet";
@@ -41,7 +41,7 @@ export function ClauseEditor({ edit, search, nav, facets, onDone }: Props) {
     case "added": case "pages": case "votes": case "cited":
       return <SignalField which={edit} search={search} nav={nav} />;
     case "has":
-      return <HasFields search={search} nav={nav} />;
+      return <><HasFields search={search} nav={nav} /><IdFields search={search} nav={nav} /></>;
     case "owner":
       return <OwnerField search={search} nav={nav} />;
     case "cites":

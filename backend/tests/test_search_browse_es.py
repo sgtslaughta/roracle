@@ -373,3 +373,35 @@ def test_query_path_ignores_invisible_citers(
     assert [x["title"] for x in before[0]["results"]] == ["Deep a", "Deep b"]
     assert (before[1]["total"], before[2]["total"]) == (1, 0)
     assert before[1]["facets"]["tags"] == [{"value": "t", "count": 1}]
+
+
+def _ids(db, ver, ids, venue):
+    ver.meta = {**ver.meta, "ids": ids, "venue": venue}
+    db.flush()
+
+
+def test_journal_facet_and_has_id(client, as_ana, ana, bob, db_session, es, wired, session_factory):
+    def mk_(t, ids, venue, owner=ana, vis="everyone"):
+        dv = seed(db_session, owner, title=t, visibility=vis)
+        _ids(db_session, dv[1], ids, venue)
+        return dv
+
+    a = mk_("A", {"issn": "0028-0836", "pmid": "1"}, "Nature")
+    b = mk_("B", {"issn": "0028-0836"}, "Nature")
+    c = mk_("C", {"eissn": "0028-0836"}, "Nature (London)")
+    n = mk_("N", {}, "Cell")
+    hid = mk_("Hid", {"issn": "0028-0836"}, "Nature", owner=bob, vis="private")
+    docs = [a, b, c, n, hid]
+    for d, v in docs:
+        put(es, wired, db_session, d, v)
+    sync(es, wired, db_session, session_factory, [d for d, _ in docs])
+    want = [{"value": "0028-0836", "count": 3, "label": "Nature"}]
+    assert get(client, as_ana)["facets"]["journal"] == want
+    r = get(client, as_ana, journal_not="0028-0836")
+    assert [x["title"] for x in r["results"]] == ["N"]
+    r = get(client, as_ana, has_id="pmid")
+    assert [x["title"] for x in r["results"]] == ["A"]
+    assert {x["title"] for x in get(client, as_ana, has_id_not="pmid")["results"]} == {"B", "C", "N"}
+    assert get(client, as_ana, "/search/facets/journal", find="natu") == {"values": want}
+    assert get(client, as_ana, "/search/facets/journal", find="0028") == {"values": want}
+    assert get(client, as_ana, "/search/facets/journal", find=".*") == {"values": []}

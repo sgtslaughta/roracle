@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LibrarySearch } from "@/lib/searchParams";
 import { buildSentence, sentenceText, type Names } from "./querySentence";
 
-const names: Names = { collection: (id) => ({ c1: "Reading" } as Record<string, string>)[id] ?? id, label: (id) => ({ L9: "Restricted" } as Record<string, string>)[id] ?? id, doc: () => "Attention" };
+const names: Names = { collection: (id) => ({ c1: "Reading" } as Record<string, string>)[id] ?? id, label: (id) => ({ L9: "Restricted" } as Record<string, string>)[id] ?? id, doc: () => "Attention", journal: (i) => ({ "0028-0836": "Nature" } as Record<string, string>)[i] ?? i };
 
 describe("query sentence", () => {
   it("reads the example sentence", () => {

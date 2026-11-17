@@ -183,7 +183,7 @@ def facet_find(
     name: str,
     f: Annotated[FindParams, Query()],
 ) -> dict:
-    if name not in ("author", "venue", "tags"):
+    if name not in ("author", "venue", "tags", "journal"):
         raise HTTPException(404, "not found")
     if not fields_ready(es, settings):
         raise HTTPException(503, UPGRADING)

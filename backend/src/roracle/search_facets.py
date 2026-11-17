@@ -16,6 +16,28 @@ def _bool(f: SearchParams, skip: str) -> dict:
     return {"bool": {"filter": flt, "must_not": nn}}
 
 
+def _journal_terms(extra: dict | None = None) -> dict:
+    """Terms on ISSN; the top `venue` per ISSN is its label."""
+    return {
+        "terms": {"field": "issn", "size": FACET_MAX, **(extra or {})},
+        "aggs": {"name": {"terms": {"field": "venue", "size": 1}}},
+    }
+
+
+def journal_rows(buckets: list[dict]) -> list[dict]:
+    rows = []
+    for b in buckets:
+        top = (b.get("name") or {}).get("buckets") or []
+        rows.append(
+            {
+                "value": str(b["key"]),
+                "count": b["doc_count"],
+                "label": top[0]["key"] if top else str(b["key"]),
+            }
+        )
+    return rows
+
+
 def facet_aggs(f: SearchParams, colls: dict[str, tuple[str, list[str]]]) -> dict:
     """One `f_<name>` filter agg per facet, filtered by every OTHER facet (disjunctive counts)."""
     out: dict[str, Any] = {}
@@ -28,6 +50,8 @@ def facet_aggs(f: SearchParams, colls: dict[str, tuple[str, list[str]]]) -> dict
             inner = {
                 "filters": {"filters": {cid: {"terms": {"doc_id": ids}} for cid, (_, ids) in colls.items()}}
             }
+        elif k == "journal":
+            inner = _journal_terms()
         else:
             inner = {"terms": {"field": _FIELD[k], "size": FACET_MAX}}
         out[f"f_{k}"] = {"filter": _bool(f, k), "aggs": {"v": inner}}
@@ -44,6 +68,8 @@ def read_facets(aggs: dict, policy: Policy, colls: dict[str, tuple[str, list[str
                 for cid, b in v.get("buckets", {}).items()
                 if cid in colls and b["doc_count"] > 0
             ]
+        elif k == "journal":
+            rows = journal_rows(v.get("buckets", []))
         else:
             rows = [{"value": str(b["key"]), "count": b["doc_count"]} for b in v.get("buckets", [])]
             if k == "year":
@@ -79,7 +105,29 @@ def ci_regex(s: str) -> str:
     return ".*" + "".join(parts) + ".*"
 
 
-def find_aggs(name: Literal["author", "venue", "tags"], find: str, f: SearchParams) -> dict:
+def find_aggs(name: Literal["author", "venue", "tags", "journal"], find: str, f: SearchParams) -> dict:
+    if name == "journal":
+        flt, nn = facet_clauses(f, skip="journal")
+        match = {
+            "bool": {
+                "should": [
+                    {
+                        "regexp": {
+                            "venue": {
+                                "value": ".*" + _LUCENE_SPECIAL.sub(r"\\\1", find) + ".*",
+                                "case_insensitive": True,
+                            }
+                        }
+                    },
+                    {"prefix": {"issn": find.upper()}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        return {
+            "filter": {"bool": {"filter": [*flt, match], "must_not": nn}},
+            "aggs": {"v": _journal_terms()},
+        }
     return {
         "filter": _bool(f, name),
         "aggs": {"v": {"terms": {"field": _FIELD[name], "include": ci_regex(find), "size": FACET_MAX}}},

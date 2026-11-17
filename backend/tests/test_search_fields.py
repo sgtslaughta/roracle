@@ -12,9 +12,15 @@ def test_doc_fields_from_meta():
     v = DocumentVersion(filename="a.pdf", page_count=12, references=[{"title": "x"}],
                         meta={"venue": "NeurIPS", "doi": "10.1/x", "abstract": "Abs", "authors": ["Émile Zola", "B"]})  # fmt: skip
     d = Document(title="  The  Title ", created_at=NOW)
-    assert doc_fields(v, d) == {"venue": "NeurIPS", "venue_sort": "neurips", "has_doi": True, "has_abstract": True,
+    assert doc_fields(v, d) == {"venue": "NeurIPS", "venue_sort": "neurips", "has_doi": True, "issn": [], "ids_present": ["doi"], "has_abstract": True,
                                 "has_refs": True, "page_count": 12, "added_at": "2025-03-01T00:00:00+00:00",
                                 "title_sort": "the title", "first_author_sort": "émile zola", "authors_text": "Émile Zola; B"}  # fmt: skip
+
+
+def test_doc_fields_ids():
+    v = DocumentVersion(filename="a.pdf", meta={"ids": {"issn": "0028-0836", "pmid": "1"}}, references=[])
+    f = doc_fields(v, Document(title="t", created_at=NOW))
+    assert (f["issn"], f["ids_present"], f["has_doi"]) == (["0028-0836"], ["issn", "pmid"], False)
 
 
 def test_doc_fields_missing_meta():

@@ -59,7 +59,7 @@ def old_index(es, cfg, db_session, user, blob):
     es.update_by_query(  # strip what a pre-change ingest never wrote
         index=name, refresh=True,
         script={"source": "for (f in params.f) { ctx._source.remove(f) }", "params": {"f": [
-            "venue", "venue_sort", "has_doi", "has_abstract", "has_refs", "page_count", "added_at",
+            "venue", "venue_sort", "has_doi", "issn", "ids_present", "has_abstract", "has_refs", "page_count", "added_at",
             "title_sort", "first_author_sort", "authors_text", "abstract", "doc_head", "votes_net",
             "cited_by_global", "searchable"]}},
     )  # fmt: skip

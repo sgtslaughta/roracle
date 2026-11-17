@@ -53,7 +53,7 @@ export function SearchPage() {
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
   const collName = useCollectionName();
   const view = search.view ?? "list";
-  const names = useSentenceNames(search.cites);
+  const names = useSentenceNames(search.cites, data?.facets);
 
   return (
     <section className="view" aria-label="Library search">

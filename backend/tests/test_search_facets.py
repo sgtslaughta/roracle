@@ -85,3 +85,25 @@ def test_read_facets_shapes():
 def test_no_collections_omits_collection_agg():
     assert "f_collection" not in facet_aggs(SearchParams(), {})
     assert read_facets({}, Policy([]), {})["collection"] == []
+
+
+def test_journal_label_is_top_venue_else_issn():
+    full = {"key": "0028-0836", "doc_count": 3, "name": {"buckets": [{"key": "Nature", "doc_count": 2}]}}
+    bare = {"key": "1111-2222", "doc_count": 1, "name": {"buckets": []}}
+    out = read_facets({"f_journal": {"v": {"buckets": [full, bare]}}}, Policy([]), {})
+    assert out["journal"] == [
+        {"value": "0028-0836", "count": 3, "label": "Nature"},
+        {"value": "1111-2222", "count": 1, "label": "1111-2222"},
+    ]
+    a = facet_aggs(SearchParams(), {})["f_journal"]["aggs"]["v"]
+    assert a["terms"] == {"field": "issn", "size": FACET_MAX} and a["aggs"]["name"]["terms"]["size"] == 1
+
+
+def test_find_journal_aggs():
+    a = find_aggs("journal", "Na.t", SearchParams(tags=["a"], journal=["0028-0836"]))
+    m = a["filter"]["bool"]["filter"]
+    assert m[0] == {"terms": {"tags": ["a"]}} and len(m) == 2
+    s = m[1]["bool"]
+    assert s["minimum_should_match"] == 1
+    assert s["should"][0] == {"regexp": {"venue": {"value": r".*Na\.t.*", "case_insensitive": True}}}
+    assert s["should"][1] == {"prefix": {"issn": "NA.T"}}

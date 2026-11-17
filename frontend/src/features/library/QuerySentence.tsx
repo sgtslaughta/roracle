@@ -16,12 +16,13 @@ const LEAVE_MS = 160;
 const INPUT = "input[aria-label='Search the library']";
 
 /** Collection, label and cited-paper names for the sentence. A paper still loading reads as "…". */
-export function useSentenceNames(cites?: string): Names {
+export function useSentenceNames(cites?: string, facets?: Record<FacetName, FacetValue[]>): Names {
   const collection = useCollectionName();
   const label = useLabelName();
   const doc = useDoc(cites ?? "", !!cites);
   const gone = doc.error instanceof ApiError && doc.error.status === 404;
-  return { collection, label, doc: () => (doc.data ? doc.data.title || "Untitled" : gone ? undefined : "…") };
+  const journal = (issn: string) => { const l = facets?.journal?.find((f) => f.value === issn)?.label; return typeof l === "string" ? l : issn; };
+  return { collection, label, journal, doc: () => (doc.data ? doc.data.title || "Untitled" : gone ? undefined : "…") };
 }
 
 const animate = () => window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches === true;

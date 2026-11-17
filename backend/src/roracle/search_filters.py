@@ -11,6 +11,7 @@ _FIELD = {
     "file_type": "file_type",
     "org_unit": "org_unit",
     "label": "label_id",
+    "journal": "issn",
     "year": "year",
 }
 Clauses = tuple[list[dict], list[dict]]
@@ -56,6 +57,10 @@ def plain_clauses(f: SearchParams, p: Principal, scope: DocScope) -> Clauses:
             flt.append({"term": {fld: True}})
         elif v == "no":  # false or missing
             nn.append({"term": {fld: True}})
+    if f.has_id:
+        flt.append({"terms": {"ids_present": f.has_id}})
+    if f.has_id_not:
+        nn.append({"terms": {"ids_present": f.has_id_not}})
     me = {"term": {"owner_id": str(p.user_id)}}
     if f.owner == "mine":
         flt.append(me)

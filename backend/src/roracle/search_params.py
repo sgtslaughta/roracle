@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from roracle.search_ids import ID_KINDS, ISSN_RE
 from roracle.search_limits import AFTER_MAX, FIND_MAX, LIST_MAX, Q_MAX, VALUE_MAX
 
 Scope = Literal["anywhere", "title", "authors", "abstract", "fulltext"]
@@ -21,7 +22,7 @@ Sort = Literal[
     "venue",
     "pages",
 ]
-FACETS = ("tags", "author", "venue", "file_type", "org_unit", "label", "collection")
+FACETS = ("tags", "author", "venue", "file_type", "org_unit", "label", "collection", "journal")
 _LEGACY_SORTS = {"relevance", "newest", "votes", "title"}
 _LEGACY_KEYS = {"q", "tags", "author", "file_type", "org_unit", "collection", "label", "sort", "page", "size"}
 _LEGACY_KEYS |= {"after", "notes", "mode"}
@@ -30,6 +31,7 @@ _RANGES = (("year", 0, 3000), ("pages", 0, None), ("added", None, None))
 Val = Annotated[str, StringConstraints(max_length=VALUE_MAX)]
 Multi = Annotated[list[Val], Field(max_length=LIST_MAX)]
 YesNo = Literal["yes", "no"] | None
+IdKind = Literal[*ID_KINDS]
 
 
 def _uuids(vs: list[str]) -> list[str]:
@@ -61,6 +63,10 @@ class SearchParams(BaseModel):
     label_not: Multi = []
     collection: Multi = []
     collection_not: Multi = []
+    journal: Multi = []
+    journal_not: Multi = []
+    has_id: list[IdKind] = Field([], max_length=LIST_MAX)
+    has_id_not: list[IdKind] = Field([], max_length=LIST_MAX)
     tags_op: Literal["or", "and"] = "or"
     author_op: Literal["or", "and"] = "or"
     year_min: int | None = Field(None, ge=0, le=3000)
@@ -90,6 +96,8 @@ class SearchParams(BaseModel):
             if lo is not None and hi is not None and lo > hi:
                 raise ValueError(f"{name}_min must be <= {name}_max")
         self.label, self.label_not = _uuids(self.label), _uuids(self.label_not)
+        self.journal = [v for v in self.journal if ISSN_RE.match(v)]
+        self.journal_not = [v for v in self.journal_not if ISSN_RE.match(v)]
         for k in FACETS:
             out = set(getattr(self, f"{k}_not"))
             if out:

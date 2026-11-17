@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from roracle.models import Document, DocumentVersion
+from roracle.search_ids import id_kinds, issns
 
 SEARCH_FIELDS_VERSION = 1
 _kw: dict[str, Any] = {"type": "keyword"}
@@ -20,6 +21,8 @@ SEARCH_PROPS: dict[str, dict] = {
     "venue": _kw,
     "venue_sort": _kw,
     "has_doi": _bool,
+    "issn": _kw,
+    "ids_present": _kw,
     "has_abstract": _bool,
     "has_refs": _bool,
     "page_count": _int,
@@ -48,7 +51,9 @@ def doc_fields(version: Any, document: Any) -> dict[str, Any]:
     return {
         "venue": venue or None,
         "venue_sort": sort_key(venue),
-        "has_doi": bool(meta.get("doi")),
+        "has_doi": "doi" in id_kinds(meta),
+        "issn": issns(meta),
+        "ids_present": id_kinds(meta),
         "has_abstract": bool(meta.get("abstract")),
         "has_refs": bool(version.references),
         "page_count": version.page_count,

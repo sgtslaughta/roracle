@@ -1,16 +1,19 @@
-import type { FacetKey, LibrarySearch, Sort } from "@/lib/searchParams";
+import { ID_KINDS, type FacetKey, type IdKind, type LibrarySearch, type Sort } from "@/lib/searchParams";
 
 /** What the clause editor shows for a clause. */
 export type EditTarget = FacetKey | "q" | "year" | "added" | "pages" | "votes" | "cited" | "cites" | "owner" | "has" | "sort";
 /** `remove` is the nav patch that deletes this clause (its keys set to undefined). */
 export type Clause = { id: string; text: string; edit: EditTarget; remove: Partial<LibrarySearch> };
-export type Names = { collection(id: string): string; label(id: string): string; doc(id: string): string | undefined };
+export type Names = { collection(id: string): string; label(id: string): string; doc(id: string): string | undefined; journal(issn: string): string };
 
 const SCOPE_TEXT = { title: "in the title", authors: "in the authors", abstract: "in the abstract", fulltext: "in the full text" } as const;
 export const SORT_TEXT: Record<Sort, string> = {
   relevance: "relevance", newest: "recently added", published_desc: "newest published", published_asc: "oldest published", votes: "most votes",
   cited: "most cited", title: "title A–Z", first_author: "first author A–Z", venue: "venue A–Z", pages: "page count",
 };
+const ID_NAME: Record<IdKind, string> = { doi: "DOI", arxiv: "arXiv ID", pmid: "PMID", pmcid: "PMCID", isbn: "ISBN", acl: "ACL Anthology ID", openreview: "OpenReview ID", issn: "ISSN" };
+export const idName = (k: IdKind) => ID_NAME[k];
+const article = (n: string) => (/^[AEIOU]/i.test(n) ? "an" : "a");
 const HAS = [["has_doi", "a DOI"], ["has_abstract", "an abstract"], ["has_refs", "references"]] as const;
 
 /** "A", "A or B", "A, B or C". */
@@ -43,6 +46,11 @@ export function buildSentence(s: LibrarySearch, names: Names): Clause[] {
   c.push(...facet(s, "author", (v) => `by ${v}`, (v) => `not by ${v}`));
   add("year", "year", range(s.year_min, s.year_max, (a, b) => (a === b ? `published in ${a}` : `published ${a}–${b}`), (a) => `published ${a} or later`, (b) => `published ${b} or earlier`), { year_min: undefined, year_max: undefined });
   c.push(...facet(s, "venue", (v) => `in ${v}`, (v) => `not in ${v}`));
+  c.push(...facet(s, "journal", (v) => `in journal ${v}`, (v) => `not in journal ${v}`, (v) => quote(names.journal(v))));
+  const ids = (ks?: IdKind[]) => (ks ?? []).filter((k) => ID_KINDS.includes(k)).map(idName);
+  const yes = ids(s.has_id), no = ids(s.has_id_not);
+  if (yes.length) add("has_id", "has", `with ${article(yes[0])} ${list(yes)}`, { has_id: undefined });
+  if (no.length) add("has_id_not", "has", `without ${article(no[0])} ${list(no)}`, { has_id_not: undefined });
   c.push(...facet(s, "tags", (v) => `tagged ${v}`, (v) => `not tagged ${v}`));
   if (s.cited_min !== undefined) add("cited", "cited", `cited by ${plural(s.cited_min, "library paper", "library papers")}`, { cited_min: undefined });
   if (s.cites) { const t = names.doc(s.cites); add("cites", "cites", t === undefined ? "citing an unavailable paper" : `citing ${quote(t)}`, { cites: undefined }); }

@@ -129,7 +129,7 @@ export function useDeleteCollection() {
   });
 }
 
-export type FindName = "author" | "venue" | "tags";
+export type FindName = "author" | "venue" | "tags" | "journal";
 
 /** Facet find box: debounced 200 ms, off while empty. Counts follow the current search. */
 export function useFacetFind(name: FindName, find: string, s: LibrarySearch) {

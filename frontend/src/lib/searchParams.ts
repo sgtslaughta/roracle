@@ -1,5 +1,5 @@
 /** URL <-> library search state. Multi-value facets use repeated keys: ?tags=a&tags=b */
-export const FACET_KEYS = ["tags", "author", "venue", "file_type", "org_unit", "collection", "label"] as const;
+export const FACET_KEYS = ["tags", "author", "venue", "journal", "file_type", "org_unit", "collection", "label"] as const;
 export type FacetKey = (typeof FACET_KEYS)[number];
 export type NotKey = `${FacetKey}_not`;
 export const NOT_KEYS = FACET_KEYS.map((k) => `${k}_not`) as NotKey[];
@@ -19,6 +19,9 @@ const NUM_KEYS = ["year_min", "year_max", "pages_min", "pages_max", "votes_min",
 const DATE_KEYS = ["added_min", "added_max"] as const;
 const YESNO_KEYS = ["has_doi", "has_abstract", "has_refs"] as const;
 const OP_KEYS = ["tags_op", "author_op"] as const;
+export const ID_KINDS = ["doi", "arxiv", "pmid", "pmcid", "isbn", "acl", "openreview", "issn"] as const;
+export type IdKind = (typeof ID_KINDS)[number];
+const ISSN_RE = /^\d{4}-\d{3}[\dX]$/;
 type Yn = "yes" | "no";
 
 export type LibrarySearch = {
@@ -27,10 +30,11 @@ export type LibrarySearch = {
   year_min?: number; year_max?: number; pages_min?: number; pages_max?: number; votes_min?: number; cited_min?: number;
   added_min?: string; added_max?: string;
   has_doi?: Yn; has_abstract?: Yn; has_refs?: Yn;
+  has_id?: IdKind[]; has_id_not?: IdKind[];
   owner?: "mine" | "shared"; cites?: string; view?: View; cols?: Column[];
 } & { [K in FacetKey | NotKey]?: string[] };
 
-const ORDER = ["q", "in", ...ARRAY_KEYS, ...OP_KEYS, ...NUM_KEYS, ...DATE_KEYS, ...YESNO_KEYS, "owner", "cites", "sort", "page", "view", "cols"] as const;
+const ORDER = ["q", "in", ...ARRAY_KEYS, ...OP_KEYS, ...NUM_KEYS, ...DATE_KEYS, ...YESNO_KEYS, "has_id", "has_id_not", "owner", "cites", "sort", "page", "view", "cols"] as const;
 /** [min, max] per numeric key, matching backend/src/roracle/search_params.py. */
 const NUM_RANGE: Record<(typeof NUM_KEYS)[number], [number, number]> = {
   year_min: [0, 3000], year_max: [0, 3000], pages_min: [0, Number.MAX_SAFE_INTEGER], pages_max: [0, Number.MAX_SAFE_INTEGER],
@@ -38,7 +42,7 @@ const NUM_RANGE: Record<(typeof NUM_KEYS)[number], [number, number]> = {
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isArr = (k: string) => (ARRAY_KEYS as readonly string[]).includes(k);
+const isArr = (k: string) => (ARRAY_KEYS as readonly string[]).includes(k) || k === "has_id" || k === "has_id_not";
 const validDate = (v: string) => DATE_RE.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().startsWith(v);
 
 export function parseSearch(search: string): Record<string, unknown> {
@@ -90,6 +94,8 @@ export function validateLibrarySearch(s: Record<string, unknown>): LibrarySearch
   if (SORTS.includes(s.sort as Sort)) out.sort = s.sort;
   if (Number.isInteger(s.page) && (s.page as number) > 1) out.page = s.page;
   for (const k of ARRAY_KEYS) { const a = strs(s[k]); if (a.length) out[k] = a; }
+  for (const k of ["journal", "journal_not"] as const) { const a = (out[k] as string[] | undefined)?.filter((x) => ISSN_RE.test(x)); if (a?.length) out[k] = a; else delete out[k]; }
+  for (const k of ["has_id", "has_id_not"] as const) { const a = strs(s[k]).filter((x): x is IdKind => (ID_KINDS as readonly string[]).includes(x)); if (a.length) out[k] = [...new Set(a)]; }
   for (const k of FACET_KEYS) { // exclusion wins
     const ex = out[`${k}_not`] as string[] | undefined;
     if (ex && out[k]) { const a = (out[k] as string[]).filter((x) => !ex.includes(x)); if (a.length) out[k] = a; else delete out[k]; }

@@ -16,7 +16,9 @@ export function emphasize(text: string, ts: string[]): string {
   return safe.replace(re, "<em>$1</em>");
 }
 
-const FACETS: FacetName[] = ["tags", "year", "file_type", "org_unit", "collection", "author", "venue", "label"];
+const FACETS: FacetName[] = ["tags", "year", "file_type", "org_unit", "collection", "author", "venue", "journal", "label"];
+/** Mock ISSNs for the sample venues that are journals; the facet label is the venue. */
+const ISSNS: Record<string, string> = { "Journal of Combinatorial Spectra": "1111-2222", "Annals of Discrete Analysis": "3333-4444", "Numerical Linear Algebra Letters": "5555-666X" };
 const values: Record<FacetName, (d: MockDoc) => string[]> = {
   tags: (d) => tagsOf(d),
   year: (d) => [String(d.year)],
@@ -25,6 +27,7 @@ const values: Record<FacetName, (d: MockDoc) => string[]> = {
   collection: (d) => [...d.collections.map(collectionId).filter((c) => !(state.collRemoved[c] ?? []).includes(d.id)), ...Object.keys(state.collItems).filter((c) => state.collItems[c].includes(d.id))],
   author: (d) => d.authors,
   venue: (d) => [d.venue],
+  journal: (d) => (ISSNS[d.venue] ? [ISSNS[d.venue]] : []),
   label: (d) => [docLabel(d.id).id],
 };
 
@@ -116,7 +119,7 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
     const c: Record<string, number> = {};
     matched.filter((r) => passes(r.d, f)).forEach((r) => values[f](r.d).forEach((v) => (c[v] = (c[v] ?? 0) + 1)));
     facets[f] = Object.entries(c)
-      .map(([value, count]): FacetValue => (f === "collection" ? { value, count, label: COLLECTION_NAMES[Number(value.slice(1)) - 1] } : f === "label" ? { value, count, label: labelJson(value) } : { value, count }))
+      .map(([value, count]): FacetValue => (f === "collection" ? { value, count, label: COLLECTION_NAMES[Number(value.slice(1)) - 1] } : f === "journal" ? { value, count, label: Object.keys(ISSNS).find((k) => ISSNS[k] === value) } : f === "label" ? { value, count, label: labelJson(value) } : { value, count }))
       .sort((a, b) => (f === "year" ? Number(a.value) - Number(b.value) : b.count - a.count || a.value.localeCompare(b.value)));
   }
 

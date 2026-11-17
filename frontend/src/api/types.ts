@@ -48,7 +48,7 @@ export interface SearchHit {
   notes?: CommunityNote[];
 }
 
-export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author" | "venue" | "label";
+export type FacetName = "tags" | "year" | "file_type" | "org_unit" | "collection" | "author" | "venue" | "journal" | "label";
 /** `label` is the collection name (collection facet) or the label JSON (label facet; value is the label id). */
 export interface FacetValue { value: string; count: number; label?: string | Label }
 export interface SearchResponse {
