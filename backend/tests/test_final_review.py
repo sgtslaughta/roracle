@@ -65,3 +65,17 @@ def test_shutdown_release_is_capped_then_fails_with_a_clear_error(session_factor
     with session_factory() as s:
         j = s.get(Job, jid)
         assert j.status == "failed" and "drain window" in j.last_error
+
+
+def test_reconcile_tags_is_claimed_before_a_rebuild_backlog(session_factory):
+    from roracle.queue import claim, enqueue
+
+    with session_factory() as s:
+        for _ in range(3):
+            enqueue(s, "rebuild_units", {"version_ids": []})
+        enqueue(s, "reconcile_tags", {})
+        s.commit()
+    with session_factory() as s:
+        job = claim(s, ["rebuild_units", "reconcile_tags", "ingest"])
+        assert job.kind == "reconcile_tags"
+        s.commit()

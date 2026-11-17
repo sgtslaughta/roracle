@@ -185,13 +185,18 @@ def claim(session: Session, kinds: Collection[str], lease_s: float | None = None
     once, so the row lock is held for milliseconds and no transaction stays open while the job runs).
 
     Two steps, each an index-ordered `LIMIT 1` (no Sort): user kinds by (run_after, id), then bulk kinds
-    (same order), so bulk backfills never starve user work and a bulk backlog is never scanned past.
+    (same order; `reconcile_tags` before `rebuild_units`), so bulk backfills never starve user work or the drift
+    check, and a bulk backlog is never scanned past.
     """
     user = [k for k in kinds if k not in BULK_KINDS]
     bulk = [k for k in kinds if k in BULK_KINDS]
     job = _claim_step(session, user, _USER_ONLY) if user else None
     if job is None and bulk:
-        job = _claim_step(session, bulk, _BULK_ONLY)
+        # `reconcile_tags` (small drift detection) is claimed before a `rebuild_units` backlog, FIFO within each
+        first = [k for k in bulk if k == "reconcile_tags"]
+        job = _claim_step(session, first, _BULK_ONLY) if first else None
+        if job is None and (rest := [k for k in bulk if k != "reconcile_tags"]):
+            job = _claim_step(session, rest, _BULK_ONLY)
     if job is not None:
         job.status = "running"
         job.attempts += 1  # monotonic: never decremented (a release is counted in `released`)
