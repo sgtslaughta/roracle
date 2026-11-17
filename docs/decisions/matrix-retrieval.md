@@ -50,7 +50,7 @@ The optional Terraform `inference` module runs a vLLM-style server and is disabl
 
 | Option | Ratings | Total | Decision | Rationale | ADR | Status / trigger |
 |---|---|---|---|---|---|---|
-| Ollama on a GPU host (`qwen2.5:14b`, ctx-16k variant; `qwen2.5:3b` for the planner and summaries) | A4 S3 G5 P3 L4 O4 | 54 | **Chosen** for dev and the GPU host | Simple model import from a mirror (`ollama create`). Weaker batching under concurrency, and no API key by default. | ADR: none, see ledger (2026-11-16) | Provisional. The Qwen2.5 3B and 14B checkpoints are not published under the same licence: check each mirrored model before production |
+| Ollama on a GPU host (`qwen2.5:14b`, ctx-16k variant; `qwen2.5:3b` for the planner and summaries) | A4 S3 G5 P3 L4 O4 | 54 | **Chosen** for dev and the GPU host | Simple model import from a mirror (`ollama create`). Weaker batching under concurrency, and no API key by default. | ADR: none, see ledger `.worktrees/rq/.superpowers/sdd/rq/progress.md:3,24` (2026-11-16) | Provisional. The Qwen2.5 3B and 14B checkpoints are not published under the same licence: check each mirrored model before production |
 | vLLM (Terraform `inference` module) | A4 S4 G4 P5 L5 O3 | 59 | **Chosen** for in-cluster GPU (optional) | Continuous batching. The module enforces an LLM API key and a default-deny NetworkPolicy (ADR-0016). The image is several GB. | [0016](../adr/0016-terraform-iac.md) | Provisional. Off by default |
 
 Both rows are engines behind the same API, so the real decision is "any OpenAI-compatible endpoint". The models
