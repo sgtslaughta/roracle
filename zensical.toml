@@ -8,6 +8,7 @@ site_dir = "site"
 exclude_docs = """
 superpowers/
 prototype/
+assets/README.md
 """
 extra_css = ["stylesheets/roracle.css"]
 # Vendored mermaid (no CDN). Zensical's bundle only fetches unpkg.com/mermaid when the global is undefined.

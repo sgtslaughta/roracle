@@ -1,4 +1,5 @@
 # Build context: repo root.  docker build -f frontend/Dockerfile --build-arg VERSION=$(cat VERSION) -t roracle/web:dev .
+# Air-gap: also pass --build-arg UV_INDEX_URL=<PyPI mirror> (docs stage installs pinned zensical).
 ARG REGISTRY_MIRROR=""
 
 FROM ${REGISTRY_MIRROR}node:22-slim AS build

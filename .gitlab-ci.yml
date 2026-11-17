@@ -300,5 +300,5 @@ build-web:
       mkdir -p /kaniko/.docker
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile frontend/Dockerfile \
-        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" \
+        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" --build-arg UV_INDEX_URL="$UV_INDEX_URL" \
         --build-arg VERSION="$V" $DEST
