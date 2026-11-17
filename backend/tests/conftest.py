@@ -331,7 +331,9 @@ def _clear_search_caches():
     """Process-wide memo/page caches must never leak between tests."""
     from roracle import retrieval
     from roracle.api.routes import search as search_routes
+    from roracle.ingest import neardup
 
+    neardup._ready = False  # the LSH-ready marker lives in app_settings (truncated per test)
     retrieval._EMBEDS.clear()
     search_routes.PAGE_CACHE.clear()
     yield

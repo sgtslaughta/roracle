@@ -237,7 +237,10 @@ def _ensure_index(
         except BadRequestError as e:
             if e.error != "resource_already_exists_exception":
                 raise
-    if settings is not None:  # dynamic setting: existing (8.x-era) indices get ACORN without a re-embed
+    if (
+        settings is not None and create
+    ):  # dynamic setting: existing (8.x-era) indices get ACORN without a re-embed;
+        # not for the shadow rebuild path (`create=False`), which runs this for every document
         try:
             es.indices.put_settings(
                 index=name,

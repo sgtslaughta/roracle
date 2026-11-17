@@ -1,7 +1,8 @@
 """version_lsh: LSH bands of every version's MinHash (near-duplicate candidates by index lookup)
 
-Existing versions are backfilled by the one-off `lsh_backfill` job enqueued here; until it finishes the ingest
-falls back to the exhaustive check, so recall never drops during the upgrade.
+Existing versions are backfilled by the one-off `lsh_backfill` job enqueued here; the ingest uses the exhaustive
+check until the explicit `lsh_backfilled` marker exists (written by the last batch, never by a failed one), so recall
+never drops during the upgrade.
 
 Revision ID: 0014e
 Revises: 0014d
@@ -36,8 +37,14 @@ def upgrade() -> None:
         "INSERT INTO jobs (kind, payload) SELECT 'lsh_backfill', '{}'::jsonb"
         " WHERE EXISTS (SELECT 1 FROM document_versions WHERE minhash IS NOT NULL)"
     )
+    # nothing to backfill (fresh install): the LSH path is ready at once; otherwise the LAST batch writes the marker
+    op.execute(
+        "INSERT INTO app_settings (key, value) SELECT 'lsh_backfilled', 'true'::jsonb"
+        " WHERE NOT EXISTS (SELECT 1 FROM document_versions WHERE minhash IS NOT NULL)"
+    )
 
 
 def downgrade() -> None:
     op.execute("DELETE FROM jobs WHERE kind = 'lsh_backfill'")
+    op.execute("DELETE FROM app_settings WHERE key = 'lsh_backfilled'")
     op.drop_table("version_lsh")

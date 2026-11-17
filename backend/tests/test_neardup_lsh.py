@@ -15,6 +15,8 @@ from roracle.ingest.neardup import (
     _find_exhaustive,
     bands,
     find_near_duplicate,
+    lsh_ready,
+    mark_lsh_ready,
     minhash,
     similarity,
     write_bands,
@@ -23,6 +25,13 @@ from roracle.models import Blob, Document, DocumentVersion, Job, User, VersionLs
 from roracle.queue import enqueue
 
 TH, STH = 0.85, 0.97
+
+
+@pytest.fixture(autouse=True)
+def _ready(db_session, request):
+    """The LSH path is only used after the backfill marker exists (see test_backfill_*)."""
+    if "backfill" not in request.node.name:
+        mark_lsh_ready(db_session)
 
 
 class NoEs:
@@ -200,6 +209,7 @@ def test_backfill_job_writes_bands_and_blocks_the_fast_path_until_done(db_sessio
         payload = nxt[-1].payload
         nxt[-1].status = "done"
     assert db_session.scalar(select(func.count()).select_from(VersionLsh)) == 6 * 16  # 5 + the new one
+    assert lsh_ready(db_session)  # the LAST batch wrote the marker
     assert similarity(vs[0].minhash, new.minhash) == 1.0 and ana
 
 
@@ -228,3 +238,85 @@ def test_knn_against_real_es_finds_the_summary_twin_and_respects_the_acl(db_sess
         assert got is not None and got.id == pub.id  # eve's private twin is filtered by ES and by Postgres
     finally:
         es.indices.delete(index=index_name(cfg.embed_model), ignore_unavailable=True)
+
+
+def test_failed_or_partial_backfill_never_switches_to_lsh(db_session, monkeypatch):
+    monkeypatch.setattr(maintenance, "LSH_BATCH", 2)
+    rng = np.random.default_rng(6)
+    ana = user(db_session, "ana")
+    for _ in range(5):
+        version(db_session, ana, rand_sig(rng), bands_too=False)
+    maintenance.handle_lsh_backfill(db_session, {})  # first batch only: the chained job "failed" (never ran)
+    assert not lsh_ready(db_session)
+    db_session.execute(Job.__table__.insert().values(kind="lsh_backfill", payload={}, status="failed"))
+    assert not lsh_ready(db_session)  # a failed job is not a marker
+
+
+def test_hidden_band_sharing_versions_never_crowd_out_the_visible_copy(db_session, monkeypatch):
+    from roracle.ingest import neardup
+
+    monkeypatch.setattr(neardup, "MAX_CANDIDATES", 5)
+    rng = np.random.default_rng(7)
+    ana, bob = user(db_session, "ana"), user(db_session, "bob")
+    sig = rand_sig(rng)
+    for _ in range(
+        40
+    ):  # 40 private copies of the same paper: more than the candidate cap, none visible to ana
+        version(db_session, bob, sig, visibility="private")
+    _, pub = version(db_session, bob, sig)
+    _, new = version(db_session, ana, sig, stage="summarized")
+    got = find_near_duplicate(db_session, principal(ana), new, TH, STH, es=NoEs(), settings=_s())
+    assert got is not None and got.id == pub.id
+
+
+def test_threshold_below_the_banding_floor_uses_the_exhaustive_scan(db_session):
+    rng = np.random.default_rng(8)
+    ana, bob = user(db_session, "ana"), user(db_session, "bob")
+    sig = rand_sig(rng)
+    _, orig = version(db_session, bob, sig, bands_too=False)  # no bands at all: only a scan can find it
+    _, new = version(
+        db_session, ana, mutate(sig, rng, 0.2), stage="summarized", bands_too=False
+    )  # ~0.8 similar
+    assert find_near_duplicate(db_session, principal(ana), new, 0.85, STH, es=NoEs(), settings=_s()) is None
+    got = find_near_duplicate(db_session, principal(ana), new, 0.75, STH, es=NoEs(), settings=_s())
+    assert got is not None and got.id == orig.id
+
+
+def test_pairs_at_the_threshold_edge_are_still_found(db_session):
+    rng = np.random.default_rng(9)
+    ana = user(db_session, "ana")
+    others = [user(db_session, f"o{i}") for i in range(3)]
+    sigs = []
+    for i in range(300):
+        sigs.append(rand_sig(rng))
+        version(db_session, others[i % 3], sigs[-1])
+    p, wanted, found = principal(ana), 0, 0
+    for i in range(0, 300, 6):  # ĵ in 0.86-0.88: just above the 0.85 default
+        q = mutate(sigs[i], rng, 0.125)
+        _, new = version(db_session, ana, q, stage="summarized", bands_too=False)
+        want = _find_exhaustive(db_session, p, new, TH, STH)
+        got = find_near_duplicate(db_session, p, new, TH, STH, es=NoEs(), settings=_s())
+        wanted += want is not None
+        found += (got.id if got else None) == (want.id if want else None)
+    assert wanted >= 40 and found >= 49  # exact miss rate at the edge is ~0.04%: at most one pair of 50
+
+
+def test_two_simultaneous_uploads_park_only_the_later_one(db_session):
+    rng = np.random.default_rng(10)
+    ana = user(db_session, "ana")
+    sig = rand_sig(rng)
+    _, a = version(db_session, ana, sig, stage="summarized")
+    _, b = version(db_session, ana, sig, stage="summarized")
+    db_session.execute(
+        DocumentVersion.__table__.update()
+        .where(DocumentVersion.id == b.id)
+        .values(created_at=a.created_at.replace(microsecond=0) + __import__("datetime").timedelta(seconds=5))
+    )
+    db_session.refresh(a)
+    db_session.refresh(b)
+    p = principal(ana)
+    assert (
+        find_near_duplicate(db_session, p, a, TH, STH, es=NoEs(), settings=_s()) is None
+    )  # B is newer: ignored
+    got = find_near_duplicate(db_session, p, b, TH, STH, es=NoEs(), settings=_s())
+    assert got is not None and got.id == a.id  # only the later upload is parked

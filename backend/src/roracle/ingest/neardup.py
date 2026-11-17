@@ -12,7 +12,7 @@ import uuid
 import numpy as np
 from datasketch import MinHash
 from elasticsearch import NotFoundError
-from sqlalchemy import delete, exists, or_, select, text, tuple_
+from sqlalchemy import and_, delete, func, not_, or_, select, text, tuple_
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
@@ -20,7 +20,7 @@ from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest.embed import from_bytes
 from roracle.labels.policy import Policy
-from roracle.models import Document, DocumentVersion, Job, VersionLsh
+from roracle.models import AppSetting, Document, DocumentVersion, VersionLsh
 from roracle.search_acl import acl_filter
 from roracle.search_index import active_index
 
@@ -29,7 +29,11 @@ SEED = 1
 SCHEME = "affine64"  # uint64 hashvalues; explicit because it must be explicit when reloading hashvalues
 SHINGLE = 5
 BANDS, ROWS = 16, 8  # 16 bands x 8 rows: P(candidate) = 1-(1-s^8)^16 = 0.9999 at s=.9, .947 at .8, .60 at .7
-MAX_CANDIDATES = 500  # a degenerate bucket never turns the check back into a scan
+MAX_CANDIDATES = 500  # applied AFTER visibility, best band overlap first: a degenerate bucket is never a scan
+MIN_LSH_THRESHOLD = 0.8  # 16x8 banding misses 2% of pairs at 0.80, 16% at 0.75, 37% at 0.70: below it, scan
+LSH_MARKER = (
+    "lsh_backfilled"  # app_settings key written by the last backfill batch (or the migration when empty)
+)
 KNN_K = 10
 
 
@@ -106,8 +110,17 @@ def write_bands(session: Session, version_id, mh: bytes | None) -> None:
 def _visible(principal: Principal, version: DocumentVersion):
     """Candidates the uploader may be told about (R16/R19): visible documents, a searchable version unless it is
     the uploader's own, latest, not parked/rejected/cancelled, never the same document."""
+    mine_newer = and_(  # two uploads of the same paper at once: only the LATER one is parked, never both
+        Document.owner_id == principal.user_id,
+        DocumentVersion.stage != "searchable",
+        or_(
+            DocumentVersion.created_at > version.created_at,
+            and_(DocumentVersion.created_at == version.created_at, DocumentVersion.id > version.id),
+        ),
+    )
     return (
         visible_documents(principal),
+        not_(mine_newer),
         or_(Document.owner_id == principal.user_id, DocumentVersion.stage == "searchable"),  # R16
         DocumentVersion.is_latest.is_(True),
         DocumentVersion.document_id != version.document_id,
@@ -132,12 +145,21 @@ def _best(version: DocumentVersion, candidates, threshold: float, summary_thresh
     return best
 
 
-def lsh_backfill_pending(session: Session) -> bool:
-    return bool(
-        session.scalar(
-            select(exists().where(Job.kind == "lsh_backfill", Job.status.in_(("queued", "running"))))
-        )
-    )
+_ready = False
+
+
+def lsh_ready(session: Session) -> bool:
+    """True once the backfill finished (explicit marker; a failed or missing backfill keeps the exhaustive check).
+    Only a positive answer is cached in-process: it never turns false again."""
+    global _ready
+    if not _ready:
+        _ready = session.get(AppSetting, LSH_MARKER) is not None
+    return _ready
+
+
+def mark_lsh_ready(session: Session) -> None:
+    session.merge(AppSetting(key=LSH_MARKER, value=True))
+    session.flush()
 
 
 def find_near_duplicate(
@@ -156,19 +178,26 @@ def find_near_duplicate(
     on `summary_embedding` under the uploader's ACL filter, (c) the uploader's own in-flight versions (not yet
     indexed). EVERY candidate is then loaded through the same visibility predicates as the exhaustive check
     (R19 re-check in Postgres) and verified with the exact Jaccard / cosine against the unchanged thresholds.
-    Without them (tools, tests) or while `lsh_backfill` is still running: the exhaustive scan."""
+    Without them (tools, tests), before the backfill marker exists, or when `threshold < MIN_LSH_THRESHOLD` (the
+    banding is tuned for >= 0.8): the exhaustive scan. Summary vectors that are not in ES (indexed before
+    `summary_embedding` existed, other dimensions) are only compared by the exhaustive scan until re-embed/rebuild."""
     if not version.minhash and not version.summary_embedding:
         return None
-    if es is None or settings is None or lsh_backfill_pending(session):
+    if es is None or settings is None or threshold < MIN_LSH_THRESHOLD or not lsh_ready(session):
         return _find_exhaustive(session, principal, version, threshold, summary_threshold)
     ids: set = set()
     if version.minhash:
         keys = bands(version.minhash)
-        ids.update(
+        hits = func.count()
+        ids.update(  # visibility FIRST, then the best band overlap, then the cap
             session.scalars(
-                select(VersionLsh.version_id)
-                .where(tuple_(VersionLsh.band, VersionLsh.hash).in_(keys))
-                .distinct()
+                select(DocumentVersion.id)
+                .select_from(VersionLsh)
+                .join(DocumentVersion, DocumentVersion.id == VersionLsh.version_id)
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(tuple_(VersionLsh.band, VersionLsh.hash).in_(keys), *_visible(principal, version))
+                .group_by(DocumentVersion.id)
+                .order_by(hits.desc(), DocumentVersion.id)
                 .limit(MAX_CANDIDATES)
             )
         )

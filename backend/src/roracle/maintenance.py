@@ -207,7 +207,7 @@ LSH_BATCH = 500
 def handle_lsh_backfill(session: Session, payload: dict) -> None:
     """One-off (enqueued by migration 0014e): write the LSH bands of every version that has a MinHash, in id order,
     LSH_BATCH per job. The ingest keeps using the exhaustive check while this job exists."""
-    from roracle.ingest.neardup import write_bands
+    from roracle.ingest.neardup import mark_lsh_ready, write_bands
 
     q = select(DocumentVersion.id, DocumentVersion.minhash).where(DocumentVersion.minhash.is_not(None))
     if payload.get("after"):
@@ -217,6 +217,8 @@ def handle_lsh_backfill(session: Session, payload: dict) -> None:
         write_bands(session, vid, mh)
     if len(rows) == LSH_BATCH:
         enqueue(session, "lsh_backfill", {"after": str(rows[-1][0])})
+    else:
+        mark_lsh_ready(session)  # the ingest switches to the LSH path only from here
 
 
 def _scheduled(session: Session, *statuses: str) -> bool:
