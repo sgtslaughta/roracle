@@ -3,10 +3,12 @@
 Status: Accepted (2026-11-15)
 
 ## Context
+
 All document types must be supported, including scans. Facts mentioned deep inside a document must
 surface in search. Everything must run offline.
 
 ## Decision
+
 Stages run as jobs: ClamAV scan → exact dedup → Gotenberg (office → PDF) → Docling parse (layout,
 OCR, tables, page + bbox) + GROBID (metadata, references) → LLM summary → near-dup check →
 Docling `HybridChunker` (~400–500 tokens, embedding tokenizer, structure-aware) → embed with a
@@ -14,5 +16,10 @@ context prefix (title, section path, summary) → index → reference linking.
 Whole-document embeddings are used only for "papers about X" and near-dup, never as the only path.
 
 ## Consequences
+
 - Every model and tokenizer must be mirrored; nothing downloads weights at runtime.
 - Each stage is retryable on its own; users see per-stage status.
+
+## Update (2026-11-17)
+
+Amended in part by [ADR-0015](0015-retrieval-quality.md): the chunk context prefix can gain an LLM situating note (`ROR_CONTEXT_NOTES`, default `false` until its eval report passes), and per-document summary units (`ROR_RAPTOR`, default `false`) are an optional extra index layer. The stage order above is otherwise as built (`ingest/pipeline.py`).

@@ -23,7 +23,7 @@ const seedTokens = (): AccessToken[] => [{
   revoked_at: null, last_used_at: iso(-2 * 3600_000), created_at: iso(-10 * DAY),
 }];
 
-const tokens = () => (state.tokens ??= seedTokens());
+export const tokens = () => (state.tokens ??= seedTokens());
 
 function row(h: MockHandoff): HandoffRow {
   const { code, display, kind, title, audience, expires_at, created_at, created_via } = h.m;

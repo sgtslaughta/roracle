@@ -1,6 +1,6 @@
 # rOracle — Product & System Specification
 
-Status: agreed 2026-11-15 (design interview rounds 1–9, prototype v15).
+Status: agreed 2026-11-15 (design interview rounds 1–9, prototype v15). Architecture text updated 2026-11-17: S3 object store instead of MinIO ([ADR-0016](adr/0016-terraform-iac.md)), no Valkey, Elasticsearch 9.5.6 ([ADR-0015](adr/0015-retrieval-quality.md)).
 Name: **rOracle** in prose/UI; `roracle` in code, packages, hosts, URIs.
 Decisions with lasting consequences are recorded in [`docs/adr/`](adr/).
 Clickable prototype: https://claude.ai/artifact/23jPeygSNRunuQBE6qGXHt
@@ -24,12 +24,11 @@ Latency targets (p95): search < 500 ms; chat time-to-first-token < 2 s; upload �
 | Component | Role |
 |---|---|
 | Postgres (CloudNativePG) | Source of truth: users, documents, versions, ACLs, tags, votes, collections, chats, notes, proposals, drafts, connectors, settings, audit log, job queue |
-| MinIO (S3 API) | Raw files, derived PDFs, evidence packages; content-addressed by SHA-256 |
-| Elasticsearch (ECK, Basic) | Chunks, vectors, notes, evidence metadata. Rebuildable from Postgres + MinIO |
+| Object store (S3 API: Rook-Ceph RGW or an external S3, [ADR-0016](adr/0016-terraform-iac.md)) | Raw files, derived PDFs, evidence packages; content-addressed by SHA-256 |
+| Elasticsearch (ECK, Basic) | Chunks, vectors, notes, evidence metadata. Rebuildable from Postgres + the object store |
 | `backend` image | One Python codebase, three entrypoints: `api` (FastAPI: REST, SSE, MCP at `/mcp`), `worker` (jobs), `migrate` (Alembic) |
 | `web` image | nginx serving the React SPA |
-| Sidecar services | Docling, GROBID, Gotenberg, ClamAV, `latex-builder`; all from internal registry |
-| Valkey (optional) | Cache / rate limits only, behind a flag |
+| Sidecar services | Docling, GROBID, Gotenberg, ClamAV; all from internal registry (`latex-builder` is a contract only, not shipped) |
 
 ## 3. Identity & access (ADR-0004, 0002)
 
@@ -51,6 +50,7 @@ Sources: user upload (≤ 500 MB, admin-configurable), connectors (S3, filesyste
 pluggable interface, schedules, run logs).
 
 Pipeline stages (each a job; user sees them in **My uploads**: Scanned → Parsed → Chunked → Embedded → Searchable):
+
 1. **Scan** with ClamAV (can be turned off when there is no signature mirror).
 2. **Exact dedup**: SHA-256. Same bytes → store blob once (refcount), reuse chunks. Reveal the match
    **only** if the uploader can already see a document with that blob ("You already have access to
@@ -125,6 +125,7 @@ blobs purged when refcount reaches zero; citations to purged documents show "sou
 ## 7. Agentic features (ADR-0010)
 
 **Handoff** — "Continue in agent" on chat, reader, search, collection, draft.
+
 - Snapshot for chats; live reference + membership snapshot for collections.
 - `load_handoff` returns manifest: kind, title, goal, LLM brief (editable at creation), doc ids,
   cited passages; full transcript via `get_handoff_part` (paged).
@@ -170,9 +171,9 @@ statically. Refuting evidence is shown, not scored. rOracle stores; it does not 
   Deterministic checks may block; LLM style checks warn; admins choose per rule.
 - `check_citations`: every citation resolves to a library doc **and** the cited passage supports the
   sentence; unresolved/unsupported citations block submission until fixed or acknowledged.
-- Build: Markdown → pandoc → HTML (KaTeX) → Gotenberg PDF; LaTeX via in-cluster `latex-builder`
-  (TeX Live, no shell-escape, no network, 120 s / 2 GB) behind an interface allowing a GitLab-runner
-  backend.
+- Build: Markdown → pandoc → HTML (KaTeX) → Gotenberg PDF; LaTeX via an in-cluster `latex-builder`
+  (TeX Live, no shell-escape, no network, 120 s / 2 GB; contract only, not shipped: LaTeX builds return 501,
+  see `docs/enterprise/latex-builder.md`) behind an interface allowing a GitLab-runner backend.
 - Submit → optional org-unit review → normal ingest → chosen visibility. AI-assistance disclosure
   required and displayed.
 
@@ -215,9 +216,9 @@ Never near-black in dark mode. Logo: `frontend/public/logo.png` (+ favicon, touc
 
 ## 12. Operations (ADR-0013)
 
-Helm chart; Kubernetes with ECK + CloudNativePG + MinIO; ≥ 3 replicas for stateful HA.
+Helm chart; Kubernetes with ECK + CloudNativePG + an S3 object store (Rook-Ceph RGW or external); ≥ 3 replicas for stateful HA.
 OpenTelemetry → Prometheus/Grafana/Loki (bundled, optional). Backups: Postgres PITR RPO ≤ 5 min,
-Elastic snapshots (RPO ≤ 24 h, rebuildable), MinIO replication; RTO ≤ 4 h. STIG-hardened images.
+Elastic snapshots (RPO ≤ 24 h, rebuildable), backup buckets with S3 object lock; RTO ≤ 4 h. STIG-hardened images.
 Docker Compose dev stack (Keycloak test realm, Postgres, Elastic, MinIO, mock OpenAI server, no
 mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one SemVer for the product
 (`VERSION` file).
@@ -238,7 +239,7 @@ mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one Sem
 | 10 | Connectors & admin | S3/fs/HTTP connectors, admin section, notifications |
 | 11 | Production | Helm, HA, observability, backups, hardening, load tests against latency targets |
 | 13 | Retrieval quality | **Runs before 12.** Eval harness (gold sets, per-principal Recall@k/MRR/nDCG, LLM judge, CI, admin trend), cross-encoder rerank, contextual chunk notes, per-document summary units, query router + global map-reduce, eval-gated agentic retrieval |
-| 12 | Documentation | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
+| 12 | Documentation (done) | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
 | 14 | Infrastructure as code | Terraform onto existing Kubernetes wrapping the Helm charts; placeholder-gated air-gap mirrors; sizing profiles; kind apply rehearsal in CI-able script |
 
 Plan 14 runs after 13 and before 12 (Documentation), which stays last so it can document the IaC.

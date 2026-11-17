@@ -3,6 +3,7 @@
 Status: Accepted (2026-11-16). Amends ADR-0005 (chunk context prefix) and ADR-0007 (rerank depth).
 
 ## Context
+
 Enterprise deployments may hold a very large corpus. The user ranks answer accuracy first; compute is
 cheap and plentiful (RTX 4090 host `game-01`). Every retrieval index is ACL-filtered per caller
 (ADR-0002) and Postgres re-checks every hit (R19); sensitivity labels (ADR-0014) keep `exclude_llm`
@@ -10,6 +11,7 @@ documents away from every LLM and `block_agents` documents away from PAT princip
 techniques that summarise *across* documents conflict with all three.
 
 ## Decision
+
 1. **Measure first.** An eval harness (`roracle eval`) scores gold sets — YAML/JSON fixtures and
    admin-curated sets in Postgres — **per principal** through the production retrieval path.
    Metrics: Recall@{5,10,50,100}, MRR, nDCG@10 at passage and document level, plus LLM-judged answer
@@ -49,6 +51,7 @@ techniques that summarise *across* documents conflict with all three.
    decomposition loop (chat and MCP `ask`), behind a setting and the gain gate.
 
 ## Rejected: corpus-wide GraphRAG / cross-document RAPTOR
+
 - A summary or community report built from several documents mixes their ACLs and labels. It cannot
   be post-filtered per caller (R19 works per document), so it either leaks or must be dropped for
   almost everyone.
@@ -60,6 +63,7 @@ Query-time map-reduce over per-document summaries (Decision 6) covers global que
 caller's own visibility at the moment of asking.
 
 ## Consequences
+
 - New service on the GPU host (TEI) and new air-gap mirror entries (image + model weights).
 - Ingest and rebuild cost grows with chunk count (one LLM call per chunk, two-level summaries per
   document); compute is cheap by user decision, and results are cached per version.
@@ -92,6 +96,7 @@ router/agentic); the report holds the exact compare command. A verdict is INSUFF
 200 active queries or fewer than 3 principals, and no flag may flip without a PASS.
 
 ### Elasticsearch 9.5.6, vector storage and filtered search (performance work, Task 10)
+
 - **Decision (user):** Elasticsearch **9.5.6** on a fresh cluster with a rebuild from Postgres + MinIO (no 8.19 hop; the chart
   comment documents the in-place path 8.15 -> 8.19.x -> 9.5.x for operators who keep a cluster). The Python client is 9.x.
 - `index_options` are always explicit (`search_index.vector_index_options`; ES 9.1+ would otherwise pick `bbq_hnsw`
@@ -104,6 +109,7 @@ router/agentic); the report holds the exact compare command. A verdict is INSUFF
   Details: `capacity-planning.md`.
 
 ### Performance budgets (Task 10) and their measured state
+
 Budgets live in `docs/perf/budgets.yaml`; measured vs budget at 1,000,000 documents / 1,000,000 chunks, with every
 extrapolation labelled, in `docs/perf/report-2026-11-17.md`: all 12 rows of the report pass (11 budgets in `budgets.yaml` plus the Postgres-time sub-budget; rebuild is modelled) (claim is governed by p99 per
 ruling; browse at 10M documents and Elasticsearch at 10M chunks are extrapolated; ingest throughput per worker cannot be
@@ -113,3 +119,7 @@ random vectors, API CPU per process, and a reconcile-gate gap (all fixed or docu
 Structural changes behind the numbers: job leases with a per-claim fencing token and drain (ADR-0003 amendment), keyset
 browse, LSH near-duplicate lookup, sliced re-embed with a pre-swap convergence pass, explicit connection budget
 (`docs/perf/connection-budget.md`).
+
+## Update (2026-11-17)
+
+The Elasticsearch 9.5.6 decision above says "a rebuild from Postgres + MinIO"; read "the object store" (Rook-Ceph RGW or external S3, [ADR-0016](0016-terraform-iac.md)). Still true and eval-gated: `bbq_hnsw` is not the default (`int8_hnsw` is, `config.py:93`), and every feature flag in the table stays `false` in `config.py` until its report says PASS. The agentic planner model (`ROR_AGENTIC_PLANNER_MODEL`, empty = the first chat model) has only a ledger ruling, not its own ADR.

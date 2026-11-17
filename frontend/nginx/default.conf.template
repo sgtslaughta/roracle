@@ -41,6 +41,15 @@ server {
     add_header Cache-Control "public, max-age=31536000, immutable";
   }
 
+  # Static docs site (built into /usr/share/nginx/html/docs); own CSP (inline bootstrap scripts), never the SPA fallback
+  location = /docs { absolute_redirect off; return 301 /docs/; }
+  location /docs/ {
+    absolute_redirect off;
+    try_files $uri $uri/index.html =404;
+    include /etc/nginx/docs-security-headers.conf;
+    add_header Cache-Control "no-cache";
+  }
+
   # index.html, public files and SPA fallback
   location / {
     try_files $uri /index.html;

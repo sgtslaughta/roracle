@@ -4,24 +4,27 @@
 is the output of `roracle eval compare` for ONE feature; a default flips on only when its report says **PASS**.
 
 ## Gold sets
+
 - **Fixture** (YAML/JSON, `backend/tests/eval/fixture.yaml`): a synthetic corpus with principals and labels; `roracle eval ci --fixture
   ... --floors tests/eval/floors.json --out ...` seeds it into a scratch index and fails on any ACL violation or a metric under the floors
   (GitLab job `eval`, no GPU, no network).
-- **Admin sets** (Postgres, Eval page / `/admin/eval/*`): curated queries with the principals that may see each answer and a
+- **Admin sets** (Postgres, Eval page / `/api/admin/eval/*`): curated queries with the principals that may see each answer and a
   quote or page as relevance anchor (chunk ids are never stored). A run refuses a set whose queries reference only admins.
 - **SciFact baseline** (offline): download BEIR SciFact once, then `roracle eval import-beir <dir> --set scifact --owner <non-admin
   user> --principals a,b,c` (ingests each abstract as a document; idempotent). LLM-generated own-corpus questions come from the
-  Eval page (`POST /admin/eval/sets/{id}/generate`, drafts that an admin reviews).
-- **Reference set**: the one set with `is_reference` (set it with `PATCH /admin/eval/sets/{id}`); the gate needs >= 200 active
+  Eval page (`POST /api/admin/eval/sets/{id}/generate`, drafts that an admin reviews).
+- **Reference set**: the one set with `is_reference` (set it with `PATCH /api/admin/eval/sets/{id}`); the gate needs >= 200 active
   queries and >= 3 distinct principals (>= 1 non-admin), otherwise the verdict is INSUFFICIENT. Automatic runs (after a re-embed
   cutover or a rebuild, `ROR_EVAL_ON_REINDEX`) use it.
 
 ## A/B report (what produces the files here)
-```
+
+```text
 uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|multihop|global> [--judge] \
   --baseline "k=v,..." --candidate "k=v,..." [--candidate-index <shadow index>] [--latency-budget-ms N] \
   --out docs/eval/<date>-<feature>.md
 ```
+
 - Both configurations run on the same corpus; overrides are `KEY=VAL` of the eval-only keys (`eval/cli.py::EVAL_KEYS`: `rerank_url`, `rerank_api`, `rerank_model`,
   `rerank_timeout_s`, `rerank_max_chars`, `rerank_max_batch`, `rerank_blend`, `chat_candidates`, `context_notes`, `context_model`,
   `raptor`, `router_llm`, `agentic_retrieval`, `agentic_max_steps`, `agentic_max_subqueries`, `agentic_timeout_s`,
@@ -38,14 +41,16 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   Recall@10 gain 0.05 and `fact` nDCG@10 loss <= 0.005.
 
 ## Reading the files
+
 - `PENDING` = the command is recorded but the run has not been made on a >= 200-query reference set. The feature stays off.
 - A recorded run that did not pass is kept in the file next to its diagnosis (see `2026-11-16-rerank.md`).
-- Files: rerank, context notes, RAPTOR, router, agentic. The compare command overwrites the file with the gate table; keep
+- Files: [rerank](2026-11-16-rerank.md), [context notes](2026-11-16-context-notes.md), [RAPTOR](2026-11-16-raptor.md), [router](2026-11-16-router.md), [agentic](2026-11-17-agentic.md). The compare command overwrites the file with the gate table; keep
   latency notes and PENDING context in the PR description.
-- Trend: `GET /admin/eval/runs` and the Eval page show the stored runs per set (runs of `trigger` cli, ci, admin, model_change, reindex,
+- Trend: `GET /api/admin/eval/runs` and the Eval page show the stored runs per set (runs of `trigger` cli, ci, admin, model_change, reindex,
   compare). Performance budgets are a separate gate: `docs/perf/README.md`.
 
 ## Recorded SciFact evidence (BEIR, 300 queries, 1,200 query-principal pairs, 0 ACL violations)
+
 - Baseline, library search: [`scifact/baseline-search.md`](scifact/baseline-search.md); chat path: [`scifact/baseline-chat.md`](scifact/baseline-chat.md).
 - Reranker (TEI bge-reranker-v2-m3, depth 200, scores replaced): chat [`scifact/rerank-chat-200.md`](scifact/rerank-chat-200.md) (FAIL),
   search [`scifact/rerank-search-200.md`](scifact/rerank-search-200.md) (INSUFFICIENT); diagnosis and the title+text / blend variants:

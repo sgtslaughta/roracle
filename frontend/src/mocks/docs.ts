@@ -3,7 +3,7 @@
 export interface MockRef { id?: string; t?: string }
 export interface MockDoc {
   id: string; short: string; title: string; authors: string[]; venue: string; year: number; type: "PDF" | "Word";
-  org: string; tags: string[]; up: number; down: number; ver: number; flag?: string; collections: string[];
+  org: string; tags: string[]; up: number; down: number; ver: number; flag?: string; collections: string[]; ids?: Record<string, string>;
   refs: MockRef[]; pages: string[][];
 }
 
@@ -21,6 +21,7 @@ export const DOCS: MockDoc[] = [
     up: 42,
     down: 3,
     ver: 2,
+    ids: { doi: "10.1000/example.2021.0042", arxiv: "2101.00001" },
     collections: ["Thesis reading list"],
     refs: [{"t":"N. Alon. Eigenvalues and expanders. Combinatorica, 1986."},{"t":"J. Friedman. A proof of Alon's second eigenvalue conjecture and related problems. Memoirs of the AMS, 2008."},{"id":"00000000-0000-4000-8000-000000000004"}],
     pages: [

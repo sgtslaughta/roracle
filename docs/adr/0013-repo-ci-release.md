@@ -3,6 +3,7 @@
 Status: Accepted (2026-11-15)
 
 ## Decision
+
 - Layout: `backend/` (uv, pytest, ruff), `frontend/` (pnpm, Vitest, Playwright), `deploy/` (compose
   dev stack, Helm chart), `docs/` (spec, ADRs, plans), `scripts/`.
 - One product version in `/VERSION` (SemVer), starting at `0.1.0`; tags `vX.Y.Z`.
@@ -12,9 +13,14 @@ Status: Accepted (2026-11-15)
 - Source files stay under ~500 lines.
 
 ## Addendum (2026-11-15): Helm chart and CI
+
 - Chart `deploy/helm/roracle` (no subchart dependencies); observability values in `deploy/observability/` as separate releases.
 - Release version: `scripts/check-version.sh` fails CI unless `/VERSION` == Chart `version` == `appVersion`. Bump all three together.
 - Image tags: chart `tag: ""` = `appVersion`; digests override tags.
 - CI jobs added: `frontend` (tsc, vitest, build), `helm` (version check, `helm lint --strict`, render min/full values), `assert-render` (PyYAML invariants),
   `kubeconform` (schemas mirror via `KUBECONFORM_SCHEMA_LOCATION`), `build-web` (kaniko). One tool per mirrored image; no internet downloads.
 - Air-gap: all images/charts listed in `docs/enterprise/airgap-mirror-manifest.md`.
+
+## Update (2026-11-17)
+
+Version and CI have moved on. `/VERSION` and the chart are 0.2.0 (chart 0.2.0 removed the bundled MinIO tenant: a breaking change shipped as a minor bump, because the product is before 1.0). The pipeline in `.gitlab-ci.yml` now also has the jobs `docs`, `eval`, `perf`, `terraform` and the manual `iac-kind-e2e`; `scripts/docs/check.sh` is the documentation gate.

@@ -1,0 +1,10 @@
+{
+  "plugins": {
+    "md013": { "enabled": false },
+    "md029": { "allow_extended_start_values": true },
+    "md033": { "enabled": false },
+    "md034": { "enabled": false },
+    "md036": { "enabled": false },
+    "md041": { "enabled": false }
+  }
+}

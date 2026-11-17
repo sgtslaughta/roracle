@@ -1,0 +1,46 @@
+/* rOracle docs theme: app design tokens (frontend/src/styles/tokens.css) mapped onto Zensical variables. */
+@font-face { font-family: "Manrope Variable"; font-weight: 200 800; font-display: swap;
+  src: url("../assets/fonts/manrope-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Newsreader Variable"; font-style: normal; font-weight: 200 800; font-display: swap;
+  src: url("../assets/fonts/newsreader-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Newsreader Variable"; font-style: italic; font-weight: 200 800; font-display: swap;
+  src: url("../assets/fonts/newsreader-latin-wght-italic.woff2") format("woff2-variations"); }
+
+:root {
+  --md-text-font: "Manrope Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #496580; --md-primary-fg-color--light: #e3ecf5; --md-primary-fg-color--dark: #33485d;
+  --md-primary-bg-color: #ffffff; --md-primary-bg-color--light: #e3ecf5;
+  --md-accent-fg-color: #c0563b; --md-accent-fg-color--transparent: #c0563b1a; --md-accent-bg-color: #ffffff;
+  --md-default-bg-color: #ffffff; --md-default-bg-color--light: #eef3f8; --md-default-bg-color--lighter: #eaf0f6;
+  --md-default-fg-color: #1f2e3d; --md-default-fg-color--light: #5a6b7d; --md-default-fg-color--lighter: #8796a6;
+  --md-default-fg-color--lightest: #dce5ee;
+  --md-typeset-color: #1f2e3d; --md-typeset-a-color: #496580;
+  --md-code-bg-color: #eef3f8; --md-code-fg-color: #1f2e3d; --md-typeset-mark-color: #baddff;
+  --md-footer-bg-color: #fff9f3; --md-footer-fg-color: #1f2e3d; --md-footer-fg-color--light: #5a6b7d;
+  --md-mermaid-node-bg-color: #e3ecf5; --md-mermaid-node-fg-color: #496580; --md-mermaid-edge-color: #5a6b7d;
+  --md-mermaid-label-bg-color: #ffffff; --md-mermaid-label-fg-color: #1f2e3d;
+}
+[data-md-color-scheme="slate"] {
+  --md-hue: 215;
+  --md-primary-fg-color: #2a2f36; --md-primary-fg-color--light: #55523a; --md-primary-fg-color--dark: #2a2f36;
+  --md-primary-bg-color: #f4f2ea; --md-primary-bg-color--light: #c9c6b8;
+  --md-accent-fg-color: #fdb813; --md-accent-fg-color--transparent: #fdb8131a; --md-accent-bg-color: #26281c;
+  --md-default-bg-color: #343a42; --md-default-bg-color--light: #383e46; --md-default-bg-color--lighter: #2d3239;
+  --md-default-fg-color: #f4f2ea; --md-default-fg-color--light: #c9c6b8; --md-default-fg-color--lighter: #a29f92;
+  --md-default-fg-color--lightest: #535b67;
+  --md-typeset-color: #f4f2ea; --md-typeset-a-color: #fdb813;
+  --md-code-bg-color: #2d3239; --md-code-fg-color: #f4f2ea; --md-typeset-mark-color: #3f6a80;
+  --md-footer-bg-color: #2a2f36; --md-footer-fg-color: #f4f2ea; --md-footer-fg-color--light: #c9c6b8;
+  --md-mermaid-node-bg-color: #434a54; --md-mermaid-node-fg-color: #fdb813; --md-mermaid-edge-color: #c9c6b8;
+  --md-mermaid-label-bg-color: #343a42; --md-mermaid-label-fg-color: #f4f2ea;
+}
+.md-typeset h1, .md-typeset h2, .md-typeset h3, .md-typeset h4 { font-family: "Newsreader Variable", Georgia, serif; font-weight: 600; letter-spacing: 0; }
+.md-typeset h1 { color: var(--md-default-fg-color); }
+.md-typeset blockquote { font-family: "Newsreader Variable", Georgia, serif; font-style: italic; }
+.md-typeset table:not([class]) { border-radius: 10px; }
+.md-typeset code { border-radius: 5px; }
+.md-header__button.md-logo img { height: 1.6rem; width: auto; border-radius: 6px; }
+.md-header { box-shadow: 0 1px 0 var(--md-default-fg-color--lightest); }

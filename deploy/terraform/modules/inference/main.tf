@@ -1,8 +1,8 @@
 # OPTIONAL, disabled by default. In-cluster GPU inference placeholder:
 #   llm    = OpenAI-spec server (vLLM-style; also serves embeddings if the model supports it), API key required
-#   rerank = engine "vllm" (default, `--task score`, Cohere/Jina-style POST /v1/rerank = what the backend sends) or
-#            engine "tei" (HF text-embeddings-inference: native POST /rerank {query,texts}; NOT wire-compatible with the
-#            backend today, so it needs a backend adapter first)
+#   rerank = engine "vllm" (default, `--task score`, Cohere/Jina-style POST /v1/rerank = the backend default `rerank_api=cohere`) or
+#            engine "tei" (HF text-embeddings-inference: native POST /rerank {query,texts}; the backend supports it with
+#            ROR_RERANK_API=tei, chart value `rerank.api`, which this stack does not set: use extra_values_file)
 # Images and model files come from the air-gap mirror; models are pre-loaded on a PVC (no runtime downloads).
 # Access control: default-deny NetworkPolicy, only the rOracle api/worker pods may connect; no egress except DNS.
 terraform {
