@@ -63,6 +63,36 @@ A token acts as its user, never as an admin, and sees only what that user may se
 
 - `upload` sends base64 in JSON, visibility `private` by default. A duplicate returns `{"duplicate_of": <id>}`. The paper is searchable only after ingest finishes. Larger files use `POST /api/documents`. See [limits](../reference/mcp.md#limits-and-the-mcp-reserve).
 
+## Library search API
+
+The MCP `search` tool covers most agent needs. REST clients (with a PAT) can use the full library search behind the web Library page. Schemas are in [openapi.json](../reference/openapi.json); paging rules in the [API guide](../reference/api.md#pagination).
+
+`GET /api/search` parameters (all optional; repeat a list parameter for several values; at most 50 values per list, 200 characters per value; violations answer `422`):
+
+| What | Parameters | Meaning |
+|---|---|---|
+| Query | `q` | Up to 1000 characters. `"exact phrase"`, `-word` and `-"phrase"` exclude; everything else is words. A query with only exclusions answers `422 add at least one word to search for`. Empty browses |
+| Field scope | `in` | `anywhere` (default), `title`, `authors`, `abstract` (keyword only, whole document) or `fulltext` |
+| Include | `tags`, `author`, `venue`, `journal`, `file_type`, `org_unit`, `collection`, `label` | OR within one key, AND across keys. `journal` takes ISSNs (`1234-567X`), `collection` and `label` take ids |
+| Exclude | the same keys with `_not` | A value both included and excluded is excluded |
+| Match all | `tags_op`, `author_op` | `or` (default) or `and` |
+| Identifiers | `has_id`, `has_id_not` | Kinds the paper has or lacks: `doi`, `arxiv`, `pmid`, `pmcid`, `isbn`, `acl`, `openreview`, `issn` |
+| Yes or no | `has_doi`, `has_abstract`, `has_refs` | `yes` or `no` |
+| Ranges | `year_min`, `year_max`, `pages_min`, `pages_max`, `added_min`, `added_max` (dates) | Inclusive; `min` above `max` answers `422`. The old `year` list parameter is gone |
+| Signals | `votes_min`, `cited_min` | Net votes, and citing papers the caller can see |
+| Owner | `owner` | `mine` or `shared` (visible papers someone else owns) |
+| Citing | `cites` | A document id: papers citing it. An id you cannot see gives an empty result, as for an unknown id |
+| Sort | `sort` | `relevance`, `newest` (recently added), `votes`, `title`, `published_desc`, `published_asc`, `cited`, `pages`, `venue`, `first_author` |
+| Paging | `page`, `size`, `after` | `size` 1 to 50 |
+
+The response is `{total, total_capped, page, next, results, facets}`. Browse totals and facet counts cover everything the caller can see, up to 10,000; a query, `sort=cited` and `cited_min` rank at most 200 papers. `cited_by_count` on a result counts only citing papers the caller can see. PAT callers never see `block_agents` papers in results, totals or facet counts.
+
+`GET /api/search/facets/{name}` (`author`, `venue`, `tags` or `journal`) takes the same filters plus `find` (1 to 100 characters, a case-insensitive literal substring) and returns `{values: [{value, count}]}` (journal values also carry a `label`), at most 50.
+
+Saved searches are per user and private: `GET /api/me/saved-searches`; `POST` with `{name, query}` (name 1 to 100 characters, unique per user, `409` otherwise; `query` is a URL query string without `?`, up to 4000 characters; at most 200 per user); `PATCH /api/me/saved-searches/{sid}` with `name` or `query`; `DELETE` answers `204`. Another user's id answers `404 not found`.
+
+During the 0.3.0 upgrade, until the search reindex is done, `GET /api/search` with only the 0.2 parameters answers with `"upgrading": true`, and any new parameter or the facet find route answers `503 search index upgrade in progress` ([upgrades](upgrades.md#6-02x-to-030-library-search-reindex-required)).
+
 ## Sensitivity labels
 
 Admins label documents and notes (see [security, section 13](security.md#13-sensitivity-labels) and [admin labels](../admin/labels.md)). Labels only restrict. For agent integrators:

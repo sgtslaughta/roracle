@@ -122,3 +122,11 @@
 .ssopen { flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ssopen:hover { background: var(--muted-bg); }
 .ssempty { margin: 8px 4px 2px; font-size: 12.5px; color: var(--muted); }
+
+/* Task 18: page composition */
+.fs-plain { border: 0; margin: 0; padding: 0; min-width: 0; }
+.fs-plain:disabled { opacity: 0.6; }
+.upgrade-note { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r); background: var(--primary-soft); font-size: 13.5px; }
+.upgrade-note svg.lucide { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--primary); }
+.refine-hint { margin: 8px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+.facets .fx:disabled, .facets .ffind:disabled { opacity: 0.5; cursor: not-allowed; }

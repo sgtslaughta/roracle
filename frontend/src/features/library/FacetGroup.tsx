@@ -4,6 +4,7 @@ import { OverflowList } from "@/components/OverflowList";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { FacetKey, LibrarySearch } from "@/lib/searchParams";
 import { useFacetFind, type FindName } from "./api";
+import { LEGACY_FACETS, useUpgrading } from "./upgrading";
 
 export type FacetRow = { value: string; name: string; count: number };
 const LIMIT = 8;
@@ -27,6 +28,8 @@ type Props = {
 export function FacetGroup({ k, facet: { label, icon: Icon }, values, selected, excluded, search, onToggle, onOp, op, nameOf }: Props) {
   const [find, setFind] = useState("");
   const gid = useId();
+  const upgrading = useUpgrading();
+  const newOnly = upgrading && !LEGACY_FACETS.includes(k);
   const findable = FINDABLE.includes(k);
   const found = useFacetFind(findable ? (k as FindName) : "author", findable ? find : "", search);
   const finding = findable && find.trim() !== "";
@@ -38,11 +41,11 @@ export function FacetGroup({ k, facet: { label, icon: Icon }, values, selected, 
     return (
       <div className="frow" key={r.value} title={k === "journal" ? r.value : r.name} data-excluded={ex || undefined}>
         <label>
-          <Checkbox checked={selected.includes(r.value)} onCheckedChange={() => onToggle(r.value, "include")} aria-label={`Include ${label}: ${r.name}`} />
+          <Checkbox checked={selected.includes(r.value)} disabled={newOnly} onCheckedChange={() => onToggle(r.value, "include")} aria-label={`Include ${label}: ${r.name}`} />
           <span className="v">{r.name}</span>
           <span className="n">{r.count}</span>
         </label>
-        <button type="button" className="fx" aria-pressed={ex} aria-label={`Exclude ${label}: ${r.name}`} onClick={() => onToggle(r.value, "exclude")}>
+        <button type="button" className="fx" disabled={upgrading} aria-pressed={ex} aria-label={`Exclude ${label}: ${r.name}`} onClick={() => onToggle(r.value, "exclude")}>
           <MinusCircle aria-hidden />
         </button>
       </div>
@@ -53,13 +56,13 @@ export function FacetGroup({ k, facet: { label, icon: Icon }, values, selected, 
     <div className="fgroup" role="group" aria-label={label}>
       <h4><Icon aria-hidden />{label}</h4>
       {findable && (
-        <input className="ffind" type="search" placeholder={`Find ${label.toLowerCase()}`} aria-label={`Find ${label.toLowerCase()}`} value={find} onChange={(e) => setFind(e.target.value)} />
+        <input className="ffind" type="search" disabled={upgrading} placeholder={`Find ${label.toLowerCase()}`} aria-label={`Find ${label.toLowerCase()}`} value={find} onChange={(e) => setFind(e.target.value)} />
       )}
       {onOp && selected.length >= 2 && (
         <div className="fop" role="radiogroup" aria-label="Match any / Match all">
           {([undefined, "and"] as const).map((o) => (
             <label key={o ?? "any"}>
-              <input type="radio" name={`${gid}-op`} checked={op === o} onChange={() => onOp(o)} />
+              <input type="radio" disabled={upgrading} name={`${gid}-op`} checked={op === o} onChange={() => onOp(o)} />
               {o ? "Match all" : "Match any"}
             </label>
           ))}

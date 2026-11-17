@@ -87,10 +87,10 @@ describe("P3 contract: nullable fields and caps", () => {
     expect(lines).toEqual(["A. Author.", "A. Author. Journal."]);
   });
 
-  it("total at the cap shows 200+ and the pager stops at ceil(total/size)", async () => {
+  it("cited window at the cap shows 200+ and the pager stops at ceil(total/size)", async () => {
     respond({ total: 200, total_capped: true, results: [hit()] });
-    await renderLibrary();
-    expect(await screen.findByText(/of 200\+ documents/)).toBeInTheDocument();
+    await renderLibrary("/library?sort=cited");
+    expect(await screen.findByText(/of 200\+ papers/)).toBeInTheDocument();
     const nav = await screen.findByRole("navigation", { name: "Pages" });
     expect(within(nav).getByRole("button", { name: "Page 10" })).toBeInTheDocument();
     expect(within(nav).queryByRole("button", { name: "Page 11" })).toBeNull();
@@ -99,7 +99,7 @@ describe("P3 contract: nullable fields and caps", () => {
   it("one note: browse counts cover everything visible", async () => {
     respond({ total: 5, results: [hit()] });
     await renderLibrary();
-    await screen.findByText(/of 5 documents/);
+    await screen.findByText(/of 5 papers/);
     expect(screen.getAllByText("Counts cover everything you can see.")).not.toHaveLength(0);
     expect(screen.queryByText("Counts cover the 200 newest documents.")).toBeNull();
   });

@@ -142,7 +142,7 @@ describe("keyboard", () => {
 
   it("keys are ignored while typing in inputs", async () => {
     await renderApp();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     const box = screen.getByLabelText("Search documents");
     await userEvent.click(box);
     await userEvent.keyboard("j/k");
@@ -152,7 +152,7 @@ describe("keyboard", () => {
 
   it("j/k move through results and Enter opens the focused one", async () => {
     await renderApp();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.keyboard("j");
     expect(results()[0]).toHaveFocus();
     await userEvent.keyboard("j");

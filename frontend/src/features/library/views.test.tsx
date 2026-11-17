@@ -13,7 +13,7 @@ async function renderLibrary(path: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText(/of \d+ documents/);
+  await screen.findByText(/of \d+ papers/);
   return router;
 }
 const headers = () => screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());

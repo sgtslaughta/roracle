@@ -13,7 +13,7 @@ async function renderLibrary(path: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText(/of \d+ documents/);
+  await screen.findByText(/of \d+ papers/);
   return router;
 }
 // the rail renders once for wide panes and once in the popover only when opened, so the first group is the rail's

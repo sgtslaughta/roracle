@@ -59,16 +59,16 @@ Four styles exist. Check the route in [openapi.json](openapi.json).
 | Limit and offset | `limit`, `offset` | Handoffs, annotations, references and cited-by, uploads |
 | Admin pages | `page` and `limit` (up to 200), or `before_id` and `next_before_id` | Admin lists |
 
-**Cursors are opaque.** A cursor encodes the creation time and id of the last item. Do not parse or build one. Pass `next` back unchanged as `after`. `next` is `null` on the last page.
+**Cursors are opaque.** A cursor encodes the sort position of the last item. Do not parse or build one. Pass `next` back unchanged as `after`. `next` is `null` on the last page.
 
 Rules:
 
-- Cursors apply to newest-first lists. On search, `after` works only with an empty `q` and `sort` of `relevance` or `newest`, and never together with `page` other than 1.
+- On search, `after` works only when browsing (empty `q`), for every sort, but not with `sort=cited` or `cited_min`, and never together with `page` other than 1. Page numbers reach the first 10,000 papers; `after` continues past them.
 - On `/api/me/uploads`, `after` and a non-zero `offset` cannot be combined.
 - A malformed cursor gives `422 malformed after cursor`.
-- With a cursor, search `total` and the facets describe the window after the cursor, and the response has `"window": true`.
+- Search `total` and the facets are corpus-wide when browsing (everything the caller can see, `total_capped` above 10,000), and cover the kept results when `q` is set.
 - `/api/me/uploads` reports `total` capped at 10,000 and sets `total_capped` when the cap is hit.
-- Each response window (a page list or a cursor window) holds at most 200 documents (the `MAX_DOCS` cap); cursor paging continues past it.
+- A query (`q` set), `sort=cited` and `cited_min` rank at most 200 documents (the `MAX_DOCS` cap); `total_capped` is set when the cited window had more.
 
 ## Chat streaming (SSE)
 
@@ -115,7 +115,9 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 
 | Route | Purpose |
 |---|---|
-| `GET /api/search` | Hybrid search with filters, facets, sorting and paging. Empty `q` browses |
+| `GET /api/search` | Hybrid search with filters, facets, sorting and paging. Empty `q` browses. Parameters: [agent integration](../enterprise/agent-integration.md#library-search-api) |
+| `GET /api/search/facets/{name}` | Find values of the `author`, `venue`, `tags` or `journal` facet under the current filters (`find`, 1 to 100 characters) |
+| `GET /api/me/saved-searches`, `POST /api/me/saved-searches`, `PATCH` and `DELETE /api/me/saved-searches/{sid}` | Your saved library searches |
 | `PUT /api/documents/{doc_id}/vote`, `POST /api/documents/{doc_id}/tags`, `DELETE /api/documents/{doc_id}/tags/{tag}` | Vote and tag a document |
 | `GET /api/collections`, `POST /api/collections`, `PATCH` and `DELETE /api/collections/{cid}`, `PUT` and `DELETE /api/collections/{cid}/items/{doc_id}` | Personal collections |
 | `GET /api/export/bibtex` | BibTeX for up to 200 documents or one collection |
@@ -196,11 +198,11 @@ Replace identifiers with your own. Add `-H "Authorization: Bearer $TOKEN"` to ev
 curl -sS --get "https://roracle.example.internal/api/search" \
   -H "Authorization: Bearer $TOKEN" \
   --data-urlencode "q=graph neural networks" \
-  --data-urlencode "year=2024" \
+  --data-urlencode "year_min=2024" \
   --data-urlencode "size=5"
 ```
 
-Returns `total`, `page`, `results` and `facets`. Repeat a filter to pass several values.
+Returns `total`, `total_capped`, `page`, `next`, `results` and `facets`. Repeat a filter to pass several values.
 
 ### 2. Chat with streaming
 

@@ -1,6 +1,6 @@
 # Upgrades
 
-Audience: operators and SRE. How to upgrade rOracle (Helm chart `deploy/helm/roracle`), the special cases (chart 0.1 to 0.2.0, Elasticsearch 8.x to 9.x), the database migrations with the risky ones flagged, and the re-embed after an embedding model change. Back to the [enterprise index](README.md); terms are in the [glossary](../glossary.md). Install is in the [deployment guide](deployment-guide.md); backups and restore are in the [operations runbook](operations-runbook.md).
+Audience: operators and SRE. How to upgrade rOracle (Helm chart `deploy/helm/roracle`), the special cases (chart 0.1 to 0.2.0, Elasticsearch 8.x to 9.x, the 0.3.0 library search reindex), the database migrations with the risky ones flagged, and the re-embed after an embedding model change. Back to the [enterprise index](README.md); terms are in the [glossary](../glossary.md). Install is in the [deployment guide](deployment-guide.md); backups and restore are in the [operations runbook](operations-runbook.md).
 
 Versioning is SemVer. `VERSION`, chart `version` and `appVersion` are the same number (`scripts/check-version.sh` enforces it in CI; chart 0.2.0 ships appVersion 0.2.0), and an empty image tag means `appVersion`. A patch release is drop-in, a minor release adds migrations and rolls without downtime, a major release comes with release notes and manual steps.
 
@@ -87,6 +87,7 @@ Plan for double vector storage during a re-embed. Details: [search index lifecyc
 | 0017 `0017_jobs_due_reconcile.py` | partial index for the `reconcile_tags` claim | **drain workers first**: `CREATE INDEX CONCURRENTLY` waits for open transactions; re-runnable |
 | 0018 `0018_chat_hidden_at.py` | `chats.hidden_at` (owner's soft remove) | none |
 | 0019 `0019_reparse_refs_bulk.py` | `reparse_refs` becomes a bulk kind (claim indexes recreated) | **drain workers first**: same concurrent swap as 0014b |
+| 0020 `0020_saved_searches.py` | `saved_searches` (owner-only saved library searches, unique name per owner) | none; 0.3.0 also needs the search reindex in section 6 |
 
 Concurrent index migrations cannot run inside a transaction, so they use Alembic's autocommit block. If one is interrupted it can leave an invalid index; the migrations drop an invalid leftover and verify validity, so fixing the cause and re-running `roracle migrate` is safe. A migration that waits does so on long-running transactions: drain the workers (step 4 of section 1) and check `pg_stat_activity` for long transactions on the primary.
 
@@ -112,3 +113,29 @@ Search and ingest use the active model persisted in Postgres by the last cutover
 6. Free the space with `DELETE /api/admin/reindex/old` once search is verified (409 while a re-embed or rebuild runs, or when `chunks` does not point at exactly the active index).
 
 If a copy slice fails permanently the cutover is refused and the old index stays active; a new re-embed starts from scratch with a new generation number. Full mechanics: [search index lifecycle](../architecture/search-index-lifecycle.md); admin view: [index maintenance](../admin/index-maintenance.md). The pre-production alternative that drops the index and resets ingest stages (downtime) is in the [runbook](operations-runbook.md).
+
+## 6. 0.2.x to 0.3.0: library search reindex (required)
+
+0.3.0 adds advanced library search: include and exclude filters, match any or all, query syntax (phrases, `-word`, field scope), venue, journal and identifier filters, year, page, added-date, vote and citation ranges, owner and citing filters, more sorts and saved searches. Migration 0020 adds the `saved_searches` table. The new search reads fields that only exist in Elasticsearch after **one reindex with the current model**.
+
+1. Upgrade as in section 1. The new fields are additive: `ensure_index` adds them to the mapping of the active index, and papers ingested from now on fill them at once.
+2. Read the current model and dimensions: `GET /api/admin/reindex` (`active`).
+3. Start a same-model generation: `POST /api/admin/reindex {"model": "<current model>", "dims": <current dims>}`. A same-model generation copies the stored vectors (no embedding calls), writes the search fields from Postgres (venue, abstract, journal ISSNs in `issn`, `ids_present`, page count, added date, votes, citation upper bounds) and marks the new index with `_meta.search_fields`. Follow it with `GET /api/admin/reindex` as in section 5; plan for double vector storage.
+4. At cutover the `chunks` alias moves to the new index. API processes check the marker at most every 30 seconds, so the new search turns on within 30 seconds of the swap, with no restart.
+5. After verifying search, free the space: `DELETE /api/admin/reindex/old`.
+
+Until the cutover:
+
+- `GET /api/search` with only the parameters 0.2 knew (`q`, the include filters `tags`, `author`, `file_type`, `org_unit`, `collection`, `label`, and the sorts `relevance`, `newest`, `votes`, `title`) runs the previous search and adds `"upgrading": true` to the response. The web app then shows "Some filters will be available when the search index upgrade finishes." and disables the new controls.
+- A request with any new parameter, and `GET /api/search/facets/{name}`, answer `503 {"detail": "search index upgrade in progress"}`.
+
+Journal and has-identifier results are only correct for papers written by that reindex or ingested after it. Papers ingested before identifiers were extracted get them from `roracle reparse-refs` (section 4, "After 0019"); run it **before** the reindex, or run another same-model reindex after it, so their journals and identifiers reach the index.
+
+## Release notes
+
+### 0.3.0
+
+- Advanced library search: query syntax with exact phrases, exclusions and field scope; include and exclude per filter value with match any or all for tags and authors; venue, journal (by ISSN) and has-identifier filters; year histogram with a range; date added, page count, votes and cited-by ranges; owner and citing filters; ten sorts; list, compact and table views with a column picker; the query sentence; saved searches ([library search](../user/library-search.md)).
+- API: new `GET /api/search` parameters, `GET /api/search/facets/{name}` and `/api/me/saved-searches` ([agent integration](agent-integration.md#library-search-api)). The `year` list parameter is replaced by `year_min` and `year_max`.
+- Browse runs from Elasticsearch: counts and facets cover every visible paper up to 10,000 (`total_capped` above), and the `after` cursor works for every browse sort.
+- Upgrade: migration 0020 and the required same-model reindex (section 6).

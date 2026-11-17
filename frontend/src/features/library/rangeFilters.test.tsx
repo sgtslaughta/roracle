@@ -14,7 +14,7 @@ async function renderLibrary(path: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText(/of \d+ documents/);
+  await screen.findByText(/of \d+ papers/);
   return router;
 }
 const rail = () => within(document.querySelector(".facet-rail") as HTMLElement);

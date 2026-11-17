@@ -25,13 +25,13 @@ const results = () => screen.getAllByRole("listitem").filter((li) => li.classLis
 describe("library search", () => {
   it("lists the library and counts documents", async () => {
     await renderLibrary();
-    expect(await screen.findByText(/Showing 1–7 of 7 documents/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing 1–7 of 7 papers/)).toBeInTheDocument();
     expect(results()).toHaveLength(7);
   });
 
   it("typing in the global search updates the URL (debounced) and the results", async () => {
     const router = await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.type(screen.getByLabelText("Search documents"), "preconditioning");
     await waitFor(() => expect(router.state.location.search).toMatchObject({ q: "preconditioning" }), { timeout: 2000 });
     await waitFor(() => expect(results()).toHaveLength(1));
@@ -42,7 +42,7 @@ describe("library search", () => {
 
   it("clicking a facet value adds a chip and filters; removing it restores counts", async () => {
     const router = await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     const tagGroup = screen.getByRole("group", { name: "Tags" });
     await userEvent.click(within(tagGroup).getByRole("checkbox", { name: "Include Tags: expanders" }));
     await waitFor(() => expect(results()).toHaveLength(2));
@@ -65,7 +65,7 @@ describe("library search", () => {
 
   it("clicking a tag chip on a result filters by that tag", async () => {
     const router = await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.click(within(results()[0]).getAllByRole("button", { name: /^#/ })[0]);
     await waitFor(() => expect(router.state.location.search.tags).toHaveLength(1));
   });
@@ -74,7 +74,7 @@ describe("library search", () => {
     let body: unknown;
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("Outdated")).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("library search", () => {
     let body: unknown;
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Superseded/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Confirm" }));
@@ -103,7 +103,7 @@ describe("library search", () => {
 
   it("facet groups show 8 values then Show all K in a searchable menu", async () => {
     await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     const g = screen.getByRole("group", { name: "Tags" });
     expect(within(g).getAllByRole("checkbox")).toHaveLength(8);
     await userEvent.click(within(g).getByRole("button", { name: /Show all 18/ }));
@@ -113,7 +113,7 @@ describe("library search", () => {
 
   it("caps tags on a result card at 4", async () => {
     await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     expect(within(results()[0]).getAllByRole("button", { name: /^#/ }).length).toBeLessThanOrEqual(4);
   });
 
@@ -135,7 +135,7 @@ describe("library search", () => {
     let seen: URL | undefined;
     server.use(http.get(`${API_BASE}/search`, ({ request }) => { seen = new URL(request.url); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [] } }); }));
     const router = await renderLibrary("/library?q=x");
-    await screen.findByText(/No documents match/);
+    await screen.findByText(/No papers match/);
     expect(seen?.searchParams.get("size")).toBe("20");
     expect(router.state.location.search).toEqual({ q: "x" });
   });
@@ -167,7 +167,7 @@ describe("library search", () => {
     const calls: string[] = [];
     server.use(http.delete(`${API_BASE}/documents/:id/tags/:tag`, ({ params }) => { calls.push(String(params.tag)); return HttpResponse.json({ tags: [] }); }));
     await renderLibrary();
-    await screen.findByText(/of 7 documents/);
+    await screen.findByText(/of 7 papers/);
     await screen.findAllByRole("button", { name: /^#/ });
     const owned = results().find((r) => r.getAttribute("data-doc") === "00000000-0000-4000-8000-000000000001")!;
     await waitFor(async () => { await userEvent.pointer({ keys: "[MouseRight]", target: within(owned).getAllByRole("button", { name: /^#/ })[0] }); expect(screen.queryByRole("menuitem", { name: "Remove tag" })).not.toBeNull(); });
@@ -196,5 +196,69 @@ describe("global search typing", () => {
     await userEvent.clear(box);
     await waitFor(() => expect(qs).toHaveLength(3)); // empty goes back to browse
     expect(qs[2]).toBeNull(); // no q param
+  });
+});
+
+const FACETS = { tags: [{ value: "ml", count: 3 }], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [], journal: [], label: [] };
+const hitN = (i: number) => ({ doc_id: `d${i}`, title: `Paper ${i}`, authors: ["A. Author"], year: 2020, score: 1, passages: [], tags: [], votes: { up: 0, down: 0, mine: 0 }, file_type: "PDF", version: 1, venue: null, org_unit: null, owner_id: "x", flag: null, cited_by_count: 0, page_count: null, added_at: "2026-01-01T00:00:00Z" });
+const answer = (r: object) => server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 1, total_capped: false, next: null, page: 1, results: [hitN(1)], facets: FACETS, ...r })));
+const NOTE = "Some filters will be available when the search index upgrade finishes.";
+
+describe("page composition", () => {
+  it("formats the count with thousands separators and says papers", async () => {
+    answer({ total: 1234, results: Array.from({ length: 20 }, (_, i) => hitN(i)) });
+    await renderLibrary();
+    expect(await screen.findByText("Showing 1–20 of 1,234 papers")).toBeInTheDocument();
+  });
+
+  it("a capped browse reads 10,000+; the pager stops at the browse window with a refine hint", async () => {
+    answer({ total: 10000, total_capped: true, page: 500, results: [hitN(1)] });
+    await renderLibrary("/library?page=500");
+    expect(await screen.findByText(/of 10,000\+ papers/)).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Pages" });
+    expect(within(nav).getByRole("button", { name: "Page 500" })).toHaveAttribute("aria-current", "true");
+    expect(within(nav).queryByRole("button", { name: "Page 501" })).toBeNull();
+    expect(within(nav).getByRole("button", { name: /Next/ })).toBeDisabled();
+    expect(screen.getByText("Refine the search to see more papers.")).toBeInTheDocument();
+  });
+
+  it("no refine hint before the last reachable page, nor on an uncapped result", async () => {
+    answer({ total: 10000, total_capped: true, page: 1, results: [hitN(1)] });
+    await renderLibrary();
+    await screen.findByText(/of 10,000\+ papers/);
+    expect(screen.queryByText("Refine the search to see more papers.")).toBeNull();
+  });
+
+  it("a capped query reads 200+", async () => {
+    answer({ total: 200, total_capped: true, results: [hitN(1)] });
+    await renderLibrary("/library?q=graphs");
+    expect(await screen.findByText(/of 200\+ papers/)).toBeInTheDocument();
+  });
+
+  it("upgrading: an inline note, and exclude / new-only controls are disabled", async () => {
+    answer({ upgrading: true });
+    await renderLibrary();
+    expect(await screen.findByText(NOTE)).toBeInTheDocument();
+    const g = screen.getByRole("group", { name: "Tags" });
+    expect(within(g).getByRole("button", { name: "Exclude Tags: ml" })).toBeDisabled();
+    expect(within(g).getByRole("checkbox", { name: "Include Tags: ml" })).toBeEnabled();
+    expect(screen.getAllByLabelText("Search in")[0]).toBeDisabled();
+  });
+
+  it("a 503 shows the upgrade note instead of the error alert, and no stale results", async () => {
+    await renderLibrary();
+    await screen.findByText(/of 7 papers/);
+    server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ detail: "search index upgrade in progress" }, { status: 503 })));
+    await userEvent.click(within(screen.getByRole("group", { name: "Tags" })).getAllByRole("button", { name: /^Exclude Tags: / })[0]);
+    expect(await screen.findByText(NOTE)).toBeInTheDocument();
+    expect(screen.queryByText(/Search failed/)).toBeNull();
+    expect(results()).toHaveLength(0);
+  });
+
+  it.each(["list", "compact", "table"])("%s view has no horizontal page scroll at 360 px", async (view) => {
+    window.innerWidth = 360;
+    await renderLibrary(`/library?view=${view}`);
+    await screen.findByText(/of \d+ papers/);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(360);
   });
 });

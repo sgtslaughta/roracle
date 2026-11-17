@@ -19,7 +19,7 @@ async function renderLibrary(path: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText(/of \d+ documents/);
+  await screen.findByText(/of \d+ papers/);
   return router;
 }
 const group = (name: string) => screen.getByRole("group", { name });

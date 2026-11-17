@@ -8,6 +8,7 @@ import { SignalFilters } from "./SignalFilters";
 import { YearFacet } from "./YearFacet";
 import { FacetGroup, type FacetRow } from "./FacetGroup";
 import type { useLibraryNav } from "./useLibraryNav";
+import { useUpgrading } from "./upgrading";
 
 /** Rail order. */
 export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> = {
@@ -48,6 +49,7 @@ type Nav = Pick<ReturnType<typeof useLibraryNav>, "toggle" | "patch">;
 export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, FacetValue[]> | undefined; search: LibrarySearch; nav: Nav }) {
   const collName = useCollectionName();
   const labelName = useLabelName();
+  const upgrading = useUpgrading();
   return (
     <aside className="facets" aria-label="Filters">
       <p className="fnote">{search.q ? "Counts cover these results." : "Counts cover everything you can see."}</p>
@@ -55,7 +57,7 @@ export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, F
         const { values, sel, exc, nameOf, opKey } = facetRows(k, facets, search, collName, labelName);
         return (
           <Fragment key={k}>
-          {k === "venue" && <YearFacet buckets={facets?.year ?? []} min={search.year_min} max={search.year_max} onCommit={(a, b) => nav.patch({ year_min: a, year_max: b })} />}
+          {k === "venue" && <fieldset className="fs-plain" disabled={upgrading}><YearFacet buckets={facets?.year ?? []} min={search.year_min} max={search.year_max} onCommit={(a, b) => nav.patch({ year_min: a, year_max: b })} /></fieldset>}
           <FacetGroup
             k={k} facet={FACET_META[k]} values={values} selected={sel} excluded={exc} search={search} nameOf={nameOf}
             onToggle={(v, mode) => nav.toggle(k, v, mode)}
@@ -64,7 +66,7 @@ export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, F
           </Fragment>
         );
       })}
-      <SignalFilters search={search} nav={nav} />
+      <fieldset className="fs-plain" disabled={upgrading}><SignalFilters search={search} nav={nav} /></fieldset>
     </aside>
   );
 }

@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SCOPES, type LibrarySearch } from "@/lib/searchParams";
 import { joinQuery, splitQuery } from "./queryBuilder";
 import type { useLibraryNav } from "./useLibraryNav";
+import { useUpgrading } from "./upgrading";
 
 const SCOPE_LABEL = { anywhere: "Anywhere", title: "Title", authors: "Authors", abstract: "Abstract", fulltext: "Full text" } as const;
 const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -28,8 +29,9 @@ export function Refine({ q, onApply }: { q: string; onApply: (q: string) => void
 }
 
 export function ScopeSelect({ search, nav }: { search: LibrarySearch; nav: Pick<ReturnType<typeof useLibraryNav>, "patch"> }) {
+  const upgrading = useUpgrading();
   return (
-    <select className="sel" aria-label="Search in" value={search.in ?? "anywhere"} onChange={(e) => nav.patch({ in: e.target.value as LibrarySearch["in"] })}>
+    <select className="sel" aria-label="Search in" disabled={upgrading} value={search.in ?? "anywhere"} onChange={(e) => nav.patch({ in: e.target.value as LibrarySearch["in"] })}>
       {SCOPES.map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
     </select>
   );

@@ -89,7 +89,7 @@ describe("picker", () => {
 describe("library", () => {
   it("shows a badge on each card and the label facet filters results", async () => {
     await renderApp("/library");
-    await screen.findByText(/of \d+ documents/);
+    await screen.findByText(/of \d+ papers/);
     expect(document.querySelectorAll(".result .slabel").length).toBeGreaterThan(0);
     const g = await screen.findByRole("group", { name: "Sensitivity" });
     await userEvent.click(within(g).getByRole("checkbox", { name: "Include Sensitivity: Confidential" }));

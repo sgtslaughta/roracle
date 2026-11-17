@@ -71,6 +71,8 @@ Upgrade note: the worker creates `chunks-all` and adopts a legacy concrete index
 atomic alias swap) at start. Roll out workers first; until a worker has started, ACL/tag updates find no `chunks-all`
 and are no-ops, healed by the next `reconcile` maintenance run (run it after the upgrade).
 Capacity: plan for double vector storage during the re-embed.
+Library search upgrade (0.3.0): one same-model reindex writes the new search fields; until its cutover the library
+runs the previous search (`upgrading: true`) and new search parameters answer 503. Steps: [upgrades, section 6](upgrades.md#6-02x-to-030-library-search-reindex-required).
 
 ## Re-embed after embedding prompt/model change (pre-production only)
 
@@ -242,7 +244,7 @@ pooled DB connections per API process; watch pool waits (`ROR_DB_POOL_TIMEOUT_S`
 
 ## Release upgrade and rollback
 
-The full procedure, the chart 0.1 to 0.2.0 break, the Elasticsearch 8 to 9 hop and the migration risk table (0011 and 0012 backfills, 0014 concurrent index builds, 0019) are in [upgrades](upgrades.md). Before a minor or major upgrade take a base backup (`kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io`) and check the latest ES snapshot ([backup and DR](backup-dr.md)). `helm rollback` restores manifests but does not revert database migrations; if the previous release cannot run, restore Postgres to just before the upgrade (PITR, [backup and DR](backup-dr.md#5-postgres-point-in-time-recovery-in-place-helm-managed-name)).
+The full procedure, the chart 0.1 to 0.2.0 break, the Elasticsearch 8 to 9 hop and the migration risk table (0011 and 0012 backfills, 0014 concurrent index builds, 0019, the 0.3.0 search reindex) are in [upgrades](upgrades.md). Before a minor or major upgrade take a base backup (`kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io`) and check the latest ES snapshot ([backup and DR](backup-dr.md)). `helm rollback` restores manifests but does not revert database migrations; if the previous release cannot run, restore Postgres to just before the upgrade (PITR, [backup and DR](backup-dr.md#5-postgres-point-in-time-recovery-in-place-helm-managed-name)).
 
 ## Other routine items
 

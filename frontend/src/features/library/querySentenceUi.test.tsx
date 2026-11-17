@@ -13,7 +13,7 @@ async function renderLibrary(path: string) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  await screen.findByText(/of \d+ documents|No documents match/);
+  await screen.findByText(/of \d+ papers|No papers match/);
   return router;
 }
 const sentence = () => within(screen.getByLabelText("Current search"));
