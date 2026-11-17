@@ -6,7 +6,7 @@ import pytest
 from elasticsearch import Elasticsearch, helpers
 from sqlalchemy import func, select
 
-from roracle import acl_sync, maintenance, search_index
+from roracle import acl_sync, maintenance, search_index, search_index_acl
 from roracle.models import Document, DocumentCoauthor, DocumentShare, Job, Label, Tag
 from roracle.search_index import acl_hash
 
@@ -239,7 +239,7 @@ def test_sync_ensures_keyword_mapping_even_on_a_bare_index(
         aliases={search_index.MUTATE_ALIAS: {}},
         mappings={"properties": {"doc_id": {"type": "keyword"}}},
     )
-    monkeypatch.setattr(search_index, "_mapping_ensured", False)
+    monkeypatch.setattr(search_index_acl, "_mapping_ensured", False)
     d = _doc(db_session, user, 0)
     db_session.flush()
     try:

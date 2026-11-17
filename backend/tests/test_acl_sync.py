@@ -1,6 +1,6 @@
 import uuid
 
-from roracle import acl_sync, search_index
+from roracle import acl_sync, search_index, search_index_acl
 from roracle.models import Document, DocumentCoauthor, DocumentShare, Tag
 from roracle.search_index import acl_hash, acl_payload
 
@@ -86,7 +86,7 @@ def test_mapping_guard_runs_once_per_process(monkeypatch):
 
     es = _Es()
     es.indices = Indices()
-    monkeypatch.setattr(search_index, "_mapping_ensured", False)
+    monkeypatch.setattr(search_index_acl, "_mapping_ensured", False)
     items = {"d": (ACL, "T")}
     search_index.sync_acl_many(es, ["d"], lambda ids: items)
     search_index.sync_acl(es, "d", lambda: items["d"])
