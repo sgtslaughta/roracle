@@ -47,6 +47,8 @@ def delete_old(p: Admin, session: Db, es: Es, request: Request) -> None:
         raise HTTPException(409, "reindex running")
     try:
         dropped = reembed.drop_old(session, es, request.app.state.settings)
+    except reembed.AlreadyRunning:
+        raise HTTPException(409, "a rebuild is running") from None
     except reembed.AliasMismatch:
         raise HTTPException(409, "read alias does not point at the active index; resolve first") from None
     audit(session, p, "admin.reindex_drop_old", "/admin/reindex/old", {"indices": dropped})

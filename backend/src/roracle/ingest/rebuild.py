@@ -68,14 +68,7 @@ def drop_shadow(
         raise ValueError("refusing the active index")
     if _GENERATION.fullmatch(name):
         raise ValueError("refusing a re-embed generation (use DELETE /admin/reindex/old)")
-    if session is not None and (
-        reembed.running_job(session) is not None
-        or session.scalar(
-            select(Job.id)
-            .where(Job.kind.in_(("rebuild_units", "rebuild_watch")), Job.status.in_(("queued", "running")))
-            .limit(1)
-        )
-    ):
+    if session is not None and (reembed.running_job(session) is not None or reembed.rebuild_running(session)):
         raise ValueError("a rebuild or re-embed is running")
     if name not in _holders(es, MUTATE_ALIAS):
         raise ValueError(f"{name!r} is not an index of {MUTATE_ALIAS}")

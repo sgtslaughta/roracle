@@ -156,9 +156,25 @@ def _old(session: Session, es: Elasticsearch, settings: Settings) -> list[str]:
     return sorted(_alias_indices(es, MUTATE_ALIAS) - {active})
 
 
+def rebuild_running(session: Session) -> bool:
+    """A rebuild (`rebuild_units`/`rebuild_watch`, possibly into a shadow) is queued or running."""
+    return (
+        session.scalar(
+            select(Job.id)
+            .where(Job.kind.in_(("rebuild_units", "rebuild_watch")), Job.status.in_(("queued", "running")))
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def drop_old(session: Session, es: Elasticsearch, settings: Settings) -> list[str]:
     """Delete every generation in `chunks-all` except the active one (Postgres = authority). Refuses unless the
     read alias points at exactly the active index: otherwise 'old' could be the live index."""
+    if rebuild_running(
+        session
+    ):  # it deletes shadows too, and the next bulk would auto-create an unmanaged index
+        raise AlreadyRunning
     active = search_index.active_index(runtime.effective(session, settings))
     if _alias_indices(es, settings.read_alias) != {active}:
         raise AliasMismatch

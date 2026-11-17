@@ -390,6 +390,13 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     runtime.set_active_embedding(db_session, "m0", 2, SRC)
     api_es.data["chunks-m-1"] = {}
     api_es.aliases["chunks-all"].add("chunks-m-1")
+    from roracle.queue import enqueue
+
+    rb = enqueue(db_session, "rebuild_units", {"version_ids": []})
+    db_session.flush()
+    assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # a shadow rebuild is queued
+    db_session.get(Job, rb).status = "done"
+    db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 204
     assert (
         "chunks-m-1" not in api_es.data and SRC in api_es.data
