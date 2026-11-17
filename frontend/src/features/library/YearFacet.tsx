@@ -8,7 +8,7 @@ type Props = { buckets: FacetValue[]; min?: number; max?: number; onCommit: (min
 /** Year histogram with range sliders. Dragging only updates the caption; the URL is written on release. */
 export function YearFacet({ buckets, min, max, onCommit }: Props) {
   const years = buckets.map((b) => Number(b.value)).filter(Number.isFinite);
-  const first = years[0] ?? min ?? 0, last = years[years.length - 1] ?? max ?? 0;
+  const first = years.length ? Math.min(...years) : (min ?? 0), last = years.length ? Math.max(...years) : (max ?? 0);
   const [lo, setLo] = useState(min ?? first);
   const [hi, setHi] = useState(max ?? last);
   const [txt, setTxt] = useState<[string, string]>([String(min ?? first), String(max ?? last)]);
@@ -18,7 +18,8 @@ export function YearFacet({ buckets, min, max, onCommit }: Props) {
 
   const top = Math.max(1, ...buckets.map((b) => b.count));
   const bw = W / Math.max(1, buckets.length);
-  const release = () => onCommit(lo, hi);
+  // only a real change writes the URL (a Tab/Shift keyup or a plain click must not)
+  const release = () => { if (lo !== (min ?? first) || hi !== (max ?? last)) onCommit(lo, hi); };
   const num = (i: 0 | 1, v: string) => setTxt((t) => (i ? [t[0], v] : [v, t[1]]));
   const commitNums = () => {
     // an untouched end keeps its current value (unset stays unset)

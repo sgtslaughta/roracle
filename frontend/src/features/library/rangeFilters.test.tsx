@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
+import { YearFacet } from "./YearFacet";
 import { describe, expect, it } from "vitest";
 import { createAppRouter } from "@/app/router";
 
@@ -30,6 +31,26 @@ describe("range and signal filters", () => {
     fireEvent.change(slider, { target: { value: String(first + 2) } });
     await userEvent.keyboard("{ArrowRight}");
     await waitFor(() => expect(router.state.location.search).toMatchObject({ year_min: first + 2 }));
+  });
+
+  it("keyup or pointerup on a slider without a change leaves the URL alone", async () => {
+    const router = await renderLibrary("/library");
+    const slider = rail().getByRole("slider", { name: "Earliest year" });
+    slider.focus();
+    await userEvent.keyboard("{Shift}");
+    await userEvent.tab({ shift: true });
+    await userEvent.tab();
+    fireEvent.pointerUp(slider);
+    expect(router.state.location.search).not.toHaveProperty("year_min");
+    expect(router.state.location.search).not.toHaveProperty("year_max");
+  });
+
+  it("computes year bounds from the buckets, not their order", () => {
+    const b = [2024, 2018, 2020].map((y) => ({ value: String(y), count: 1 }));
+    render(<YearFacet buckets={b} onCommit={() => {}} />);
+    const s = screen.getByRole("slider", { name: "Earliest year" });
+    expect(s).toHaveAttribute("min", "2018");
+    expect(s).toHaveAttribute("max", "2024");
   });
 
   it("inverted year numbers show an error and leave the URL alone", async () => {
