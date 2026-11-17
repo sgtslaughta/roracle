@@ -110,14 +110,6 @@ spec:
   policyTypes: [Egress]
   egress: {{ include "roracle.npEsEgress" . | nindent 4 }}
 {{- end }}
-{{- if eq .Values.minio.mode "tenant" }}
----
-{{ include "roracle.npMeta" (dict "root" . "name" "minio-policy-egress") }}
-spec:
-  {{ include "roracle.npPods" (dict "root" . "comps" (list "minio-policy")) }}
-  policyTypes: [Egress]
-  egress: {{ include "roracle.npS3Egress" . | nindent 4 }}
-{{- end }}
 {{- /* api + worker -> inference (LLM), OIDC (JWKS), OTLP collector */}}
 {{- $ext := print (include "roracle.npCidrRule" $np.egressCIDRs.llm) (include "roracle.npCidrRule" $np.egressCIDRs.oidc) (include "roracle.npCidrRule" $np.egressCIDRs.otel) }}
 {{- if $ext }}

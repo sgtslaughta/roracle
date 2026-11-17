@@ -27,13 +27,10 @@ app.kubernetes.io/component: {{ .comp }}
 {{- if .img.digest }}{{ printf "%s@%s" $r .img.digest }}{{ else }}{{ printf "%s:%s" $r (default .root.Chart.AppVersion .img.tag) }}{{ end -}}
 {{- end -}}
 
-{{/* Computed defaults for config entries the user left empty. Later tasks extend this (elastic, parsers, minio). */}}
+{{/* Computed defaults for config entries the user left empty. Later tasks extend this (elastic, parsers). */}}
 {{- define "roracle.endpoints" -}}
 {{- if .Values.ingress.host }}
 ROR_PUBLIC_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
-{{- end }}
-{{- if eq .Values.minio.mode "tenant" }}
-ROR_S3_ENDPOINT: {{ include "roracle.minioEndpoint" . | quote }}
 {{- end }}
 {{- $pf := printf "%s-" (include "roracle.fullname" .) }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
@@ -52,11 +49,6 @@ ROR_GROBID_URL: {{ printf "http://%sgrobid:%v" $pf .port | quote }}
 ROR_CLAMAV_HOST: {{ printf "%sclamav" $pf | quote }}
 ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- end }}
-{{- end -}}
-
-{{/* S3 endpoint of the bundled MinIO tenant (operator creates Service "minio" in the tenant namespace). */}}
-{{- define "roracle.minioEndpoint" -}}
-{{ ternary "https" "http" .Values.minio.requestAutoCert }}://minio.{{ .Release.Namespace }}.svc
 {{- end -}}
 
 {{/* Operator-managed image ref: like roracle.image but the tag is mandatory (no appVersion default). args: root, img */}}
@@ -87,8 +79,9 @@ ROR_CLAMAV_PORT: {{ .Values.parsers.clamav.port | quote }}
 {{- $s := required "secrets.existingSecret is required" .Values.secrets.existingSecret -}}
 {{- $k := .Values.secrets.keys }}
 - {name: ROR_DATABASE_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.databaseUrl | quote }}}}}
-- {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
-- {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
+{{- $s3 := default $s .Values.secrets.s3Secret }}
+- {name: ROR_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: {{ $s3 | quote }}, key: {{ $k.s3AccessKey | quote }}}}}
+- {name: ROR_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: {{ $s3 | quote }}, key: {{ $k.s3SecretKey | quote }}}}}
 - {name: ROR_ELASTIC_URL, valueFrom: {secretKeyRef: {name: {{ $s | quote }}, key: {{ $k.elasticUrl | quote }}}}}
 {{- range $env, $key := dict "ROR_ELASTIC_USERNAME" $k.elasticUsername "ROR_ELASTIC_PASSWORD" $k.elasticPassword "ROR_DATABASE_PASSWORD" $k.databasePassword }}
 {{- if $key }}
@@ -240,7 +233,7 @@ spec:
 
 {{/* ---- Interim CA bundle (see values caBundle). Empty output unless a TLS CA is in play. ---- */}}
 {{- define "roracle.caEnabled" -}}
-{{- if or (and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls) (and (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert) .Values.caBundle.extraSecrets }}true{{ end -}}
+{{- if or (and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls) .Values.caBundle.extraSecrets }}true{{ end -}}
 {{- end -}}
 
 {{/* Init container + volumes + mounts + env. Main containers get the merged bundle over certifi's cacert.pem. */}}
@@ -274,9 +267,6 @@ initContainers:
       {{- if and (eq .Values.elasticsearch.mode "eck") .Values.elasticsearch.tls }}
       - secret: {name: {{ include "roracle.fullname" . }}-es-http-certs-public, optional: {{ $o }}, items: [{key: ca.crt, path: es.crt}]}
       {{- end }}
-      {{- if and .Values.caBundle.kubeRootCa (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert }}
-      - configMap: {name: kube-root-ca.crt, optional: true, items: [{key: ca.crt, path: kube-root.crt}]}
-      {{- end }}
       {{- range $i, $x := .Values.caBundle.extraSecrets }}
       - secret: {name: {{ $x.name | quote }}, items: [{key: {{ default "ca.crt" $x.key | quote }}, path: {{ printf "extra-%d.crt" $i }}}]}
       {{- end }}
@@ -302,12 +292,12 @@ initContainers:
 {{- end }}
 {{- end -}}
 
-{{/* NetworkPolicy peers: app pods (api/worker/migrate/es-snapshot/minio-policy jobs) in this release. */}}
+{{/* NetworkPolicy peers: app pods (api/worker/migrate/es-snapshot jobs) in this release. */}}
 {{- define "roracle.appPeer" -}}
 - podSelector:
     matchLabels: {app.kubernetes.io/name: {{ .Chart.Name }}, app.kubernetes.io/instance: {{ .Release.Name | quote }}}
     matchExpressions:
-      - {key: app.kubernetes.io/component, operator: In, values: [api, worker, migrate, es-snapshot, minio-policy]}
+      - {key: app.kubernetes.io/component, operator: In, values: [api, worker, migrate, es-snapshot]}
 {{- end -}}
 
 {{- define "roracle.nsPeer" -}}
@@ -319,9 +309,9 @@ initContainers:
 {{ .Values.postgres.backup.destinationPath | trimPrefix "s3://" | splitList "/" | first }}
 {{- end -}}
 
-{{/* ES S3 client protocol: explicit value, else follows the bundled MinIO TLS setting (https for external S3). */}}
+{{/* ES S3 client protocol: explicit value, else https. */}}
 {{- define "roracle.snapProtocol" -}}
-{{- default (ternary (ternary "https" "http" .Values.minio.requestAutoCert) "https" (eq .Values.minio.mode "tenant")) .Values.elasticsearch.snapshot.protocol -}}
+{{- default "https" .Values.elasticsearch.snapshot.protocol -}}
 {{- end -}}
 
 {{/* "1100M" / "2G" / "512K" / "1048576" -> bytes (int64). */}}
