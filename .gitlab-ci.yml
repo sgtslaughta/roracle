@@ -14,7 +14,7 @@ variables:
   KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
   TERRAFORM_IMAGE: "${REGISTRY_MIRROR}hashicorp/terraform:1.15.8"
-  KIND_E2E_IMAGE: ""   # iac-kind-e2e only: image with docker CLI, terraform, curl, jq, tar, openssl
+  KIND_E2E_IMAGE: ""   # REQUIRED for iac-kind-e2e (the job fails fast when empty): bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum
 
 workflow:
   rules:
@@ -172,7 +172,7 @@ terraform:
 
 # Manual apply rehearsal on kind (real cluster, local registry as air-gap mirror). Needs a PRIVILEGED runner with Docker-in-Docker
 # (it starts kind node containers and registry:2), internet for the first run (kind/kubectl/helm, upstream images) and ~8 GB RAM.
-# Not part of the default pipeline: trigger it manually. Image must contain docker, terraform, curl, jq, tar, openssl (set KIND_E2E_IMAGE).
+# Not part of the default pipeline: trigger it manually. KIND_E2E_IMAGE must contain bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum.
 iac-kind-e2e:
   stage: terraform
   rules:
@@ -180,15 +180,18 @@ iac-kind-e2e:
       allow_failure: true
   image: ${KIND_E2E_IMAGE}
   services:
+    # dockerd listens on loopback only (the entrypoint would otherwise bind an unauthenticated tcp://0.0.0.0:2375 on the pod IP)
     - name: ${REGISTRY_MIRROR}docker:27-dind
       alias: docker
+      command: ["dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock"]
   variables:
     # The script reaches the registry (127.0.0.1:5055) and the kind API server on localhost: the dind service must share the
     # job's network namespace (Kubernetes executor, privileged pod). A Docker executor needs the host docker.sock instead.
-    DOCKER_HOST: tcp://localhost:2375
+    DOCKER_HOST: tcp://127.0.0.1:2375
     DOCKER_TLS_CERTDIR: ""
   timeout: 1h
   script:
+    - test -n "$KIND_E2E_IMAGE" || { echo "set KIND_E2E_IMAGE (see variables)"; exit 1; }
     - deploy/terraform/test/kind-e2e.sh all
   after_script:
     - deploy/terraform/test/kind-e2e.sh down || true
