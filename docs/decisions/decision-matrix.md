@@ -33,18 +33,24 @@ and `deploy/terraform/`.
 - **Provisional**: chosen or shipped for now, with an explicit trigger that reopens it. Typical triggers are an eval
   PASS or FAIL, or a missing piece landing.
 - **Revisit**: the evidence already points elsewhere, or a known gap must close first.
+- **Not adopted (matrix judgement only)**: an alternative rated here that no ADR or ledger discusses. Its rejection
+  rests on this page's judgement alone.
+
+A row that cites an ADR with "(alternative not discussed in the ADR)" means the ADR governs the area and chose
+something else, but does not name that alternative.
 
 **How to read the totals.** Differences of 3 points or less are within judgement noise. Where the top-ranked option is
 not the chosen one, the area page says why. Usually the reason is a criterion the matrix does not weigh, such as
 switching cost, or an option that is a different kind of thing (a CI floor or a site's own tooling). The matrix
-informs decisions; it does not overrule an ADR or an eval gate.
+informs decisions; it does not overrule an ADR or an eval gate. Licence notes on the area pages are general knowledge,
+not something this repository checks: confirm them with your legal team.
 
 ## Summary
 
 | # | Area | Chosen (total) | Top-ranked if different | Status | Page |
 |---|---|---|---|---|---|
 | 1 | System of record and job queue | Postgres `jobs` table with `SKIP LOCKED` and leases (68) | | Decided | [data](matrix-data.md#1-system-of-record-and-job-queue) |
-| 2 | Search engine and version | Elasticsearch Basic 9.5.6, int8 default (61) | OpenSearch 60, within noise | Decided (user, 2026-11-16) | [data](matrix-data.md#2-search-engine-and-version) |
+| 2 | Search engine and version | Elasticsearch Basic 9.5.6, int8 default (61) | OpenSearch 60, within noise; the gap rests on one disputed rating (OpenSearch security S4; with S5 for its DLS it ranks 63) | Decided (user, 2026-11-16) | [data](matrix-data.md#2-search-engine-and-version) |
 | 3 | Vector quantisation | int8 HNSW (58) | | int8 decided; BBQ provisional, eval-gated | [data](matrix-data.md#3-vector-quantisation) |
 | 4 | Object store | Rook-Ceph RGW (63); external S3 option (62) | | Decided (user, 2026-11-16) | [data](matrix-data.md#4-object-store) |
 | 5 | Embedding model | EmbeddingGemma-300m, 768-d (57) | | Provisional: revisit when own-corpus eval data exists | [retrieval](matrix-retrieval.md#5-embedding-model) |
@@ -101,11 +107,14 @@ Decided or provisional rows that rest on a ledger entry rather than an ADR. T17 
 4. **Gold set source: SciFact plus generated questions** (area 20): ledger
    `.worktrees/rq/.superpowers/sdd/rq/progress.md:3` (2026-11-16). ADR-0015 covers the harness but not the source.
 5. **Observability stack as separate releases without subcharts** (area 19): ledger
-   `.worktrees/p11-infra/.superpowers/sdd/p11a-production-infra/progress.md:5` (P11a, 2026-11-15).
+   `.worktrees/p11-infra/.superpowers/sdd/p11a-production-infra/progress.md:5` (P11a, 2026-11-15, phase date).
 6. **Handoffs have no live mode** (area 15): ruling in the P12 ledger `.superpowers/sdd/2026-11-17-p12-docs/progress.md:45`
-   (2026-11-17), matching `backend/src/roracle/handoff.py:1`. ADR-0010 does not say that contents are frozen.
+   (2026-11-17, phase date), matching `backend/src/roracle/handoff.py:1`. ADR-0010 does not say that contents are frozen.
 7. **Dev and CI keep `bitnamilegacy/minio`** (area 4): ledger `.worktrees/iac/.superpowers/sdd/iac/progress.md:11`
    (2026-11-16 21:25). ADR-0016 covers production but not the dev and CI image.
 8. **Chart 0.2.0 as a minor bump for a breaking change before 1.0** (area 18): ledger
    `.worktrees/iac/.superpowers/sdd/iac/progress.md:15` (2026-11-16). ADR-0013 defines SemVer but not the rule for
    versions before 1.0.
+9. **Draft PDFs built by a separate Gotenberg** (area 15): the shipped draft-PDF path (`draftgotenberg` parser,
+   `ROR_DRAFT_GOTENBERG_URL`, `backend/src/roracle/config.py:147`). ADR-0011 covers only LaTeX builds. Ledger ruling
+   `.worktrees/p11b-hardening/.superpowers/sdd/p11b-hardening/progress.md:43` (P11b, 2026-11-15, phase date).
