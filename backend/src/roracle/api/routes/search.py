@@ -235,9 +235,10 @@ def _query_rows(
     for h in hits:
         if h.doc_id in by_id:
             r = by_id[h.doc_id]
-            if any(x.version_id != str(r.ver.id) for x in h.passages):
-                continue  # a newer version became latest after the first stage ran: never show its old snippets
-            r.score, r.passages = h.score, h.passages
+            live = [x for x in h.passages if x.version_id == str(r.ver.id)]
+            if not live:
+                continue  # only stale snippets: a newer version became latest after the first stage ran
+            r.score, r.passages = h.score, live  # stale snippets are filtered, the document stays
             rows.append(r)
     return rows
 

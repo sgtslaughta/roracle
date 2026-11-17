@@ -284,7 +284,10 @@ def _index(
     # The ONE refresh of this ingest, right after the bulk and BEFORE the ACL re-read: any ACL change, relabel or
     # DELETE that commits after our read then runs its update_by_query/delete_by_query on a searcher that already
     # contains these chunks (they act on the last refreshed state), and one that committed before is seen by the read.
-    es.indices.refresh(index=search_index.MUTATE_ALIAS)
+    es.indices.refresh(
+        index=index
+    )  # only the index just written: a chunks-all refresh would hit every generation
+    _demote_if_superseded(sf, es, v, d, index, latest)
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
@@ -361,7 +364,8 @@ def index_units_only(
     keep = _index_units(
         session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, soft=False
     )
-    es.indices.refresh(index=search_index.MUTATE_ALIAS)  # before the ACL re-read, as in `_index`
+    es.indices.refresh(index=index)  # before the ACL re-read, as in `_index`
+    _demote_if_superseded(sf, es, v, d, index, latest)
     fresh = read_acl(sf, d.id)
     if fresh is None:
         es.delete_by_query(
@@ -372,6 +376,18 @@ def index_units_only(
     if fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_units(es, v.id, keep or [], refresh=False)
+
+
+def _demote_if_superseded(sf, es, v, d, index: str, latest: bool) -> None:
+    """`latest` was read before minutes of LLM/embedding work: a newer version may have become searchable meanwhile
+    and its demotion already ran, so our bulk would leave THIS version `is_latest=true` for good. Re-check against
+    Postgres after our refresh; if it flipped, demote this version's chunks and units by version id."""
+    if not latest:
+        return
+    with sf() as s:
+        if _is_latest(s, v, d):
+            return
+    search_index.demote_version(es, v.id, index)
 
 
 def _is_latest(session: Session, v: DocumentVersion, d: Document) -> bool:

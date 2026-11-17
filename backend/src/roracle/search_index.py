@@ -491,6 +491,19 @@ def delete_stale_units(
     )
 
 
+def demote_version(es: Elasticsearch, version_id, alias: str = MUTATE_ALIAS, refresh: bool = True) -> None:
+    """Flag every chunk and unit of ONE version as not latest (it was superseded while it was being indexed)."""
+    es.update_by_query(
+        index=alias,
+        query={
+            "bool": {"filter": [{"term": {"version_id": str(version_id)}}, {"term": {"is_latest": True}}]}
+        },
+        script={"source": "ctx._source.is_latest = false", "lang": "painless"},
+        refresh=refresh,
+        conflicts="proceed",
+    )
+
+
 def mark_previous_versions(
     es: Elasticsearch, doc_id, version: int, alias: str = MUTATE_ALIAS, refresh: bool = True
 ) -> None:
