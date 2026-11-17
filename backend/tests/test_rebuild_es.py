@@ -64,3 +64,27 @@ def test_rebuild_into_shadow(db_session, session_factory, cfg, store, es, user, 
         assert not es.indices.exists(index=shadow) and es.indices.exists(index=active)
     finally:
         Elasticsearch(cfg.elastic_url).indices.delete(index=[shadow], ignore_unavailable=True)
+
+
+def test_shadow_rebuild_never_prunes_active_units(db_session, session_factory, cfg, store, es, user, s3):
+    cfg = cfg.model_copy(
+        update={"context_model": "ctx", "raptor": True, "read_alias": f"chunks-t6s-{cfg.embed_model[-8:]}"}
+    )
+    v = make_version(db_session, store, user, visibility="private")
+    ingest(db_session, session_factory, cfg, store, es, v, paras(3))
+    active = search_index.active_index(cfg)
+    shadow = f"chunks-{search_index.slug(cfg.embed_model)}-shadow6"
+    try:
+        stray = {"version_id": str(v.id), "doc_id": str(v.document_id), "unit": "section"}
+        es.index(index=active, id=f"{v.id}:stray", document=stray, refresh=True)
+        with session_factory() as s:
+            assert rebuild.start(s, es, runtime.effective(s, cfg), {"context"}, shadow) == 1
+            s.commit()
+        h = partial(
+            rebuild.handle_rebuild_units, settings=cfg, store=store, es=es, llm=FakeLLM(4),
+            session_factory=session_factory,
+        )  # fmt: skip
+        assert run_once(session_factory, {"rebuild_units": h})
+        assert es.exists(index=active, id=f"{v.id}:stray")  # not in the shadow's keep list, still in active
+    finally:
+        Elasticsearch(cfg.elastic_url).indices.delete(index=[shadow], ignore_unavailable=True)

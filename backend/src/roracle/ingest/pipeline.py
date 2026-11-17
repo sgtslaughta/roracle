@@ -299,7 +299,10 @@ def _index(
     if fresh[0] != {**acl, "tags": tags}:
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     if not first_index:  # a first index of this version has no earlier chunks to prune
-        search_index.delete_stale_chunks(es, v.id, len(chunks), keep_units=keep_units, refresh=False)
+        # scoped to the TARGET index: a shadow rebuild must never prune the active index's units
+        search_index.delete_stale_chunks(
+            es, v.id, len(chunks), alias=index, keep_units=keep_units, refresh=False
+        )
     if latest and v.version > 1 and not rebuild:  # version 1 has no older versions to demote
         search_index.mark_previous_versions(es, d.id, v.version, refresh=False)
         clear_outdated_reasons(sf, d.id, v.id)
