@@ -94,8 +94,8 @@ the last Elasticsearch step and is idempotent if a crash forces a re-run. The ol
 mutations keep reaching it and an operator can still roll back by hand until it is deleted.
 
 **Catch-up.** After the swap, two rounds 300 s apart copy chunks that exist in the old index but not in the
-target (ingests that raced the cutover). A catch-up that finds the read alias no longer on the target fails
-loudly instead of copying blindly. The last round of the last slice enqueues a reindex `eval_run` when
+target (ingests that raced the cutover). A catch-up that finds the read alias no longer on the
+target fails loudly instead of copying blindly. The last round of the last slice enqueues a reindex `eval_run` when
 `eval_on_reindex` is on and a reference eval set exists.
 
 `reconcile_tags` is also enqueued at the end of each pass and at cutover, so ACL and tags of every document are
@@ -169,9 +169,11 @@ The chart default is Elasticsearch **9.5.6** (`elasticsearch.version`), the Pyth
   Postgres and object storage. `ensure_active_index` creates the active index and aliases at worker start. The
   parsed documents needed to refill are `derived/<version_id>/docling.json` in the object store.
 
-> TODO(verify): the code has no single command that re-indexes the whole corpus into an empty cluster.
-> `roracle rebuild --what context` rewrites every latest version's chunks from the stored parse but needs
-> `ROR_CONTEXT_MODEL`; `--what raptor` in place only writes units. Confirm the intended refill procedure for a
-> fresh cluster before the upgrades page documents it.
+**Limitation.** No neutral refill command exists. `roracle rebuild --what context` is the only full chunk rewrite
+(from `derived/<version_id>/docling.json`). It needs `ROR_CONTEXT_MODEL` and forces contextual notes on for that pass
+(`context_notes or "context" in what` in `handle_rebuild_units`), so on a deployment that runs without notes it
+changes the chunk text. In-place `--what raptor` writes units only. The ADR-0015 decision of a fresh cluster plus
+rebuild also says "no 8.19 hop", while the chart requires the hop for an existing cluster, so do not read the ADR
+as describing the chart path.
 
 Step-by-step upgrade procedures belong to the upgrades page (enterprise/upgrades.md, not yet written).

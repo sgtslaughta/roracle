@@ -331,5 +331,7 @@ the passages are withheld only after ranking. Chat and MCP `ask` filter `exclude
 rerank step, so the reranker does not receive them there, except in the short window before a label raise has
 synced to Elasticsearch (the filter uses the chunk's stored label id). The Postgres re-check (`_live`, which
 applies the current label) then drops the passage before any LLM sees it.
-Elasticsearch ACL filters always run before reranking, so it never receives text the caller may not see. Keep
+The rerank runs before the Postgres re-check, so the reranker only receives passages that passed the Elasticsearch
+ACL filter; in the `acl_sync` window that can include text whose access was just revoked, and the R19 re-check
+removes it before anything is returned. Keep
 the reranker endpoint inside the same trust boundary as the API (see [security](../enterprise/security.md)).
