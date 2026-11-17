@@ -11,7 +11,7 @@ const ENV: Record<string, SettingValue> = {
   chat_models: ["qwen2.5:14b", "llama3.1:8b"], chat_default_model: "qwen2.5:14b", chat_passages: 8, chat_note_min_upvotes: 2, chat_note_min_ratio: 0.7,
   rerank_depth: 40, near_dup_threshold: 0.92, near_dup_summary_threshold: 0.85, max_upload_bytes: 500 * MiB, upload_quota_bytes: 0, rate_limit_per_minute: 60, pats_enabled: true,
 };
-const RANGE: Record<string, [number, number]> = { chat_passages: [4, 12], rerank_depth: [10, 100], near_dup_threshold: [0.5, 1], near_dup_summary_threshold: [0.5, 1], chat_note_min_ratio: [0, 1], max_upload_bytes: [MiB, 5 * 1024 * MiB] };
+const RANGE: Record<string, [number, number]> = { chat_passages: [4, 12], rerank_depth: [10, 500], near_dup_threshold: [0.5, 1], near_dup_summary_threshold: [0.5, 1], chat_note_min_ratio: [0, 1], max_upload_bytes: [MiB, 5 * 1024 * MiB] };
 
 export interface DataState {
   overrides: Record<string, SettingValue>; tags: TagCount[]; audit: AuditEntry[]; users: AdminUser[]; revoked: string[];
@@ -54,7 +54,7 @@ export const adminDataHandlers = [
     d.overrides = next;
     return HttpResponse.json(view(d));
   }),
-  http.get(url("/admin/tags"), () => (state.admin ? HttpResponse.json(dataOf().tags) : forbidden())),
+  http.get(url("/admin/tags"), () => (state.admin ? HttpResponse.json({ items: dataOf().tags, total: dataOf().tags.length }) : forbidden())),
   http.post(url("/admin/tags/merge"), async ({ request }) => {
     if (!state.admin) return forbidden();
     const d = dataOf();
@@ -88,7 +88,7 @@ export const adminDataHandlers = [
     dataOf().revoked.push(String(params.id));
     return new HttpResponse(null, { status: 204 });
   }),
-  http.get(url("/admin/groups"), () => (state.admin ? HttpResponse.json([{ group: "/Mathematics", members: 27 }, { group: "/Mathematics/Spectral Theory", members: 1 }, { group: "/Staff", members: 2 }]) : forbidden())),
+  http.get(url("/admin/groups"), () => (state.admin ? HttpResponse.json({ items: [{ group: "/Mathematics", members: 27 }, { group: "/Mathematics/Spectral Theory", members: 1 }, { group: "/Staff", members: 2 }], total: 3 }) : forbidden())),
   http.get(url("/admin/stats"), () => state.admin ? HttpResponse.json({
     documents: { live: 41, deleted: 3 }, versions: { searchable: 41, review: 2, needs_title: 1, rejected: 1 }, blobs: { count: 47, bytes: 912 * MiB },
     users: dataOf().users.length, chats: 18, connectors: 3,

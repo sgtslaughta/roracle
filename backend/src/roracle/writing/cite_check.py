@@ -21,12 +21,14 @@ from roracle.auth import Principal
 from roracle.chat.access import visible_versions
 from roracle.config import Settings
 from roracle.ingest.embed import EmbedError
+from roracle.labels.policy import Policy
+from roracle.labels.textgate import require_text
 from roracle.models import Document, DocumentVersion
 from roracle.models_writing import Draft
 from roracle.notes.access import readable_doc_ids
 from roracle.queue import NonRetryable
 from roracle.search_acl import acl_filter
-from roracle.search_index import index_name
+from roracle.search_index import active_index
 from roracle.writing import drafts
 from roracle.writing.markdown import parse
 
@@ -102,6 +104,15 @@ SYSTEM = (
 )
 
 
+UNCHECKED = "unchecked"
+UNCHECKED_REASON = "label excludes LLM review"
+
+
+def _doc_blocked(session: Session, policy: Policy, doc_id: str) -> bool:
+    d = session.get(Document, UUID(doc_id))
+    return d is not None and policy.has(d.label_id, "exclude_llm")
+
+
 def sentence_hash(sentence: str) -> str:
     return hashlib.sha256(sentence.encode()).hexdigest()
 
@@ -140,25 +151,27 @@ def judge(llm, model: str, sentence: str, passage: str) -> tuple[str, str]:
     return (verdict, reason) if verdict in VERDICTS else ("unclear", "judge answer was not understood")
 
 
-def _psg_chunk(es, settings: Settings, p: Principal, ver: str, n: int) -> dict | None:
+def _psg_chunk(es, settings: Settings, p: Principal, policy: Policy, ver: str, n: int) -> dict | None:
     hits = es.search(
-        index=index_name(settings.embed_model),
+        index=active_index(settings),
         size=1,
         source=["chunk_id", "doc_id", "version_id", "text", "title"],
-        query={"bool": {"filter": [acl_filter(p), {"term": {"chunk_id": f"{ver}:{n}"}}]}},
+        query={"bool": {"filter": [acl_filter(p, policy), {"term": {"chunk_id": f"{ver}:{n}"}}]}},
     )["hits"]["hits"]
     return hits[0]["_source"] if hits else None
 
 
-def _passage(session, es, llm, settings, p, key: str, res: dict, sentence: str) -> dict | None:
+def _passage(
+    session, es, llm, settings, p, policy: Policy, key: str, res: dict, sentence: str
+) -> dict | None:
     """Best readable passage {chunk_id, doc_id, text, title} for a resolved key, else None."""
     if res["kind"] == "psg":
-        s = _psg_chunk(es, settings, p, res["version_id"], res["n"])
+        s = _psg_chunk(es, settings, p, policy, res["version_id"], res["n"])
         cands = [s] if s else []
     else:
         try:
             ps = retrieval.search_chunks(
-                es, llm, settings, p, sentence, filters={}, doc_ids=[res["doc_id"]], size=3
+                es, llm, settings, p, sentence, policy=policy, filters={}, doc_ids=[res["doc_id"]], size=3
             )
         except ValueError:  # empty sentence
             ps = []
@@ -188,7 +201,8 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
     """Verify every (key, sentence) citation of the latest draft version; stores the report on it.
 
     Outage of the judge or the search index -> 503 and nothing stored."""
-    _, d = drafts.owned_or_coauthored(session, p, doc_id)  # no row lock: LLM calls are slow
+    doc, d = drafts.owned_or_coauthored(session, p, doc_id)  # no row lock: LLM calls are slow
+    require_text(session, p, doc)  # the report quotes the draft: agents get none of an exclude_llm draft
     v = drafts.latest_version(session, doc_id)
     if v is None:
         raise HTTPException(409, "draft has no content")
@@ -199,12 +213,21 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
     if len(pairs) > settings.writing_max_citations:
         raise HTTPException(422, f"too many citations (max {settings.writing_max_citations})")
     resolved = resolve_keys(session, p, list({k for k, _ in pairs}))
+    policy = Policy.load(session)
+    doc = session.get(Document, doc_id)
+    draft_blocked = doc is not None and policy.has(doc.label_id, "exclude_llm")
     model = settings.writing_model or settings.chat_model_list[0]
     items = []
     try:
         for (key, _), s in pairs.items():
             res = resolved.get(key)
-            psg = _passage(session, es, llm, settings, p, key, res, s) if res else None
+            if res is not None and (draft_blocked or _doc_blocked(session, policy, res["doc_id"])):
+                items.append(  # gate (a): neither the sentence nor the passage reaches the judge
+                    _item(key, s, status="resolved", verdict=UNCHECKED, reason=UNCHECKED_REASON,
+                          doc_id=res["doc_id"])
+                )  # fmt: skip
+                continue
+            psg = _passage(session, es, llm, settings, p, policy, key, res, s) if res else None
             if res is None or (psg is None and res["kind"] == "psg"):
                 items.append(_item(key, s))
             elif psg is None:

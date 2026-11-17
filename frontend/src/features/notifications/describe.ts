@@ -12,6 +12,9 @@ const q = (v: unknown, fallback: string) => (str(v) ? `“${str(v)}”` : fallba
 /** Internal links only, built from a validated id, never from a payload URL. */
 const docLink = (id: unknown) => (isDocId(id) ? `/d/${id}` : undefined);
 
+const draftLink = (id: unknown): Omit<Described, "text"> => (isDocId(id) ? { to: `/drafts/${id}` } : { to: "/drafts" });
+const note = (v: unknown) => (str(v) ? ` Note: ${str(v)}` : "");
+
 const noteLink = (docId: unknown, noteId: unknown): Omit<Described, "text"> =>
   isDocId(docId) ? { to: `/d/${docId}`, ...(isDocId(noteId) && { note: { docId, noteId } }) } : {};
 
@@ -37,6 +40,12 @@ export function describe(kind: string, payload: Record<string, unknown> | null |
       return { text: "Someone replied to your note.", ...noteLink(p.document_id, p.reply_id) };
     case "note.on_document":
       return { text: "Someone added a note to your document.", ...noteLink(p.document_id, p.note_id) };
+    case "draft.review_requested":
+      return { text: `${q(p.title, "A draft")} is waiting for your review.`, ...draftLink(p.draft_id) };
+    case "draft.approved":
+      return { text: `${q(p.title, "Your draft")} was approved and published.${note(p.note)}`, ...draftLink(p.draft_id) };
+    case "draft.rejected":
+      return { text: `${q(p.title, "Your draft")} was sent back.${note(p.note)}`, ...draftLink(p.draft_id) };
     default:
       return { text: "Something changed." };
   }

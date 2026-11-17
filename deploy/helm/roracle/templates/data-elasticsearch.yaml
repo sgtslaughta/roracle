@@ -1,11 +1,12 @@
 {{- if eq .Values.elasticsearch.mode "eck" }}
 {{- $es := .Values.elasticsearch }}
 {{- $sn := $es.snapshot }}
-{{- $snEp := default (trimPrefix "http://" (trimPrefix "https://" (include "roracle.minioEndpoint" .))) $sn.endpoint }}
+{{- $snEp := $sn.endpoint }}
 {{- if $sn.enabled }}
 {{- $_ := required "elasticsearch.snapshot.credentialsSecret is required when snapshots are enabled" $sn.credentialsSecret }}
+{{- $_ := required "elasticsearch.snapshot.endpoint (host:port, no scheme) is required when snapshots are enabled" $sn.endpoint }}
 {{- end }}
-{{- $caSnap := and $sn.enabled (eq (include "roracle.snapProtocol" .) "https") (or (and (eq .Values.minio.mode "tenant") .Values.minio.requestAutoCert .Values.caBundle.kubeRootCa) $sn.extraCASecret.name) }}
+{{- $caSnap := and $sn.enabled (eq (include "roracle.snapProtocol" .) "https") $sn.extraCASecret.name }}
 {{- $img := merge (deepCopy $es.image) (dict "tag" $es.version) }}
 apiVersion: elasticsearch.k8s.elastic.co/v1
 kind: Elasticsearch
@@ -80,9 +81,6 @@ spec:
             - name: snap-ca
               projected:
                 sources:
-                  {{- if and (eq $.Values.minio.mode "tenant") $.Values.minio.requestAutoCert $.Values.caBundle.kubeRootCa }}
-                  - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: kube-root.crt}]}
-                  {{- end }}
                   {{- with $sn.extraCASecret.name }}
                   - secret: {name: {{ . | quote }}, items: [{key: {{ default "ca.crt" $sn.extraCASecret.key | quote }}, path: extra.crt}]}
                   {{- end }}

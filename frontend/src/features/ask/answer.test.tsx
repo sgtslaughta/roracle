@@ -143,7 +143,7 @@ describe("Sidenotes", () => {
     const many = Array.from({ length: 13 }, (_, i) => ok(i + 1));
     const { container } = render(<Harness citations={many} />);
     expect(container.querySelectorAll(".margin .note")).toHaveLength(3); // the harness text cites 3 of them
-    const { container: c2 } = render(<Sidenotes citations={many} order={many.map((c) => c.n)} answerRef={{ current: null }} />);
+    const { container: c2 } = render(<Sidenotes citations={many} order={many.flatMap((c) => c.n ?? [])} answerRef={{ current: null }} />);
     expect(c2.querySelectorAll(".note")).toHaveLength(12);
     expect(screen.getByText("+1 more sources")).toBeTruthy();
   });

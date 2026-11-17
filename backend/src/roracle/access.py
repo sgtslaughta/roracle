@@ -6,7 +6,8 @@ from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.sql.elements import ColumnElement
 
 from roracle.auth import Principal
-from roracle.models import Document, DocumentShare
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
+from roracle.models_labels import Label
 
 
 def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
@@ -16,6 +17,12 @@ def _share(kind: str, principals: list[str]) -> ColumnElement[bool]:
             DocumentShare.principal_kind == kind,
             DocumentShare.principal.in_(principals),
         )
+    )
+
+
+def _coauthor(uid) -> ColumnElement[bool]:
+    return exists(
+        select(1).where(DocumentCoauthor.document_id == Document.id, DocumentCoauthor.user_id == uid)
     )
 
 
@@ -66,19 +73,49 @@ def org_ancestors(groups: list[str]) -> list[str]:
     return sorted(out)
 
 
+def agent_visible() -> ColumnElement[bool]:
+    """Gate (b): document label does not carry `block_agents`. Always an extra AND, never widens access."""
+    return Document.label_id.not_in(select(Label.id).where(Label.block_agents.is_(True)))
+
+
+def llm_allowed() -> ColumnElement[bool]:
+    """Gate (a): document label does not carry `exclude_llm`. Postgres authority behind the ES label filter."""
+    return Document.label_id.not_in(select(Label.id).where(Label.exclude_llm.is_(True)))
+
+
 def visible_documents(p: Principal) -> ColumnElement[bool]:
     live = Document.deleted_at.is_(None)
+    if p.via == "pat":
+        live = and_(
+            live, agent_visible()
+        )  # PAT/agent principals: label-blocked docs behave as invisible (admins too)
     if p.is_admin:
         return and_(live, true())
-    groups = list(p.groups)
+    groups = org_units(p.groups)
     org = and_(Document.visibility == "org_unit", Document.org_unit.in_(org_ancestors(groups)))
     return and_(
         live,
         or_(
             Document.visibility == "everyone",
             Document.owner_id == p.user_id,
-            _share("user", [str(p.user_id)]),
-            _share("group", groups) if groups else false(),
+            _coauthor(p.user_id),  # published-paper co-authors keep read access whatever the visibility
+            and_(
+                Document.visibility == "shared",  # stale share rows under other visibilities are inert
+                or_(_share("user", [str(p.user_id)]), _share("group", groups) if groups else false()),
+            ),
             org,
         ),
+    )
+
+
+def readable_documents(p: Principal) -> ColumnElement[bool]:
+    """visible_documents + R16: non-owner non-admins need a `searchable` version. Use wherever ids/titles/counts leave."""
+    searchable = exists(
+        select(1)
+        .where(DocumentVersion.document_id == Document.id, DocumentVersion.stage == "searchable")
+        .correlate(Document)
+    )
+    return and_(
+        visible_documents(p),
+        or_(true() if p.is_admin else false(), Document.owner_id == p.user_id, searchable),
     )

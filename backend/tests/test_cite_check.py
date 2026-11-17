@@ -7,6 +7,7 @@ import pytest
 from api_seed import seed
 from conftest import bearer
 from elasticsearch import ConnectionError as EsConnectionError
+from es_fakes import msearch as _es_msearch
 from mcp_helpers import call
 from sqlalchemy import select
 from test_mcp_tools import mc, pat  # noqa: F401
@@ -25,6 +26,8 @@ class FES:
 
     def __init__(self, hits=(), exc=None):
         self.hits, self.calls, self.exc = list(hits), [], exc
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)
@@ -125,6 +128,19 @@ def test_psg_of_invisible_version_unresolved_even_if_es_returns_it(
     items = check(client, as_ana, i).json()["items"]
     assert all(x["status"] == "unresolved" and x["title"] is None and x["chunk_id"] is None for x in items)
     assert llm.calls == []
+
+
+def test_psg_uses_active_index_after_cutover(client, as_ana, ana, db_session, es, llm):
+    from roracle import runtime
+
+    _d, v = seed(db_session, ana, title="Mine", visibility="everyone")
+    es.hits = [hit(_d, v, 0)]
+    runtime.set_active_embedding(db_session, "newmodel", 8, "chunks-newmodel-2")
+    db_session.commit()
+    i = mk(client, as_ana, cite(f"psg:{v.id}:0"))
+    it = check(client, as_ana, i).json()["items"][0]
+    assert it["status"] != "unresolved"
+    assert [c["index"] for c in es.calls if "knn" not in c] == ["chunks-newmodel-2"]
 
 
 def test_psg_nonexistent_chunk_unresolved(client, as_ana, ana, db_session, es, llm):
@@ -308,7 +324,7 @@ def _co(client, as_ana, cara, i):
 
 
 def test_report_is_per_principal(client, as_ana, ana, cara, db_session, es, llm):
-    d, v = seed(db_session, ana, title="CARA ONLY TITLE", visibility="private")
+    d, v = seed(db_session, ana, title="CARA ONLY TITLE", visibility="shared")
     db_session.flush()
     i = mk(client, as_ana, cite(f"psg:{v.id}:0"))
     _co(client, as_ana, cara, i)
@@ -413,3 +429,17 @@ def test_injected_passage_does_not_change_other_item(client, as_ana, ana, db_ses
     i = mk(client, as_ana, cite(f"psg:{v.id}:0", "One") + cite(f"psg:{v.id}:1", "Two"))
     a, b = check(client, as_ana, i).json()["items"]
     assert (a["verdict"], b["verdict"]) == ("supported", "unsupported")
+
+
+def test_pat_cannot_ack_or_unack(client, as_ana, ana, db_session, es, llm):
+    d, v = seed(db_session, ana, title="Mine", visibility="everyone")
+    es.hits = [hit(d, v)]
+    llm.text = '{"verdict": "unsupported", "reason": "no"}'
+    i = mk(client, as_ana, cite(f"psg:{v.id}:0"))
+    it = check(client, as_ana, i).json()["items"][0]
+    h = pat(db_session, ana, ["read", "write"])
+    r = client.post(f"/drafts/{i}/citations/ack", headers=h, json=ack_body(it))
+    assert r.status_code == 403 and "agents must propose" in r.text
+    body = {"key": it["key"], "sentence_hash": it["sentence_hash"]}
+    assert client.request("DELETE", f"/drafts/{i}/citations/ack", headers=h, json=body).status_code == 403
+    assert client.post(f"/drafts/{i}/citations/ack", headers=as_ana, json=ack_body(it)).status_code == 200

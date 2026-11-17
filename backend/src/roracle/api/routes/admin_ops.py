@@ -1,10 +1,10 @@
 """Admin operations: job queue, stats, health."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import extract, func, select, text, update
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from roracle.models import (
     Job,
     User,
 )
+from roracle.queue import enqueue
 from roracle.storage import BlobStore
 
 router = APIRouter()
@@ -121,6 +122,9 @@ def retry_job(job_id: int, p: Admin, session: Annotated[Session, Depends(get_ses
     return _job(j)
 
 
+RETRY_BATCH = 1000  # bound the FOR UPDATE; call again for the rest ("retried" says how many moved)
+
+
 class RetryFailed(BaseModel):
     kind: str | None = None
 
@@ -130,7 +134,7 @@ def retry_failed(
     p: Admin, session: Annotated[Session, Depends(get_session)], body: RetryFailed | None = None
 ) -> dict:
     kind = body.kind if body else None
-    q = select(Job).where(Job.status == "failed").with_for_update()
+    q = select(Job).where(Job.status == "failed").order_by(Job.id).limit(RETRY_BATCH).with_for_update()
     if kind:
         q = q.where(Job.kind == kind)
     jobs = []
@@ -146,8 +150,22 @@ def retry_failed(
     return {"retried": len(jobs)}
 
 
+@router.post("/admin/maintenance/{op}", status_code=202)
+def run_maintenance(
+    op: Literal["purge", "gc", "reconcile"], p: Admin, session: Annotated[Session, Depends(get_session)]
+) -> dict:
+    """Queue a one-off maintenance job (retention purge, blob GC or ES tag reconcile)."""
+    job_id = enqueue(session, "maintenance", {"op": op})
+    audit(session, p, f"admin.maintenance_{op}", str(job_id))
+    return {"job_id": job_id}
+
+
 @router.get("/admin/stats")
-def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
+def stats(
+    p: Admin,
+    session: Annotated[Session, Depends(get_session)],
+    top: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict:
     """top_uploaders bytes skip rejected/cancelled versions (quota semantics); connector docs count."""
     live, deleted = session.execute(
         select(
@@ -167,7 +185,7 @@ def stats(p: Admin, session: Annotated[Session, Depends(get_session)]) -> dict:
         .where(Document.deleted_at.is_(None), DocumentVersion.stage.not_in(("rejected", "cancelled")))
         .group_by(User.id, User.username)
         .order_by(size.desc(), User.username)
-        .limit(10)
+        .limit(top)
     ).all()
 
     def count(model) -> int:

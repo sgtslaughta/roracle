@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,10 @@ from roracle.db import get_session
 router = APIRouter()
 Session_ = Annotated[Session, Depends(get_session)]
 Who = Annotated[Principal, Depends(current_principal)]
+
+
+def _abs(request: Request, m: dict) -> dict:
+    return handoff.absolute(m, request.app.state.settings.public_base_url)
 
 
 class Share(BaseModel):
@@ -46,7 +50,7 @@ class NoteBody(BaseModel):
 
 
 @router.post("/handoffs", status_code=201)
-def create(body: CreateBody, p: Who, session: Session_) -> dict:
+def create(body: CreateBody, p: Who, session: Session_, request: Request) -> dict:
     h = handoff.create(
         session, p, body.kind, source_id=body.source_id, title=body.title, goal=body.goal,
         brief=body.brief, doc_ids=body.doc_ids, audience=body.audience,
@@ -54,19 +58,25 @@ def create(body: CreateBody, p: Who, session: Session_) -> dict:
         via="ui",
     )  # fmt: skip
     session.commit()
-    return handoff.view(session, p, h)
+    return _abs(request, handoff.view(session, p, h))
 
 
 @router.get("/handoffs")
-def list_mine(p: Who, session: Session_) -> list[dict]:
-    return handoff.list_mine(session, p)
+def list_mine(
+    p: Who,
+    session: Session_,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
+    return [_abs(request, m) for m in handoff.list_mine(session, p, limit, offset)]
 
 
 @router.get("/handoffs/{code}")
-def load(code: str, p: Who, session: Session_) -> dict:
+def load(code: str, p: Who, session: Session_, request: Request) -> dict:
     out = handoff.load(session, p, code)
     session.commit()
-    return out
+    return _abs(request, out)
 
 
 @router.get("/handoffs/{code}/parts/{part}")
@@ -77,11 +87,11 @@ def get_part(code: str, part: str, p: Who, session: Session_, page: Annotated[in
 
 
 @router.patch("/handoffs/{code}")
-def patch(code: str, body: PatchBody, p: Who, session: Session_) -> dict:
+def patch(code: str, body: PatchBody, p: Who, session: Session_, request: Request) -> dict:
     f = body.model_dump(exclude_unset=True)
     h = handoff.update(session, p, code, **f)
     session.commit()
-    return handoff.view(session, p, h)
+    return _abs(request, handoff.view(session, p, h))
 
 
 @router.delete("/handoffs/{code}", status_code=204)

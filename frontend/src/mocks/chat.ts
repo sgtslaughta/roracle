@@ -4,6 +4,7 @@ import type { Chat, ChatDetail, ChatMessage, Citation, SendMessageBody, Viewer }
 import { DOCS } from "./docs";
 import { passageOf, seedChats } from "./chatSeed";
 import { state } from "./state";
+import { docLabel } from "./labels";
 
 const url = (p: string) => `${API_BASE}${p}`;
 const MODELS = ["frontier-large", "open-70b", "open-8b-fast"];
@@ -24,6 +25,8 @@ const afterCursor = (cur: string): ((c: Chat) => boolean) | null => {
     return t && id ? (c) => c.updated_at < t || (c.updated_at === t && c.id < id) : null;
   } catch { return null; }
 };
+/** removed from the owner's list (soft; GET by id still works, a new message brings the chat back); lives on the chat so a state reset clears it */
+type Hideable = ChatDetail & { hidden?: boolean };
 const find = (id: unknown) => chats().find((c) => c.id === id);
 
 /** Pick up to 3 paragraphs sharing words with the question (viewer tabs preferred) and write a cited answer. */
@@ -76,12 +79,16 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
     if (saved) return;
     saved = true;
     const done = status === "complete";
-    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, version: c.version, chunk_id: c.chunk_id, title: c.title, page: c.page, bbox: c.bbox, score: 0.9 - c.n * 0.1, text: c.quote, available: true as const }]));
+    const retrieved = citations.flatMap((c) => (c.available === false ? [] : [{ n: c.n, doc_id: c.doc_id, version_id: c.version_id, version: c.version, chunk_id: c.chunk_id, title: c.title, page: c.page, bbox: c.bbox, score: 0.9 - (c.n ?? 0) * 0.1, text: c.quote, available: true as const }]));
     chat.messages.push({ id: aid, role: "assistant", content: done ? text : sent, citations: done ? citations : [], retrieved: done ? retrieved : [], status, model, created_at: now(), rating: null });
     chat.updated_at = now();
   };
   const body$ = new ReadableStream<Uint8Array>({
     async start(ctrl) {
+      // gate (a): pinned or open context whose label excludes AI use is dropped and reported
+      const excluded = [...new Set([...chat.pins, ...body.viewer.tabs.map((t) => t.doc_id)])].filter((id) => docLabel(id).gates.exclude_llm)
+        .map((doc_id) => ({ doc_id, label: docLabel(doc_id).name }));
+      if (excluded.length) ctrl.enqueue(ev("meta", { excluded_by_label: excluded }));
       for (let i = 0; i < text.length; i += 12) {
         await tick();
         if (signal.aborted || saved) { save("interrupted"); return; }
@@ -109,7 +116,7 @@ export const chatHandlers = [
     const before = q.get("before");
     const keep = before === null ? () => true : afterCursor(before);
     if (!keep) return unprocessable("invalid cursor");
-    const rows = chats().filter((c) => c.is_owner).map(plain).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id)).filter(keep);
+    const rows = chats().filter((c) => c.is_owner && !(c as Hideable).hidden).map(plain).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id)).filter(keep);
     const items = rows.slice(0, limit);
     return HttpResponse.json({ items, next: rows.length > limit ? cursorOf(items[items.length - 1]) : null });
   }),
@@ -117,7 +124,7 @@ export const chatHandlers = [
     const b = ((await request.json().catch(() => ({}))) ?? {}) as Partial<Chat>;
     if (b.model && !MODELS.includes(b.model)) return unprocessable("unknown model");
     const t = now();
-    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "New chat", scope: b.scope ?? "all", model: b.model ?? null, pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
+    const c: ChatDetail = { id: `c${++state.chatSeq}`, title: b.title ?? "", scope: b.scope ?? "all", model: b.model ?? null, pins: [], excludes: [], created_at: t, updated_at: t, messages: [], is_owner: true };
     chats().push(c);
     return HttpResponse.json(plain(c), { status: 201 });
   }),
@@ -130,6 +137,13 @@ export const chatHandlers = [
     if (model && !MODELS.includes(model)) return unprocessable("unknown model");
     Object.assign(c, { ...(title !== undefined && { title }), ...(model && { model }), ...(scope && { scope }), ...(pins && { pins }), ...(excludes && { excludes }), updated_at: now() });
     return HttpResponse.json(plain(c));
+  }),
+  http.delete(url("/chats/:id"), ({ params }) => {
+    const c = find(params.id);
+    if (!c) return notFound();
+    if (!c.is_owner) return HttpResponse.json({ detail: "read-only" }, { status: 403 });
+    (c as Hideable).hidden = true;
+    return new HttpResponse(null, { status: 204 });
   }),
   http.get(url("/chats/:id/shares"), ({ params }) => {
     const c = find(params.id);
@@ -167,6 +181,7 @@ export const chatHandlers = [
     if ((body.viewer?.selection?.text.length ?? 0) > MAX_CHARS) return unprocessable("selection too long");
     if (/trigger 503/i.test(body.content)) return HttpResponse.json({ detail: "inference unavailable" }, { status: 503 });
     if (body.model && !MODELS.includes(body.model)) return unprocessable("unknown model");
+    (c as Hideable).hidden = false;
     return stream(c, body, request.signal);
   }),
 ];

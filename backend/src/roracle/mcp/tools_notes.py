@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from roracle import bibtex
 from roracle.api.routes import annotations, library
 from roracle.auth import Principal
+from roracle.labels.service import label_by_name
 from roracle.mcp.auth import dep
 from roracle.mcp.tools_write import Run, _need_write, digest
 from roracle.notes import proposals
@@ -74,6 +75,28 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
             )
 
         return run(app, "propose_annotation", go, digest(body))
+
+    @mcp.tool()
+    def propose_label(
+        doc_id: Id,
+        label: Annotated[str, Field(min_length=1, max_length=40)],
+        annotation_id: Id | None = None,
+        reason: Annotated[str | None, Field(max_length=500)] = None,
+    ) -> dict:
+        """Propose a sensitivity label (by name) for a document you can read, or for one of its notes with
+        `annotation_id` (needs a write token). Nothing changes until a human approves (lowering needs an
+        admin); `reason` is advisory and not stored, the approver supplies their own. Returns {proposal_id, status}."""
+
+        def go(session: Session, p: Principal) -> dict:
+            _need_write(p)
+            payload: dict = {"document_id": doc_id, "label_id": label_by_name(session, label).id}
+            if annotation_id:
+                payload["annotation_id"] = annotation_id
+            if reason:
+                payload["reason"] = reason
+            return _proposal(proposals.propose(session, p, "label", payload))
+
+        return run(app, "propose_label", go, f"{doc_id}:{label}"[:200])
 
     @mcp.tool()
     def reply_to_annotation(

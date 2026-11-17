@@ -91,7 +91,7 @@ describe("command palette", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/uploads"));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await userEvent.keyboard("{Control>}k{/Control}");
-    await userEvent.type(await screen.findByRole("combobox"), "cheeger{ArrowDown}{Enter}");
+    await userEvent.type(await within(await screen.findByRole("dialog")).findByRole("combobox"), "cheeger{ArrowDown}{Enter}");
     await waitFor(() => expect(getReaderState().active).toBe(D2));
   });
 
@@ -103,14 +103,23 @@ describe("command palette", () => {
   });
 });
 
-describe("palette search size", () => {
-  it("asks the API for 5 documents", async () => {
-    let size: string | null = null;
-    server.use(http.get(`${API_BASE}/search`, ({ request }) => { const u = new URL(request.url); if (u.searchParams.get("q") === "spectral") size = u.searchParams.get("size"); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } }); }));
+describe("palette search is the quick title search", () => {
+  const empty = { total: 0, page: 1, results: [], facets: {} };
+  it("sends ONE mode=quick request for a typed word, none below 3 characters", async () => {
+    const urls: URL[] = [];
+    server.use(http.get(`${API_BASE}/search`, ({ request }) => { urls.push(new URL(request.url)); return HttpResponse.json(empty); }));
     await renderApp("/uploads");
     await userEvent.keyboard("{Control>}k{/Control}");
-    await userEvent.type(await screen.findByRole("combobox"), "spectral");
-    await waitFor(() => expect(size).toBe("5"));
+    const box = await screen.findByRole("combobox");
+    await userEvent.type(box, "sp");
+    await new Promise((r) => setTimeout(r, 450));
+    expect(urls).toHaveLength(0);
+    await userEvent.type(box, "ectral");
+    await waitFor(() => expect(urls).toHaveLength(1));
+    expect(urls[0].searchParams.get("q")).toBe("spectral");
+    expect(urls[0].searchParams.get("mode")).toBe("quick");
+    await new Promise((r) => setTimeout(r, 450));
+    expect(urls).toHaveLength(1); // typed quickly: only the settled text was sent
   });
 });
 

@@ -4,9 +4,9 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from elasticsearch import Elasticsearch
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from roracle.api.routes.library import get_es
@@ -29,29 +29,41 @@ def _one(session: Session, p: Principal, n: Annotation) -> dict:
     return service.to_json(session, p, [n])[0]
 
 
-def list_document_notes(session: Session, es, p: Principal, doc_id: UUID) -> list[dict] | None:
-    """Readable notes of a document (oldest first, re-anchored first); None if the document is not readable."""
+def page_document_notes(
+    session: Session, es, p: Principal, doc_id: UUID, limit: int = LIST_MAX, offset: int = 0
+) -> tuple[list[dict], int] | None:
+    """One page of readable notes (oldest first, re-anchored) and the readable total; None if unreadable."""
     if not doc_readable(session, p, doc_id):
         return None
-    q = (
-        select(Annotation)
-        .where(Annotation.document_id == doc_id, readable_notes(p))
-        .order_by(Annotation.created_at, Annotation.id)
-        .limit(LIST_MAX)
-    )
-    notes = list(session.scalars(q))
+    where = (Annotation.document_id == doc_id, readable_notes(p))
+    total = session.scalar(select(func.count()).select_from(Annotation).where(*where)) or 0
+    q = select(Annotation).where(*where).order_by(Annotation.created_at, Annotation.id)
+    notes = list(session.scalars(q.limit(limit).offset(offset)))
     latest = service.latest_searchable(session, doc_id)
     if latest is not None:
         anchor.reanchor(session, es, latest, notes)
-    return service.to_json(session, p, notes)
+    return service.to_json(session, p, notes), total
+
+
+def list_document_notes(session: Session, es, p: Principal, doc_id: UUID) -> list[dict] | None:
+    """Readable notes of a document (oldest first, up to LIST_MAX); None if the document is not readable."""
+    page = page_document_notes(session, es, p, doc_id)
+    return None if page is None else page[0]
 
 
 @router.get("/documents/{doc_id}/annotations")
-def list_notes(doc_id: UUID, session: Session_, es: ES, p: Who) -> dict:
-    items = list_document_notes(session, es, p, doc_id)
-    if items is None:
+def list_notes(
+    doc_id: UUID,
+    session: Session_,
+    es: ES,
+    p: Who,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    page = page_document_notes(session, es, p, doc_id, limit, offset)
+    if page is None:
         raise service.NOT_FOUND
-    return {"items": items}
+    return {"items": page[0], "total": page[1]}
 
 
 @router.post("/documents/{doc_id}/annotations", status_code=201)

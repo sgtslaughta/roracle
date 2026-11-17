@@ -13,10 +13,12 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import agent_visible, org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
+from roracle.labels.policy import Policy, label_json
+from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 
 # R9: note citations fail closed in handoffs (recheck notes=frozenset()).
@@ -50,7 +52,7 @@ def _iso(d: datetime | None) -> str | None:
 
 
 def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
-    """`ids` (any order, dupes ok) filtered to documents p can see; input order kept."""
+    """`ids` (any order, dupes ok) filtered to documents p can see; input order kept. Gate (b) applies to every loader."""
     uuids = []
     for i in ids:
         try:
@@ -59,7 +61,9 @@ def _visible_doc_ids(session: Session, p: Principal, ids) -> list[str]:
             continue
     ok = {
         str(x)
-        for x in session.scalars(select(Document.id).where(Document.id.in_(uuids), visible_documents(p)))
+        for x in session.scalars(
+            select(Document.id).where(Document.id.in_(uuids), readable_documents(p), agent_visible())
+        )
     }
     return list(dict.fromkeys(str(u) for u in uuids if str(u) in ok))
 
@@ -76,7 +80,7 @@ def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
         )
     )
     cites = [c for m in msgs for c in m.citations if isinstance(c, dict)]
-    ok = visible_versions(session, p, cites)
+    ok = visible_versions(session, p, cites, agent_gate=True)
     transcript = [
         {
             "role": m.role,
@@ -85,6 +89,7 @@ def _chat_snapshot(session: Session, p: Principal, chat_id: UUID):
                 [c for c in m.citations if isinstance(c, dict)], ok, drop=False, notes=frozenset()
             ),
             "created_at": _iso(m.created_at),
+            "doc_ids": sorted(doc_ids_of((*m.citations, *m.retrieved))),  # label withholding at read time
         }
         for m in msgs
     ]
@@ -199,7 +204,9 @@ def _in_audience(session: Session, p: Principal, h: Handoff) -> bool:
         return False
     conds = [(HandoffShare.principal_kind == "user") & (HandoffShare.principal == str(p.user_id))]
     if p.groups:
-        conds.append((HandoffShare.principal_kind == "group") & (HandoffShare.principal.in_(list(p.groups))))
+        conds.append(
+            (HandoffShare.principal_kind == "group") & (HandoffShare.principal.in_(org_units(p.groups)))
+        )
     q = select(HandoffShare.principal).where(
         HandoffShare.handoff_code == h.code, conds[0] if len(conds) == 1 else conds[0] | conds[1]
     )
@@ -225,8 +232,9 @@ def _loadable(session: Session, p: Principal, code: str) -> Handoff:
 def view(session: Session, p: Principal, h: Handoff) -> dict:
     """Manifest for p, no audit. Redacted: hidden docs/passages dropped and only counted in `withheld`."""
     shown = _visible_doc_ids(session, p, h.doc_ids)
-    ok = visible_versions(session, p, h.passages)
+    ok = visible_versions(session, p, h.passages, agent_gate=True)
     passages = recheck(h.passages, ok, drop=True, notes=frozenset())
+    passages = strip_text(passages, gated_docs(session, p, doc_ids_of(passages)))
     every = set(map(str, h.doc_ids)) | {str(x.get("doc_id")) for x in h.passages}
     mine = h.creator_id == p.user_id
     src = h.source
@@ -235,16 +243,47 @@ def view(session: Session, p: Principal, h: Handoff) -> dict:
     elif h.kind in ("chat", "collection") and not mine:
         src = {}  # creator's private handles
     withheld = len(every - set(shown) - {x["doc_id"] for x in passages})
+    stripped = gated_docs(session, p, {*shown, *doc_ids_of(passages)})  # text withheld by label
     author = session.get(User, h.creator_id)
-    return {
+    policy = Policy.load(session)
+    docs = {
+        str(i): (t, lid)
+        for i, t, lid in session.execute(
+            select(Document.id, Document.title, Document.label_id).where(
+                Document.id.in_([UUID(d) for d in shown])
+            )
+        )
+    }
+    out = {
         "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
         "uri": "roracle://handoff/" + h.code, "kind": h.kind, "title": h.title, "goal": h.goal,
-        "brief": h.brief, "source": src, "doc_ids": shown, "passages": passages,
+        "brief": h.brief, "source": src, "doc_ids": shown,
+        "documents": [
+            {"id": d, "title": docs[d][0], "label": label_json(policy.get(docs[d][1])), "text_withheld": d in stripped}
+            for d in shown
+        ], "passages": passages,
         "notes": h.notes[-PAGE:], "withheld": withheld,
+        "withheld_by_reason": {"unavailable": withheld, "label_text": len(stripped)},
         "parts": {"transcript": ceil(len(h.transcript) / PAGE), "notes": ceil(len(h.notes) / PAGE)},
         "audience": h.audience, "expires_at": _iso(h.expires_at), "created_at": _iso(h.created_at),
         "created_by": author.username if author else "", "created_via": h.created_via,
     }  # fmt: skip
+    if mine or p.is_admin:  # recipients never see who else it is shared with
+        out["shares"] = [
+            {"kind": s.principal_kind, "principal": s.principal}
+            for s in session.scalars(
+                select(HandoffShare)
+                .where(HandoffShare.handoff_code == h.code)
+                .order_by(HandoffShare.principal_kind, HandoffShare.principal)
+            )
+        ]
+    return out
+
+
+def absolute(m: dict, base: str) -> dict:
+    """`url` made absolute when a public base URL is configured."""
+    base = base.rstrip("/")
+    return {**m, "url": base + m["url"]} if base else m
 
 
 def load(session: Session, p: Principal, code: str) -> dict:
@@ -262,11 +301,23 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
     items = rows[(page - 1) * PAGE : page * PAGE]
     if part == "transcript":
         cites = [c for m in items for c in m.get("citations", [])]
-        ok = visible_versions(session, p, cites)
+        ok = visible_versions(session, p, cites, agent_gate=True)
+        gated = gated_docs(
+            session, p, {d for m in items for d in (*m.get("doc_ids", []), *doc_ids_of(cites))}, handoff=True
+        )
         items = [
-            {**m, "citations": recheck(m.get("citations", []), ok, drop=False, notes=frozenset())}
+            {
+                **{k: v for k, v in m.items() if k != "doc_ids"},
+                "citations": strip_text(
+                    recheck(m.get("citations", []), ok, drop=False, notes=frozenset()), gated
+                ),
+                "_docs": {*m.get("doc_ids", []), *doc_ids_of(m.get("citations", []))},
+            }
             for m in items
         ]
+        withhold_messages(items, gated, lambda m: m["_docs"])
+        for m in items:
+            del m["_docs"]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
     return {"part": part, "items": items, "page": page, "pages": pages}
 
@@ -341,15 +392,18 @@ def update(session: Session, p: Principal, code: str, **f) -> Handoff:
     return h
 
 
-def list_mine(session: Session, p: Principal) -> list[dict]:
+def list_mine(session: Session, p: Principal, limit: int = 100, offset: int = 0) -> list[dict]:
     q = (
         select(Handoff)
         .where(Handoff.creator_id == p.user_id)
         .order_by(Handoff.created_at.desc(), Handoff.code)
+        .limit(limit)
+        .offset(offset)
     )
     return [
         {
-            "code": h.code, "display": display(h.code), "kind": h.kind, "title": h.title,
+            "code": h.code, "display": display(h.code), "url": "/h/" + display(h.code),
+            "kind": h.kind, "title": h.title,
             "audience": h.audience, "expires_at": _iso(h.expires_at), "revoked_at": _iso(h.revoked_at),
             "created_at": _iso(h.created_at), "created_via": h.created_via,
         }

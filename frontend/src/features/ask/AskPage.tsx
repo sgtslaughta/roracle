@@ -1,3 +1,4 @@
+import { chatTitle } from "@/lib/cite";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageCircleOff } from "lucide-react";
@@ -12,7 +13,7 @@ import { useChat, useCreateChat, useModels, usePatchChat } from "./api";
 import { ChatMenu } from "./ChatMenu";
 import { Composer } from "./Composer";
 import { Thread } from "./Thread";
-import { initials } from "./Turn";
+import { initials } from "@/lib/initials";
 import { buildTurns } from "./turns";
 import { focusComposer, getAskContext, setDraft, setQuote } from "./useAskContext";
 import { useViewer } from "./viewer";
@@ -106,7 +107,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
     );
   }
 
-  const title = chat?.title ?? "New chat";
+  const title = chatTitle(chat);
   return (
     <section className="view ask">
       <header className="ask-head">

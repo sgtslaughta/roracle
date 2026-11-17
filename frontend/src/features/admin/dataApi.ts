@@ -1,5 +1,5 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type { AdminHealth, AdminStats, AdminUser, AuditEntry, GroupCount, Keyset, Paged, SettingsMap, SettingValue, TagCount } from "@/api/admin";
 
 export const USERS_PAGE = 20;
@@ -11,16 +11,18 @@ export const useSettings = () => useQuery({ queryKey: ["admin", "settings"], que
 export function useSaveSetting() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: ({ key, value }: { key: string; value: SettingValue | null }) => apiFetch<SettingsMap>("/admin/settings", { method: "PUT", json: { [key]: value } }),
     onSuccess: (data) => qc.setQueryData(["admin", "settings"], data),
   });
 }
 
-export const useTags = () => useQuery({ queryKey: ["admin", "tags"], queryFn: () => apiFetch<TagCount[]>("/admin/tags") });
+export const useTags = () => useQuery({ queryKey: ["admin", "tags"], queryFn: async () => (await apiFetch<{ items: TagCount[]; total: number }>("/admin/tags")).items });
 
 export function useMergeTags() {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: (body: { sources: string[]; target: string }) => apiFetch<{ documents: number }>("/admin/tags/merge", { method: "POST", json: body }),
     onSuccess: () => Promise.all(["admin", "search", "doc"].map((k) => qc.invalidateQueries({ queryKey: k === "admin" ? ["admin", "tags"] : [k] }))),
   });
@@ -47,9 +49,9 @@ export const useUsers = (q: string, page: number) =>
     queryFn: () => apiFetch<Paged<AdminUser>>(`/admin/users?${new URLSearchParams({ q, page: String(page), limit: String(USERS_PAGE) })}`),
   });
 
-export const useGroups = () => useQuery({ queryKey: ["admin", "groups"], queryFn: () => apiFetch<GroupCount[]>("/admin/groups") });
+export const useGroups = () => useQuery({ queryKey: ["admin", "groups"], queryFn: async () => (await apiFetch<{ items: GroupCount[]; total: number }>("/admin/groups")).items });
 
-export const useRevokePats = () => useMutation({ mutationFn: (id: string) => apiFetch<void>(`/admin/users/${seg(id)}/pats`, { method: "DELETE" }) });
+export const useRevokePats = () => useMutation({ meta: QUIET, mutationFn: (id: string) => apiFetch<void>(`/admin/users/${seg(id)}/pats`, { method: "DELETE" }) });
 
 export const useStats = () => useQuery({ queryKey: ["admin", "stats"], queryFn: () => apiFetch<AdminStats>("/admin/stats") });
 

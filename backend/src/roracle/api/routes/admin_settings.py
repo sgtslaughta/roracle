@@ -24,6 +24,11 @@ def get_settings(p: Admin, session: Db, request: Request) -> dict:
     return _shape(request.app.state.settings, runtime.overrides(session))
 
 
+@router.get("/admin/settings/schema")
+def settings_schema(p: Admin) -> dict:
+    return runtime.SettingsIn.model_json_schema()
+
+
 @router.put("/admin/settings")
 def put_settings(body: runtime.SettingsIn, p: Admin, session: Db, request: Request) -> dict:
     base = request.app.state.settings

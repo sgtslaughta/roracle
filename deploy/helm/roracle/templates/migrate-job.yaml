@@ -29,25 +29,7 @@ spec:
         - name: migrate
           image: {{ include "roracle.image" (dict "root" . "img" .Values.image.backend) }}
           imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
-          {{- if eq .Values.postgres.mode "cnpg" }}
-          # bounded wait (<= 10 min) for the database, then migrate
-          command: [sh, -ec]
-          args:
-            - |
-              python -c "
-              import os, sys, time
-              from sqlalchemy import create_engine
-              e = create_engine(os.environ['ROR_DATABASE_URL'])
-              for _ in range(120):
-                  try:
-                      e.connect().close(); sys.exit(0)
-                  except Exception:
-                      time.sleep(5)
-              sys.exit('database not reachable after 10 minutes')"
-              exec python -m roracle migrate
-          {{- else }}
-          command: [python, -m, roracle, migrate]
-          {{- end }}
+          command: [python, -m, roracle, migrate, --wait, "600"]
           env:
             {{- include "roracle.configEnv" . | nindent 12 }}
             {{- include "roracle.secretEnv" . | nindent 12 }}

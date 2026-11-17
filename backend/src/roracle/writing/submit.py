@@ -19,7 +19,9 @@ from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.ingest import intake
-from roracle.models import Document, DocumentShare, User
+from roracle.labels import service
+from roracle.labels.policy import Policy
+from roracle.models import Document, DocumentCoauthor, DocumentShare, User
 from roracle.models_writing import Draft, DraftVersion
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, stage
@@ -88,6 +90,8 @@ def submit(
     parsed = parse(v.content)
     prof = drafts.profile_for(session, doc, d, parsed.meta)[0]
     disc = disclosure(parsed, prof)
+    if target.get("label_id"):
+        service.resolve(Policy.load(session), target["label_id"])  # 422 on unknown
     _org_gate(doc, target["visibility"])
     ids = {u for u in target["share_users"] if u != doc.owner_id}
     if ids and set(session.scalars(select(User.id).where(User.id.in_(ids)))) != ids:
@@ -98,6 +102,7 @@ def submit(
         "share_groups": sorted(set(target["share_groups"])),
         "version": v.version,
         "ai_disclosure": disc,
+        "label_id": str(target["label_id"]) if target.get("label_id") else None,
         # the owner's view of the library now: an approving admin must not widen it
         "refs": [
             asdict(r)
@@ -143,8 +148,20 @@ def publish(
         vis = "shared" if users or groups else "private"
     doc.visibility = vis
     session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
-    session.add_all(DocumentShare(document_id=doc.id, principal_kind="user", principal=u) for u in users)
-    session.add_all(DocumentShare(document_id=doc.id, principal_kind="group", principal=g) for g in groups)
+    # co-authors (named users only; groups never) keep read access to the paper whatever its visibility
+    session.execute(delete(DocumentCoauthor).where(DocumentCoauthor.document_id == doc.id))
+    session.add_all(
+        DocumentCoauthor(document_id=doc.id, user_id=UUID(u))
+        for u in sorted(set(co.get("users", [])) - {str(doc.owner_id)})
+    )
+    if (
+        vis == "shared"
+    ):  # shares are inert otherwise; never store them (a later PATCH->shared must not revive)
+        session.add_all(DocumentShare(document_id=doc.id, principal_kind="user", principal=u) for u in users)
+        session.add_all(
+            DocumentShare(document_id=doc.id, principal_kind="group", principal=g) for g in groups
+        )
+    _apply_label(session, p, doc, prof, target.get("label_id"))
     d.status, d.submitted_version = "submitted", target["version"]
     d.target, d.ai_disclosure = target, target["ai_disclosure"]
     d.updated_at = datetime.now(UTC)
@@ -152,6 +169,18 @@ def publish(
     audit(session, p, "draft.publish", str(doc.id), {"version": target["version"], "visibility": vis})
     session.flush()
     return ver.version
+
+
+def _apply_label(session: Session, p: Principal, doc: Document, prof: profiles.Profile, requested) -> None:
+    """R3: label = max(current, requested, profile default); submit never lowers."""
+    policy = Policy.load(session)
+    prof_default = next(
+        (x.id for x in policy.labels if prof.default_label and x.name.lower() == prof.default_label.lower()),
+        None,
+    )
+    for cand in (requested, prof_default):
+        if cand and str(cand) in {x.id for x in policy.labels}:
+            service.raise_document_label(session, p, doc, cand, via="submit")
 
 
 def review(

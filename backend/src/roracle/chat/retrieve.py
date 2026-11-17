@@ -4,6 +4,7 @@ R19: Postgres is the authority. Every passage (and the selection) must belong to
 `visible_documents(p)` whose latest `searchable` version it comes from; tab/pin ids never bypass that.
 """
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from elasticsearch import NotFoundError
@@ -11,13 +12,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
+from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
 from roracle.config import Settings
+from roracle.db import release_before_io
+from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion
 from roracle.notes.community import note_passages, strict_gate
-from roracle.retrieval import Passage, embed_query, search_chunks
+from roracle.retrieval import Passage, embed_query, expand_units, search_chunks
 
 MAX_CHARS = 1200
 MIN_K, MAX_K = 4, 12
@@ -67,8 +70,26 @@ def _merge(main: list[Passage], tab: list[Passage]) -> dict[str, Passage]:
     return found
 
 
-def _live(session: Session, p: Principal, doc_ids: set[str]) -> dict[str, DocumentVersion]:
-    """doc id -> latest searchable version, for the given ids the caller may see (one query)."""
+def _blocked(session: Session, p: Principal, doc_ids: set[str], policy: Policy | None = None) -> list[dict]:
+    """Visible docs among `doc_ids` whose CURRENT label excludes LLM context: [{doc_id, label}] (gate (a))."""
+    uuids = [UUID(d) for d in doc_ids]
+    if not uuids:
+        return []
+    policy = policy or Policy.load(session)
+    rows = session.execute(
+        select(Document.id, Document.label_id).where(
+            Document.id.in_(uuids), visible_documents(p), ~llm_allowed()
+        )
+    ).all()
+    return sorted(
+        ({"doc_id": str(i), "label": policy.get(lid).name} for i, lid in rows), key=lambda x: x["doc_id"]
+    )
+
+
+def _live(session: Session, p: Principal, doc_ids: set[str], llm: bool = True) -> dict[str, DocumentVersion]:
+    """doc id -> latest searchable version, for the given ids the caller may see (one query).
+
+    `llm` also applies gate (a) against the current Postgres label (ES `label_id` may lag a raise)."""
     uuids = []
     for d in doc_ids:
         try:
@@ -82,6 +103,7 @@ def _live(session: Session, p: Principal, doc_ids: set[str]) -> dict[str, Docume
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             visible_documents(p),
+            *((llm_allowed(),) if llm else ()),
             Document.id.in_(uuids),
             and_(DocumentVersion.is_latest.is_(True), DocumentVersion.stage == "searchable"),
         )
@@ -89,15 +111,31 @@ def _live(session: Session, p: Principal, doc_ids: set[str]) -> dict[str, Docume
     return {str(v.document_id): v for v in rows}
 
 
-def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
-    """True if the caller can see at least one open tab or the selected doc (scope=open needs this)."""
+def _open_ids(viewer: Viewer) -> set[str]:
     ids = {_uid(t.doc_id) for t in viewer.tabs} | (
         {_uid(viewer.selection.doc_id)} if viewer.selection else set()
     )
-    return bool(_live(session, p, {i for i in ids if i}))
+    return {i for i in ids if i}
 
 
-def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec):
+def has_open_context(session: Session, p: Principal, viewer: Viewer) -> bool:
+    """True if the caller can see at least one open tab or the selected doc that gate (a) lets reach an LLM
+    (scope=open needs this; otherwise the answer is canned, no LLM call)."""
+    return bool(_live(session, p, _open_ids(viewer)))
+
+
+def open_blocked(session: Session, p: Principal, viewer: Viewer) -> list[dict]:
+    """[{doc_id, label}] of open tabs/selection dropped by gate (a)."""
+    return _blocked(session, p, _open_ids(viewer))
+
+
+def _search(
+    session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec,
+    units: tuple[str, ...] = ("chunk",), policy: Policy | None = None,
+):  # fmt: skip
+    release_before_io(
+        session
+    )  # release the pooled connection before ES / rerank (no idle-in-transaction across I/O)
     try:
         return search_chunks(
             es,
@@ -105,12 +143,15 @@ def _search(es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str
             settings,
             p,
             query=q,
+            policy=policy or Policy.load(session),
+            exclude_llm=True,
             filters={},
             doc_ids=doc_ids,
             size=size,
             qvec=qvec,
             min_similarity=settings.chat_min_similarity or None,
             summary_knn=False,  # summary hit is chunk 0 of a doc, not the matching passage
+            units=units,
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []
@@ -151,27 +192,35 @@ def _pin(top: list[Passage], ranked: list[Passage], pins: list[str], k: int) -> 
     return sorted(top, key=lambda x: -x.score)
 
 
-def retrieve_for_chat(
+def rank_for_chat(
     session: Session,
     es,
     llm,
     settings: Settings,
     p: Principal,
     question: str,
-    viewer: Viewer,
-    scope: str,
-    pins: list[str],
-    excludes: list[str],
-    k: int | None = None,
-    include_notes: bool = True,
+    *,
+    viewer: Viewer | None = None,
+    scope: str = "all",
+    excludes: Sequence[str] = (),
+    depth: int = 100,
+    excluded: list[dict] | None = None,
+    raw: list[Passage] | None = None,
 ) -> list[Passage]:
-    k = max(MIN_K, min(MAX_K, k or settings.chat_passages))
+    """Post-filtered, boosted, ranked passages before truncation, pins, selection and notes.
+
+    `excluded` (out-param) receives [{doc_id, label}] for requested tabs dropped by gate (a); `raw` (out-param,
+    eval) receives the corpus-search hits before the Postgres post-filter."""
+    viewer = viewer or Viewer()
+    policy = Policy.load(session)  # one per turn: gates, search filters and expansion all use it
     dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
     tab_pages: dict[str, set[int]] = {}
     for t in viewer.tabs:
         tid = _uid(t.doc_id)
         if tid and tid not in dropped:
             tab_pages.setdefault(tid, set()).add(t.page)
+    if excluded is not None:
+        excluded.extend(_blocked(session, p, set(tab_pages), policy))
     live_tabs = _live(session, p, set(tab_pages))
     tab_ids = [d for d in tab_pages if d in live_tabs]
 
@@ -186,16 +235,24 @@ def retrieve_for_chat(
 
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
-        qvec = embed_query(llm, settings, question)  # embed once per turn
-        main = _search(es, llm, settings, p, question, scoped, 50, qvec)
+        release_before_io(session)  # connection back to the pool before the embedding call
+        qvec = embed_query(llm, settings, question, p.user_id)  # embed once per turn
+        units = ("chunk", "section", "document") if settings.raptor else ("chunk",)
+        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units, policy)
         tab = (
-            _search(es, llm, settings, p, question, tab_ids, 20, qvec) if tab_ids and scope != "open" else []
+            _search(session, es, llm, settings, p, question, tab_ids, 20, qvec, policy=policy)
+            if tab_ids and scope != "open"
+            else []
         )
         found = _merge(main, tab)
+        if any(x.unit for x in found.values()):  # R11: the LLM only ever sees real passages
+            release_before_io(session)  # no connection held across the ES + rerank round trips
+            ex = expand_units(es, settings, p, policy, question, list(found.values()), exclude_llm=True)
+            found = {x.chunk_id: x for x in ex}
+    if raw is not None:
+        raw.extend(found.values())
 
-    sel = viewer.selection
-    sel_id = _uid(sel.doc_id) if sel else None
-    live = _live(session, p, {x.doc_id for x in found.values()} | ({sel_id} if sel_id else set()))
+    live = _live(session, p, {x.doc_id for x in found.values()})
     ranked: list[Passage] = []
     for x in found.values():
         v = live.get(x.doc_id)
@@ -206,8 +263,45 @@ def retrieve_for_chat(
         x.text = x.text[:MAX_CHARS]
         ranked.append(x)
     ranked.sort(key=lambda x: -x.score)
+    return ranked
 
+
+def retrieve_for_chat(
+    session: Session,
+    es,
+    llm,
+    settings: Settings,
+    p: Principal,
+    question: str,
+    viewer: Viewer,
+    scope: str,
+    pins: list[str],
+    excludes: list[str],
+    k: int | None = None,
+    include_notes: bool = True,
+    excluded: list[dict] | None = None,
+    ranked: list[Passage] | None = None,
+) -> list[Passage]:
+    """`excluded` (out-param) receives [{doc_id, label}] for requested tabs/selection/pins dropped by gate (a).
+    `ranked`: the ranking was already done by `rank_for_chat` (the agentic loop fuses several of them); pins, selection
+    and notes are applied to it exactly as to a single ranking."""
+    k = max(MIN_K, min(MAX_K, k or settings.chat_passages))
+    dropped = set(_uids(excludes)) | set(_uids(viewer.ignored))
+    sel = viewer.selection
+    sel_id = _uid(sel.doc_id) if sel else None
+    if excluded is not None:  # tabs + pins + selection, one gate-(a) query (same as before the split)
+        tabs = {t for x in viewer.tabs if (t := _uid(x.doc_id))}
+        excluded.extend(
+            _blocked(session, p, (tabs | set(_uids(pins)) | ({sel_id} if sel_id else set())) - dropped)
+        )
+    if ranked is None:
+        ranked = rank_for_chat(
+            session, es, llm, settings, p, question,
+            viewer=viewer, scope=scope, excludes=excludes, depth=settings.chat_candidates,
+        )  # fmt: skip
     out = _pin(ranked[:k], ranked, [d for d in _uids(pins) if d not in dropped], k)
-    if sel and sel_id in live and sel_id not in dropped:
-        out.insert(0, _selection(session, sel, sel_id, live))
+    if sel and sel_id and sel_id not in dropped:
+        live = _live(session, p, {sel_id})
+        if sel_id in live:
+            out.insert(0, _selection(session, sel, sel_id, live))
     return out + (note_passages(session, p, out, strict_gate(settings)) if include_notes else [])

@@ -4,6 +4,7 @@ import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from es_fakes import msearch as _es_msearch
 from sqlalchemy import select
 
 from roracle.models import Blob, Document, DocumentVersion, User
@@ -42,6 +43,8 @@ def seed(db, owner_id, *, title="Doc", visibility="everyone", org_unit="/", year
 class FakeES:
     def __init__(self, hits=()):
         self.hits, self.calls = list(hits), []
+
+    msearch = _es_msearch
 
     def search(self, **kw):
         self.calls.append(kw)

@@ -10,6 +10,10 @@ sed "s#\${ROR_OIDC_ORIGIN}#${ROR_OIDC_ORIGIN}#g" /etc/nginx/security-headers.con
 if [ -n "${API_UPSTREAM:-}" ]; then
   up="${API_UPSTREAM%/}"
   cat > "$out/api.inc" <<EOT
+# Prometheus /metrics is unauthenticated: never reachable through the public proxy
+location ^~ /api/metrics { return 404; }
+# readyz fans out to DB+ES+S3 and reveals dependency state: kubelet probes the pod directly, not this proxy
+location = /api/readyz { return 404; }
 location /api/ {
   proxy_pass $up/;
   proxy_http_version 1.1;

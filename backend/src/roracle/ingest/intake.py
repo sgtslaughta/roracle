@@ -8,21 +8,35 @@ from sqlalchemy.orm import Session
 
 from roracle.models import Blob, Document, DocumentVersion
 from roracle.queue import enqueue
-from roracle.storage import BlobStore, StagedFile
+from roracle.storage import BlobStore, StagedBlob, StagedFile
 
 
-def _put(session: Session, store: BlobStore, staged: StagedFile, content_type: str) -> None:
-    # ponytail: object written before DB commit can orphan on DB failure; a P2 GC job deletes blob objects without a blobs row
-    store.put(staged, content_type)
+def ref_blob(session: Session, sha256: str, size: int) -> None:
+    """Upsert the `blobs` row (takes its row lock). Do this BEFORE writing the S3 object: blob GC locks the
+    row FOR UPDATE SKIP LOCKED, so it either skips us or we wait and re-copy after it commits."""
     session.execute(
         insert(Blob)
-        .values(sha256=staged.sha256, size=staged.size)
+        .values(sha256=sha256, size=size)
         .on_conflict_do_update(index_elements=[Blob.sha256], set_={"refcount": Blob.refcount + 1})
     )
 
 
+def _put(session: Session, store: BlobStore, staged: StagedFile | StagedBlob, content_type: str) -> None:
+    # ponytail: object written before DB commit can orphan on DB failure; blob GC removes it later
+    ref_blob(session, staged.sha256, staged.size)
+    if isinstance(staged, StagedBlob):  # streamed upload: server-side copy tmp -> content key (always copies)
+        store.promote(staged, content_type)
+    else:
+        store.put(staged, content_type)
+
+
 def _version(
-    session: Session, staged: StagedFile, doc_id: UUID, number: int, filename: str, content_type: str
+    session: Session,
+    staged: StagedFile | StagedBlob,
+    doc_id: UUID,
+    number: int,
+    filename: str,
+    content_type: str,
 ) -> DocumentVersion:
     version = DocumentVersion(
         document_id=doc_id,
@@ -31,6 +45,7 @@ def _version(
         filename=filename,
         content_type=content_type,
         size=staged.size,
+        is_latest=number == 1,  # ingest flips the flag once a newer version is searchable
     )
     session.add(version)
     session.flush()
@@ -41,7 +56,7 @@ def _version(
 def add_document(
     session: Session,
     store: BlobStore,
-    staged: StagedFile,
+    staged: StagedFile | StagedBlob,
     *,
     owner_id: UUID,
     org_unit: str,
@@ -50,10 +65,17 @@ def add_document(
     content_type: str,
     title: str | None = None,
     connector_id: UUID | None = None,
+    label_id: UUID | None = None,
 ) -> tuple[Document, DocumentVersion]:
     _put(session, store, staged, content_type)
+    extra = {"label_id": label_id} if label_id else {}  # else the column default (global default label)
     doc = Document(
-        owner_id=owner_id, title=title, org_unit=org_unit, visibility=visibility, connector_id=connector_id
+        owner_id=owner_id,
+        title=title,
+        org_unit=org_unit,
+        visibility=visibility,
+        connector_id=connector_id,
+        **extra,
     )
     session.add(doc)
     session.flush()
@@ -63,7 +85,7 @@ def add_document(
 def add_version(
     session: Session,
     store: BlobStore,
-    staged: StagedFile,
+    staged: StagedFile | StagedBlob,
     doc: Document,
     *,
     filename: str,

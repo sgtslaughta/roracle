@@ -8,7 +8,8 @@ from sqlalchemy import select
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.ingest.chunking import Chunk
-from roracle.models import Document, DocumentShare, DocumentVersion, User
+from roracle.labels.policy import Policy
+from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.search_acl import acl_filter
 from roracle.search_index import acl_fields, ensure_index, index_chunks, index_name
 
@@ -17,26 +18,40 @@ def _p(groups=(), admin=False, uid=None):
     return Principal(user_id=uid or uuid.uuid4(), sub="s", username="u", groups=tuple(groups), is_admin=admin)
 
 
+def _shared(uid, *groups):
+    grants = [{"term": {"share_users": uid}}]
+    if groups:
+        grants.append({"terms": {"share_groups": list(groups)}})
+    return {
+        "bool": {
+            "must": [{"term": {"visibility": "shared"}}],
+            "filter": [{"bool": {"should": grants, "minimum_should_match": 1}}],
+        }
+    }
+
+
 def test_admin_matches_all():
-    assert acl_filter(_p(admin=True)) == {"match_all": {}}
+    assert acl_filter(_p(admin=True), Policy([])) == {"match_all": {}}
 
 
 def test_groupless_shape_has_no_share_groups_clause():
     p = _p()
-    f = acl_filter(p)
+    f = acl_filter(p, Policy([]))
     assert f["bool"]["minimum_should_match"] == 1
     assert f["bool"]["should"] == [
         {"term": {"visibility": "everyone"}},
         {"term": {"owner_id": str(p.user_id)}},
-        {"term": {"share_users": str(p.user_id)}},
+        {"term": {"coauthor_users": str(p.user_id)}},
+        _shared(str(p.user_id)),
         {"bool": {"must": [{"term": {"visibility": "org_unit"}}, {"terms": {"org_unit": ["/"]}}]}},
     ]
 
 
 def test_groups_add_share_groups_and_ancestor_terms():
-    f = acl_filter(_p(["/A/B"]))
+    p = _p(["/A/B"])
+    f = acl_filter(p, Policy([]))
     should = f["bool"]["should"]
-    assert {"terms": {"share_groups": ["/A/B"]}} in should
+    assert _shared(str(p.user_id), "/A/B") in should
     assert should[-1]["bool"]["must"][1] == {"terms": {"org_unit": ["/", "/A", "/A/B"]}}
 
 
@@ -78,8 +93,16 @@ def test_sql_es_parity(es, model, db_session, blob):
         "org_underscore": (eve, "org_unit", "/Chem_Lab", []),
         "org_lookalike": (eve, "org_unit", "/ChemXLab", []),
         "org_percent": (eve, "org_unit", "/Chem%Lab", []),
+        "private_stale_user": (eve, "private", "/", [("user", str(bob.id))]),
+        "private_stale_group": (eve, "private", "/", [("group", "/Physics")]),
+        "org_stale_share": (eve, "org_unit", "/Zoology", [("user", str(carol.id)), ("group", "/Physics")]),
+        "everyone_with_shares": (eve, "everyone", "/", [("user", str(carol.id))]),
         "deleted": (eve, "everyone", "/", []),
+        "co_private": (eve, "private", "/", []),
+        "co_org_elsewhere": (eve, "org_unit", "/Zoology", []),
+        "co_shared_other": (eve, "shared", "/", [("user", str(carol.id))]),
     }
+    coauthors = {"co_private": [bob], "co_org_elsewhere": [bob, dave], "co_shared_other": [dave]}
     docs: dict[str, Document] = {}
     for name, (owner, vis, ou, shares) in specs.items():
         d = Document(owner_id=owner.id, title=name, visibility=vis, org_unit=ou)
@@ -89,6 +112,9 @@ def test_sql_es_parity(es, model, db_session, blob):
         db_session.flush()
         db_session.add_all(DocumentShare(document_id=d.id, principal_kind=k, principal=v) for k, v in shares)
         docs[name] = d
+    db_session.add_all(
+        DocumentCoauthor(document_id=docs[n].id, user_id=u.id) for n, us in coauthors.items() for u in us
+    )
     db_session.flush()
 
     ensure_index(es, model, 4)
@@ -120,7 +146,7 @@ def test_sql_es_parity(es, model, db_session, blob):
         sql = {str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))}
         hits = es.search(
             index=index_name(model),
-            query={"bool": {"filter": [acl_filter(p), {"term": {"is_latest": True}}]}},
+            query={"bool": {"filter": [acl_filter(p, Policy([])), {"term": {"is_latest": True}}]}},
             size=100,
         )["hits"]["hits"]
         assert {h["_source"]["doc_id"] for h in hits} == sql, who
@@ -130,3 +156,8 @@ def test_sql_es_parity(es, model, db_session, blob):
         assert deleted_id not in {
             str(i) for i in db_session.scalars(select(Document.id).where(visible_documents(p)))
         }
+
+
+def test_share_groups_normalised_like_sql():
+    p = _p(["Physics", "/Chem/", "/", ""])
+    assert _shared(str(p.user_id), "/Physics", "/Chem") in acl_filter(p, Policy([]))["bool"]["should"]

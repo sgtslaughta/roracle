@@ -13,6 +13,8 @@ import { anchorBbox } from "./anchor";
 import { notesUi, useCreateNote, usePatchNote, type NoteDraft } from "./api";
 import { KIND_LABEL, VIS_LABEL } from "./labels";
 import { TargetPicker, type Target } from "./TargetPicker";
+import { useLabels } from "@/features/labels/api";
+import { useDoc } from "@/features/reader/api";
 
 const tooLong = (v: string) => (v.length > PRINCIPAL_MAX ? `Keep each entry under ${PRINCIPAL_MAX} characters.` : null);
 const groupError = (v: string) => tooLong(v) ?? (v.startsWith("/") ? null : "Group paths start with “/”, for example /Mathematics/Spectral Theory.");
@@ -42,6 +44,9 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
   const [quote, setQuote] = useState(draft?.quote ?? "");
   const [page, setPage] = useState(String(draft?.page ?? notesUi.get().page));
   const [error, setError] = useState<string | null>(null);
+  const [labelId, setLabelId] = useState("");
+  const labels = useLabels().data ?? [];
+  const docLabel = useDoc(docId).data?.label;
   const gRef = useRef<() => string[] | null>(null), uRef = useRef<() => string[] | null>(null);
   const reply = !!note?.parent_id;
   const total = groups.length + users.length;
@@ -73,7 +78,7 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
     const q = quote.trim().slice(0, QUOTE_MAX);
     // the picked box only describes the picked page
     const bbox = draft?.bbox && pageNo === draft.page && draft.version === latest ? anchorBbox(draft.bbox) : null;
-    const b: NoteIn = { kind, body, visibility: vis, ...(vis === "shared" && { shares: s }) };
+    const b: NoteIn = { kind, body, visibility: vis, ...(vis === "shared" && { shares: s }), ...(labelId && { label_id: labelId }) };
     if (q) b.anchor = { quote: q, prefix: "", suffix: "", page: pageNo, bbox };
     if (kind === "relation" && target) b.relation = { type: relType, target_document_id: target.id };
     create.mutate(b, opts);
@@ -128,6 +133,15 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
           <ChipInput label="People (user IDs)" values={users} onChange={setUsers} validate={(v) => tooLong(v) ?? full()} commitRef={uRef} />
           <p className="chipin-help">Press Enter to add. Add at least one person or group.</p>
         </>
+      )}
+      {!editing && !reply && docLabel && labels.length > 0 && (
+        <label>Sensitivity label
+          <select className="sel" value={labelId} onChange={(e) => setLabelId(e.target.value)}>
+            <option value="">Same as the document ({docLabel.name})</option>
+            {labels.filter((l) => l.rank > docLabel.rank).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+          <span className="chipin-help">A note can be more sensitive than its document, never less.</span>
+        </label>
       )}
       {error && <p className="chipin-err" role="alert">{error}</p>}
       <div className="foot">

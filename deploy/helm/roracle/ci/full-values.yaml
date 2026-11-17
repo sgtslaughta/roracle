@@ -5,10 +5,11 @@ image:
   backend: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
 secrets: {existingSecret: roracle-secrets}
 config:
+  ROR_S3_ENDPOINT: https://s3.example.internal:9000
   ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
   ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
   ROR_LLM_BASE_URL: https://llm.example.internal/v1
-observability: {otel: {endpoint: "http://otel-collector.observability:4317"}}
+observability: {otel: {endpoint: "http://otel-collector.observability:4318"}}
 web: {autoscaling: {enabled: true}}
 ingress:
   enabled: true
@@ -17,22 +18,20 @@ ingress:
   tlsSecretName: roracle-tls
 postgres:
   appCredentialsSecret: roracle-pg-app
-  backup: {credentialsSecret: {name: roracle-pg-backup-s3}, endpointCA: {name: roracle-minio-ca}}
+  backup: {credentialsSecret: {name: roracle-pg-backup-s3}, endpointURL: "https://s3.example.internal:9000", endpointCA: {name: roracle-s3-ca}}
 elasticsearch:
   appUserSecret: roracle-es-app
-  snapshot: {credentialsSecret: roracle-es-s3}
-minio:
-  configurationSecret: roracle-minio-config
-  users: {app: roracle-minio-app, pgBackup: roracle-minio-pg, esSnapshot: roracle-minio-es}
+  snapshot: {credentialsSecret: roracle-es-s3, endpoint: "s3.example.internal:9000", extraCASecret: {name: roracle-s3-ca}}
 parsers:
   gotenberg: {enabled: true}
+  draftgotenberg: {enabled: true}
   docling: {enabled: true}
   grobid: {enabled: true}
   clamav: {enabled: true, mirrorUrl: "https://clamav-mirror.example.internal", mirrorCIDRs: ["10.20.30.0/24"]}
 connectors: {egressCIDRs: ["10.40.0.0/16"], ports: [443, 8443]}
 networkPolicy:
   kubeAPI: {cidrs: ["10.0.0.1/32"], ports: [443, 6443]}
-  s3Cidrs: ["10.50.0.0/24"]
+  s3: {cidrs: ["10.50.0.0/24"]}
   externalCIDRs:
     postgres: {cidrs: ["10.60.0.0/24"]}
     elasticsearch: {cidrs: ["10.61.0.0/24"]}

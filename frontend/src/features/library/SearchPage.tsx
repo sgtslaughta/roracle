@@ -60,10 +60,10 @@ export function SearchPage() {
         <div className="sortrow">
           <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
           <FiltersButton facets={data?.facets} selected={search} onToggle={nav.toggle} />
-          <label className="vis" htmlFor="sort">Sort</label>
+          <span className="sortpair"><label className="vis" htmlFor="sort">Sort</label>
           <select id="sort" className="sel" value={search.sort ?? "relevance"} onChange={(e) => nav.setSort(e.target.value as (typeof SORTS)[number])}>
             {SORTS.map((s) => <option key={s} value={s}>{SORT_LABEL[s]}</option>)}
-          </select>
+          </select></span>
         </div>
       </div>
       <ActiveFilters search={search} onRemove={nav.remove} onClear={nav.clear} />
@@ -73,7 +73,7 @@ export function SearchPage() {
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">
             {data?.results.map((hit) => (
-              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.add("tags", t)} />
+              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.add("tags", t)} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
             ))}
             {data && !data.results.length && (
               <li className="empty">

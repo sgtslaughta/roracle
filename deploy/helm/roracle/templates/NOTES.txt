@@ -5,7 +5,7 @@ URL: https://{{ .Values.ingress.host }}  (MCP: POST /mcp)
 {{- end }}
 Secret {{ .Values.secrets.existingSecret }} must hold: {{ .Values.secrets.keys.databaseUrl }}, {{ .Values.secrets.keys.elasticUrl }}, {{ .Values.secrets.keys.s3AccessKey }}, {{ .Values.secrets.keys.s3SecretKey }}{{ if .Values.secrets.llmApiKeyEnabled }}, {{ .Values.secrets.keys.llmApiKey }}{{ end }}.
 {{- if .Values.observability.otel.endpoint }}
-OTEL_* env is set, but the backend has no OTel instrumentation until P11b.
+OTel export is ON: api/worker run under opentelemetry-instrument (OTLP/HTTP) and need egress to the collector (networkPolicy.egressCIDRs.otel).
 {{- end }}
 {{- if eq .Values.elasticsearch.mode "eck" }}
 Bundled Elasticsearch: put (user roracle_app from secret {{ .Values.elasticsearch.appUserSecret }}, never elastic) {{ ternary "https" "http" .Values.elasticsearch.tls }}://roracle_app:<password>@{{ include "roracle.fullname" . }}-es-http.{{ .Release.Namespace }}.svc:9200 in {{ .Values.secrets.keys.elasticUrl }}.
@@ -16,4 +16,7 @@ external Postgres/Elasticsearch/S3 (networkPolicy.externalCIDRs.*, s3Cidrs), OID
 {{- if .Values.ingress.enabled }}
 Ingress controllers on hostNetwork do not match networkPolicy.ingressNamespaceSelector (traffic arrives from the node IP): allow the node CIDR with your own policy.
 {{- end }}
+{{- end }}
+{{- if eq .Values.postgres.mode "external" }}
+External Postgres connection budget: api + worker can hold up to {{ include "roracle.pgClients" . }} connections at full autoscale (replicas x (ROR_DB_POOL_SIZE + ROR_DB_MAX_OVERFLOW), same for the worker settings). Make sure max_connections (or your pooler) covers that plus ~15 for migrations and admin tools. Behind an external PgBouncer in transaction mode set ROR_DB_DISABLE_PREPARED=true (no server-side prepared statements).
 {{- end }}

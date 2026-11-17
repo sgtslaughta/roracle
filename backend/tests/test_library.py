@@ -219,6 +219,16 @@ def test_collection_rules(client, as_ana, as_bob, up):
     assert client.post("/collections", headers=as_bob, json={"name": "n" * 101}).status_code == 422
 
 
+def test_add_item_to_concurrently_deleted_collection_is_404(client, as_ana, up, monkeypatch):
+    from roracle.api.routes import library
+
+    d = up(as_ana)
+    # the ownership check passed, then the collection vanished before the insert: 404, not an FK 500
+    monkeypatch.setattr(library, "_own", lambda *a: None)
+    r = client.put(f"/collections/{uuid.uuid4()}/items/{d}", headers=as_ana)
+    assert r.status_code == 404
+
+
 def test_unicode_normalization_is_stable():
     for raw in ("Größe", "数学", "naïve", "ＡＢＣ"):
         n = normalize_tag(raw)
@@ -363,3 +373,22 @@ def test_collection_count_only_counts_visible_docs(client, as_ana, as_bob, up, d
     assert client.get("/collections", headers=as_bob).json()[0]["count"] == 1
     assert client.put(f"/collections/{c}/items/{b}", headers=as_bob).json()["count"] == 1
     assert client.delete(f"/collections/{c}/items/{b}", headers=as_bob).json()["count"] == 0
+
+
+def test_collection_rename_and_delete(client, as_ana, as_bob, up, db_session):
+    from sqlalchemy import select
+
+    from roracle.models import CollectionItem
+
+    a = up(as_ana)
+    c = client.post("/collections", headers=as_ana, json={"name": "Old"}).json()["id"]
+    assert client.put(f"/collections/{c}/items/{a}", headers=as_ana).status_code == 200
+    assert client.patch(f"/collections/{c}", headers=as_bob, json={"name": "x"}).status_code == 404
+    assert client.delete(f"/collections/{c}", headers=as_bob).status_code == 404
+    assert client.patch(f"/collections/{c}", headers=as_ana, json={"name": ""}).status_code == 422
+    r = client.patch(f"/collections/{c}", headers=as_ana, json={"name": " New "})
+    assert r.status_code == 200 and r.json() == {"id": c, "name": "New", "count": 1}
+    assert client.delete(f"/collections/{c}", headers=as_ana).status_code == 204
+    assert client.get("/collections", headers=as_ana).json() == []
+    assert db_session.scalars(select(CollectionItem)).all() == []
+    assert client.delete(f"/collections/{c}", headers=as_ana).status_code == 404

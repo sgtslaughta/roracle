@@ -7,9 +7,10 @@ from sqlalchemy import and_, exists, false, func, or_, select, true
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
-from roracle.access import visible_documents
+from roracle.access import org_units, readable_documents
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationShare, Document, DocumentVersion
+from roracle.models import Annotation, AnnotationShare, Document
+from roracle.models_labels import Label
 
 
 def _b(v: bool) -> ColumnElement[bool]:
@@ -17,15 +18,8 @@ def _b(v: bool) -> ColumnElement[bool]:
 
 
 def readable_doc_ids(p: Principal):
-    """Documents the caller may annotate/read; non-owner non-admins need a searchable version (library._visible)."""
-    searchable = exists(
-        select(1).where(DocumentVersion.document_id == Document.id, DocumentVersion.stage == "searchable")
-    )
-    return (
-        select(Document.id)
-        .where(visible_documents(p), or_(_b(p.is_admin), Document.owner_id == p.user_id, searchable))
-        .correlate(None)
-    )
+    """Documents the caller may annotate/read (R16)."""
+    return select(Document.id).where(readable_documents(p)).correlate(None)
 
 
 def doc_readable(session: Session, p: Principal, doc_id: UUID) -> bool:
@@ -43,6 +37,15 @@ def _status_ok(e, p: Principal):
     )
 
 
+def gate_ok(col, gate: str) -> ColumnElement[bool]:
+    """A note's own label lacks `gate` (null = inherits). Gates are monotonic in rank, so the effective
+    label max(doc, note) has the gate iff the doc label (checked by the document clause) or the note's
+    own label has it: no rank arithmetic needed. Always an extra AND, never widens access."""
+    return or_(
+        col.is_(None), col.not_in(select(Label.id).where(getattr(Label, gate).is_(True)).correlate(None))
+    )
+
+
 def readable_notes(p: Principal) -> ColumnElement[bool]:
     root = aliased(Annotation)
     ids = readable_doc_ids(p)
@@ -53,15 +56,17 @@ def readable_notes(p: Principal) -> ColumnElement[bool]:
                 and_(AnnotationShare.principal_kind == "user", AnnotationShare.principal == str(p.user_id)),
                 and_(
                     AnnotationShare.principal_kind == "group",
-                    AnnotationShare.principal.in_(list(p.groups)) if p.groups else false(),
+                    AnnotationShare.principal.in_(org_units(p.groups)) if p.groups else false(),
                 ),
             ),
         )
     )
+    agent_ok = gate_ok(root.label_id, "block_agents") if p.via == "pat" else true()
     root_ok = exists(
         select(1).where(
             root.id == func.coalesce(Annotation.parent_id, Annotation.id),
             _status_ok(root, p),
+            agent_ok,
             root.document_id.in_(ids),
             or_(root.target_document_id.is_(None), root.target_document_id.in_(ids)),
             or_(
@@ -72,7 +77,8 @@ def readable_notes(p: Principal) -> ColumnElement[bool]:
             ),
         )
     )
-    return and_(_status_ok(Annotation, p), root_ok)
+    own_ok = gate_ok(Annotation.label_id, "block_agents") if p.via == "pat" else true()
+    return and_(_status_ok(Annotation, p), root_ok, own_ok)
 
 
 def get_readable(session: Session, p: Principal, note_id: UUID) -> Annotation:

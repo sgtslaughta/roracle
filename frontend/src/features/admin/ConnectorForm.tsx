@@ -6,6 +6,7 @@ import { ChipInput } from "@/features/ask/ChipInput";
 import { invalidText } from "@/features/agents/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useLabels } from "@/features/labels/api";
 import { useSaveConnector } from "./api";
 import { buildBody, initialForm, isHttpUrl, MASK, type FormState } from "./connectorBody";
 
@@ -29,6 +30,7 @@ function ConnectorForm({ connector, onDone }: { connector?: Connector; onDone: (
   const save = useSaveConnector();
   const [f, setF] = useState<FormState>(() => initialForm(connector));
   const [err, setErr] = useState<string | null>(null);
+  const labels = useLabels().data ?? [];
   const includeRef = useRef<() => string[] | null>(null);
   const urlsRef = useRef<() => string[] | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -100,6 +102,14 @@ function ConnectorForm({ connector, onDone }: { connector?: Connector; onDone: (
         </select>
       </Field>
       {f.visibility === "org_unit" && <Field label="Org unit"><input {...text("org_unit")} placeholder="/Mathematics/Spectral Theory" /></Field>}
+      {labels.length > 0 && (
+        <Field label="Label for new documents" help="Applies to documents it ingests from now on.">
+          <select value={f.label_id} onChange={(e) => set("label_id", e.target.value)}>
+            <option value="">Default label{labels.find((l) => l.is_default) ? ` (${labels.find((l) => l.is_default)!.name})` : ""}</option>
+            {labels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </Field>
+      )}
       <Field label="Run every (minutes)" help="5 to 10080. Leave empty to run only when you press Run now."><input type="number" min={5} max={10080} {...text("schedule")} /></Field>
       <label className="ck"><input type="checkbox" checked={f.enabled} onChange={(e) => set("enabled", e.target.checked)} />Enabled</label>
       {err && <p className="err" role="alert">{err}</p>}

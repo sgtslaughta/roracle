@@ -189,7 +189,7 @@ class PandocBuilder:
                 c.stream("POST", url, files={"files": ("index.html", html.encode(), "text/html")}) as r,
             ):
                 if r.status_code != 200:
-                    down = r.status_code >= 500
+                    down = r.status_code not in (400, 413, 422)  # only a rejected document blames the draft
                     raise BuildError(
                         "build service unavailable" if down else "build service rejected the document",
                         503 if down else 422,
@@ -252,9 +252,9 @@ def load_refs(
     metas = {
         str(i): m or {}
         for i, m in session.execute(
-            select(DocumentVersion.document_id, DocumentVersion.meta).where(
-                DocumentVersion.document_id.in_(ids), DocumentVersion.is_latest.is_(True)
-            )
+            select(DocumentVersion.document_id, DocumentVersion.meta)
+            .where(DocumentVersion.document_id.in_(ids), DocumentVersion.stage == "searchable")
+            .order_by(DocumentVersion.version)  # later versions overwrite earlier ones
         )
     }
     public = _public_keys(session, ok) if public_only else set()

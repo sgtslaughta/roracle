@@ -6,7 +6,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,8 @@ from roracle.connectors import fs
 from roracle.connectors.netguard import Blocked, check_url
 from roracle.connectors.run import active_run_job
 from roracle.db import get_session
-from roracle.models import Connector, ConnectorRun, Document
+from roracle.models import Connector, ConnectorRun, Document, Job
+from roracle.models_labels import Label
 from roracle.queue import enqueue
 
 router = APIRouter()
@@ -71,6 +73,7 @@ class Common(BaseModel):
     name: Name
     visibility: Literal["private", "org_unit", "everyone"]
     org_unit: Annotated[str, Field(max_length=500)] = ""
+    label_id: UUID | None = None
     schedule_minutes: Schedule = None
     enabled: bool = True
 
@@ -99,12 +102,18 @@ class ConnectorPatch(BaseModel):
     config: dict[str, Any] | None = None
     visibility: Literal["private", "org_unit", "everyone"] | None = None
     org_unit: Annotated[str, Field(max_length=500)] | None = None
+    label_id: UUID | None = None
     schedule_minutes: Schedule = None
     enabled: bool | None = None
 
 
 def redact(config: dict) -> dict:
     return {**config, "secret_key": MASK} if config.get("secret_key") else dict(config)
+
+
+def _check_label(session: Session, label_id: UUID | None) -> None:
+    if label_id is not None and session.get(Label, label_id) is None:
+        raise HTTPException(422, "unknown label")
 
 
 def _check_scope(visibility: str, org_unit: str) -> str:
@@ -143,6 +152,7 @@ def _out(c: Connector) -> dict:
         "owner_id": str(c.owner_id),
         "visibility": c.visibility,
         "org_unit": c.org_unit,
+        "label_id": str(c.label_id) if c.label_id else None,
         "schedule_minutes": c.schedule_minutes,
         "enabled": c.enabled,
         "next_run_at": c.next_run_at.isoformat() if c.next_run_at else None,
@@ -152,8 +162,40 @@ def _out(c: Connector) -> dict:
 
 
 def _with_last(session: Session, c: Connector) -> dict:
-    last = _last_run(session, c.id)
-    return {**_out(c), "last_run": _run(last) if last else None}
+    return _with_lasts(session, [c])[0]
+
+
+def _with_lasts(session: Session, cs: list[Connector]) -> list[dict]:
+    """Connectors + last run, in two queries total (not per connector)."""
+    ids = [c.id for c in cs]
+    last = {
+        r.connector_id: r
+        for r in session.scalars(
+            select(ConnectorRun)
+            .where(ConnectorRun.connector_id.in_(ids))
+            .ext(distinct_on(ConnectorRun.connector_id))
+            .order_by(ConnectorRun.connector_id, ConnectorRun.id.desc())
+        )
+    }
+    cid = Job.payload["connector_id"].astext
+    queued = {
+        k: j
+        for k, j in session.execute(
+            select(cid, func.min(Job.id))
+            .where(Job.kind == "connector_run", Job.status == "queued", cid.in_([str(i) for i in ids]))
+            .group_by(cid)
+        )
+    }
+    out = []
+    for c in cs:
+        run = _run(last[c.id]) if c.id in last else None
+        if (
+            job := queued.get(str(c.id))
+        ) is not None:  # a trigger waiting for the worker outranks the last run
+            run = {"id": None, "started_at": None, **(run or {})}  # id/started_at stay: the previous run's
+            run |= {"status": "queued", "job_id": job, "finished_at": None, "stats": {}}
+        out.append({**_out(c), "last_run": run})
+    return out
 
 
 def _run(r: ConnectorRun, log: bool = False) -> dict:
@@ -191,7 +233,7 @@ def _name_free(session: Session, name: str, skip: UUID | None = None) -> None:
 @router.get("/admin/connectors")
 def list_connectors(p: Admin, session: Db) -> dict:
     cs = session.scalars(select(Connector).order_by(Connector.name)).all()
-    return {"items": [_with_last(session, c) for c in cs]}
+    return {"items": _with_lasts(session, list(cs))}
 
 
 @router.post("/admin/connectors", status_code=201)
@@ -199,6 +241,7 @@ def create_connector(body: ConnectorIn, p: Admin, session: Db, request: Request)
     org_unit = _check_scope(body.visibility, body.org_unit)
     config = _validate_config(body.kind, body.config.model_dump(), request)
     _name_free(session, body.name)
+    _check_label(session, body.label_id)
     c = Connector(
         name=body.name,
         kind=body.kind,
@@ -206,6 +249,7 @@ def create_connector(body: ConnectorIn, p: Admin, session: Db, request: Request)
         owner_id=p.user_id,
         visibility=body.visibility,
         org_unit=org_unit,
+        label_id=body.label_id,
         schedule_minutes=body.schedule_minutes,
         enabled=body.enabled,
     )
@@ -253,6 +297,9 @@ def patch_connector(cid: UUID, body: ConnectorPatch, p: Admin, session: Db, requ
         ).all()
         for doc_id in ids:
             enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
+    if "label_id" in sent:  # applies to documents ingested from now on, never retroactively
+        _check_label(session, body.label_id)
+        c.label_id = body.label_id
     if "schedule_minutes" in sent:
         c.schedule_minutes, c.next_run_at = body.schedule_minutes, None  # due at the next tick
     if body.enabled is not None:

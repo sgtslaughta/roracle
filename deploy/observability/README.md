@@ -19,13 +19,14 @@ Allow Prometheus into the app namespace: `networkPolicy.monitoringNamespace` (de
 
 | Panel | Source |
 |---|---|
-| API p50/p95/p99, 5xx rate | ingress-nginx metrics (other controllers: edit queries) |
-| Queue depth, oldest queued, failed jobs | CNPG custom query `roracle_jobs` (`cnpg_roracle_jobs_*`); failed = rows in `failed` status |
+| API p50/p95/p99, 5xx rate | api `/metrics`: `roracle_http_request_duration_seconds`, `roracle_http_requests_total` |
+| Queue depth, oldest queued, failed jobs | api `/metrics`: `roracle_jobs`, `roracle_jobs_oldest_queued_seconds`; failed = rows in `failed` status |
+| Job runs, ingest stage failures | worker `/metrics`: `roracle_job_runs_total`, `roracle_ingest_stage_failures_total` |
 | Replication lag, WAL pending | CNPG built-ins `cnpg_pg_replication_lag`, `cnpg_collector_pg_wal_archive_status` |
 | WAL archive age | custom query `roracle_archiver` (`cnpg_roracle_archiver_seconds_since_last_archive`) |
 
 Both CNPG panels carry a 300 s line (RPO target). Elasticsearch health has no panel (no exporter bundled; deliberate deviation from the plan). WAL archive age shows no data until the first archive; on an idle database `archive_timeout` (5 min) only forces a segment switch when there is WAL activity, so the age can grow while idle.
 
-## P11b gap
+## Application metrics and traces
 
-The backend has no `/metrics` and no OTel instrumentation. Until P11b the collector receives nothing; no API/worker application metrics, traces or structured-log shipping exist.
+api and worker pods carry `prometheus.io/*` annotations (`metrics.enabled`); add a scrape job or PodMonitor for them in the monitoring release. With `observability.otel.endpoint` set they also send OTLP/HTTP traces and metrics to the collector (no trace backend bundled). The CNPG custom query `roracle_jobs` is no longer used by the dashboard and can be dropped from the Postgres monitoring config.

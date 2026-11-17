@@ -83,4 +83,5 @@ def principal_from_pat(
         scopes=frozenset(row.scopes),
         client=f"pat:{row.name}",
         via="pat",
+        pat_id=str(row.id),
     )

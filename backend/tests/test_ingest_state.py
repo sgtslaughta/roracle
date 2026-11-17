@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
-from roracle.ingest.state import bump_attempts, demote_older_versions, set_stage, update_version
+from roracle.ingest.state import _demote, bump_attempts, set_stage, update_version
 from roracle.models import DocumentVersion, Job
 from roracle.queue import claim, enqueue
 
@@ -17,6 +17,12 @@ def _version(db_session, document, blob):
     db_session.add(v)
     db_session.commit()
     return v.id
+
+
+def demote_older_versions(session_factory, doc_id, version_id):  # test harness over the internal helper
+    with session_factory() as s:
+        _demote(s, doc_id, version_id)
+        s.commit()
 
 
 def test_set_stage_and_bump_attempts(session_factory, db_session, document, blob):
@@ -82,12 +88,13 @@ def test_get_session_uses_app_state_factory(settings):
     gen.close()
 
 
-def _versions(db_session, document, blob, flags):
+def _versions(db_session, document, blob, flags, stages=None):
     ids = []
     for n, latest in enumerate(flags, 1):
         v = DocumentVersion(
             document_id=document.id, version=n, blob_sha256=blob.sha256, filename="a",
             content_type="x", size=1, is_latest=latest,
+            stage=(stages[n - 1] if stages else "searchable"),
         )  # fmt: skip
         db_session.add(v)
         db_session.flush()
@@ -119,6 +126,10 @@ def test_promotion_demotes_and_marks_searchable_atomically(
     from roracle.ingest import state
 
     ids = _versions(db_session, document, blob, [True, False])
+    db_session.execute(
+        DocumentVersion.__table__.update().where(DocumentVersion.id == ids[1]).values(stage="embedded")
+    )  # the promoted version is mid-ingest (an already-searchable one is a no-op by design)
+    db_session.commit()
     monkeypatch.setattr(state, "enqueue", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         state.mark_searchable_and_enqueue(session_factory, ids[1], demote_doc=document.id)
@@ -128,3 +139,18 @@ def test_promotion_demotes_and_marks_searchable_atomically(
     db_session.expire_all()
     assert _flags(db_session, ids) == [False, True]
     assert db_session.get(DocumentVersion, ids[1]).stage == "searchable"
+
+
+def test_demote_ignores_newer_unfinished_version(session_factory, db_session, document, blob):
+    # v1 live, v3 only uploaded, v2 finishes: v2 must become the latest (v3 has no flag to keep)
+    ids = _versions(db_session, document, blob, [True, False, False], ["searchable", "chunked", "uploaded"])
+    demote_older_versions(session_factory, document.id, ids[1])
+    assert _flags(db_session, ids) == [False, True, False]
+
+
+def test_demote_then_newer_fails_keeps_latest(session_factory, db_session, document, blob):
+    ids = _versions(db_session, document, blob, [True, False, False], ["searchable", "chunked", "uploaded"])
+    demote_older_versions(session_factory, document.id, ids[1])
+    db_session.execute(update(DocumentVersion).where(DocumentVersion.id == ids[2]).values(stage="rejected"))
+    db_session.commit()
+    assert _flags(db_session, ids) == [False, True, False]

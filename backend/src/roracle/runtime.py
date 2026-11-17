@@ -28,20 +28,22 @@ Name = Annotated[str, Field(min_length=1, max_length=200)]
 class SettingsIn(BaseModel):
     """PUT body: every field optional; explicit null deletes the override."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
 
     chat_models: Annotated[list[Name], Field(min_length=1, max_length=20)] | None = None
     chat_default_model: Name | None = None
     chat_passages: Annotated[StrictInt, Field(ge=4, le=12)] | None = None
     chat_note_min_upvotes: Annotated[StrictInt, Field(ge=0)] | None = None
     chat_note_min_ratio: Annotated[StrictInt | StrictFloat, Field(ge=0, le=1)] | None = None
-    rerank_depth: Annotated[StrictInt, Field(ge=10, le=100)] | None = None
+    rerank_depth: Annotated[StrictInt, Field(ge=10, le=500)] | None = None
     near_dup_threshold: Annotated[StrictInt | StrictFloat, Field(ge=0.5, le=1)] | None = None
     near_dup_summary_threshold: Annotated[StrictInt | StrictFloat, Field(ge=0.5, le=1)] | None = None
     max_upload_bytes: Annotated[StrictInt, Field(ge=MiB, le=5 * 1024 * MiB)] | None = None
     upload_quota_bytes: Annotated[StrictInt, Field(ge=0, le=MAXINT)] | None = None
     rate_limit_per_minute: Annotated[StrictInt, Field(ge=0, le=MAXINT)] | None = None
     pats_enabled: StrictBool | None = None
+    router: StrictBool | None = None
+    agentic_retrieval: StrictBool | None = None
 
     @field_validator("chat_models")
     @classmethod
@@ -78,8 +80,33 @@ def apply(base: Settings, ov: dict[str, Any]) -> Settings:
     return base.model_copy(update=upd)
 
 
+ACTIVE_EMBED_KEYS = ("embed_model", "embed_dims", "embed_index")  # set only by re-embed cutover (R4)
+
+
+def active_embedding(session: Session) -> dict[str, Any]:
+    rows = session.scalars(select(AppSetting).where(AppSetting.key.in_(ACTIVE_EMBED_KEYS)))
+    return {r.key: r.value for r in rows}
+
+
+def set_active_embedding(session: Session, model: str, dims: int, index: str) -> None:
+    for k, v in zip(ACTIVE_EMBED_KEYS, (model, dims, index), strict=True):
+        session.merge(AppSetting(key=k, value=v))
+    session.flush()
+
+
 def effective(session: Session, base: Settings) -> Settings:
-    return apply(base, overrides(session))
+    return apply(base, {**overrides(session), **active_embedding(session)})
+
+
+def assert_embedding_unchanged(session: Session, settings: Settings) -> None:
+    """Raise (retryable) if a re-embed cutover switched the model since `settings` was read."""
+    now = effective(session, settings)
+    if (now.embed_model, now.embed_dims, now.embed_index) != (
+        settings.embed_model,
+        settings.embed_dims,
+        settings.embed_index,
+    ):
+        raise RuntimeError("embedding model changed during ingest; retrying with the new model")
 
 
 def view(s: Settings) -> dict[str, Any]:

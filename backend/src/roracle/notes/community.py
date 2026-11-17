@@ -5,9 +5,11 @@ from uuid import UUID
 from sqlalchemy import Integer, and_, case, cast, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
+from roracle.access import llm_allowed
 from roracle.auth import Principal
-from roracle.models import Annotation, AnnotationReport, AnnotationVote, DocumentVersion, User
-from roracle.notes.access import readable_notes
+from roracle.labels.textgate import gated_docs
+from roracle.models import Annotation, AnnotationReport, AnnotationVote, Document, DocumentVersion, User
+from roracle.notes.access import gate_ok, readable_notes
 from roracle.retrieval import Passage
 
 MIN_SCORE, MAX_REPORTS = 0.4, 3
@@ -87,9 +89,18 @@ def community_notes(
     )
     mine = A.author_id == p.user_id
     if strict:
-        gate = or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1]))
+        allowed = set(session.scalars(select(Document.id).where(Document.id.in_(docs), llm_allowed())))
+        docs = [d for d in docs if d in allowed]
+        if not docs:
+            return {}
+        gate = and_(
+            gate_ok(A.label_id, "exclude_llm"),  # effective label: doc checked above, note's own here
+            or_(mine, and_(A.visibility == "everyone", nup >= strict[0], score > strict[1])),
+        )
     else:
         gate = and_(A.visibility == "everyone", score >= MIN_SCORE)
+        if p.via == "pat":  # agents never get the text of an exclude_llm note
+            gate = and_(gate, gate_ok(A.label_id, "exclude_llm"))
     ranked = (
         select(
             A.id,
@@ -153,8 +164,24 @@ def attach_notes(
         if on
         else {}
     )
+    total = notes_total(session, p, [h["doc_id"] for h in hits])
+    gated = gated_docs(session, p, [h["doc_id"] for h in hits])  # agents: existence (count) only
     for h in hits:
-        h["notes"] = found.get(h["doc_id"], [])
+        h["notes"] = [] if h["doc_id"] in gated else found.get(h["doc_id"], [])
+        h["notes_total"] = total.get(h["doc_id"], 0)
+
+
+def notes_total(session: Session, p: Principal, doc_ids) -> dict[str, int]:
+    """doc id -> number of notes the caller may read (one grouped query; PG rules, like the notes list)."""
+    docs = _uuids(doc_ids)
+    if not docs:
+        return {}
+    rows = session.execute(
+        select(Annotation.document_id, func.count())
+        .where(Annotation.document_id.in_(docs), readable_notes(p))
+        .group_by(Annotation.document_id)
+    )
+    return {str(d): n for d, n in rows}
 
 
 def note_passages(session: Session, p: Principal, passages: list, strict: tuple[int, float]) -> list:

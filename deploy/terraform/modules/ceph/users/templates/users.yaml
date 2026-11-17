@@ -1,0 +1,11 @@
+{{- range $name := .Values.users }}
+---
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  store: {{ $.Values.store }}
+  displayName: {{ $name }}
+{{- end }}

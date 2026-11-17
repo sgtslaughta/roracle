@@ -72,6 +72,7 @@ def test_near_dup_emits(db_session, session_factory, cfg, user):
     d1, v1 = _doc(db_session, user, title="Original")
     v1.minhash, v1.stage, v1.is_latest = minhash(text_), "searchable", True
     d2, v2 = _doc(db_session, user, title="Copy")
+    v2.stage = "summarized"  # `_dedupe` only ever runs for a summarized version (compare-and-set)
     db_session.commit()
     assert pipeline._dedupe(db_session, v2, d2, text_, cfg, session_factory) is True
     (n,) = _notes(db_session)
@@ -81,7 +82,6 @@ def test_near_dup_emits(db_session, session_factory, cfg, user):
         "version_id": str(v2.id),
         "filename": "p.pdf",
         "match_document_id": str(d1.id),
-        "match_title": "Original",
     }
 
 
@@ -172,6 +172,8 @@ def test_near_dup_connector_doc_no_notification(db_session, session_factory, cfg
     db_session.add(c)
     db_session.flush()
     d2, v2 = _doc(db_session, user, title="Copy", connector_id=c.id)
+    v2.stage = "summarized"
+    db_session.commit()
     assert pipeline._dedupe(db_session, v2, d2, text_, cfg, session_factory) is True
     assert _notes(db_session) == []
 

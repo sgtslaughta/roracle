@@ -1,0 +1,19 @@
+/* Sensitivity labels: filled pill (colour + icon + name), picker form, admin page */
+.slabel{display:inline-flex;align-items:center;gap:4px;max-width:180px;font-size:12px;font-weight:600;line-height:1.4;border-radius:6px;padding:1px 7px;border:1px solid color-mix(in srgb,currentColor 35%,transparent);white-space:nowrap}
+.slabel svg{width:12px;height:12px;flex:none}
+.slabel .t{overflow:hidden;text-overflow:ellipsis}
+.rlabel{display:flex;align-items:center;gap:6px;margin:4px 0}
+.lpick{display:grid;gap:8px}
+.lpick .foot{display:flex;justify-content:flex-end;gap:8px}
+.dirpick{display:grid;gap:4px}
+.dirlist{list-style:none;margin:0;padding:2px;border:1px solid var(--border);border-radius:8px;max-height:160px;overflow:auto;background:var(--surface)}
+.dirlist button{width:100%;text-align:left;padding:5px 8px;border:0;background:none;border-radius:6px;color:var(--ink)}
+.dirlist button:hover,.dirlist button:focus-visible{background:var(--muted-bg)}
+.ans-note{font-size:13px;color:var(--muted);margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.lrows{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.lrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--elev,var(--surface))}
+.lrow.drag-over{outline:2px solid var(--primary)}
+.lrow .gates{display:flex;flex-wrap:wrap;gap:4px}
+.lrow .acts{display:flex;gap:4px;align-items:center}
+.lform{display:grid;gap:8px}
+.lform fieldset{border:1px solid var(--border);border-radius:8px;padding:6px 10px;display:grid;gap:4px}

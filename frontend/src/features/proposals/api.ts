@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, seg } from "@/api/client";
+import { apiFetch, seg, QUIET } from "@/api/client";
 import type { Note, NoteAnchor, NoteKind, NoteRelation, NoteShare, NoteVisibility } from "@/api/notes";
 
 /** P8 contract: an agent's note (or reply, when `parent_id` is set) waiting for a human decision. Untrusted text. */
@@ -12,11 +12,16 @@ export interface ProposalPayload {
   relation?: NoteRelation | null;
   visibility?: NoteVisibility;
   shares?: NoteShare[];
+  /** kind "label": the proposed label (body is empty) */
+  label_id?: string;
+  /** kind "label": set when the change is for a note thread root, not the document */
+  annotation_id?: string;
+  reason?: string;
 }
 export type ProposalStatus = "pending" | "approved" | "rejected";
 export interface Proposal {
   id: string;
-  kind: "note" | "relation";
+  kind: "note" | "relation" | "label";
   /** the agent client name from the access token */
   client: string;
   payload: ProposalPayload;
@@ -27,7 +32,7 @@ export interface Proposal {
   /** null when the document is gone or no longer readable */
   document: { id: string; title: string | null } | null;
 }
-export interface ApproveBody { body?: string; visibility?: NoteVisibility; shares?: NoteShare[] }
+export interface ApproveBody { body?: string; visibility?: NoteVisibility; shares?: NoteShare[]; /** label proposals: why a lowering is approved */ reason?: string }
 export interface BulkResult { approved: { proposal_id: string; annotation_id: string }[]; failed: { proposal_id: string; detail: string }[] }
 
 export const BULK_MAX = 100;
@@ -45,8 +50,9 @@ export const useProposals = (status: ProposalStatus) =>
 function useDecision<V, R>(fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
+    meta: QUIET,
     mutationFn: fn,
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] })]),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["notes"] }), qc.invalidateQueries({ queryKey: ["search"] }), qc.invalidateQueries({ queryKey: ["doc"] })]),
   });
 }
 

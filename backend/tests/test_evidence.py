@@ -48,6 +48,24 @@ def post(client, h, nid, prov=None, stance="supports", data=b"results", **extra)
     )
 
 
+def test_note_deleted_during_upload_is_404_not_500(client, as_ana, note, db_session, s3, monkeypatch):
+    from roracle.api.routes import evidence as route
+    from roracle.models import Annotation
+
+    real = route.receive
+
+    async def receive_then_delete(*a, **kw):
+        got = await real(*a, **kw)
+        db_session.execute(Annotation.__table__.delete().where(Annotation.id == uuid.UUID(note)))
+        db_session.commit()
+        return got
+
+    monkeypatch.setattr(route, "receive", receive_then_delete)
+    r = post(client, as_ana, note)
+    assert r.status_code == 404 and r.json() == NF
+    assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118
+
+
 def test_crate_shape():
     c = ev.crate(ev.Provenance(**PROV))
     assert c["@context"] == "https://w3id.org/ro/crate/1.1/context"
@@ -222,10 +240,10 @@ def test_scan_clean_infected(scan_env, db_session, monkeypatch, staged, store):
     from roracle.storage import stage
 
     store.put(stage(io.BytesIO(b"zip!"), 100), "x")
-    monkeypatch.setattr(ev, "scan", lambda stream, host: None)
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: None)
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "clean"
-    monkeypatch.setattr(ev, "scan", lambda stream, host: "Eicar")
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: "Eicar")
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "infected"
 
@@ -239,14 +257,14 @@ def test_scan_unscanned_without_clamav(scan_env, db_session):
 
 
 def test_scan_size_limit_failed_and_conn_error_propagates(scan_env, db_session, monkeypatch):
-    def boom(stream, host):
+    def boom(stream, host, port=3310):
         raise NonRetryable("too big")
 
     monkeypatch.setattr(ev, "scan", boom)
     run(scan_env, db_session)
     assert scan_env[0].scan_status == "failed"
 
-    def down(stream, host):
+    def down(stream, host, port=3310):
         raise ConnectionError("x")
 
     monkeypatch.setattr(ev, "scan", down)
@@ -321,6 +339,26 @@ def test_scan_missing_object_failed_and_body_closed(scan_env, db_session, monkey
         def open(self, sha):
             return Body(b"x")
 
-    monkeypatch.setattr(ev, "scan", lambda stream, host: None)
+    monkeypatch.setattr(ev, "scan", lambda stream, host, port=3310: None)
     ev.handle_evidence_scan(db_session, {"evidence_id": str(e.id)}, settings=s, store=Store2())
     assert e.scan_status == "clean" and closed
+
+
+def test_upload_leaves_no_tmp_object_on_success_and_failure(client, as_ana, note, s3):
+    assert post(client, as_ana, note).status_code == 201
+    assert post(client, as_ana, note, uri="https://x.org/p").status_code == 422  # file and uri
+    assert not [k for k in s3.keys() if k.startswith("tmp/")]  # noqa: SIM118
+
+
+def test_session_committed_before_evidence_body_read(client, as_ana, note, db_session, monkeypatch):
+    from roracle.upload_stream import Received
+
+    seen = []
+
+    async def rcv(request, store, max_bytes, **kw):
+        seen.append(db_session.in_transaction())
+        return Received({}, None)
+
+    monkeypatch.setattr("roracle.api.routes.evidence.receive", rcv)
+    post(client, as_ana, note)
+    assert seen == [False]

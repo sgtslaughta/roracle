@@ -1,8 +1,9 @@
-import { Building2, Calendar, File, Folder, Tag, User } from "lucide-react";
+import { Building2, Calendar, File, Folder, Tag, User, ShieldHalf } from "lucide-react";
 import { OverflowList } from "@/components/OverflowList";
 import type { FacetName, FacetValue } from "@/api/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCollectionName } from "./api";
+import { useLabelName } from "@/features/labels/api";
 import type { FacetKey, LibrarySearch } from "@/lib/searchParams";
 
 export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> = {
@@ -12,6 +13,7 @@ export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> =
   org_unit: { label: "Org unit", icon: Building2 },
   year: { label: "Year", icon: Calendar },
   author: { label: "Author", icon: User },
+  label: { label: "Sensitivity", icon: ShieldHalf },
 };
 const ORDER = Object.keys(FACET_META) as FacetKey[];
 const LIMIT = 8;
@@ -24,6 +26,7 @@ export function Facets({ facets, selected, onToggle, approximate }: {
   onToggle: (k: FacetKey, v: string) => void;
 }) {
   const collName = useCollectionName();
+  const labelName = useLabelName();
   return (
     <aside className="facets" aria-label="Filters">
       <p className="fnote">Filters list only what's in these results.</p>
@@ -32,9 +35,14 @@ export function Facets({ facets, selected, onToggle, approximate }: {
         const sel = selected[k] ?? [];
         const counts = new Map((facets?.[k] ?? []).map((f) => [f.value, f.count]));
         const labels = new Map((facets?.[k] ?? []).map((f) => [f.value, f.label ?? f.value]));
-        const nameOf = (v: string) => labels.get(v) ?? (k === "collection" ? collName(v) : v);
+        const ranks = new Map((facets?.[k] ?? []).map((f) => [f.value, typeof f.label === "object" ? f.label.rank : 0]));
+        const nameOf = (v: string) => {
+          const l = labels.get(v);
+          return typeof l === "string" ? l : l ? l.name : k === "collection" ? collName(v) : k === "label" ? labelName(v) : v;
+        };
         sel.forEach((v) => { if (!counts.has(v)) counts.set(v, 0); });
         const vals = [...counts.keys()];
+        if (k === "label") vals.sort((a, b) => (ranks.get(a) ?? 0) - (ranks.get(b) ?? 0)); // most sensitive last
         if (!vals.length) return null;
         const { label, icon: Icon } = FACET_META[k];
         return (

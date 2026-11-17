@@ -15,8 +15,9 @@ from roracle import notify, runtime
 from roracle.config import Settings
 from roracle.connectors import Item, RunDeadline, source_for
 from roracle.ingest.intake import add_document, add_version
+from roracle.labels import service
 from roracle.models import Connector, ConnectorItem, ConnectorRun, Document, DocumentVersion, Job
-from roracle.queue import enqueue
+from roracle.queue import check_lease, enqueue, fence, payload_uuid
 from roracle.storage import BlobStore, EmptyFile, TooLarge, stage
 
 log = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                     add_version(s, store, staged, doc, filename=item.filename, content_type=item.content_type)
                     result = "versions"
                 else:
+                    label_id = service.initial_label(s, None, connector=c)
                     doc, _ = add_document(
                         s,
                         store,
@@ -106,6 +108,7 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                         filename=item.filename,
                         content_type=item.content_type,
                         connector_id=cid,
+                        label_id=label_id,
                     )
                     result = "ingested"
                 doc_id = doc.id
@@ -126,6 +129,9 @@ def _outcome(sf: SF, c: Connector, item: Item, cap: int, store: BlobStore) -> st
                     doc_id,
                     func.now(),
                 )
+            fence(
+                s
+            )  # LAST, right before the commit: FOR SHARE must not be held across the MinIO upload above
             s.commit()
             return result
     finally:
@@ -157,7 +163,7 @@ def _finish(sf: SF, c: Connector, run_id: int, status: str, stats: dict, lines: 
 
 
 def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, sf: SF) -> None:
-    c = session.get(Connector, UUID(payload["connector_id"]))
+    c = session.get(Connector, payload_uuid(payload, "connector_id"))
     if c is None:
         return
     eff = runtime.effective(session, settings)
@@ -185,6 +191,7 @@ def _run(session: Session, payload: dict, settings: Settings, store: BlobStore, 
     try:
         with closing(source_for(c, eff, deadline, warn)) as it:
             for item in it:
+                check_lease()  # per item: a lost lease aborts the run cooperatively
                 # the item cap bounds work done; unchanged items are cheap (the time cap bounds them)
                 if (
                     stats["seen"] - stats["unchanged"] >= settings.connector_max_items

@@ -43,6 +43,7 @@ class NoteIn(BaseModel):
     relation: Relation | None = None
     visibility: Visibility | None = None
     shares: list[Share] = Field(default_factory=list, max_length=SHARES_MAX)
+    label_id: UUID | None = None  # null = inherit the document label
 
     @model_validator(mode="after")
     def _rules(self):
