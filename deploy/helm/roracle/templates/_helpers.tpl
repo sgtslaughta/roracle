@@ -332,3 +332,45 @@ initContainers:
 {{- else if hasSuffix "k" $s }}{{ mul (int64 (trimSuffix "k" $s)) 1024 }}
 {{- else }}{{ int64 $s }}{{ end -}}
 {{- end -}}
+
+{{/* Worker entrypoint: wait (bounded, logged every 5 s) until alembic_version = this image's head, then exec the worker.
+Why: the bundled-CNPG migrate hook is post-install, which Helm (--wait) runs only after the release is Ready, while the worker
+crashes at startup without the schema (install deadlock). During the wait a stub answers 200 on the worker health port, so
+liveness stays green and the pod counts as Ready. 1500 s = migrate.activeDeadlineSeconds. */}}
+{{- define "roracle.workerStartPy" -}}
+import os, sys, time, threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, text
+from roracle.config import get_settings
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b"waiting for schema")
+    def log_message(self, *a):
+        pass
+port = int(os.environ.get("ROR_WORKER_HEALTH_PORT") or 0)
+srv = HTTPServer(("0.0.0.0", port), H) if port else None
+if srv:
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+engine = create_engine(get_settings().database_url)
+end = time.time() + 1500
+while True:
+    try:
+        with engine.connect() as c:
+            cur = c.execute(text("select version_num from alembic_version")).scalar()
+    except Exception as e:
+        cur = "unavailable (%s)" % type(e).__name__
+    if cur == head:
+        print("schema at head", head, flush=True)
+        break
+    if time.time() > end:
+        print("TIMEOUT waiting for migrations: db=%s head=%s" % (cur, head), file=sys.stderr, flush=True)
+        sys.exit(1)
+    print("waiting for migrations: db=%s head=%s" % (cur, head), flush=True)
+    time.sleep(5)
+if srv:
+    srv.shutdown(); srv.server_close()
+os.execvp("python", ["python", "-m", "roracle", "worker"])
+{{- end -}}
