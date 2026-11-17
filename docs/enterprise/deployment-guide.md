@@ -251,6 +251,10 @@ SemVer: patch is drop-in, minor adds additive migrations with a rolling upgrade,
 the chart 0.1 to 0.2.0 migration (MinIO removal), Elasticsearch 8.x to 9.x, the migration list with risky ones flagged, and re-embedding are in
 [upgrades](upgrades.md). Take a Postgres backup and an ES snapshot before every minor or major upgrade ([runbook](operations-runbook.md) section 2).
 
+### Upgrading to 0.2.0 (breaking)
+
+Chart 0.2.0 removes the bundled MinIO tenant and the render fails on removed values. The migration steps and the value mapping are in [upgrades, chart 0.1 to 0.2.0](upgrades.md).
+
 ## 8. TLS trust, hooks and ordering (bundled data services)
 
 Secrets, modes and NetworkPolicy values are in section 4. Notes specific to bundled services:

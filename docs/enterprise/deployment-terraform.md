@@ -26,6 +26,8 @@ It targets a **pre-existing cluster** through a kubeconfig (`kubeconfig_path`, `
 
 ## 3. tfvars profiles and sizing
 
+**ECK pin warning.** All four profiles below pin ECK 2.16.0 (chart and image), but the chart's default Elasticsearch 9.5.6 needs an ECK 3.x release that lists 9.5. Raise the `charts.eck` and `operator_images.eck` pins to such a release before mirroring and installing (see [upgrades](upgrades.md)).
+
 Copy an example to a git-ignored file (`*.tfvars` is ignored except `environments/*example*`). Secrets go in through `TF_VAR_secret_data` and `TF_VAR_pull_secret`, never into the file.
 
 | File | Purpose | Key settings |
@@ -73,19 +75,22 @@ Notes: the chart has no confidential OIDC client secret (the web client is publi
 ```sh
 cd deploy/terraform
 terraform init                                   # providers from the mirror
-terraform plan  -var-file=environments/dev.tfvars -var allow_placeholders=true   # review (copy environments/example.tfvars first)
-terraform apply -var-file=environments/dev.tfvars                                 # placeholders must be replaced
+cp environments/example.tfvars my.tfvars                                  # edit: git-ignored
+terraform plan  -var-file=my.tfvars -var allow_placeholders=true   # review
+terraform apply -var-file=my.tfvars                                 # placeholders must be replaced
 ```
 
 Dependency chain in one apply: placeholder gate, platform (namespaces, quota, pull secret), operators (barman plugin after CNPG and cert-manager), CRD readiness (deferred to apply), Secrets and inference, then `helm_release.roracle`. The release uses `wait` and `wait_for_jobs`; hooks wait up to `helm_timeout_s` (default 1800 s). The chart's worker waits for the schema (bounded to 25 minutes), so the post-install migrate hook does not deadlock against `--wait`.
 
 Staged alternative, also for first installs where operator CRDs are slow: apply with `-var deploy_app=false`, then re-apply with `deploy_app=true`. The data source deferral also shows an in-place update of the CA Secret on every plan.
 
+Generated database and Elasticsearch URLs assume the release name decides the chart fullname (`app_fullname` in `app-values.tf`): do not set `nameOverride` or `fullnameOverride` in `extra_values_file`.
+
 ### Optional inference module
 
 `inference = { enabled = true, ... }` deploys LLM and reranker Deployments (GPU, `Recreate`, models read-only from PVC `inference-models`, which must be ReadOnlyMany or ReadWriteMany if pods land on different nodes; images are gated placeholders). A default-deny NetworkPolicy admits only the rOracle `api` and `worker` pods on port 8000 (plus DNS egress); the app chart egress is opened to that namespace through `networkPolicy.egressCIDRs.llm`. The LLM server enforces the API key from Secret `inference-keys` (`secret_data.llm_api_key`).
 
-Reranker engine `vllm` (default, `--task score`) serves Cohere-style `/v1/rerank`, the backend default (`ROR_RERANK_API=cohere`). Engine `tei` serves `/rerank` with `texts`; the backend supports it with `ROR_RERANK_API=tei` (chart value `rerank.api`), which this stack does not set, so add `rerank: {api: tei}` to `extra_values_file`. `rerank.api_key_enabled` and `secret_data.rerank_api_key` protect the server; the backend sends `ROR_RERANK_API_KEY` as a Bearer token only when the chart's `secrets.rerankApiKeyEnabled` is true, which Terraform also does not set. Pods run non-root with a read-only root filesystem, seccomp `RuntimeDefault` and no service-account token.
+Reranker engine `vllm` (default, `--task score`) serves Cohere-style `/v1/rerank`, the backend default (`ROR_RERANK_API=cohere`). Engine `tei` serves `/rerank` with `texts`; the backend supports it with `ROR_RERANK_API=tei` (chart value `rerank.api`), which this stack does not set, so add `rerank: {api: tei}` to `extra_values_file`. `rerank.api_key_enabled` and `secret_data.rerank_api_key` protect the server; the backend sends `ROR_RERANK_API_KEY` as a Bearer token only when the chart's `secrets.rerankApiKeyEnabled` is true, which Terraform also does not set. Pods run non-root with a read-only root filesystem, seccomp `RuntimeDefault` and no service-account token. Verify that the mirrored image works as the configured `run_as_user` (default 10001).
 
 ## 7. State backend
 
@@ -125,7 +130,7 @@ Production example: `environments/prod.example.tfvars`. The operator layer insta
 - **TLS rotation.** The self-signed CA is valid 10 years, the RGW certificate 1 year (renewed 30 days before). Rook may not reload a changed certificate Secret: after a leaf renewal run `kubectl -n rook-ceph rollout restart deploy -l app=rook-ceph-rgw`. The CA copy in the app namespace is a Terraform snapshot: after a CA renewal re-run `terraform apply`, then restart api and worker. A third-party ClusterIssuer whose Secret has no `ca.crt` is refused (use `tls_secret` and `s3.ca_secret`).
 - **Destroy**: `rook-ceph-cluster` has no `protect_data` guard. Rook blocks deleting the object store while buckets exist, so a destroy hangs rather than wiping data. Teardown steps: [kind rehearsal, decommissioning](deployment-kind-rehearsal.md).
 
-The real-Ceph path is validated only by `terraform validate`, `plan`, `helm template` and the local loop-device rehearsal; treat the first real install as a rehearsal.
+The local rehearsal found that RGW listens on ports 443 and 80 (the ingress policy and chart egress had assumed 8443 and 8080, since fixed), and that the first repository analysis may fail once with a spurious RGW `BucketAlreadyExists` (409), which the script retries ([kind rehearsal](deployment-kind-rehearsal.md)). The real-Ceph path is validated only by `terraform validate`, `plan`, `helm template` and the local loop-device rehearsal; treat the first real install as a rehearsal.
 
 ## 10. External S3 commands (object lock, lifecycle, policy)
 
