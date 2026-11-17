@@ -45,6 +45,30 @@ class ImageRefTest(unittest.TestCase):
             [n for _, n in ca.image_refs(text)], ["vllm/vllm-openai", "ghcr.io/cloudnative-pg/cloudnative-pg"]
         )
 
+    def test_ceph_locals_and_registry_assignment(self):
+        tf = (
+            "  image_defaults = {\n"
+            '    rook_ceph    = "rook/ceph" # operator image\n'
+            '    cnpg         = "cloudnative-pg/cloudnative-pg"\n'
+            "  }\n"
+            '  other = "not/an-image"\n'
+            '  repository = coalesce(var.x, "${var.mirror_registry}/ceph/ceph")\n'
+        )
+        self.assertEqual(
+            [n for _, n in ca.image_refs(tf)], ["rook/ceph", "cloudnative-pg/cloudnative-pg", "ceph/ceph"]
+        )
+        sh = "REGISTRY_IMAGE=registry:2.8.3@sha256:abc\n"
+        self.assertEqual([n for _, n in ca.image_refs(sh)], ["registry"])
+
+    def test_manifest_names_table_rows_only(self):
+        names = ca.manifest_names("| `a/b` | `1` |\nprose mentions `c/d` only\n")
+        self.assertIn("a/b", names)
+        self.assertNotIn("c/d", names)
+
+    def test_listed_allows_registry_prefix(self):
+        self.assertTrue(ca.listed("ceph/ceph", {"quay.io/ceph/ceph"}))
+        self.assertFalse(ca.listed("ceph", {"quay.io/ceph/ceph"}))
+
     def test_manifest_names(self):
         names = ca.manifest_names("| `a/b` | `1.2` |\n`c/d:3@sha256:ff` and `docker.io/e/f:1`\n")
         self.assertTrue({"a/b", "c/d", "e/f", "1.2"} <= names)

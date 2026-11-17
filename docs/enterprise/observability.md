@@ -6,12 +6,12 @@ Audience: operators and SRE. Back to the [enterprise index](README.md) and the [
 
 | Signal | Source | How it leaves the pod |
 |---|---|---|
-| Prometheus metrics | api `GET /metrics` (port 8000) and worker `GET /metrics` (`ROR_WORKER_HEALTH_PORT`, 8001) | pull: `prometheus.io/scrape`, `prometheus.io/port` and `prometheus.io/path` pod annotations when `metrics.enabled` (default true) |
+| Prometheus metrics | api `GET /metrics` (port 8000) and worker `GET /metrics` (`ROR_WORKER_HEALTH_PORT`, 8001) | pull, but **nothing scrapes them out of the box**: with `metrics.enabled` (default true) the pods carry `prometheus.io/*` annotations, which the bundled kube-prometheus-stack (Prometheus Operator) ignores. You must add a `PodMonitor` (section 6) |
 | Postgres metrics | CloudNativePG instance managers, a `PodMonitor`, and two custom queries | pull through the `PodMonitor` when `postgres.monitoring.enabled` (default true; needs the prometheus-operator CRDs) |
 | OTLP traces and metrics | the api and worker, under `opentelemetry-instrument` | push, OTLP over HTTP (`http/protobuf`) to `observability.otel.endpoint`, empty by default |
 | Logs | stdout and stderr of every pod | nothing in this repo collects them; the collector values have a logs pipeline (OTLP in, Loki out), and the chart sets only the OTLP endpoint, protocol, service name and resource attributes on the pods |
 
-Health probes (`/healthz`, `/readyz`, the worker's `/healthz`) are described in the [health runbook](runbook-health-alerts.md). The `/metrics` endpoints are never routed through the ingress. With the application NetworkPolicy on (`networkPolicy.enabled`), `networkPolicy.scrape` (ports 8000 and 8001) allows only the namespace in `networkPolicy.monitoringNamespace` (default `monitoring`) to reach them; if your worker `healthPort` differs, change `networkPolicy.scrape.ports`. OTLP egress to the collector needs `networkPolicy.egressCIDRs.otel` (port 4318).
+Health probes (`/healthz`, `/readyz`, the worker's `/healthz`) are described in the [health runbook](runbook-health-alerts.md). **The repo ships no `PodMonitor`, `ServiceMonitor` or scrape job for the api and worker** (only CNPG's own `PodMonitor` for Postgres). Until you add one, every `roracle_*` panel on the dashboard is empty. The `/metrics` endpoints are never routed through the ingress. With the application NetworkPolicy on (`networkPolicy.enabled`), `networkPolicy.scrape` (ports 8000 and 8001) allows only the namespace in `networkPolicy.monitoringNamespace` (default `monitoring`) to reach them; if your worker `healthPort` differs, change `networkPolicy.scrape.ports`. OTLP egress to the collector needs `networkPolicy.egressCIDRs.otel` (port 4318).
 
 ## 2. The optional stack (`deploy/observability/`)
 
@@ -60,7 +60,24 @@ With `postgres.monitoring.enabled` the chart creates the ConfigMap `<fullname>-p
 
 ## 6. Wiring checklist
 
-1. api and worker scraped: pod annotations, or a `PodMonitor` of your own (the stack's selectors accept any namespace).
+1. api and worker scraped. The annotations are not enough with the bundled stack: apply a `PodMonitor` like this one in the app namespace (labels and port names are from the chart templates: pods carry `app.kubernetes.io/name: roracle`, `app.kubernetes.io/instance: <release>` and `app.kubernetes.io/component: api|worker`; the api container port is named `http` (8000) and the worker's is named `health` (`worker.healthPort`, 8001)). The stack's selectors accept any namespace.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: {name: roracle, namespace: roracle}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: roracle, app.kubernetes.io/instance: roracle}
+    matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [api, worker]}]
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+    - port: health
+      path: /metrics
+```
+
+   Each endpoint matches only the pods that have a port of that name. The scrape also needs `networkPolicy.monitoringNamespace` to match Prometheus's namespace.
 2. `networkPolicy.monitoringNamespace` matches the namespace Prometheus runs in.
 3. `postgres.monitoring.enabled` only with the prometheus-operator CRDs present (it renders a `PodMonitor` through the CNPG cluster).
 4. `observability.grafanaDashboard.label` matches the Grafana sidecar label.

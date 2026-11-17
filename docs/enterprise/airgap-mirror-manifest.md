@@ -6,16 +6,11 @@ of truth for language packages: `backend/uv.lock`, `frontend/pnpm-lock.yaml`. De
 [deployment guide](deployment-guide.md) and [Terraform guide](deployment-terraform.md); Helm keys are in the
 [Helm values reference](../reference/helm-values.md).
 
-**CI guard.** `scripts/docs/check_refs.py` fails when an `image:`, `image =` or `repository:` value in `deploy/**`
-names a repository that is not written in backticks on this page. Add a row here whenever you add an image.
+**CI guard.** `scripts/docs/check_refs.py` fails when an image in `deploy/**` (`image:`, `image =`, `repository:`, `*_IMAGE=` shell assignments, quoted repository paths in `.tf` locals, `"MIRROR.example.com/..."` literals, the kind-e2e `IMAGES` pairs) is not written in backticks in a table row of this page. Add a row here whenever you add an image. Scope: Dockerfiles, `.gitlab-ci.yml` and Helm templates are not scanned, so those rows are maintained by hand.
 
 ## Container images
 
-Tags are exact as referenced in the repo. The Digest column says what the repo pins: values files and compose files use
-mutable tags, so the answer is `not pinned in repo` for every row except the single `registry:2.8.3@sha256:...` pin of the
-kind rehearsal (see below). Mutable tags can move: resolve the digest in your mirror (`crane digest` / `skopeo inspect`),
-then set `image.*.digest` / `*.image.digest` in values (digest wins over tag). Digests that were looked up on 2026-11-15
-are kept for reference at the end of this section; they are not part of the repo.
+Tags are exact as referenced in the repo. **The repo pins no image digests**, with one exception: `registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` in the kind rehearsal (`deploy/terraform/test/kind-e2e.sh`). Every other Digest cell therefore says `not pinned in repo`. Tags are mutable: when you build the mirror, record the digest of each image (`crane digest` / `skopeo inspect`) and set `image.*.digest` / `*.image.digest` in values (digest wins over tag).
 
 ### Runtime (Helm chart, `ci/full-values.yaml` render)
 
@@ -58,9 +53,10 @@ CSI (including the ceph-csi-operator subchart: `csi.rookUseCsiOperator=false`), 
 | `alpine/helm` | `3.17.3` | CI `helm` job (`HELM_IMAGE`) | not pinned in repo |
 | `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | CI `kubeconform` job (`KUBECONFORM_IMAGE`) | not pinned in repo |
 | `hashicorp/terraform` | `1.15.8` | CI `terraform` job (`TERRAFORM_IMAGE`) and the operator workstation | not pinned in repo |
+| `quay.io/keycloak/keycloak` | `26.0` | dev compose only | not pinned in repo |
 | `docker` (service `docker:27-dind`) | `27-dind` | CI `iac-kind-e2e` job (manual) | not pinned in repo |
 
-Dev only (`deploy/dev/compose.yaml`, all through `${REGISTRY_MIRROR}`): `quay.io/keycloak/keycloak` `26.0`, `postgres` `16`, `bitnamilegacy/minio` `2025.5.24`, `docker.elastic.co/elasticsearch/elasticsearch` `9.5.6`, `lfoppiano/grobid` `0.8.1`, `gotenberg/gotenberg` `8.20.1`, `clamav/clamav` `1.4`, and `quay.io/docling-project/docling-serve-cpu` `latest` (use the chart tag `v1.38.2` instead). Digest: not pinned in repo.
+Dev only (`deploy/dev/compose.yaml`, all through `${REGISTRY_MIRROR}`; Keycloak is in the table above): `postgres` `16`, `bitnamilegacy/minio` `2025.5.24`, `docker.elastic.co/elasticsearch/elasticsearch` `9.5.6`, `lfoppiano/grobid` `0.8.1`, `gotenberg/gotenberg` `8.20.1`, `clamav/clamav` `1.4`, and `quay.io/docling-project/docling-serve-cpu` `latest` (use the chart tag `v1.38.2` instead). Digest: not pinned in repo.
 
 **`bitnamilegacy/minio` is dev and CI only.** It is the S3 stand-in of the dev compose file, the CI test services and the kind rehearsal (`deploy/terraform/test/s3-stub.yaml`). No production path deploys it.
 Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB). Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
@@ -74,7 +70,7 @@ Tags are the ones the example tfvars and `deploy/terraform/test/kind-e2e.sh` pin
 | `ghcr.io/cloudnative-pg/cloudnative-pg` | `1.26.0` | CNPG operator |
 | `ghcr.io/cloudnative-pg/plugin-barman-cloud` | `v0.16.0` | barman-cloud plugin (chart 0.9.0) |
 | `ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar` | `v0.16.0` | plugin sidecar |
-| `quay.io/jetstack/cert-manager-controller`, `quay.io/jetstack/cert-manager-webhook`, `quay.io/jetstack/cert-manager-cainjector`, `quay.io/jetstack/cert-manager-startupapicheck` | `v1.17.0` | cert-manager |
+| `jetstack/cert-manager` (Terraform prefix, suffixes appended) = `quay.io/jetstack/cert-manager-controller`, `quay.io/jetstack/cert-manager-webhook`, `quay.io/jetstack/cert-manager-cainjector`, `quay.io/jetstack/cert-manager-startupapicheck` | `v1.17.0` | cert-manager |
 | `docker.elastic.co/eck/eck-operator` | `2.16.0` | **Wrong for Elasticsearch 9.5.6.** The tfvars pin ECK 2.16.0, but the chart default Elasticsearch 9.5.6 needs an ECK 3.x release whose support matrix lists 9.5. Raise `charts.eck` and `operator_images.eck` before mirroring ([upgrades](upgrades.md)) |
 | `docker.io/rook/ceph` | `v1.18.0` | only for `object_store = "rook-ceph"`; see the Rook-Ceph table above |
 
@@ -182,27 +178,4 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 ## Other data
 
 ClamAV signature database (private freshclam mirror), CRL/OCSP endpoints for X.509 if checked,
-TeX Live packages (bundled in image).
-
-## Digests recorded at authoring time (reference only)
-
-These are the manifest-list digests the tags resolved to on 2026-11-15, looked up from a connected host. They are **not**
-pinned anywhere in the repo, may have moved, and must be re-verified (`crane digest <image>:<tag>`) before you rely on them.
-
-| Image | Tag | Digest |
-|---|---|---|
-| `ghcr.io/cloudnative-pg/postgresql` | `16.6` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` | `sha256:79b4f1de4c15e6eca824723086a51e5934406d614d410cc11be77748cafac537` |
-| `curlimages/curl` | `8.10.1` | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
-| `gotenberg/gotenberg` | `8.20.1` | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
-| `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
-| `lfoppiano/grobid` | `0.8.1` | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
-| `clamav/clamav` | `1.4` | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
-| `python` | `3.12-slim` | `sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b` |
-| `node` | `22-slim` | `sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee` |
-| `nginxinc/nginx-unprivileged` | `1.27-alpine` | `sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0` |
-| `postgres` | `16` | `sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f` |
-| `bitnamilegacy/minio` | `2025.5.24` | `sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c` |
-| `gcr.io/kaniko-project/executor` | `v1.23.2-debug` | `sha256:c3109d5926a997b100c4343944e06c6b30a6804b2f9abe0994d3de6ef92b028e` |
-| `alpine/helm` | `3.17.3` | `sha256:d899e6316789fec04ee95300a18e454b7942539cbb3d89bde3e0655d6ca2e895` |
-| `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | `sha256:824e0c248809e4b2da2a768b16b107cf17ada88a89ec6aa6050e566ba93ebbc6` |
+TeX Live: not referenced by the chart yet (see the planned `texlive/texlive` image above); nothing to mirror today.

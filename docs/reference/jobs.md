@@ -23,7 +23,7 @@ Postgres is the queue (ADR-0003). One row per job in `jobs`:
 
 - A worker claims one due job at a time with `FOR UPDATE SKIP LOCKED`, ordered by `run_after`, then `id`. More workers never conflict.
 - **User kinds** (everything except the three below) are claimed first.
-- **Bulk kinds** `reconcile_tags`, `rebuild_units` and `reparse_refs` are claimed only when no user job is due, `reconcile_tags` before `rebuild_units` and `reparse_refs`. A backfill therefore never delays an upload.
+- **Bulk kinds** `reconcile_tags`, `rebuild_units` and `reparse_refs` are claimed only when no user job is due, `reconcile_tags` first, then `rebuild_units` and `reparse_refs` together in one FIFO step (by `run_after`, then `id`). A backfill therefore never delays an upload.
 - A worker only claims kinds it has a handler for; the worker registers all 15 kinds below.
 
 ## Leases and retries (all kinds unless noted)
