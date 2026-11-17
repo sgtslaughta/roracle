@@ -212,57 +212,54 @@ def _explain_claim(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def _reconcile(args: argparse.Namespace) -> int:
-    """Walk the whole corpus with `handle_reconcile_tags`; report duration, batches and ES index operations
-    (indexing.index_total delta of the scratch index: updates count, no-ops do not)."""
+def reconcile_walk(sf, es, index: str) -> dict:
+    """Walk the whole corpus with `handle_reconcile_tags` (the scratch DB behind `sf`, the scratch `index` in `es`).
+    Returns {batches, seconds, es_writes (indexing.index_total delta: updates count, no-ops do not), drift_found
+    (documents whose acl_hash differs from Postgres, counted even if a repair is already queued)}."""
     import time
 
-    from elasticsearch import Elasticsearch
     from sqlalchemy import delete, select
 
-    from roracle.db import make_session_factory
-    from roracle.maintenance import handle_reconcile_tags
+    from roracle import maintenance
     from roracle.models import Job
 
-    _require_scratch(args.url)
-    es = Elasticsearch(args.es_url)
-
     def ops() -> int:
-        es.indices.refresh(index=args.index)
-        return es.indices.stats(index=args.index, metric="indexing")["_all"]["primaries"]["indexing"][
+        es.indices.refresh(index=index)
+        return es.indices.stats(index=index, metric="indexing")["_all"]["primaries"]["indexing"][
             "index_total"
         ]
 
-    before, t0, batches, payload = ops(), time.perf_counter(), 0, {}
-    from roracle import maintenance
-
-    found = [0]
-    real_drifted = maintenance.drifted
+    before, t0, batches, payload, found = ops(), time.perf_counter(), 0, {}, [0]
+    real = maintenance.drifted
 
     def counting(es_, items, *a, **k):
-        out = real_drifted(es_, items, *a, **k)
-        found[0] += len(
-            out
-        )  # drift found, whatever is already queued (reconcile dedupes against queued repairs)
+        out = real(es_, items, *a, **k)
+        found[0] += len(out)  # reconcile dedupes against queued repairs, so counting jobs would hide drift
         return out
 
     maintenance.drifted = counting
-    sf = make_session_factory(args.url)
-    with sf() as s:
-        while True:
-            handle_reconcile_tags(s, payload, es=es)
-            batches += 1
-            nxt = s.scalar(select(Job).where(Job.kind == "reconcile_tags").order_by(Job.id.desc()))
-            s.execute(delete(Job).where(Job.kind == "reconcile_tags"))
-            s.commit()
-            if nxt is None:
-                break
-            payload = nxt.payload
-    maintenance.drifted = real_drifted
-    print(
-        json.dumps(
-            {"batches": batches, "seconds": round(time.perf_counter() - t0, 1), "es_writes": ops() - before,
-             "drift_found": found[0]}
-        )
-    )  # fmt: skip
+    try:
+        with sf() as s:
+            while True:
+                maintenance.handle_reconcile_tags(s, payload, es=es)
+                batches += 1
+                nxt = s.scalar(select(Job).where(Job.kind == "reconcile_tags").order_by(Job.id.desc()))
+                s.execute(delete(Job).where(Job.kind == "reconcile_tags"))
+                s.commit()
+                if nxt is None:
+                    break
+                payload = nxt.payload
+    finally:
+        maintenance.drifted = real
+    return {"batches": batches, "seconds": round(time.perf_counter() - t0, 1), "es_writes": ops() - before,
+            "drift_found": found[0]}  # fmt: skip
+
+
+def _reconcile(args: argparse.Namespace) -> int:
+    from elasticsearch import Elasticsearch
+
+    from roracle.db import make_session_factory
+
+    _require_scratch(args.url)
+    print(json.dumps(reconcile_walk(make_session_factory(args.url), Elasticsearch(args.es_url), args.index)))
     return 0

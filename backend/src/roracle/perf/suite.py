@@ -147,27 +147,23 @@ def run_suite(profile: dict, *, pg_url: str, es_url: str, budgets: dict, seed: b
     rows.append(_row("rebuild_chunks_per_s", budgets.get("rebuild_chunks_per_s", {}), {"value": rb["chunks_per_s"]}, f,
                      f"{rb['replicas']} replicas x {rb['per_replica_cps']:.0f} chunks/s modelled, {rb['slices']} slices, "
                      f"{rb['chunks']:,} chunks"))  # fmt: skip
-    rows.append(_reconcile_row(profile, pg_url, es_url, budgets, f))
+    rows.append(reconcile_row(profile, sf, es, budgets, f))
     out.write_text(json.dumps({"profile": profile, "rows": rows}, indent=1, default=str))
     print(_markdown(rows))
     return 0 if all(r["ok"] for r in rows) else 1
 
 
-def _reconcile_row(profile, pg_url, es_url, budgets, f) -> dict:
-    import io
-    from argparse import Namespace
-    from contextlib import redirect_stdout
-
-    from roracle.perf.cli import _reconcile
+def reconcile_row(profile: dict, sf, es, budgets: dict, f: float) -> dict:
+    from roracle.perf.cli import reconcile_walk
 
     os.environ.update({"ROR_READ_ALIAS": READ, "ROR_MUTATE_ALIAS": MUTATE})
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        _reconcile(Namespace(url=pg_url, es_url=es_url, index=INDEX))
-    res = json.loads(buf.getvalue().strip().splitlines()[-1])
-    return _row("reconcile_es_writes", budgets.get("reconcile_es_writes", {}), {"value": res["es_writes"] + res["drift_found"]}, f,
-                f"full walk of {profile['docs']:,} documents in {res['batches']} batches, {res['seconds']} s; "
-                f"{res['es_writes']} ES writes + {res['drift_repairs_enqueued']} documents with drift")  # fmt: skip
+    res = reconcile_walk(sf, es, INDEX)
+    note = (
+        f"full walk of {profile['docs']:,} documents in {res['batches']} batches, {res['seconds']} s; "
+        f"{res['es_writes']} ES writes, {res['drift_found']} documents with drift"
+    )
+    value = res["es_writes"] + res["drift_found"]
+    return _row("reconcile_es_writes", budgets.get("reconcile_es_writes", {}), {"value": value}, f, note)
 
 
 def _seed(profile: dict, pg_url: str, es: Elasticsearch) -> None:
