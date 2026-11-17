@@ -181,3 +181,21 @@ describe("streamMessage", () => {
     expect(last.content.length).toBeGreaterThan(0);
   });
 });
+
+describe("agentic progress frames", () => {
+  it("reports sub-question progress; the global map progress frame and a second meta are harmless", async () => {
+    const h = { ...handlers(), onProgress: vi.fn(), onExcluded: vi.fn() };
+    server.use(http.post(`${API_BASE}/chats/c1/messages`, () => sse(
+      'event: meta\ndata: {"agentic": true}\n\n' +
+      'event: progress\ndata: {"step": 1, "of": 3, "done": 0}\n\n' +
+      'event: progress\ndata: {"mapped": 2, "total": 9}\n\n' +
+      'event: progress\ndata: {"step": 1, "of": 3, "done": 3}\n\n' +
+      'event: meta\ndata: {"subqueries": ["a", "b"]}\n\n' +
+      'event: done\ndata: {"message_id": "m1"}\n\n',
+    )));
+    await streamMessage("c1", { content: "q", viewer: VIEWER }, h);
+    expect(h.onProgress.mock.calls).toEqual([[{ step: 1, of: 3, done: 0 }], [{ step: 1, of: 3, done: 3 }]]);
+    expect(h.onExcluded).not.toHaveBeenCalled();
+    expect(h.onDone).toHaveBeenCalledWith("m1");
+  });
+});

@@ -50,13 +50,13 @@ services:
       interval: 5s
       retries: 40
   elasticsearch:
-    image: ${REGISTRY_MIRROR:-}docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    image: ${REGISTRY_MIRROR:-}docker.elastic.co/elasticsearch/elasticsearch:9.5.6
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms1g -Xmx1g
     ports: ["9200:9200"]
-    volumes: [esdata:/usr/share/elasticsearch/data]
+    volumes: [esdata9:/usr/share/elasticsearch/data]  # new volume: an 8.x data dir cannot be opened by 9.x (reindex or rebuild)
     healthcheck:
       test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s'"]
       interval: 5s
@@ -77,6 +77,8 @@ services:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}lfoppiano/grobid:0.8.1
     ports: ["8070:8070"]
+    # JDK cgroup-v2 detection NPEs on newer kernels (CgroupInfo.getMountPoint): skip container probing
+    environment: { JAVA_TOOL_OPTIONS: "-XX:-UseContainerSupport" }
   gotenberg:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}gotenberg/gotenberg:8.20.1
@@ -126,6 +128,6 @@ networks:
   gotenberg: {}
 
 volumes:
-  esdata:
+  esdata9:
   pgdata:
   miniodata:

@@ -177,6 +177,39 @@ class BlobStore:
         return self.client.get_object(Bucket=self.bucket, Key=self.key(sha256))["Body"]
 
 
+TMP_RULE_ID = "roracle-tmp-expire"
+
+
+def ensure_tmp_lifecycle(store: BlobStore, days: int = 1) -> str:
+    """Make sure the bucket expires `tmp/` (in-flight upload leftovers) and aborts stale multipart uploads.
+    Idempotent (rule id `roracle-tmp-expire`, other rules kept). Returns `present|added|skipped`; never raises:
+    external S3 may deny the call (AccessDenied) and then the operator sets the rule (runbook)."""
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    rule = {
+        "ID": TMP_RULE_ID, "Status": "Enabled", "Filter": {"Prefix": "tmp/"},
+        "Expiration": {"Days": days}, "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": days},
+    }  # fmt: skip
+    try:
+        try:
+            rules = store.client.get_bucket_lifecycle_configuration(Bucket=store.bucket).get("Rules", [])
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "NoSuchLifecycleConfiguration":
+                raise
+            rules = []
+        if any(r.get("ID") == TMP_RULE_ID for r in rules):
+            return "present"
+        if any((r.get("Filter") or r.get("Prefix") or {}) in ({"Prefix": "tmp/"}, "tmp/") for r in rules):
+            return "present"  # the operator already manages a tmp/ rule (e.g. `mc ilm`)
+        store.client.put_bucket_lifecycle_configuration(
+            Bucket=store.bucket, LifecycleConfiguration={"Rules": [*rules, rule]}
+        )
+        return "added"
+    except (ClientError, BotoCoreError) as e:
+        log.warning("could not ensure the tmp/ lifecycle rule (%s); set it manually (operations runbook)", e)
+        return "skipped"
+
+
 def blob_store_from(settings, config: Config | None = None) -> BlobStore:
     client = boto3.client(
         "s3",

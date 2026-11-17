@@ -21,6 +21,7 @@ def find_quote(es, version_id: UUID, quote: str) -> tuple[int | None, dict | Non
             "bool": {
                 "filter": [{"term": {"version_id": str(version_id)}}],
                 "must": [{"match_phrase": {"text": quote}}],
+                "must_not": [{"exists": {"field": "unit"}}],  # a summary is not the source page
             }
         },
         size=1,

@@ -65,7 +65,11 @@ def test_owner_raises_syncs_es_audits(client, as_ana, ana, admin, db_session, fe
     db_session.refresh(d)
     assert str(d.label_id) == sec
     assert audits(db_session, "document.label") == [{"from": general(db_session), "to": sec, "via": "user"}]
-    assert any(c["script"]["params"]["label_id"] == sec for c in fes.calls if "script" in c)
+    assert any(
+        next(iter(c["script"]["params"]["acl"].values()))["fields"]["label_id"] == sec
+        for c in fes.calls
+        if "acl" in c.get("script", {}).get("params", {})
+    )
     assert db_session.scalar(select(Job).where(Job.kind == "acl_sync")) is not None
     assert not db_session.scalars(select(Notification)).all()  # owner acted: no notification
     assert put(client, as_ana, d.id, sec).status_code == 200  # equal: no-op

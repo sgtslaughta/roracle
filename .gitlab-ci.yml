@@ -13,12 +13,15 @@ variables:
   HELM_IMAGE: "${REGISTRY_MIRROR}alpine/helm:3.17.3"
   KUBECONFORM_IMAGE: "${REGISTRY_MIRROR}ghcr.io/yannh/kubeconform:v0.6.7-alpine"
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
+  ELASTICSEARCH_IMAGE: "${REGISTRY_MIRROR}docker.elastic.co/elasticsearch/elasticsearch:9.5.6"
 
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
 
 .backend:
   image: ${REGISTRY_MIRROR}python:3.12-slim
@@ -65,6 +68,76 @@ test:
     when: always
     reports:
       junit: backend/report.xml
+
+# Retrieval-quality gate: synthetic fixture (32 docs, 4 principals) through the real ES/Postgres paths with offline
+# models; fails on any ACL violation (incl. ES-only) or a metric under tests/eval/floors.json. No GPU, no network.
+eval:
+  extends: .backend
+  stage: test
+  services:
+    - name: ${REGISTRY_MIRROR}postgres:16
+      alias: postgres
+    - name: $ELASTICSEARCH_IMAGE
+      alias: elasticsearch
+      command: ["bin/elasticsearch", "-Ediscovery.type=single-node", "-Expack.security.enabled=false"]
+      variables:
+        ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+  variables:
+    POSTGRES_USER: roracle
+    POSTGRES_PASSWORD: roracle
+    POSTGRES_DB: roracle_eval
+    ROR_DATABASE_URL: postgresql+psycopg://roracle:roracle@postgres:5432/roracle_eval
+    ROR_ELASTIC_URL: http://elasticsearch:9200
+    ROR_S3_ENDPOINT: http://minio.invalid:9000  # required settings; `eval ci` never touches object storage
+    ROR_S3_ACCESS_KEY: unused
+    ROR_S3_SECRET_KEY: unused
+    ROR_OIDC_ISSUER: http://keycloak.invalid/realms/roracle
+    ROR_OIDC_JWKS_URL: http://keycloak.invalid/realms/roracle/protocol/openid-connect/certs
+  script:
+    - python -m roracle migrate --wait 60 && python -m roracle eval ci --fixture tests/eval/fixture.yaml --floors tests/eval/floors.json --out eval-report.json
+  artifacts:
+    when: always
+    paths: [backend/eval-report.json]
+
+# Budget regression gate (Task 10.13): the `ci` profile of `roracle perf suite` (20k docs / 20k chunks, real API process,
+# fake models with fixed latency, budgets x1.5 for shared runners; docs/perf/budgets.yaml). Nightly (pipeline schedule),
+# manual from the web UI, or on demand in a merge request. The full-scale numbers live in docs/perf/report-*.md.
+perf:
+  extends: .backend
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+  timeout: 40m
+  retry: {max: 1, when: script_failure}  # one retry on a budget miss: shared runners are noisy
+  services:
+    - name: ${REGISTRY_MIRROR}postgres:16
+      alias: postgres
+      command: ["postgres", "-c", "max_connections=200"]
+    - name: $ELASTICSEARCH_IMAGE
+      alias: elasticsearch
+      command: ["bin/elasticsearch", "-Ediscovery.type=single-node", "-Expack.security.enabled=false"]
+      variables:
+        ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+  variables:
+    POSTGRES_USER: roracle
+    POSTGRES_PASSWORD: roracle
+    POSTGRES_DB: roracle_perf  # the perf tooling refuses any database whose name lacks "perf"
+    ROR_DATABASE_URL: postgresql+psycopg://roracle:roracle@postgres:5432/roracle_perf
+    ROR_ELASTIC_URL: http://elasticsearch:9200
+    ROR_S3_ENDPOINT: http://minio.invalid:9000
+    ROR_S3_ACCESS_KEY: unused
+    ROR_S3_SECRET_KEY: unused
+    ROR_OIDC_ISSUER: http://keycloak.invalid/realms/roracle
+    ROR_OIDC_JWKS_URL: http://keycloak.invalid/realms/roracle/protocol/openid-connect/certs
+  script:
+    - python -m roracle migrate --wait 60
+    - python -m roracle perf suite --profile ci --url "$ROR_DATABASE_URL" --es-url "$ROR_ELASTIC_URL" --budget ../docs/perf/budgets.yaml --out perf-results.json
+  artifacts:
+    when: always
+    paths: [backend/perf-results.json]
 
 build:
   stage: build
@@ -113,6 +186,7 @@ frontend:
     - pnpm exec vitest run
     - pnpm build
     - pnpm check:dist
+    - pnpm check:size   # gzip bundle budget (scripts/check-size.mjs)
 
 # One tool per image (no downloads in air-gap): helm+python here, kubeconform in its own job via artifacts.
 helm:
@@ -126,6 +200,10 @@ helm:
     - cd deploy/helm/roracle
     - helm lint --strict . -f ci/min-values.yaml
     - helm lint --strict . -f ci/full-values.yaml
+    # the connection-budget guard must fail the render, and for that reason (not an unrelated error)
+    - |
+      if helm template r . -f ci/full-values.yaml --set config.ROR_DB_POOL_SIZE=40 >/dev/null 2>/tmp/budget-err.txt; then echo "connection budget guard did not fire"; exit 1; fi
+      grep -q "connection budget" /tmp/budget-err.txt
     - mkdir -p ../../../rendered
     - helm template r . -f ci/min-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/min.yaml
     - helm template r . -f ci/full-values.yaml --set observability.grafanaDashboard.enabled=true > ../../../rendered/full.yaml

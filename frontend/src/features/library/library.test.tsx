@@ -190,3 +190,22 @@ describe("library search", () => {
     await waitFor(() => expect(router.state.location.search.tags).toBeUndefined());
   });
 });
+
+describe("global search typing", () => {
+  it("navigates once, after 300 ms and 3 characters, and clears on empty", async () => {
+    const qs: (string | null)[] = [];
+    server.use(http.get(`${API_BASE}/search`, ({ request }) => { qs.push(new URL(request.url).searchParams.get("q")); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } }); }));
+    await renderLibrary();
+    await waitFor(() => expect(qs).toHaveLength(1)); // the initial browse
+    const box = screen.getByLabelText("Search documents");
+    await userEvent.type(box, "ab");
+    await new Promise((r) => setTimeout(r, 450));
+    expect(qs).toHaveLength(1); // 2 characters: nothing sent
+    await userEvent.type(box, "c");
+    await waitFor(() => expect(qs).toHaveLength(2));
+    expect(qs[1]).toBe("abc");
+    await userEvent.clear(box);
+    await waitFor(() => expect(qs).toHaveLength(3)); // empty goes back to browse
+    expect(qs[2]).toBeNull(); // no q param
+  });
+});

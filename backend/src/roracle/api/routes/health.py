@@ -15,7 +15,7 @@ _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="readyz")
 
 
 @router.get("/healthz")
-def healthz() -> dict[str, str]:
+async def healthz() -> dict[str, str]:  # no I/O: runs on the event loop, never waits for a worker thread
     return {"status": "ok", "version": __version__}
 
 

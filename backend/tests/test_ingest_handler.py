@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from roracle.ingest import pipeline
 from roracle.ingest.embed import from_bytes
-from roracle.ingest.neardup import minhash
+from roracle.ingest.neardup import minhash, write_bands
 from roracle.models import Document, DocumentShare, DocumentVersion, Job
 from roracle.queue import enqueue, run_once
 from roracle.search_index import index_name
@@ -35,9 +35,13 @@ def _stage(db_session, v):
 
 def _chunks(es, cfg, v):
     es.indices.refresh(index=index_name(cfg.embed_model))
-    return es.search(index="chunks", query={"term": {"version_id": str(v.id)}}, size=100, sort=["chunk_id"])[
-        "hits"
-    ]["hits"]
+    return es.search(
+        index="chunks",
+        query={"term": {"version_id": str(v.id)}},
+        size=100,
+        sort=["chunk_id"],
+        fields=["embedding"],  # vectors are not part of `_source` on ES >= 9.2 (exclude_source_vectors)
+    )["hits"]["hits"]
 
 
 @pytest.mark.integration
@@ -55,7 +59,11 @@ def test_full_run_reaches_searchable(db_session, session_factory, cfg, store, es
     src = hits[0]["_source"]
     assert src["owner_id"] == str(user.id) and src["visibility"] == "shared"
     assert src["share_users"] == [] and src["org_unit"] == "/" and src["is_latest"] is True
-    assert src["title"] == "A Study of Retrieval" and src["pages"] == [1] and len(src["embedding"]) == DIMS
+    assert (
+        src["title"] == "A Study of Retrieval"
+        and src["pages"] == [1]
+        and len(hits[0]["fields"]["embedding"]) == DIMS
+    )
     jobs = db_session.scalars(select(Job).where(Job.kind == "citations")).all()  # R6
     assert [j.payload for j in jobs] == [{"version_id": str(v.id)}]
 
@@ -66,19 +74,22 @@ def test_crash_before_searchable_rerun_has_no_duplicates(
 ):
     monkeypatch.setattr(pipeline, "convert", fake_convert(docling_doc(paras=30)))
     v = make_version(db_session, store, user)
-    real = pipeline.search_index.mark_previous_versions
+    real = pipeline.mark_searchable_and_enqueue
 
     def boom(*a, **k):
-        raise ConnectionError("es down")
+        raise ConnectionError("db down")
 
-    monkeypatch.setattr(pipeline.search_index, "mark_previous_versions", boom)
+    monkeypatch.setattr(pipeline, "mark_searchable_and_enqueue", boom)
     _run(db_session, session_factory, cfg, store, es, v)  # retryable failure, job requeued
     assert _stage(db_session, v) == "embedded"
     first = len(_chunks(es, cfg, v))
     es.index(  # stale chunk from an earlier, longer run
-        index=index_name(cfg.embed_model), id=f"{v.id}:99", document={"version_id": str(v.id), "doc_id": "x"}
+        index=index_name(cfg.embed_model),
+        id=f"{v.id}:99",
+        document={"version_id": str(v.id), "doc_id": "x"},
+        refresh=True,  # the retry backoff (>= 20 s) is longer than the refresh interval: earlier chunks are visible
     )
-    monkeypatch.setattr(pipeline.search_index, "mark_previous_versions", real)
+    monkeypatch.setattr(pipeline, "mark_searchable_and_enqueue", real)
     with session_factory() as s:  # run_after backoff: make the job due again
         s.execute(Job.__table__.update().values(run_after=Job.__table__.c.created_at))
         s.commit()
@@ -193,6 +204,7 @@ def test_near_dup_goes_to_review_and_decision_does_not_recheck(
     db_session.query(DocumentVersion).filter_by(id=first.id).update(
         {"stage": "searchable", "minhash": minhash(text)}
     )
+    write_bands(db_session, first.id, minhash(text))  # what `_dedupe` wrote when `first` was ingested
     db_session.commit()
     monkeypatch.setattr(pipeline, "convert", lambda *a, **k: json.loads(json.dumps(doc)))
     second = make_version(db_session, store, user)

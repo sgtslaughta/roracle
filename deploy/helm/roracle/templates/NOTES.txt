@@ -17,3 +17,6 @@ external Postgres/Elasticsearch/S3 (networkPolicy.externalCIDRs.*, s3Cidrs), OID
 Ingress controllers on hostNetwork do not match networkPolicy.ingressNamespaceSelector (traffic arrives from the node IP): allow the node CIDR with your own policy.
 {{- end }}
 {{- end }}
+{{- if eq .Values.postgres.mode "external" }}
+External Postgres connection budget: api + worker can hold up to {{ include "roracle.pgClients" . }} connections at full autoscale (replicas x (ROR_DB_POOL_SIZE + ROR_DB_MAX_OVERFLOW), same for the worker settings). Make sure max_connections (or your pooler) covers that plus ~15 for migrations and admin tools. Behind an external PgBouncer in transaction mode set ROR_DB_DISABLE_PREPARED=true (no server-side prepared statements).
+{{- end }}

@@ -12,6 +12,7 @@ import { useMe } from "@/features/library/useMe";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { shortCite } from "@/lib/cite";
 import { stringifySearch } from "@/lib/searchParams";
+import { MIN_SEARCH_CHARS, SEARCH_DEBOUNCE_MS } from "@/lib/searchTyping";
 import { cycleTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { getRecent } from "./recent";
@@ -27,14 +28,14 @@ export function CommandPalette() {
   const [debounced, setDebounced] = useState("");
 
   useEffect(() => { if (open) { setQ(""); setSel(0); } }, [open]);
-  useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 150); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), SEARCH_DEBOUNCE_MS); return () => clearTimeout(t); }, [q]);
 
   const chats = useChats().data;
   const isAdmin = useMe().data?.is_admin;
   const found = useQuery({
     queryKey: ["palette-search", debounced],
-    enabled: open && debounced.length >= 2,
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { size: 5, notes: false })}`),
+    enabled: open && debounced.length >= MIN_SEARCH_CHARS,
+    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch({ q: debounced }, { mode: "quick" })}`),
   });
 
   const items = useMemo<Item[]>(() => {

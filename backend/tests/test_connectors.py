@@ -356,3 +356,29 @@ def test_roots_env_parsing(monkeypatch, settings):
     assert Settings().connector_fs_roots == ["/c"]
     monkeypatch.delenv("ROR_CONNECTOR_FS_ROOTS")
     assert Settings().connector_fs_roots == []
+
+
+def test_item_fence_is_the_last_statement_before_the_commit_not_held_across_the_upload(
+    db_session, session_factory, settings, store, s3_client, test_bucket, prefix, owner, monkeypatch
+):
+    """`fence()` takes FOR SHARE on the job row: held across the MinIO put it would stall the lease heartbeat."""
+    from roracle.connectors import run as run_mod
+
+    put(s3_client, test_bucket, prefix + "a", b"fence late")
+    order = []
+    real_add, real_fence = run_mod.add_document, run_mod.fence
+
+    def add(*a, **k):
+        out = real_add(*a, **k)  # includes the blob upload
+        order.append("add_document")
+        return out
+
+    def fence(s):
+        order.append("fence")
+        return real_fence(s)
+
+    monkeypatch.setattr(run_mod, "add_document", add)
+    monkeypatch.setattr(run_mod, "fence", fence)
+    c = s3_connector(db_session, owner, settings, test_bucket, prefix)
+    assert run(db_session, session_factory, settings, store, c).stats["ingested"] == 1
+    assert order == ["add_document", "fence"]  # fence AFTER the upload, immediately before the commit

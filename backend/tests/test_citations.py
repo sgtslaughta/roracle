@@ -314,3 +314,88 @@ def test_cited_by_pages_count_documents_not_version_rows(client, as_bob, ana, db
     pages = [client.get(f"{url}?limit=1&offset={o}", headers=as_bob).json() for o in (0, 1, 2)]
     assert [len(x) for x in pages] == [1, 1, 0]
     assert {pages[0][0]["doc_id"], pages[1][0]["doc_id"]} == {str(d1.id), str(d2.id)}
+
+
+def _old_counts(db, p, ids):
+    """The pre-10.6 query: window over the whole table, target filter applied afterwards."""
+    from sqlalchemy import func
+
+    from roracle.access import visible_documents
+    from roracle.citations import best_targets
+    from roracle.models import Document
+
+    bt = best_targets(p)
+    rows = db.execute(
+        select(bt.c.target_document_id, func.count(func.distinct(Document.id)))
+        .join(DocumentVersion, DocumentVersion.id == bt.c.src_version_id)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(
+            bt.c.rn == 1,
+            bt.c.target_document_id.in_(ids),
+            DocumentVersion.is_latest.is_(True),
+            DocumentVersion.stage == "searchable",
+            visible_documents(p),
+        )
+        .group_by(bt.c.target_document_id)
+    ).all()
+    return {str(t): n for t, n in rows}
+
+
+def test_scoped_counts_and_best_targets_equal_the_unscoped_query(db_session, ana, bob):
+    import random
+
+    from roracle.auth import Principal
+    from roracle.citations import best_targets, cited_by_counts
+
+    rnd = random.Random(7)
+    docs = [
+        lib(db_session, rnd.choice([ana, bob]), f"T{i}", visibility=rnd.choice(["everyone", "private"]))[0]
+        for i in range(12)
+    ]
+    srcs = [
+        citing(db_session, rnd.choice([ana, bob]), [], visibility=rnd.choice(["everyone", "private"]))[1]
+        for _ in range(10)
+    ]
+    for v in srcs:
+        for ref_no in range(1, 4):  # several candidates per reference: ties and rank order matter
+            for t in rnd.sample(docs, rnd.randint(1, 4)):
+                db_session.add(
+                    DocCitation(
+                        src_version_id=v.id,
+                        ref_no=ref_no,
+                        target_document_id=t.id,
+                        confidence=rnd.choice([0.8, 0.9, 1.0]),
+                    )
+                )
+    db_session.flush()
+    ids = [d.id for d in docs]
+    for who in (ana, bob):
+        p = Principal(user_id=who, sub="s", username="u", groups=(), is_admin=False)
+        assert cited_by_counts(db_session, p, ids) == _old_counts(db_session, p, ids) != {}
+        assert cited_by_counts(db_session, p, ids[:3]) == _old_counts(db_session, p, ids[:3])
+        full = best_targets(p)
+        for sid in {v.id for v in srcs[:3]}:
+            scoped = best_targets(p, sources=[sid])
+            a = db_session.execute(
+                select(scoped.c.ref_no, scoped.c.target_document_id).where(scoped.c.rn == 1)
+            ).all()
+            b = db_session.execute(
+                select(full.c.ref_no, full.c.target_document_id).where(
+                    full.c.src_version_id == sid, full.c.rn == 1
+                )
+            ).all()
+            assert sorted(a) == sorted(b)
+        sc = best_targets(p, targets=ids[:4])  # a kept group's winner may be a non-target
+        winners = {
+            (s, r): t
+            for s, r, t in db_session.execute(
+                select(sc.c.src_version_id, sc.c.ref_no, sc.c.target_document_id).where(sc.c.rn == 1)
+            )
+        }
+        ref = {
+            (s, r): t
+            for s, r, t in db_session.execute(
+                select(full.c.src_version_id, full.c.ref_no, full.c.target_document_id).where(full.c.rn == 1)
+            )
+        }
+        assert all(ref[k] == t for k, t in winners.items())

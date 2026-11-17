@@ -8,6 +8,7 @@ import type { Proposal } from "@/features/proposals/api";
 import type { AppNotification } from "@/features/notifications/describe";
 import type { OpsState } from "./adminOps";
 import type { DataState } from "./adminData";
+import type { EvalMock } from "./eval";
 import type { MockDraft } from "./drafts";
 import type { AdminLabel } from "@/api/types";
 
@@ -47,6 +48,8 @@ export interface MockState {
   adminData: DataState | null;
   /** mocks/drafts.ts; seeded lazily there */
   drafts: MockDraft[] | null;
+  /** mocks/eval.ts; seeded lazily there */
+  evalData: EvalMock | null;
   /** mocks/labels.ts; seeded lazily there */
   labels: AdminLabel[] | null;
   /** document id / note id -> label id overrides, deleted documents, transferred owners, collection rename/delete */
@@ -85,6 +88,7 @@ const fresh = (): MockState => ({
   adminData: null,
   drafts: null,
   labels: null,
+  evalData: null,
   docLabels: {},
   noteLabels: {},
   deletedDocs: [],

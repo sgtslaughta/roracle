@@ -1,11 +1,14 @@
 import { chatTitle } from "@/lib/cite";
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
+import { errorText } from "@/api/client";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { copyAction, RowMenu } from "@/components/RowMenu";
-import { useChats } from "@/features/ask/api";
+import { useChats, useHideChat } from "@/features/ask/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useCollections } from "@/features/library/api";
 import { useUploadAttention } from "@/features/uploads/api";
 import { useProposals } from "@/features/proposals/api";
@@ -21,6 +24,9 @@ export function Sidebar() {
   const { data: me } = useMe();
   const [railOpen, setRailOpen] = useState(false);
   const [edit, setEdit] = useState<CollectionEdit | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const hide = useHideChat();
+  const { chatId } = useParams({ strict: false }) as { chatId?: string };
   const close = () => setRailOpen(false);
   const attention = useUploadAttention();
   const waiting = useProposals("pending").data?.total ?? 0;
@@ -35,6 +41,7 @@ export function Sidebar() {
       <RowMenu label={`Actions for chat ${chatTitle(c)}`} actions={[
         { label: "Open", onSelect: () => { close(); void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }); } },
         copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
+        { label: "Remove from my chats", danger: true, onSelect: () => { close(); setRemoving(c.id); } },
       ]} />
     </div>
   );
@@ -124,6 +131,13 @@ export function Sidebar() {
         </div>
       )}
       <CollectionDialogs edit={edit} onClose={() => setEdit(null)} />
+      <ConfirmDialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)} title="Remove from my chats?" confirm="Remove" busy={hide.isPending}
+        onConfirm={() => removing && hide.mutate(removing, {
+          onSuccess: () => { if (removing === chatId) void navigate({ to: "/ask" }); setRemoving(null); },
+          onError: (e) => { toast(errorText(e)); setRemoving(null); },
+        })}>
+        Remove this chat from your list? Shared links keep working.
+      </ConfirmDialog>
     </aside>
   );
 }

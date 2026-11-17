@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.responses import JSONResponse
-from sqlalchemy import or_, select, true
+from sqlalchemy import or_, select, text, true
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -151,21 +151,24 @@ def exportable_clause(p: Principal) -> ColumnElement[bool]:
     return or_(Document.owner_id == p.user_id, Document.label_id.not_in(blocked))
 
 
+def label_view_seen_stmt(user_id, target: str, since: datetime):
+    return (
+        select(AuditLog.id)
+        .where(
+            AuditLog.user_id == user_id,
+            text("audit_log.action = 'label.view'"),  # literal: matches the partial index ix_audit_label_view
+            AuditLog.target == target,
+            AuditLog.at >= since,
+        )
+        .limit(1)
+    )
+
+
 def audit_inline_view(session: Session, p: Principal, doc: Document, route: str) -> None:
     """`label.view` audit row when a non-owner/non-admin reads a block_export doc inline (a deterrent,
     not DRM). One row per (user, document, UTC day) so reader paging cannot flood the log."""
     if export_block(session, p, doc) is None:
         return
     day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    seen = session.scalar(
-        select(AuditLog.id)
-        .where(
-            AuditLog.user_id == p.user_id,
-            AuditLog.action == "label.view",
-            AuditLog.target == str(doc.id),
-            AuditLog.at >= day,
-        )
-        .limit(1)
-    )
-    if seen is None:
+    if session.scalar(label_view_seen_stmt(p.user_id, str(doc.id), day)) is None:
         audit(session, p, "label.view", str(doc.id), {"route": route})

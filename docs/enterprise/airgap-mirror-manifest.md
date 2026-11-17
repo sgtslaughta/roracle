@@ -18,13 +18,14 @@ manifest was written (`docker buildx imagetools inspect <img>`); mutable tags ca
 | `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers | built by CI: pin the pushed digest |
 | `roracle/web` | `appVersion` | web | built by CI: pin the pushed digest |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | `sha256:53be6d727c7b3cf0df2b147f7ce7cdd31d37fd285314294871a4ccc3837b6872` |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` (chart default repo path is wrong, see note) | ECK `Elasticsearch` (+ init containers) | `sha256:01c1732062b4a846c5ca687b0094b89bad0bfed00c6d71626db32fb8f3131a78` |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (`elasticsearch.version`; external ES must be 9.x: the 9.x client sends `compatible-with=9`) | ECK `Elasticsearch` (+ init containers) | `sha256:79b4f1de4c15e6eca824723086a51e5934406d614d410cc11be77748cafac537` |
 | `quay.io/minio/minio` | `RELEASE.2024-10-13T13-34-11Z` | MinIO `Tenant` | pin in mirror (quay.io returned 401) |
 | `quay.io/minio/mc` | `RELEASE.2024-10-08T09-37-26Z` | `minio-policy` hook Job | pin in mirror (quay.io returned 401) |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | `sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b` |
 | `gotenberg/gotenberg` | `8.20.1` | parser | `sha256:cda4386c7ed38f18bc6897828be01ba7361c99929a5c84ec5e293d7916e29bac` |
 | `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | `sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0` |
 | `lfoppiano/grobid` | `0.8.1` | parser (models bundled) | `sha256:820a623a0234cda235d5eb83e924934162c5f0554a843cf665c339da8b51f900` |
+| `ghcr.io/huggingface/text-embeddings-inference` | `89-1.9` | reranker on the GPU host (`deploy/game-01`); runs `HF_HUB_OFFLINE=1`, model mounted read-only | pin in mirror (`reranker.sh pull` records the digest) |
 | `clamav/clamav` | `1.4` | parser + seed init container | `sha256:4cc4350d3fded380caf1799e76c0d1c93f3fa40af99c0cb2862ec0c9b117718a` |
 
 
@@ -51,7 +52,7 @@ Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 G
 | `cloudnative-pg` operator | >= 1.26 (barman-cloud plugin method) | platform |
 | `plugin-barman-cloud` | version compatible with the CNPG release; pin in mirror | platform |
 | `cert-manager` | any supported release (required by the plugin); pin in mirror | platform |
-| `eck-operator` | release that supports Elasticsearch 8.15.3; pin in mirror | platform |
+| `eck-operator` | release whose support matrix lists Elasticsearch 9.5.x (ECK 3.x line; verify against the operator's docs before mirroring); pin in mirror | platform |
 | `minio-operator` | release supporting the `Tenant` CRD and the MinIO image above; pin in mirror | platform |
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 
@@ -70,7 +71,7 @@ Each chart's images (operator, plugin sidecar, cert-manager, ECK, MinIO operator
 ## Python (PyPI mirror via `UV_INDEX_URL`)
 
 Runtime: fastapi, uvicorn[standard], sqlalchemy ≥ 2, psycopg[binary] ≥ 3, alembic, pydantic-settings,
-pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch ≥ 8, openai (client for
+pyjwt[crypto], httpx, boto3, python-multipart; later plans add elasticsearch (9.x client, matching the 9.5 server), openai (client for
 the OpenAI-spec endpoint), mcp (official SDK), datasketch (MinHash), docling-core (chunker),
 tokenizers/transformers (tokenizer files only), rapidfuzz (reference matching), bleach/nh3
 (sanitizing), pyyaml, pypandoc-binary (wheel bundling the pinned pandoc binary for draft builds; hash-locked in
@@ -90,10 +91,18 @@ lucide-react, pdfjs-dist, katex, react-markdown + rehype/remark plugins, vitest,
 |---|---|---|
 | Embeddings | EmbeddingGemma-300m (768-d) or e5-mistral-7b-instruct (4096-d) | admin config (ADR-0006) |
 | Tokenizer files | matching the embedding model | for chunk sizing in workers (no network) |
-| Reranker | site reranker (cross-encoder) | |
+| Reranker | `BAAI/bge-reranker-v2-m3` @ HF commit `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`, served by TEI (below) | `deploy/game-01/reranker.sh pull` writes `SHA256SUMS`. LFS sha256: `model.safetensors` `d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286`, `sentencepiece.bpe.model` `cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865`, `tokenizer.json` `69564b696052886ed0ac63fa393e928384e0f8caada38c1f4864a9bfbf379c15`; plus `config.json`, `special_tokens_map.json`, `tokenizer_config.json` (sum them at pull) |
 | Chat | site allowlist | ≥ 32k context recommended |
+| Summary / planner / router small models | `ROR_SUMMARY_MODEL` (default `qwen2.5:3b`); `ROR_AGENTIC_PLANNER_MODEL` (dev `qwen2.5:3b`); optional `ROR_ROUTER_MODEL`, `ROR_RAPTOR_MODEL`, `ROR_EVAL_JUDGE_MODEL` | any model on the OpenAI-spec endpoint; empty settings fall back as in `deployment-guide.md` 5.1 |
+| Context-note model (optional) | an Ollama variant of the notes model with `PARAMETER num_ctx 16384` (`deploy/game-01/README.md`) | built on the inference host from a mirrored base model; nothing downloads at runtime |
 | Document parsing | granite-docling (VLM) or Docling's bundled layout/OCR/table models | bake model files into the docling-serve image |
 | GROBID models | bundled in image | |
+
+## Evaluation datasets (dev reference set, optional)
+
+| Artifact | Mirror | Notes |
+|---|---|---|
+| SciFact (BEIR format: `corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`) | download once outside the enclave, unpack to a directory on the host that runs the CLI | imported offline by `roracle eval import-beir <dir> --set scifact --owner <non-admin user> --principals a,b,c` (private by default; the worker then ingests each abstract like an upload, so the embedding and summary endpoints must be up; re-running resumes); the importer contains no network code. License **CC BY-NC 2.0**: non-commercial research and evaluation only; keep it out of production corpora and do not redistribute it with the product |
 
 ## Other data
 

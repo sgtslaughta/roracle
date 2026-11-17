@@ -67,7 +67,7 @@ def test_transfer(client, as_ana, as_bob, adm, ana, bob, db_session, fes):
     )
     r = client.post(f"/documents/{d.id}/transfer", headers=as_ana, json=body)
     assert r.status_code == 200
-    assert fes.calls[-1]["script"]["params"]["owner_id"] == str(bob)
+    assert next(iter(fes.calls[-1]["script"]["params"]["acl"].values()))["fields"]["owner_id"] == str(bob)
     assert client.get(f"/documents/{d.id}", headers=as_ana).status_code == 404
     assert client.get(f"/documents/{d.id}", headers=as_bob).status_code == 200
     assert (

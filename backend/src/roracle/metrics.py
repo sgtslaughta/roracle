@@ -10,14 +10,27 @@ from sqlalchemy import text
 HTTP_REQUESTS = Counter("roracle_http_requests_total", "HTTP requests", ["method", "route", "status"])
 HTTP_DURATION = Histogram("roracle_http_request_duration_seconds", "HTTP latency", ["method", "route"])
 JOB_RUNS = Counter("roracle_job_runs_total", "Job runs by outcome (done|retry|failed)", ["kind", "outcome"])
+NEARDUP_EXHAUSTIVE = Counter(
+    "roracle_neardup_exhaustive_total",
+    "Near-dup checks that fell back to the exhaustive scan because of an operational problem",
+    ["reason"],
+)
 INGEST_STAGE_FAILURES = Counter(
     "roracle_ingest_stage_failures_total", "Ingest failures by the stage being advanced", ["stage"]
+)
+RERANK_SECONDS = Histogram(
+    "roracle_rerank_seconds",
+    "Reranker call latency",
+    buckets=(0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 3, 6),
+)
+RERANK_FALLBACK = Counter(
+    "roracle_rerank_fallback_total", "Rerank failures that kept the fused order", ["reason"]
 )
 
 _DEPTH_SQL = text(
     "SELECT kind, status, count(*), "
     "COALESCE(EXTRACT(EPOCH FROM now() - min(run_after) FILTER (WHERE status = 'queued')), 0) "
-    "FROM jobs GROUP BY kind, status"
+    "FROM jobs WHERE status IN ('queued', 'running', 'failed') GROUP BY kind, status"
 )
 
 

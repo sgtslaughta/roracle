@@ -18,6 +18,8 @@ CNPG cluster `roracle-pg`, ECK cluster `roracle` (service `roracle-es-http`). Ad
 | Search latency | Grafana: `roracle_search_seconds` p95 | < 500 ms |
 | Chat TTFT | `roracle_chat_ttft_seconds` p95 | < 2 s |
 | Ingest latency | `roracle_ingest_seconds` p95 (upload → searchable) | < 120 s |
+| Reranker (when enabled) | `rate(roracle_rerank_fallback_total{reason}[5m])`, `roracle_rerank_seconds` p95 | fallbacks near 0; p95 < 800 ms for 200 passages |
+| Near-duplicate lookups | `roracle_neardup_exhaustive_total{reason}` | near 0 (a rise means the LSH backfill is missing or failed: the slow exhaustive scan runs) |
 | Elastic | `GET _cluster/health` | green |
 | Postgres | `kubectl cnpg status roracle-pg` | primary + replicas streaming |
 
@@ -27,7 +29,7 @@ Metrics come from `/metrics` on the api (also the DB-backed `roracle_jobs*` gaug
 
 Queue oldest job > 15 min; failed jobs > 50/h; search p95 > 1 s for 10 min; TTFT p95 > 4 s;
 Elastic yellow > 15 min / red immediately; Postgres replication lag > 60 s; MinIO drive offline;
-ClamAV signatures older than 3 days; 5xx rate > 1%; PAT use bursts.
+ClamAV signatures older than 3 days; 5xx rate > 1%; PAT use bursts; rerank fallbacks > 5% of requests for 10 min.
 
 ## 2. Routine procedures
 
@@ -129,8 +131,9 @@ runs three steps; trigger one on demand with `POST /admin/maintenance/{purge|gc|
   locked rows (`SKIP LOCKED`), re-checks references under the lock and spares objects written in the last
   day, so an upload of the same content is not left pointing at a deleted object. `tmp/` is never touched
   (in-flight uploads; see "Clean up `tmp/`"). A blob shared with a live version is always kept.
-- **reconcile**: queues an `acl_sync` per live document (batches of 500, `reconcile_tags` job) so ES tags/ACLs
-  converge to Postgres; use after an ES restore or suspected tag drift.
+- **reconcile**: walks the live documents in batches of 500 (`reconcile_tags` job chain), compares each document's Postgres
+  `acl_hash` (ACL, title, tags) with the hashes in ES and queues an `acl_sync` ONLY for documents that differ (deduplicated
+  against already queued ones); an in-sync corpus costs no ES writes. Use after an ES restore or suspected tag drift.
 
 ### Rebuild the search index from scratch
 Elastic holds no unique data. `POST /admin/reindex {"model": "<current model>", "dims": N}` (admin JWT, audited, `202 {job_id}`;
@@ -140,7 +143,8 @@ Search stays on the old generation until the cutover swaps the read alias.
 ### Clean up `tmp/` upload leftovers
 
 API uploads stage in the blob bucket under `tmp/<uuid>` and are deleted after the copy to `blobs/`. A crash
-mid-upload leaves an object or an incomplete multipart upload behind. The bucket lifecycle rule (`tmp/`, 1 day)
+mid-upload leaves an object or an incomplete multipart upload behind. The API ensures the bucket lifecycle rule `roracle-tmp-expire` (`tmp/`, 1 day, incl. stale multipart uploads) at startup
+(idempotent; on `AccessDenied` it only logs a warning and the operator sets it). The rule
 removes objects; check it with `mc ilm rule ls <alias>/<bucket>` and add it if missing (`mc ilm rule add --prefix
 tmp/ --expire-days 1 <alias>/<bucket>`). Incomplete multipart uploads: MinIO discards stale ones after 24 h;
 on AWS S3 add an AbortIncompleteMultipartUpload rule. Manual: `mc ls --incomplete <alias>/<bucket>/tmp/` and
@@ -187,6 +191,78 @@ SELECT at, user_id, detail FROM audit_log WHERE action = 'annotation.label'
 - **Elasticsearch drift.** After a label change `acl_sync` converges the index; a stuck job shows as a
   failed `acl_sync` in `GET /admin/jobs?status=failed&kind=acl_sync` (retry with `retry-failed`). Until it
   converges the Postgres post-filter enforces the new label.
+
+### Evaluate retrieval quality (eval CLI, reference set, trend)
+Everything here is admin-only and reads private data through the production path per principal (see `docs/eval/README.md`).
+- **CLI** (a one-off pod/Job with the app env; counts against `postgres.reservedConnections`): `roracle eval run --set <name> [--path chat|search] [--judge]`
+  scores a stored set; `roracle eval compare --set <name> --baseline "k=v" --candidate "k=v" [--scope all|fact|multihop|global] --out docs/eval/<file>.md`
+  writes the gate report (PASS / FAIL / INSUFFICIENT); `roracle eval import-beir <dir> --set scifact --owner <non-admin user>` seeds the offline
+  SciFact baseline; `roracle eval ci` is the CI fixture job. Exit code 1/2 and a message name refused input (a set with only admin principals).
+- **UI/API**: Admin -> Eval (`/admin/eval/*`): create sets, add or import queries, generate draft questions from the corpus
+  (`POST /admin/eval/sets/{id}/generate` -> `eval_generate` job; an admin reviews the drafts), run a set (`POST /admin/eval/runs` -> `eval_run`
+  job on the worker), read the trend (`GET /admin/eval/runs?set_id=`). One set is the **reference set** (`PATCH /admin/eval/sets/{id} {"is_reference": true}`).
+  Curate it to >= 200 active queries with >= 3 principals (>= 1 non-admin): below that every gate verdict is INSUFFICIENT.
+- **Automatic runs**: when the final catch-up round of a re-embed finishes (no fixed delay) and after a rebuild into the active index an `eval_run` is queued on the
+  reference set (`ROR_EVAL_ON_REINDEX=true`); results land in the trend. A run with any ACL violation is `failed`: treat it as a
+  security finding.
+- **Reading the trend**: compare `p_ndcg@10`, `p_recall@10/100` and the judge keys (`faithfulness`, `citation_support`) between runs of the same set;
+  a drop after a model change or rebuild is the signal to roll back (re-embed again with the previous model). Latency p50/p95 per run is stored too.
+- **Reranker**: `roracle_rerank_fallback_total{reason}` counts requests that kept the fused order (`reason` = `timeout`, `http` or `malformed`); the reranker is off until its
+  gate passes, so a non-zero counter with `ROR_RERANK_URL` empty is a bug.
+
+### Rebuild derived index fields and shadow indices
+Context notes and RAPTOR units are index-time. `roracle rebuild --what context[,raptor] [--into chunks-<slug>-shadow]` (or
+`POST /admin/retrieval/rebuild {"what": [...], "into": "..."}`) enqueues `rebuild_units` jobs of 25 latest searchable, non-deleted versions each, plus a
+`rebuild_watch` job that queues the eval run when the batch is done (not for a shadow). `rebuild_units` and `reconcile_tags` are claimed only when no user job is due, so
+a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed runs, and a re-embed is refused while rebuild jobs are pending.
+- **Shadow workflow** (judge a feature before it touches search): `roracle rebuild --what context --into chunks-<model-slug>-shadow` creates the shadow index
+  (it joins `chunks-all`, so ACL syncs and deletes reach it, but never the read alias `chunks`); `roracle eval compare ... --candidate-index
+  chunks-<model-slug>-shadow` judges it; on a PASS set `ROR_CONTEXT_NOTES=true` (and `ROR_CONTEXT_MODEL`) and rebuild into the ACTIVE index (omit
+  `--into`); finally `roracle rebuild --drop chunks-<model-slug>-shadow` (refuses the active index, the read-alias holder, re-embed generations and any moment a rebuild or re-embed job is queued or running).
+- Requires the notes model for `context` (`ROR_CONTEXT_MODEL`; refused up front, exit 2 / 422, and a job that still sees it unset fails). Each version is idempotent; a broken version is skipped and the
+  job fails at the end naming the count, the rest are done. Progress: `SELECT status, count(*) FROM jobs WHERE kind='rebuild_units' GROUP BY 1;`.
+
+### Re-embed at scale (slices, failure, convergence)
+`POST /admin/reindex` now enqueues `ROR_REEMBED_SLICES` (default 4) independent copy chains over disjoint `chunk_id` ranges; each page is 1,000 chunks;
+`ROR_EMBED_CONCURRENCY` embedding requests are in flight per slice (size `slices x concurrency` to the embedding replicas; batch embedding calls retry
+429/5xx with backoff and a shared pause). The target index is created with a 30 s refresh interval and the configured replicas.
+- `GET /admin/reindex`: `running` = `{target, copied, total, phase, slices}` (progress is the sum over slices; `phase` of the newest slice job),
+  **`failed`** = `{target, slices: [{i, error}]}` when a slice failed permanently (and nothing is running), `old` = leftover generations.
+- **A failed slice refuses the cutover** (the read alias never moves onto an incomplete index; the last finishing slice and the cutover job both check).
+  Fix the cause (embedding endpoint, ES), then `DELETE /admin/reindex/old` to drop the half-built generation and start again with `POST /admin/reindex`.
+- **Cutover** order: restore the target's refresh interval and replicas, refresh it, then a resumable convergence phase against Postgres (`converge` jobs of ~60 s each, checkpointed by stage and id) (ACL/tag/title drift
+  of every live document through `acl_hash`; chunks of every soft-deleted document removed; superseded versions demoted; orphan documents
+  purged), then the alias swap, then `reconcile_tags` and two catch-up rounds per slice (300 s apart). The pass reads Postgres for every live document:
+  expect minutes per million documents before the swap, with no ES writes when everything is in sync.
+
+### Job leases, drain and worker shutdown
+Jobs run under a **lease** (`ROR_JOB_LEASE_S`, 90 s, renewed every lease/3 by the worker): a crashed or stuck worker's job is requeued after the lease
+(plus up to 30 s sweep), spending an attempt; a worker that lost its lease discards its result. On SIGTERM a running job gets `ROR_JOB_DRAIN_S` (chart 120 s),
+then is **released** back to the queue without spending an attempt (counted in `released`; after 200 releases the job FAILS with a clear
+error instead of looping). Ingest stages, rebuild pages and the re-embed copy/convergence resume at their last checkpoint (the pre-swap convergence is
+sliced to ~60 s with a doc-id cursor); `eval_run` (a judged run) and a single long LLM batch are NOT resumable: they restart from the beginning, so do not
+scale workers down or roll them while one runs (the worker HPA's CPU signal scales down exactly the pods waiting on ES/LLM: chart default is a 1 h scale-down
+stabilisation, one pod per 10 min; prefer queue-depth scaling with KEDA and disable the CPU HPA). Keep
+`worker.terminationGracePeriodSeconds` >= drain + 30 (chart 150). A job that defers itself more than 200 times (for example a busy per-owner lock) fails instead of looping.
+- Stuck job triage: `SELECT id, kind, status, attempts, released, lease_until, last_error FROM jobs WHERE status='running';` (an expired `lease_until` is
+  swept at the next idle worker loop).
+- Rolling upgrade across migrations 0014-0016: run `roracle migrate` (0014 builds queue indexes with `CREATE INDEX CONCURRENTLY`, which waits for open transactions:
+  drain workers or let long jobs finish first), then roll workers with the drain; do not run old and new workers side by side longer than the drain
+  (an old worker's completion is not fenced by the new claim token).
+- Postgres settings these numbers assume: `jit = off`, `shared_buffers` ~ 25% of memory (`capacity-planning.md`); connection budget formula in `docs/perf/connection-budget.md`.
+
+### Performance gate and budgets
+Budgets (`docs/perf/budgets.yaml`) and the measured state (`docs/perf/report-2026-11-17.md`). The nightly GitLab job `perf` runs `roracle perf suite --profile ci`
+(a small seeded scratch database `roracle_perf` + scratch `perf-*` index, a real API process, fake models with fixed latency, budgets x1.5, one retry). Run
+the full profile on a staging copy only: `docs/perf/README.md` (the CLI refuses databases not matching `roracle_perf[a-z0-9_]*`; `--es-url` is not guarded,
+never point it at production). A failing row names the budget; first check `jit`, Postgres `shared_buffers` and API replica count (one API process sustains about
+10 searches/s, 5 filtered).
+
+### Router, global answers and agentic retrieval (when enabled)
+Off by default (`ROR_ROUTER`, `ROR_AGENTIC_RETRIEVAL`, admin runtime overrides). When on: busy admission falls back to the plain path (SSE `meta` says
+`global: {skipped: busy}` or `agentic: false`), so a burst degrades answer quality, not availability. An agentic loop holds up to `ROR_AGENTIC_MAX_PARALLEL` extra
+pooled DB connections per API process; watch pool waits (`ROR_DB_POOL_TIMEOUT_S`) before raising it. The planner needs a small fast model
+(`ROR_AGENTIC_PLANNER_MODEL`); with a slow one calls hit `ROR_AGENTIC_CALL_TIMEOUT_S` (1.5 s) and the loop silently stops.
 
 ### Release upgrade
 1. Read release notes. 2. Check a recent CNPG backup (`kubectl get backup`) and ES snapshot (`GET _snapshot/roracle-s3/_all`); trigger `kubectl cnpg backup <fullname>-pg --method plugin --plugin-name barman-cloud.cloudnative-pg.io` before a minor/major upgrade.
@@ -264,8 +340,9 @@ Elastic holds no unique data, so when no usable snapshot exists use that same pr
 then `last_error` on failed jobs. OCR timeouts on huge scans: raise the Docling timeout or split
 the file; retry the job.
 
-**Search slow** — Elastic: hot threads, heap pressure, page-cache misses (quantized vectors must
-fit in RAM); reduce rerank depth temporarily (admin → Retrieval).
+**Search slow** — Postgres first: `SHOW jit;` must be `off` and `shared_buffers` ~ 25% of memory (JIT made search ~4x slower under load); then Elastic: hot
+threads, heap pressure, page-cache misses (quantized vectors must fit in RAM); API CPU per pod (about 10 searches/s each: add replicas); reduce rerank depth
+temporarily (admin → Retrieval) or clear `ROR_RERANK_URL` (fallback keeps the fused order).
 
 **Chat errors** — inference endpoint status; model removed from allowlist; check
 `roracle_llm_errors_total{model=…}`.
