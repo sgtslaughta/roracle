@@ -26,7 +26,7 @@ interface Props {
 export function Composer({ scope, onScope, model, models, onModel, streaming, busy, onSend, onStop }: Props) {
   const draft = useDraft();
   const area = useRef<HTMLTextAreaElement>(null);
-  const uid = useMe().data?.id;
+  const uid = useMe().data?.id; // ponytail: until /me resolves, recall and recording are skipped
   /** recall position in the prompt history (null = not cycling) and the draft typed before cycling */
   const cursor = useRef<{ i: number; draft: string } | null>(null);
 
@@ -51,9 +51,12 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); return; }
     if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || !uid) return;
-    const c = cursor.current, h = loadHistory(uid), up = e.key === "ArrowUp";
-    const a = e.currentTarget;
-    if (!c && !(up && h.length && ((a.selectionStart === 0 && a.selectionEnd === 0) || !draft.includes("\n")))) return;
+    const a = e.currentTarget, c = cursor.current, up = e.key === "ArrowUp";
+    const single = !draft.includes("\n");
+    const edge = up ? a.selectionStart === 0 && a.selectionEnd === 0 : a.selectionStart === draft.length && a.selectionEnd === draft.length;
+    if ((!single && !edge) || (!c && !up)) return;
+    const h = loadHistory(uid);
+    if (!c && !h.length) return;
     e.preventDefault();
     const i = (c?.i ?? h.length) + (up ? -1 : 1);
     if (i < 0) return;

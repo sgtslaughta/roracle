@@ -278,7 +278,11 @@ def test_hide_chat(client, db_session, as_ana, as_bob, bob, world):
     assert client.delete(f"/chats/{cid}", headers=as_bob).status_code == 403
     assert client.delete(f"/chats/{uuid.uuid4()}", headers=as_ana).status_code == 404
     assert [c["id"] for c in client.get("/chats", headers=as_ana).json()["items"]] == [str(cid)]
+    db_session.commit()
+    before = world["chat"].updated_at
     assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204
+    db_session.refresh(world["chat"])
+    assert world["chat"].updated_at == before and world["chat"].hidden_at is not None
     assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204  # idempotent
     assert client.get("/chats", headers=as_ana).json()["items"] == []
     assert client.get(f"/chats/{cid}", headers=as_ana).status_code == 200

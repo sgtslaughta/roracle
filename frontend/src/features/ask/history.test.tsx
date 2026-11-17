@@ -59,6 +59,31 @@ describe("prompt recall", () => {
     expect(q).toHaveValue("old");
   });
 
+  it("while cycling, a recalled multi-line prompt keeps its caret movement until an edge", async () => {
+    localStorage.setItem("roracle.prompts.u-me", JSON.stringify(["old", "a\nb"]));
+    const user = userEvent.setup();
+    await renderApp();
+    const q = await box();
+    await user.click(q);
+    await user.keyboard("{ArrowUp}");
+    expect(q).toHaveValue("a\nb");
+    q.setSelectionRange(1, 1);
+    await user.keyboard("{ArrowUp}");
+    expect(q).toHaveValue("a\nb");
+    q.setSelectionRange(0, 0);
+    await user.keyboard("{ArrowUp}");
+    expect(q).toHaveValue("old");
+    q.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(q).toHaveValue("a\nb");
+    q.setSelectionRange(1, 1);
+    await user.keyboard("{ArrowDown}");
+    expect(q).toHaveValue("a\nb");
+    q.setSelectionRange(3, 3);
+    await user.keyboard("{ArrowDown}");
+    expect(q).toHaveValue("");
+  });
+
   it("records a sent prompt", async () => {
     const user = userEvent.setup();
     await renderApp();
