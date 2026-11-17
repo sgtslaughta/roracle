@@ -28,7 +28,7 @@ Match on the status code first. Treat the `detail` text as a hint for humans: on
 | 403 | Posting to a chat that was shared with you read-only | `read-only` |
 | 404 | Unknown, deleted or not visible to you. Hidden and absent look the same. Path ids above 2^63 - 1 also give 404 | `not found` |
 | 405 | `GET /mcp` (only POST is served) | plain text `method not allowed`, `Allow: POST` |
-| 409 | Duplicate upload (see above), or the action conflicts with current state: not awaiting a title or a near-duplicate decision, a reindex, rebuild, run or job already active, only failed jobs can be retried, a name or key that already exists, draft documents that must use the `/drafts` endpoints | for example `not awaiting a title`, `reindex running` |
+| 409 | Duplicate upload (see above), or the action conflicts with current state: not awaiting a title or a near-duplicate decision, a reindex, rebuild, run or job already active, only failed jobs can be retried, a name or key that already exists, draft documents that must use the `/api/drafts` endpoints | for example `not awaiting a title`, `reindex running` |
 | 413 | Upload larger than `ROR_MAX_UPLOAD_BYTES`; upload quota exceeded; JSON body over the cap | `file exceeds <n> MB limit`, `upload quota exceeded`, `request body too large` |
 | 422 | Invalid parameter or body, NUL character, unknown model or scope | see [Input rejections](#input-rejections) |
 | 429 | Rate limit hit. Carries `Retry-After` (whole seconds, at least 1) | `rate limited` |

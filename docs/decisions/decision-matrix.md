@@ -93,28 +93,28 @@ These caveats lower ratings or set triggers in several areas:
 
 ## ADR gaps
 
-Decided or provisional rows that rest on a ledger entry rather than an ADR. T17 proposes ADRs for these.
+Decided or provisional rows that rested on a ledger entry rather than an ADR. Gaps 2, 3, 5, 6, 8 and 9 are resolved by
+addenda to the ADRs named below; gaps 1, 4 and 7 stay open.
 
 1. **LLM serving and model choice** (area 7): OpenAI-compatible endpoint only; Ollama on the GPU host with
    `qwen2.5:14b` and its `num_ctx 16384` variant; vLLM in the Terraform module. Ledger
    `.worktrees/rq/.superpowers/sdd/rq/progress.md:3` (2026-11-16).
-2. **Reranker may score `exclude_llm` text** (area 6): user ruling, ledger
-   `.worktrees/rq/.superpowers/sdd/rq/progress.md:34` (2026-11-16 20:38). This is security-relevant. Today it is
-   recorded only in the ledger and in [known limits](../enterprise/security/known-limits.md#retrieval-and-label-timing).
-3. **Elasticsearch 9.5.6 and the vector-type gate** (areas 2 and 3): recorded only in the "Outcomes" section of
-   ADR-0015, with ledger `.worktrees/rq/.superpowers/sdd/rq/progress.md:41` (2026-11-16 21:05) and line 72. ADR-0002 still
-   describes the Basic-licence choice without a version.
+2. **Resolved by addendum (ADR-0007, rerank paragraph).** **Reranker may score `exclude_llm` text** (area 6): user ruling, ledger
+   `.worktrees/rq/.superpowers/sdd/rq/progress.md:34` (2026-11-16 20:38). This is security-relevant. It is now
+   recorded in ADR-0007 and in [known limits](../enterprise/security/known-limits.md#retrieval-and-label-timing).
+3. **Resolved by addendum (ADR-0002, Elasticsearch 9.5.6).** **Elasticsearch 9.5.6 and the vector-type gate** (areas 2 and 3): also in the "Outcomes" section of
+   ADR-0015, with ledger `.worktrees/rq/.superpowers/sdd/rq/progress.md:41` (2026-11-16 21:05) and line 72.
 4. **Gold set source: SciFact plus generated questions** (area 20): ledger
    `.worktrees/rq/.superpowers/sdd/rq/progress.md:3` (2026-11-16). ADR-0015 covers the harness but not the source.
-5. **Observability stack as separate releases without subcharts** (area 19): ledger
+5. **Resolved by addendum (ADR-0013, chart bullet).** **Observability stack as separate releases without subcharts** (area 19): ledger
    `.worktrees/p11-infra/.superpowers/sdd/p11a-production-infra/progress.md:5` (P11a, 2026-11-15, phase date).
-6. **Handoffs have no live mode** (area 15): ruling in the P12 ledger `.superpowers/sdd/2026-11-17-p12-docs/progress.md:45`
-   (2026-11-17, phase date), matching `backend/src/roracle/handoff.py:1`. ADR-0010 does not say that contents are frozen.
+6. **Resolved by addendum (ADR-0010).** **Handoffs have no live mode** (area 15): ruling in the P12 ledger `.superpowers/sdd/2026-11-17-p12-docs/progress.md:45`
+   (2026-11-17, phase date), matching `backend/src/roracle/handoff.py:1`. ADR-0010 now says that contents are frozen at creation.
 7. **Dev and CI keep `bitnamilegacy/minio`** (area 4): ledger `.worktrees/iac/.superpowers/sdd/iac/progress.md:11`
    (2026-11-16 21:25). ADR-0016 covers production but not the dev and CI image.
-8. **Chart 0.2.0 as a minor bump for a breaking change before 1.0** (area 18): ledger
+8. **Resolved by addendum (ADR-0013, version note).** **Chart 0.2.0 as a minor bump for a breaking change before 1.0** (area 18): ledger
    `.worktrees/iac/.superpowers/sdd/iac/progress.md:15` (2026-11-16). ADR-0013 defines SemVer but not the rule for
    versions before 1.0.
-9. **Draft PDFs built by a separate Gotenberg** (area 15): the shipped draft-PDF path (`draftgotenberg` parser,
+9. **Resolved by addendum (ADR-0011).** **Draft PDFs built by a separate Gotenberg** (area 15): the shipped draft-PDF path (`draftgotenberg` parser,
    `ROR_DRAFT_GOTENBERG_URL`, `backend/src/roracle/config.py:147`). ADR-0011 covers only LaTeX builds. Ledger ruling
    `.worktrees/p11b-hardening/.superpowers/sdd/p11b-hardening/progress.md:43` (P11b, 2026-11-15, phase date).

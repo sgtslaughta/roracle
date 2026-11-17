@@ -7,9 +7,9 @@ Examples use `https://roracle.example.internal` and a token in `$TOKEN`. Routes 
 ## Versioning
 
 - Every REST route is served under `/api`. There is no version segment in the path.
-- The running version is the `version` field of `GET /healthz` (`{"status": "ok", "version": "..."}`) and the `info.version` of the OpenAPI document. It is the `ROR_VERSION` environment variable if set, else the repository `VERSION` file, else the installed package version.
+- The running version is the `version` field of `GET /healthz` on the API (through the public address that is `GET /api/healthz`; `/healthz` there is the web pod's plain `ok`) (`{"status": "ok", "version": "..."}`) and the `info.version` of the OpenAPI document. It is the `ROR_VERSION` environment variable if set, else the repository `VERSION` file, else the installed package version.
 - Releases use semantic versioning. Check the [OpenAPI schema](openapi.json) of the release you run before depending on a field.
-- `/healthz`, `/readyz` and `/mcp` are served without the `/api` prefix.
+- `/mcp` is served without the `/api` prefix. The API pod serves `/healthz`, `/readyz` and `/metrics` at its root; through the public address only `/api/healthz` (liveness and version) is reachable. `/readyz` and `/metrics` are in-cluster only, and `/api/readyz` and `/api/metrics` return 404 at the web proxy.
 
 ## Authentication
 
@@ -25,7 +25,7 @@ Send `Authorization: Bearer <token>` on every request. The API is stateless and 
 
 **JWT checks.** The signature is verified against the identity provider's signing keys. The `exp`, `iss`, `aud` and `sub` claims are required. `iss` must equal `ROR_OIDC_ISSUER`, `aud` must equal `ROR_OIDC_AUDIENCE` (default `roracle`), the token type must be `Bearer`, and the `azp` client must be in `ROR_OIDC_ALLOWED_CLIENTS` (default `roracle-web`, `roracle-mcp`). Clock skew of 30 seconds is tolerated. Groups and the admin flag are read from the token on every request. Any failure is the same `401`. Identity provider setup is in [Keycloak setup](../enterprise/keycloak-setup.md).
 
-**PAT checks.** A PAT works only while `ROR_PATS_ENABLED` is on. It must be unexpired and not revoked. Its owner must have signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30), otherwise the call fails with `401 token owner session stale`. A PAT carries a snapshot of the owner's groups from creation, and only groups the owner still belongs to are honoured. The secret is shown once, at creation, and only its hash is stored. Each successful REST call made with a PAT is recorded in the audit log as `pat.use`. Rejected or failed calls (rate limited, insufficient scope, handler errors) are not, because the row is committed only with a successful request. Calls to `/mcp` are audited as `mcp.<tool>` instead.
+**PAT checks.** A PAT works only while `ROR_PATS_ENABLED` is on. It must be unexpired and not revoked. Its owner must have signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30), otherwise the call fails with `401 token owner session stale`. A PAT carries a snapshot of the owner's groups from creation, intersected with the groups stored at the owner's last JWT request (sign-in or app use); a group removal reaches the token only then. The secret is shown once, at creation, and only its hash is stored. Each successful REST call made with a PAT is recorded in the audit log as `pat.use`. Rejected or failed calls (rate limited, insufficient scope, handler errors) are not, because the row is committed only with a successful request. Calls to `/mcp` are audited as `mcp.<tool>` instead.
 
 **Scopes.** A PAT without `write` is limited to GET, HEAD and OPTIONS. Anything else gives `403 insufficient scope`. A JWT always has both scopes.
 
@@ -68,7 +68,7 @@ Rules:
 - A malformed cursor gives `422 malformed after cursor`.
 - With a cursor, search `total` and the facets describe the window after the cursor, and the response has `"window": true`.
 - `/api/me/uploads` reports `total` capped at 10,000 and sets `total_capped` when the cap is hit.
-- A search browse list holds at most 200 documents (the `MAX_DOCS` cap), whatever the paging.
+- Each response window (a page list or a cursor window) holds at most 200 documents (the `MAX_DOCS` cap); cursor paging continues past it.
 
 ## Chat streaming (SSE)
 
@@ -181,9 +181,9 @@ Admin routes sit under `/api/admin/` and need a JWT with the admin role: users a
 
 | Route | Purpose |
 |---|---|
-| `GET /healthz` | Liveness and version. No auth |
-| `GET /readyz` | Readiness: `{"checks": {"db", "es", "s3"}}`, 200 when all `ok`, else 503. No auth |
-| `GET /metrics` | Prometheus metrics. Not in the OpenAPI schema |
+| `GET /healthz` | Liveness and version. No auth. Public address: `GET /api/healthz` |
+| `GET /readyz` | Readiness: `{"checks": {"db", "es", "s3"}}`, 200 when all `ok`, else 503. No auth. In-cluster only (`/api/readyz` is 404 at the proxy) |
+| `GET /metrics` | Prometheus metrics. Not in the OpenAPI schema. In-cluster only (`/api/metrics` is 404 at the proxy) |
 | `POST /mcp` | MCP over JSON. See [MCP tools](mcp-tools.md) |
 
 ## Examples

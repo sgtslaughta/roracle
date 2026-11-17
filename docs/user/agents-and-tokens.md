@@ -28,14 +28,14 @@ The full list of tools, with their access level, is in the [MCP tool reference](
 The limits that apply to every token:
 
 - **It is you, but never an admin.** A token never has admin rights, even when yours does. Admin pages and actions are not available to it.
-- **It sees what you see, minus more.** Papers labelled **Block agents** are invisible to tokens, admins' tokens included. The text of papers labelled **Exclude from AI** is never given to a token ([labels](labels.md#what-each-gate-means-to-you)). Group-based access follows the groups you had when you created the token, and only those you still have.
+- **It sees what you see, minus more.** Papers labelled **Block agents** are invisible to tokens, admins' tokens included. The text of papers labelled **Exclude from AI** is never given to a token ([labels](labels.md#what-each-gate-means-to-you)). Group-based access follows the groups you had when you created the token, and only those you still have as of your last sign-in or use of the web app; a group you lose reaches the token only then.
 - **It proposes, you decide.** Anything an agent wants to add to your library as notes or labels becomes a proposal you approve or reject ([agent proposals](handoffs-inbox.md#agent-proposals)). It cannot approve its own proposals, acknowledge citations in a draft, or lower a label on its own.
 - **Uploads stay private by default** and use your default label; an agent cannot choose a label below the default. A file uploaded by an agent is capped at 25 MiB by default (a larger file needs a normal upload).
 - **Drafts.** An agent can write and check a draft, and no agent tool submits one; you submit from the web app ([writing drafts](writing-drafts.md)). The web API does not stop a write token from submitting, so give write access only to agents you trust. A token is refused (403, "withheld by label") when it validates, citation-checks or builds a draft whose label is **Exclude from AI**.
 - **Human-only actions.** Approving proposals, acknowledging citations and managing tokens need you signed in; a token cannot do them.
 - **A read-only token cannot change anything**, through MCP or the web API.
 
-Successful calls a token makes are recorded in the audit log under its name, so your admins can see which agent did what. Calls that are refused or fail (for example when a token is rate limited, is read-only and tries to write, or hits an error) leave no entry.
+Calls a token makes are recorded in the audit log under its name, so your admins can see which agent did what. Web-API calls are recorded only when they succeed. Agent (MCP) tool calls are recorded even when they fail. Only sign-in failures, rate limiting and oversize or malformed requests leave no entry.
 
 ## The token list
 
@@ -68,7 +68,7 @@ A typical client configuration:
 }
 ```
 
-The exact file and field names differ between clients; use your client's own documentation for where this goes. The server is stateless and answers with JSON. Some clients can instead sign you in with your organisation's login, which needs no token; ask your admin whether that is set up.
+The exact file and field names differ between clients; use your client's own documentation for where this goes. The server is stateless and answers with JSON. Some clients can instead sign you in with your organisation's login, which needs no token; ask your admin whether that is set up. Signing in that way makes the agent act as you in the web app, so the **Block agents** and **Exclude from AI** text restrictions on labelled papers are not applied to it; use a token when those labels matter.
 
 3. Test it by asking the agent something simple, such as "list my rOracle collections" or "search rOracle for a paper you know is there".
 4. To give an agent a piece of work to continue, create a handoff ([handoffs](handoffs-inbox.md#creating-a-handoff)) and paste its **Copy agent prompt** text into the agent.

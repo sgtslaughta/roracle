@@ -44,7 +44,7 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
 
 - `PENDING` = the command is recorded but the run has not been made on a >= 200-query reference set. The feature stays off.
 - A recorded run that did not pass is kept in the file next to its diagnosis (see `2026-11-16-rerank.md`).
-- Files: rerank, context notes, RAPTOR, router, agentic. The compare command overwrites the file with the gate table; keep
+- Files: [rerank](2026-11-16-rerank.md), [context notes](2026-11-16-context-notes.md), [RAPTOR](2026-11-16-raptor.md), [router](2026-11-16-router.md), [agentic](2026-11-17-agentic.md). The compare command overwrites the file with the gate table; keep
   latency notes and PENDING context in the PR description.
 - Trend: `GET /api/admin/eval/runs` and the Eval page show the stored runs per set (runs of `trigger` cli, ci, admin, model_change, reindex,
   compare). Performance budgets are a separate gate: `docs/perf/README.md`.

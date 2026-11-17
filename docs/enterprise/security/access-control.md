@@ -90,7 +90,7 @@ visibility; labels never grant access.
 |---|---|---|
 | `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
 | `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
-| `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner and admins, **including their PATs** |
+| `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner (JWT or PAT) and admins on an interactive JWT. Admin PATs are not exempt (a PAT is never admin) |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
 **Which callers are gated.** The `block_agents` filter and the PAT text withholding key on the credential type
@@ -112,8 +112,8 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
 
 - **`block_export` is a deterrent, not DRM.** It stops the download and export routes and leaves an audit trail
   for inline reading. It cannot stop copying, screenshots or printing of what a person is allowed to read.
-- **Owner and admin PATs are exempt from `block_export`** (the owner holds the original and admins can
-  relabel). Non-owner PATs are always treated as downloads: they get no inline reader view of a
+- **The document owner (JWT or PAT) and admins on an interactive JWT are exempt from `block_export`** (the owner holds
+  the original and admins can relabel). An admin's PAT is not exempt, because a PAT is never admin. Non-owner PATs are always treated as downloads: they get no inline reader view of a
   `block_export` document.
 - Non-owner humans can still **read inline in the reader**; only download/export is blocked. In-app viewing
   transfers the content to the browser. Each inline
@@ -125,9 +125,10 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
   old turn into an LLM drops it.
 - A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
   job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak to the caller).
-- **Handoff transcripts of chats carry text verbatim, with one exception.** Assistant message text derived from
+- **Handoff transcripts of chats carry text verbatim, with limited redaction.** Assistant message text derived from
   `block_agents` sources is withheld (`[withheld: <label>]`) for **every** loader, humans included; text derived
-  from `exclude_llm` sources is withheld for PAT loaders. Passages that came from notes are always dropped from
+  from `exclude_llm` sources is withheld for PAT loaders. Assistant replies that drew on papers the loader cannot see (ACL, not label) are shown verbatim; only those citations
+  are dropped (`handoff.py` `get_part`). Passages that came from notes are always dropped from
   handoff manifests. User messages, the handoff **brief, goal and notes are free text** written by people or
   agents and are **not label-gated**: whatever is typed there is stored and shown to every loader in the audience.
   Documents behind `block_agents` are dropped from a handoff for every loader (PAT or human, admins included).

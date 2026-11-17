@@ -46,13 +46,14 @@ are limits of the design, not a list of open defects. For what the controls do g
 
 ## Labels and handoffs
 
-- **Chat handoffs carry transcript text verbatim**, except assistant replies that cite gated papers (withheld per loader as
-  described in [access control](access-control.md#deterrent-not-drm)). User messages and the handoff **brief, goal and
+- **Chat handoffs carry transcript text verbatim**, except assistant replies that cite label-gated papers (withheld per loader as
+  described in [access control](access-control.md#deterrent-not-drm)). Replies that drew on papers the loader cannot see
+  (ACL, not label) are shown verbatim and only those citations are dropped. User messages and the handoff **brief, goal and
   notes are free text and are not label-gated**: anything typed or pasted there is visible to every loader in the audience
   until the handoff expires or is revoked. Expired handoffs stay in the database.
 - **`block_export` is a deterrent, not DRM.** It blocks download and export routes for non-owners and non-admins (PATs
   included) and audits inline reads (`label.view`, once per user, document and day). It cannot stop copying,
-  screenshots or printing of text a person may read inline, and the owner's and admins' PATs are exempt.
+  screenshots or printing of text a person may read inline, and the document owner (JWT or PAT) and admins on an interactive JWT are exempt (an admin's PAT is not, because a PAT is never admin).
 - **`exclude_llm` binds LLM context, not embeddings.** Chunks are embedded regardless, summaries written before a label was
   raised are not deleted, and past chat answers are not redacted for their owner.
 - Labels are handling markers inside rOracle, not a classification system. They cannot protect regulated data on their own.

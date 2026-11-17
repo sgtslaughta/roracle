@@ -29,7 +29,9 @@ Setting names and defaults: [settings](../reference/settings.md). Proxy and ingr
 
 Interactive clients can use OAuth instead. They read the discovery metadata and sign in through the identity provider. The client id must be in `ROR_OIDC_ALLOWED_CLIENTS` (default `roracle-web`, `roracle-mcp`). Identity provider setup: [Keycloak setup](keycloak-setup.md).
 
-A token acts as its user, never as an admin, and sees only what that user may see. See [authentication](../reference/mcp.md#authentication).
+A token acts as its user, never as an admin, and sees only what that user may see.
+
+> **Warning:** OAuth sign-in on `/mcp` bypasses the PAT-only label gates (`block_agents`, `exclude_llm` text withholding). Use PATs for agents when labels must restrict them: [known limits](security/known-limits.md#agents-and-the-mcp-mount). See [authentication](../reference/mcp.md#authentication).
 
 ## Recipes
 

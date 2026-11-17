@@ -51,10 +51,11 @@ signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS`. The resulting principal:
 - carries the token's scopes, `read` and/or `write`. Without `write`, any method other than GET, HEAD or
   OPTIONS is 403 `insufficient scope` (`auth.current_principal`);
 - carries the group snapshot taken at mint time **intersected with** the groups stored for the owner at their
-  last sign-in (`pats.principal_from_pat`). A group removal reaches the token at the owner's next login, and the
+  last JWT request, i.e. sign-in or app use (`pats.principal_from_pat`). A group removal reaches the token only then, and the
   token stops working entirely after `ROR_PAT_MAX_IDENTITY_AGE_DAYS` without one;
 - is flagged `via="pat"`, which switches on the agent gates (section 5);
-- writes a `pat.use` audit row per request. Token management (`/api/me/tokens`) needs a JWT (`require_jwt`, 403
+- writes a `pat.use` audit row per successful REST request (429, scope 403 and handler errors leave none; see
+  [audit](../enterprise/security/audit.md#what-is-and-is-not-audited)). Token management (`/api/me/tokens`) needs a JWT (`require_jwt`, 403
   `personal access tokens cannot manage tokens`). Label changes and other human-only actions use `require_human`
   or the label service (403 `agents must propose`).
 
@@ -191,8 +192,8 @@ visibility check, so a document the caller cannot see is still 404 and naming th
 | | Reranker | May score the passages. See the ruling in [Retrieval and chat](retrieval-chat.md#4-exclude_llm-handling-end-to-end). |
 | `block_agents` | Every read surface for PAT callers | The document is invisible, admins included (`visible_documents` and `acl_filter` add the clause for `via == "pat"`). Drafts and notes follow the same rule. |
 | | MCP and handoffs | Handoffs drop such documents for **every** loader, and transcripts withhold their text for every loader. |
-| `block_export` | Download and export (original file, evidence file, draft PDF, chat export, BibTeX) | 403 `export blocked by label` with an audit row `label.export_blocked`, for non-owners and non-admins. The owner holds the original and admins can relabel anyway, so both are exempt. Chat exports replace such references with a `[withheld: <label>]` marker and BibTeX silently omits the entries. |
-| | Inline reading (reader, PDF viewer) | Allowed for humans. A non-owner non-admin read writes at most one `label.view` audit row per user, document and UTC day. Non-owner PAT callers are always treated as downloads, so they are blocked here too (owner and admin exemptions still apply). |
+| `block_export` | Download and export (original file, evidence file, draft PDF, chat export, BibTeX) | 403 `export blocked by label` with an audit row `label.export_blocked`, for non-owners and non-admins. The owner holds the original and admins can relabel anyway, so both are exempt: the owner by JWT or PAT, admins on an interactive JWT only (an admin PAT is not exempt, a PAT is never admin). Chat exports replace such references with a `[withheld: <label>]` marker and BibTeX silently omits the entries. |
+| | Inline reading (reader, PDF viewer) | Allowed for humans. A non-owner non-admin read writes at most one `label.view` audit row per user, document and UTC day. Non-owner PAT callers are always treated as downloads, so they are blocked here too (the owner exemption still applies; an admin PAT is not exempt). |
 | `reason_on_lower` | Lowering a label | Admin only, reason of 3 to 500 characters required. |
 
 **`block_export` is a deterrent, not DRM.** It stops the download and export routes and leaves an audit trail
@@ -232,6 +233,6 @@ The decision is recorded in [ADR-0015](../adr/0015-retrieval-quality.md).
 The MCP mount at `/mcp` wraps the same resolver in a pure ASGI layer (`mcp/auth.py`): it resolves the bearer
 token, applies the rate limit, and answers 401 with a `WWW-Authenticate` header that points at
 `/.well-known/oauth-protected-resource`. Tools then run as that principal, so visibility, the ACL
-filter, the R19 re-check and the label gates apply. Two things differ from REST: the mount skips
+filter and the R19 re-check apply. The PAT-only gates (`block_agents` hiding, `exclude_llm` text withholding) do not apply to OAuth/JWT callers, see [known limits](../enterprise/security/known-limits.md#agents-and-the-mcp-mount). Two things differ from REST: the mount skips
 `current_principal`, so there is no `pat.use` audit row (each tool audits `mcp.<tool>` instead), and the `write`
 scope is enforced per tool (`tools_write._need_write`) rather than by HTTP method.

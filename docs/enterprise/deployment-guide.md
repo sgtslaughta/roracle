@@ -61,7 +61,7 @@ Vector math (per embedding model index, 1 replica):
 | Item | Needed when | Namespace (default `networkPolicy.operatorNamespaces`) |
 |---|---|---|
 | CloudNativePG operator (>= 1.26) + barman-cloud plugin + cert-manager | `postgres.mode=cnpg` with `backup.method=plugin` (default); the plugin needs cert-manager | `cnpg-system` |
-| ECK operator | `elasticsearch.mode=eck` | `elastic-system` |
+| ECK operator (a release whose support matrix lists ES 9.5: ECK 3.x; the example tfvars' 2.16.0 is too old) | `elasticsearch.mode=eck` | `elastic-system` |
 | Object storage | always external: Rook-Ceph RGW (Terraform `object_store = "rook-ceph"`) or your own S3; no bundled MinIO | `rook-ceph` (Terraform) |
 | prometheus-operator CRDs | `postgres.monitoring.enabled` (default true; PodMonitor) | `monitoring` |
 | Ingress controller | `ingress.enabled`; default `ingressNamespaceSelector` = namespace `ingress-nginx` | `ingress-nginx` |

@@ -19,7 +19,7 @@ Tags are exact as referenced in the repo. **The repo pins no image digests**, wi
 | `roracle/backend` | `appVersion` (CI pushes `X.Y.Z` and `vX.Y.Z` on tags) | api, worker, migrate hook, CA-bundle init containers, Ceph bucket-setup Job | not pinned in repo (built by CI: pin the pushed digest; `ci/full-values.yaml` carries an all-zero placeholder) |
 | `roracle/web` | `appVersion` | web | not pinned in repo (built by CI: pin the pushed digest) |
 | `ghcr.io/cloudnative-pg/postgresql` | `16.6` | CNPG `Cluster` | not pinned in repo |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (`elasticsearch.version`; external ES must be 9.x: the 9.x client sends `compatible-with=9`) | ECK `Elasticsearch` (+ init containers) | not pinned in repo |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` (`elasticsearch.version`; external ES must be 9.x: the 9.x client sends `compatible-with=9`). An existing 8.x cluster also needs the 8.19.x image mirrored for hop 1, and its running 8.x pinned via `elasticsearch.version` for the 0.2.0 upgrade ([upgrades](upgrades.md#3-elasticsearch-815-to-819-to-956)) | ECK `Elasticsearch` (+ init containers) | not pinned in repo |
 | `curlimages/curl` | `8.10.1` | ES snapshot repo/SLM hook Job | not pinned in repo |
 | `gotenberg/gotenberg` | `8.20.1` | parser | not pinned in repo |
 | `quay.io/docling-project/docling-serve-cpu` | `v1.38.2` | parser (models baked into the image; a CUDA variant needs its own tag) | not pinned in repo |
@@ -80,7 +80,7 @@ Tags are the ones the example tfvars and `deploy/terraform/test/kind-e2e.sh` pin
 | `otel/opentelemetry-collector-contrib` | chart default (set `image.repository` to `<mirror>/otel/opentelemetry-collector-contrib` in `deploy/observability/otel-collector.values.yaml`) | optional OpenTelemetry collector | not pinned in repo |
 | `vllm/vllm-openai` | `0.0.0-PLACEHOLDER` (gated: apply fails until you set it) | optional Terraform `inference` module: LLM and reranker (`rerank.engine = "vllm"`) | not pinned in repo |
 | `registry` | `2.8.3` | kind rehearsal: local mirror registry (`deploy/terraform/test/kind-e2e.sh`) | `sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` (the only digest the repo pins) |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` | kind rehearsal only (upgrade path) | not pinned in repo |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` | kind rehearsal only (what `kind-e2e.sh` mirrors; the chart default is 9.5.6) | not pinned in repo |
 
 Grafana, Prometheus, Loki and their sidecars come with the `kube-prometheus-stack` and `loki` charts (see below); their images are the chart defaults, re-registried by `global.imageRegistry` / `global.image.registry` (`MIRROR.example.com` placeholder in `deploy/observability/*.values.yaml`).
 

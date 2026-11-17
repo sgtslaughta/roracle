@@ -5,9 +5,9 @@ Definitions are taken from the code under `backend/src/roracle`.
 ## Access
 
 - **Principal**: the authenticated caller (`auth.Principal`): user id, groups, admin flag, scopes and how they authenticated (`jwt` or `pat`).
-- **Visibility**: a document's audience: `private`, `shared`, `org_unit` or `everyone` (`access.py`). `shared` grants access through user or group shares only while visibility is `shared`. Annotations use `private`, `shared`, `everyone`.
+- **Visibility**: a document's audience: `private`, `shared`, `org_unit` or `everyone` (`access.py`). `shared` grants access through user or group shares only while visibility is `shared`. Published-paper co-authors (`document_coauthors`) keep read access whatever the visibility, as does the owner. Annotations use `private`, `shared`, `everyone`.
 - **Org unit**: a rooted path such as `/physics/optics` derived from token groups. Blank or root-only groups are ignored, and `org_unit` visibility needs a usable one. An `org_unit` document is visible to a user whose org units, or their ancestors (including `/`), include the document's org unit.
-- **R19 re-check**: Elasticsearch hits are only candidates; Postgres is the authority and re-checks document visibility, version stage (not `rejected` or `cancelled`, and `searchable` for non-owner non-admins) and the `block_agents` gate, plus `exclude_llm` where text goes to an LLM. Older versions of a visible document are allowed. An unreadable item looks like a missing one.
+- **R19 re-check**: Elasticsearch hits are only candidates; Postgres is the authority and re-checks document visibility, version stage (not `rejected` or `cancelled`, and `searchable` for non-owner non-admins) and the `block_agents` gate for PAT callers (and handoff loaders), plus `exclude_llm` where text goes to an LLM. Older versions of a visible document are allowed. An unreadable item looks like a missing one.
 - **PAT**: personal access token, an opaque `ror_pat_...` bearer secret stored only as a SHA-256 hash, for agents and scripts.
 - **Scope**: a PAT permission, `read` or `write`. Without `write`, non-GET/HEAD/OPTIONS requests get 403.
 
