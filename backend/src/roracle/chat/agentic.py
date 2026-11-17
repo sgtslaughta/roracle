@@ -103,11 +103,14 @@ def _fuse(lists: list[list[Passage]]) -> list[Passage]:
 def iter_retrieve(
     session: Session, es, llm, settings: Settings, p: Principal, question: str, *,
     viewer: Viewer | None = None, scope: str = "all", excludes: Sequence[str] = (), deadline: float | None = None,
+    depth: int | None = None, raw: list[Passage] | None = None,
 ) -> Generator[tuple[int, int], None, tuple[list[Passage], list[str]]]:  # fmt: skip
     """Yields (round, sub-queries so far) after every round (a stream can keep the client alive), returns the fused
     passages (best first, not truncated) and the sub-queries that were run. The first retrieval always runs."""
     end = deadline if deadline is not None else time.monotonic() + settings.agentic_timeout_s
-    kw = {"viewer": viewer, "scope": scope, "excludes": excludes, "depth": settings.chat_candidates}
+    kw = {"viewer": viewer, "scope": scope, "excludes": excludes, "depth": depth or settings.chat_candidates}
+    if raw is not None:  # eval: ES hits before the Postgres post-filter, of every retrieval
+        kw["raw"] = raw
     lists = [rank_for_chat(session, es, llm, settings, p, question, **kw)]
     fused, subqueries = lists[0], []
     tried = {question.strip().casefold()}

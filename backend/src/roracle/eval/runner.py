@@ -18,7 +18,7 @@ from roracle import runtime
 from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import rank_for_search
 from roracle.auth import Principal
-from roracle.chat import global_answer
+from roracle.chat import agentic, global_answer
 from roracle.chat import router as query_router
 from roracle.chat.retrieve import MAX_K, MIN_K, rank_for_chat
 from roracle.config import Settings
@@ -74,7 +74,8 @@ def default_rank(
     session: Session, es, llm, settings: Settings, path: str, answers: dict | None = None
 ) -> Rank:
     def chat(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
-        if settings.router and query_router.classify(llm, settings, q) == "global":
+        route = query_router.classify(llm, settings, q) if settings.router else None
+        if route == "global":
             docs = global_answer.candidates(session, es, llm, settings, p, q, raw=raw)
             if (
                 len(docs) >= global_answer.MIN_DOCS
@@ -83,6 +84,8 @@ def default_rank(
                     answers[(str(p.user_id), p.via, q)] = docs
                 return global_answer.ranked(docs)
             raw.clear()
+        if settings.agentic_retrieval and route in (None, "multihop"):  # same condition as the chat stream
+            return agentic.retrieve(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)[0]
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:

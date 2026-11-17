@@ -211,3 +211,48 @@ def test_pat_search_path_withholds_text_of_gated_docs(db_session, world, monkeyp
     human = Principal(w["ana"].id, "ana", "ana", (), False)
     assert [x.doc_id for x in rank(human, "q", [])] == [x.doc_id for x in every]
     assert [x.doc_id for x in rank(replace(human, via="pat"), "q", [])] == [str(w["pub"].id)]
+
+
+def test_agentic_override_is_an_eval_key_and_validated():
+    from roracle.eval.cli import EVAL_KEYS, parse_overrides
+
+    assert {"agentic_retrieval", "agentic_max_steps", "agentic_max_subqueries"} <= set(EVAL_KEYS)
+    assert parse_overrides(["agentic_retrieval=true", "agentic_max_steps=2"]) == {
+        "agentic_retrieval": True,
+        "agentic_max_steps": 2,
+    }
+    for bad in ("agentic_retrieval=maybe", "agentic_max_steps=0", "agentic_max_steps=99"):
+        with pytest.raises(ValueError):
+            parse_overrides([bad])
+
+
+def test_chat_path_runs_the_agentic_loop_only_when_the_candidate_has_it_on(db_session, monkeypatch):
+    from roracle.chat import agentic
+
+    asked = []
+    monkeypatch.setattr(
+        runner, "rank_for_chat", lambda *a, **k: (asked.append(("plain", a[5])), [passage_stub("plain")])[1]
+    )
+    monkeypatch.setattr(
+        agentic, "retrieve",
+        lambda s, es, llm, st, p, q, **k: (asked.append(("agentic", q, k["depth"], k["raw"] is not None)), ([passage_stub("a")], ["sub"]))[1],
+    )  # fmt: skip
+    me = Principal(uuid.uuid4(), "u", "u", (), False)
+    off = runner.default_rank(db_session, None, None, SETTINGS, "chat")
+    assert [x.chunk_id for x in off(me, "compare a and b", [])] == ["plain"]
+    on = runner.default_rank(
+        db_session, None, None, SETTINGS.model_copy(update={"agentic_retrieval": True}), "chat"
+    )
+    assert [x.chunk_id for x in on(me, "compare a and b", [])] == ["a"]
+    assert asked[-1] == (
+        "agentic",
+        "compare a and b",
+        runner.m.DEPTH,
+        True,
+    )  # raw collected for the ES ACL check
+
+
+def passage_stub(cid):
+    return Passage(
+        chunk_id=cid, doc_id="d", version_id="v", text="t", highlight="", pages=[1], bboxes=[], score=1.0
+    )
