@@ -17,10 +17,11 @@ All names are the keys of the handler map in `worker.py`.
 |---|---|---|
 | `ingest` | upload, MCP `upload`, connector run, title decision, near-duplicate decision | Runs the stages below for one version. |
 | `citations` | ingest, in the same transaction that sets `searchable` | Links the version's parsed references to library documents and backfills links into it. |
+| `reparse_refs` (bulk) | `roracle reparse-refs` | Re-runs GROBID on an already ingested PDF to capture identifiers and references, then relinks citations. See section 10. |
 | `connector_tick` | itself (a self-rescheduling scheduler) | Enqueues a `connector_run` for each due connector. |
 | `connector_run` | `connector_tick`, or a manual run | Lists a source and creates documents or versions, which enqueue `ingest`. |
 
-Other kinds in the map (`acl_sync`, `evidence_scan`, `maintenance`, `reconcile_tags`, `lsh_backfill`, `eval_run`,
+Other kinds in the map (`acl_sync`, `evidence_scan`, `maintenance`, `reconcile_tags`, `reparse_refs`, `lsh_backfill`, `eval_run`,
 `eval_generate`, `rebuild_units`, `rebuild_watch`, `reembed`) are not part of a normal ingest. A failed `ingest`
 job is retried with backoff `10 * 2**(attempts - released)` seconds and fails for good at 5 attempts (`MAX_ATTEMPTS`). The
 handler also keeps its own start counter: more than 5 starts (`MAX_STARTS`) fails the version as "ingest crashed
@@ -189,7 +190,7 @@ sequenceDiagram
   D-->>W: DoclingDocument JSON
   W->>S: store derived/version/docling.json
   opt PDF (or rendition) and ROR_GROBID_URL set
-    W->>R: POST processFulltextDocument (GROBID API)
+    W->>R: POST processFulltextDocument (includeRawCitations)
     R-->>W: TEI header and references
     Note over W: any GROBID failure is logged, ingest continues without metadata
   end
@@ -201,7 +202,9 @@ sequenceDiagram
   errors are retried. A non-PDF answer is an error.
 - Docling answers 200 with a failure status for deterministic input problems (a fake PDF, a binary). Those fail
   permanently instead of retrying.
-- GROBID is optional enrichment (`meta` and `references`). A retry after a later failure reuses
+- GROBID is called with `includeRawCitations`. It is optional enrichment (`meta`, including `ids`, and `references`). When it parsed the
+  document, the worker also reads the paper's own arXiv id from the margin stamp (`arXiv:<id> [cs.XX]`) in the
+  Docling text of **page 1 only**; GROBID's values win over the stamp. A retry after a later failure reuses
   `derived/<version>/docling.json` instead of converting again.
 
 ## 5. Title and needs_title
@@ -368,11 +371,20 @@ sequenceDiagram
   participant P as Postgres
   Q->>W: job citations, version_id
   W->>P: skip unless the version is searchable and the document is live
-  W->>P: delete this version's rows, match each parsed reference
-  Note over W,P: DOI exact (score 1.0), else title and year fuzzy, ratio 92 or more
+  W->>P: take the citations advisory lock, delete this version's rows, match each parsed reference
+  Note over W,P: identifier exact (score 1.0), else title and year fuzzy, ratio 92 or more
   W->>P: store ALL candidates per reference
   W->>P: delete and rebuild edges INTO this document from other latest versions
 ```
+
+Identifiers are `doi`, `arxiv`, `pmid`, `pmcid`, `isbn`, `acl`, `openreview`, `issn` and `eissn` (kept in
+`meta.ids`). Only `doi`, `arxiv`, `pmid`, `pmcid`, `acl` and `openreview` are matched; `isbn`, `issn` and `eissn` are metadata
+only and never link documents. Writes of citation edges (`resolve_references`, `backfill_for`) take one
+transaction-scoped Postgres advisory lock, so they are serialized.
+
+`reparse_refs` (payload `version_id`) refreshes `ids`, `doi` and `references` of one searchable PDF version (other
+meta stays as is; empty GROBID references never overwrite existing ones), relinks it and, when its matchable
+ids changed, rebuilds the edges into it. Without `ROR_GROBID_URL` it does nothing.
 
 Matching is global and no access check is made at write time. The viewer's best visible candidate is picked at
 read time (highest confidence, then oldest document), so a hidden document is never revealed through a link and

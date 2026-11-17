@@ -191,7 +191,7 @@ flowchart TB
   end
 
   subgraph workerproc["worker process: roracle.worker"]
-    handlers["Handlers: ingest, connector_run, connector_tick, citations,<br/>evidence_scan, acl_sync, maintenance, reconcile_tags,<br/>lsh_backfill, eval_run, eval_generate,<br/>rebuild_units, rebuild_watch, reembed"]
+    handlers["Handlers: ingest, connector_run, connector_tick, citations,<br/>evidence_scan, acl_sync, maintenance, reconcile_tags,<br/>reparse_refs, lsh_backfill, eval_run, eval_generate,<br/>rebuild_units, rebuild_watch, reembed"]
   end
 
   routes --> auth

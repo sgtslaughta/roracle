@@ -209,7 +209,7 @@ Everything here is admin-only and reads private data through the production path
 
 ### Reference identifiers (reparse)
 
-Citations link by DOI, arXiv, PMID, PMCID, ISBN, ACL Anthology and OpenReview ids as well as title+year (ISSN is stored and shown but never matched). Documents ingested before this feature lack `meta.ids`: run `roracle reparse-refs [--limit N]` (needs `ROR_GROBID_URL`) to enqueue one bulk-priority `reparse_refs` job per latest searchable PDF without ids (idempotent; re-run after a partial pass). Each job re-runs GROBID, updates only `ids`/`doi` and `references`, then relinks both directions. Migration 0019 recreates the claim indexes for the new bulk kind: drain workers first (as 0014b).
+Citations link by DOI, arXiv, PMID, PMCID, ACL Anthology and OpenReview ids as well as title+year (ISBN, ISSN and eISSN are stored and shown but never matched). Documents ingested before this feature lack `meta.ids`: run `roracle reparse-refs [--limit N]` (needs `ROR_GROBID_URL`) to enqueue one bulk-priority `reparse_refs` job per latest searchable PDF without ids (idempotent; re-run after a partial pass). Each job re-runs GROBID, updates only `ids`/`doi` and `references`, then relinks both directions. Migration 0019 recreates the claim indexes for the new bulk kind: drain workers first (as 0014b).
 
 ### Rebuild derived index fields and shadow indices
 Context notes and RAPTOR units are index-time. `roracle rebuild --what context[,raptor] [--into chunks-<slug>-shadow]` (or

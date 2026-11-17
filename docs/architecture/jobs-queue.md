@@ -109,7 +109,7 @@ Every worker serves every kind: the claim runs over all handler names in the pro
 from starving interactive work (`models.BULK_KINDS`):
 
 - **User kinds** (everything except the bulk kinds) are claimed first, ordered by `(run_after, id)`.
-- **Bulk kinds**, `reconcile_tags` and `rebuild_units`, are claimed only when no user job is due.
+- **Bulk kinds**, `reconcile_tags`, `rebuild_units` and `reparse_refs`, are claimed only when no user job is due.
   `reconcile_tags` goes before a `rebuild_units` backlog, FIFO within each.
 
 Each step is an index-ordered `LIMIT 1`, so there is no sort and a bulk backlog is never scanned past. That
@@ -123,6 +123,7 @@ index only when the query's `WHERE` implies its predicate):
 | `ix_jobs_due_reconcile` | `status = 'queued' AND kind = 'reconcile_tags'` (migration 0017) |
 | `ix_jobs_lease` | `lease_until` where `status = 'running'`, for `requeue_expired` |
 
+Migration 0019 added `reparse_refs` to the bulk kinds by recreating the first two indexes (same swap, `CONCURRENTLY`; drain workers first).
 Adding a bulk kind needs a migration that recreates the first two indexes (`tests/test_queue_claim.py` fails
 until it does). Migration 0017 builds its index `CONCURRENTLY`, drops an invalid leftover first, and says to
 drain workers first because the build waits for open transactions.
@@ -141,6 +142,7 @@ These are the keys of the handler map built in `worker.py`. Details of the stage
 | `acl_sync` | Visibility, share, label, tag changes, drift repair | Converges ACL fields, tags and title of one document in Elasticsearch. See [Access control](access-control.md). |
 | `reconcile_tags` (bulk) | Maintenance, end of each re-embed pass and at cutover | Drift detection over the corpus, 500 documents per job, chained by an `after` cursor. |
 | `rebuild_units` (bulk) | `roracle rebuild`, `POST /api/admin/retrieval/rebuild` | Re-runs the index step for 25 versions per job. See [Search index lifecycle](search-index-lifecycle.md). |
+| `reparse_refs` (bulk) | `roracle reparse-refs [--limit N]` | Re-runs GROBID on one PDF version to refresh identifiers and references, then relinks citations. See [Ingest](ingest.md). |
 | `rebuild_watch` | Rebuild start; re-enqueues itself every 60 s | Waits until the batch's `rebuild_units` jobs are done, then may start the reindex eval. |
 | `reembed` | `POST /api/admin/reindex` and itself | One page or step of an embedding-model switch, per slice. |
 | `maintenance` | Worker start (periodic), `POST /api/admin/maintenance/{op}` | `purge`, `prune_jobs`, `gc`, `reconcile`. |

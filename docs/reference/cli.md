@@ -7,16 +7,18 @@
 ## `roracle`
 
 ```text
-usage: roracle [-h] {api,worker,migrate,eval,rebuild,perf} ...
+usage: roracle [-h] {api,worker,migrate,eval,rebuild,reparse-refs,perf} ...
 
 positional arguments:
-  {api,worker,migrate,eval,rebuild,perf}
+  {api,worker,migrate,eval,rebuild,reparse-refs,perf}
     api                 run the HTTP API
     worker              run the job worker
     migrate             alembic upgrade head
     eval                retrieval-quality evaluation
     rebuild             rebuild index-time derived fields (contextual notes)
                         per version
+    reparse-refs        re-run GROBID on PDFs lacking identifiers (enqueues
+                        jobs)
     perf                synthetic data and load tests (scratch DB/index only)
 
 options:
@@ -314,6 +316,16 @@ options:
                         embed generation, or while jobs run)
   --into NAME           shadow index chunks-<slug>-shadow (default: active
                         index)
+```
+
+### `roracle reparse-refs`
+
+```text
+usage: roracle reparse-refs [-h] [--limit N]
+
+options:
+  -h, --help  show this help message and exit
+  --limit N   enqueue at most N versions (0 = all)
 ```
 
 ### `roracle worker`

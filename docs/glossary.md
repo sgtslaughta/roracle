@@ -33,6 +33,8 @@ Definitions are taken from the code under `backend/src/roracle`.
 - **Reembed**: re-embedding into a new generation with copy, converge, cutover and catch-up phases, then one atomic alias swap.
 - **Rebuild**: `roracle rebuild --what context[,raptor]` recomputes index-time derived fields per version.
 
+- **Identifier**: a persistent id in a version's `meta.ids` (`doi`, `arxiv`, `pmid`, `pmcid`, `isbn`, `acl`, `openreview`, `issn`, `eissn`). Citation linking matches only `doi`, `arxiv`, `pmid`, `pmcid`, `acl` and `openreview`; the reader shows all of them as copyable plain text (`Identifiers.tsx`).
+
 ## Jobs
 
 - **Lease**: a running job's time-limited claim (`jobs` table, `FOR UPDATE SKIP LOCKED`); a heartbeat extends it and expired leases are requeued.
