@@ -404,3 +404,10 @@ def test_stream_progress_frames_report_round_and_done_counts(client, as_ana, set
     ev = sse(client.post(f"/chats/{cid}/messages", headers=as_ana, json={"content": Q}))
     prog = [d for e, d in ev if e == "progress"]
     assert prog and prog[0] == {"step": 1, "of": 2, "done": 0} and prog[1] == {"step": 1, "of": 2, "done": 2}
+
+
+def test_planner_model_is_the_configured_small_model_else_the_first_chat_model(ranker):
+    llm = Planner(['{"subqueries": [], "done": true}'])
+    run(llm, settings(agentic_planner_model="qwen2.5:3b"))
+    run(llm, settings(chat_models="big:70b,other"))
+    assert [c["model"] for c in llm.calls] == ["qwen2.5:3b", "big:70b"]

@@ -71,7 +71,7 @@ def plan(
     )
     try:
         resp = llm.chat.completions.create(
-            model=settings.router_model or settings.summary_model,
+            model=settings.agentic_planner_model or settings.chat_model_list[0],
             messages=[
                 {"role": "system", "content": SYSTEM.replace("{n}", str(settings.agentic_max_subqueries))},
                 {

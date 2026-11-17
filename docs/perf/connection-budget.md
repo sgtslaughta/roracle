@@ -17,6 +17,13 @@
 - **Rule for new code:** no session writes before `release_before_io`; anything written earlier in the request is
   committed even if the request later fails. Worker/eval sessions are never flagged (`global_answer.reduce_inputs` and
   every shared retrieval helper go through `release_before_io`, never a bare `commit`).
+- **Agentic sub-queries (`agentic_retrieval`, off by default):** a planning round runs its sub-queries in parallel, each on its
+  own session from the API's session factory: up to `ROR_AGENTIC_MAX_PARALLEL` (4) extra pooled connections per API
+  process, process-wide, on top of the chat stream's own session. They come out of the same pool, so the per-process
+  maximum stays `pool + overflow` (12) and the chart formula below is unchanged; a burst that finds the pool empty waits
+  up to `ROR_DB_POOL_TIMEOUT_S` and the affected sub-query is dropped (the answer uses what the other retrievals found).
+  Workers never run the loop in parallel (their pool is 3+1): the `eval_run` job stays sequential; `roracle eval run|compare`
+  (its own engine, default pool) runs it in parallel like production.
 
 ## Formula
 ```

@@ -235,13 +235,19 @@ def test_chat_path_runs_the_agentic_loop_only_when_the_candidate_has_it_on(db_se
     )
     monkeypatch.setattr(
         agentic, "retrieve",
-        lambda s, es, llm, st, p, q, **k: (asked.append(("agentic", q, k["depth"], k["raw"] is not None)), ([passage_stub("a")], ["sub"]))[1],
+        lambda s, es, llm, st, p, q, **k: (asked.append(("agentic", q, k["depth"], k["raw"] is not None, k["session_factory"])), ([passage_stub("a")], ["sub"]))[1],
     )  # fmt: skip
     me = Principal(uuid.uuid4(), "u", "u", (), False)
     off = runner.default_rank(db_session, None, None, SETTINGS, "chat")
     assert [x.chunk_id for x in off(me, "compare a and b", [])] == ["plain"]
     on = runner.default_rank(
-        db_session, None, None, SETTINGS.model_copy(update={"agentic_retrieval": True}), "chat"
+        db_session,
+        None,
+        None,
+        SETTINGS.model_copy(update={"agentic_retrieval": True}),
+        "chat",
+        None,
+        "FACTORY",
     )
     assert [x.chunk_id for x in on(me, "compare a and b", [])] == ["a"]
     assert asked[-1] == (
@@ -249,6 +255,7 @@ def test_chat_path_runs_the_agentic_loop_only_when_the_candidate_has_it_on(db_se
         "compare a and b",
         runner.m.DEPTH,
         True,
+        "FACTORY",
     )  # raw collected for the ES ACL check
 
 

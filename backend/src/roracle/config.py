@@ -177,9 +177,9 @@ class Settings(AliasConfig):
     agentic_max_subqueries: int = Field(4, ge=1, le=8)  # sub-queries per planner round
     agentic_timeout_s: float = 30.0  # deadline of the whole loop (the first retrieval always completes)
     agentic_call_timeout_s: float = (
-        1.5  # one planner call (model = router_model or summary_model: its latency is part of
+        1.5  # one planner call, also bounded by the remaining deadline (slower = dropped)
     )
-    # the per-round budget, ruling: added p95 <= 1.0 s per round), also bounded by the remaining deadline
+    agentic_planner_model: str = ""  # a SMALL FAST model (dev: qwen2.5:3b); empty = the first chat model (slower). Its latency is the per-round budget
     agentic_max_parallel: int = Field(
         4, ge=1, le=8
     )  # sub-query retrievals in flight, process-wide (own sessions)

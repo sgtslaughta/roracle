@@ -64,6 +64,7 @@ config:
   ROR_ES_SHARDS: "1"                 # ~30-50 GB per shard: 12 for 50M chunks
   ROR_ES_REPLICAS: "1"
   ROR_VECTOR_INDEX_TYPE: int8_hnsw   # bbq_hnsw (with rescore oversample 3) only after the recall/eval gate
+  ROR_AGENTIC_PLANNER_MODEL: ""      # small fast model for the agentic planner (e.g. qwen2.5:3b); empty = first chat model. Only used when agentic_retrieval is on
   ROR_MAINTENANCE_INTERVAL_S: "86400"  # periodic purge + blob gc + tag reconcile
 
 # Prometheus /metrics on api (8000) and worker (healthPort): adds prometheus.io/* pod annotations. Never routed via ingress.

@@ -71,7 +71,7 @@ def _global_answer(session, es, llm, settings: Settings, p: Principal, q: str, d
 
 
 def default_rank(
-    session: Session, es, llm, settings: Settings, path: str, answers: dict | None = None
+    session: Session, es, llm, settings: Settings, path: str, answers: dict | None = None, factory=None
 ) -> Rank:
     def chat(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
         route = query_router.classify(llm, settings, q) if settings.router else None
@@ -85,7 +85,9 @@ def default_rank(
                 return global_answer.ranked(docs)
             raw.clear()
         if settings.agentic_retrieval and route in (None, "multihop"):  # same condition as the chat stream
-            return agentic.retrieve(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)[0]
+            return agentic.retrieve(
+                session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw, session_factory=factory
+            )[0]
         return rank_for_chat(session, es, llm, settings, p, q, depth=m.DEPTH, raw=raw)
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
@@ -113,17 +115,19 @@ def run_set(
     sf=None,
     rank: Rank | None = None,
     judge_fn: JudgeFn | None = None,
+    parallel_sf=None,
 ) -> UUID:
     """One `eval_results` row per (query, principal); returns the run id. `sf` (session factory) persists the
     run in its own session so a failed run survives the caller's rollback; `rank` and `judge_fn` are test
-    seams. `judge` answers and judges a deterministic sample of `eval_judge_sample` non-PAT chat pairs
+    seams. `parallel_sf`: a session factory with pool room (the CLI/compare engines, not the worker's 3+1 pool) lets the
+    agentic loop run a round's sub-queries in parallel as in production. `judge` answers and judges a deterministic sample of `eval_judge_sample` non-PAT chat pairs
     (the same pairs on every run of a set, so A/B runs compare like with like)."""
     if judge and path != "chat":
         raise ValueError("the judge needs the chat path")
     principals = resolve_principals(session, gs)  # R5 before anything is written
     settings = runtime.apply(settings, overrides or {})
     answers: dict = {}
-    rank = rank or default_rank(session, es, llm, settings, path, answers if judge else None)
+    rank = rank or default_rank(session, es, llm, settings, path, answers if judge else None, parallel_sf)
     judge_fn = judge_fn or (lambda p, q, ps: judge_mod.judge_pair(session, llm, settings, p, q, ps))
     db_set = store.set_by_name(session, gs.name) if gs.name else None
     config = {

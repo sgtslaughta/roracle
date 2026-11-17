@@ -192,7 +192,7 @@ def run(args) -> int:
         try:
             run_id = runner.run_set(
                 session, es, clients.llm(settings), settings, gs, path=args.path, trigger="cli",
-                label=args.label, overrides=overrides, judge=args.judge,
+                label=args.label, overrides=overrides, judge=args.judge, parallel_sf=sf,
             )  # fmt: skip
         except Exception as e:  # noqa: BLE001  (the failed run row is already stored)
             print(f"run failed: {type(e).__name__}: {e}", file=sys.stderr)

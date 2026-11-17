@@ -56,6 +56,7 @@ def run(args) -> int:
                     overrides=ov,
                     judge=args.judge,
                     sf=sf,
+                    parallel_sf=sf,
                 )
                 for name, ov in (("baseline", base_ov), ("candidate", cand_ov))
             ]
