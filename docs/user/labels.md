@@ -34,7 +34,7 @@ For a note, the author and admins see the same pencil on the note. The same rule
 
 If someone else changes the label of your paper, you get a notification.
 
-![The Change label dialog with a lower label greyed out](../assets/screens/labels-change-dialog.png)
+![The Change label dialog for a non-admin, noting that lower labels can't be chosen](../assets/screens/labels-change-dialog.png)
 
 ## Asking for a lower label
 

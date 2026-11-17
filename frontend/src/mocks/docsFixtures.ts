@@ -1,7 +1,7 @@
 // Extra demo rows for the documentation screenshots (scripts/docs/screenshots). Browser mock mode only:
 // mocks/browser.ts calls seedDocsFixtures() before the worker starts; the vitest server never does.
 import type { HandoffManifest } from "@/api/agents";
-import { dataOf } from "./adminData";
+import { dataOf, ENV } from "./adminData";
 import { tokens } from "./agents";
 import { all as proposals } from "./proposals";
 import { DOCS } from "./docs";
@@ -23,8 +23,19 @@ function handoff(code: string, title: string, o: Partial<HandoffManifest> = {}, 
 const ADMIN_UUID = "9f3c2d1e-5b7a-4c68-8e21-0a4d6b7c8e90";
 
 export function seedDocsFixtures() {
-  // the audit filter only accepts a UUID, the stock rows use "u-admin"
-  for (const a of dataOf().audit) a.user_id = ADMIN_UUID;
+  // the audit filter only accepts a UUID (stock rows use "u-admin"); also realistic, newest-first rows and the real rate-limit default
+  const rows: [string, string, unknown][] = [
+    ["admin.settings_update", "/admin/settings", { changes: { rerank_depth: { old: 40, new: 50 } } }],
+    ["admin.settings_update", "/admin/settings", { changes: { chat_passages: { old: 8, new: 10 }, rerank_depth: { old: 40, new: 60 }, near_dup_threshold: { old: 0.92, new: 0.9 }, max_upload_bytes: { old: 524288000, new: 1073741824 }, chat_note_min_ratio: { old: 0.7, new: 0.75 } }, reason: "tuning after the Q4 eval run" }],
+    ["admin.tags_merge", "pde", { merged: ["partial-differential-equations"], documents: 9 }],
+    ["admin.label_update", "Confidential", { changes: { block_export: { old: false, new: true } } }],
+  ];
+  dataOf().audit.forEach((a, i) => {
+    const [action, target, detail] = rows[i % rows.length];
+    // newest first: ids already fall with i, so the times must too
+    Object.assign(a, { user_id: ADMIN_UUID, at: new Date(Date.UTC(2026, 10, 16, 15) - i * 3_600_000 * 5).toISOString(), action, target, detail });
+  });
+  ENV.rate_limit_per_minute = 0; // config.py default: off
   tokens().push(
     { id: "tok-2", name: "Notebook agent", prefix: "ror_m8Zt", scopes: ["read", "write"], expires_at: iso(-2 * DAY), revoked_at: null, last_used_at: iso(-9 * DAY), created_at: iso(-40 * DAY) },
     { id: "tok-3", name: "CI helper", prefix: "ror_x4Nd", scopes: ["read"], expires_at: iso(30 * DAY), revoked_at: iso(-DAY), last_used_at: iso(-3 * DAY), created_at: iso(-20 * DAY) },

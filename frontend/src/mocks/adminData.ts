@@ -7,7 +7,7 @@ const url = (p: string) => `${API_BASE}${p}`;
 const forbidden = () => HttpResponse.json({ detail: "admin only" }, { status: 403 });
 const MiB = 1024 * 1024;
 
-const ENV: Record<string, SettingValue> = {
+export const ENV: Record<string, SettingValue> = {
   chat_models: ["qwen2.5:14b", "llama3.1:8b"], chat_default_model: "qwen2.5:14b", chat_passages: 8, chat_note_min_upvotes: 2, chat_note_min_ratio: 0.7,
   rerank_depth: 40, near_dup_threshold: 0.92, near_dup_summary_threshold: 0.85, max_upload_bytes: 500 * MiB, upload_quota_bytes: 0, rate_limit_per_minute: 60, pats_enabled: true,
 };

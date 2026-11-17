@@ -18,7 +18,7 @@ const todo = SHOTS.filter((s) => !want.length || want.includes(s.id));
 const browser = await chromium.launch({ executablePath: EXE, args: ["--no-sandbox"] });
 let failed = 0;
 for (const s of todo) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "light" });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: s.tall ? 1600 : 900 }, colorScheme: "light" });
   // no external network: only the mock origin may be reached
   await ctx.route((u) => !["localhost", "127.0.0.1"].includes(u.hostname), (r) => r.abort());
   await ctx.addInitScript((admin) => {

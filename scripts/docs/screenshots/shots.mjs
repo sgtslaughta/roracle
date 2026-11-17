@@ -84,7 +84,7 @@ export const SHOTS = [
   { id: "admin-eval", path: "/admin/eval", admin: true },
   { id: "admin-users", path: "/admin/users", admin: true },
   { id: "admin-settings-limits", path: "/admin/settings", admin: true, run: async (p) => {
-    await p.getByText("max_upload_bytes", { exact: true }).scrollIntoViewIfNeeded(); await p.mouse.move(800, 500); await p.mouse.wheel(0, 700); await p.waitForTimeout(400);
+    await p.mouse.move(800, 500); await p.mouse.wheel(0, 380); await p.waitForTimeout(400);
   } },
   { id: "admin-settings-table", path: "/admin/settings", admin: true, run: async (p) => {
     // one override row next to the env rows
@@ -102,7 +102,7 @@ export const SHOTS = [
     await d.locator("input").first().fill("Group share bucket");
     await d.getByPlaceholder("https://s3.example.org").fill("https://s3.example.internal");
     await d.locator("input").nth(2).fill("group-papers");
-  }, el: dlg },
+  }, el: dlg }, // the Cancel/Create footer renders outside the dialog box in mock mode, so it is not in the crop
   { id: "admin-connector-runs", path: "/admin/connectors", admin: true, run: async (p) => {
     await p.getByText("Group share", { exact: true }).first().click(); await p.waitForTimeout(600);
     await p.getByRole("button", { name: "View log" }).nth(1).click(); await p.waitForTimeout(600);
