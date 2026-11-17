@@ -1,7 +1,6 @@
 import json
 import random
 import uuid
-from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -217,26 +216,24 @@ def _cutover(db, settings, **kw):
     return list(db.scalars(select(Job).where(Job.kind == "eval_run")))
 
 
-def test_eval_runs_after_catchup_round_two(db_session, settings, monkeypatch):
+def test_cutover_itself_enqueues_no_eval(db_session, settings, monkeypatch):
     monkeypatch.setattr(reembed, "clear_summary_embeddings", lambda sf: None)
     db_session.add(EvalSet(name="ref", is_reference=True))
     db_session.flush()
-    (ev,) = _cutover(db_session, settings)
-    catch = db_session.scalars(select(Job).where(Job.kind == "reembed")).all()
-    assert len(catch) == 1  # catch-up round 1 at +1x; round 2 is enqueued by it, at >= +2x
-    db_session.refresh(ev)
-    db_session.refresh(catch[0])
-    assert ev.run_after - catch[0].run_after >= timedelta(seconds=2 * reembed.CATCHUP_DELAY_S)
+    assert _cutover(db_session, settings) == []  # the final catch-up round triggers it (test_reembed)
 
 
-def test_cutover_enqueues_eval_run_only_with_reference_set(db_session, settings, monkeypatch):
-    monkeypatch.setattr(reembed, "clear_summary_embeddings", lambda sf: None)
-    assert _cutover(db_session, settings) == []  # no reference set
+def test_enqueue_eval_only_with_reference_set(db_session, settings):
+    def run(**kw):
+        reembed._enqueue_eval(db_session, settings.model_copy(update=kw))
+        return list(db_session.scalars(select(Job).where(Job.kind == "eval_run")))
+
+    assert run() == []  # no reference set
     ref = EvalSet(name="ref", is_reference=True)
     db_session.add(ref)
     db_session.flush()
-    assert _cutover(db_session, settings, eval_on_reindex=False) == []
-    (job,) = _cutover(db_session, settings)
+    assert run(eval_on_reindex=False) == []
+    (job,) = run()
     assert job.payload == {"set_id": str(ref.id), "trigger": "reindex", "judge": True}
 
 

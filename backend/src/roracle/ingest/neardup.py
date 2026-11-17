@@ -308,7 +308,9 @@ def find_sibling_duplicate(
             )
         )
         match.append(in_bands)
-        band_first.append(in_bands.desc())  # band matches first: the summary-only branch never crowds them out
+        band_first.append(
+            in_bands.desc()
+        )  # band matches first: the summary-only branch never crowds them out
     if version.summary_embedding:
         match.append(DocumentVersion.summary_embedding.is_not(None))
     if not match:
