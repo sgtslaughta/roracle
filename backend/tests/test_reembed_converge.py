@@ -80,11 +80,11 @@ def test_cutover_itself_refuses_when_a_slice_failed_after_it_was_enqueued(
     assert es.indices.alias_calls == []
 
 
-def test_target_is_converged_with_postgres_before_the_swap(
+def test_target_is_converged_with_postgres_before_the_swap_without_clocks(
     db_session, session_factory, es, base, two_docs, monkeypatch
 ):
-    """Mid-copy: doc a's ACL is revoked, doc b is soft-deleted, doc a gets a newer version. The target is correct
-    before the alias moves, even though it was not refreshed when those mutations ran."""
+    """Mid-copy: doc a's ACL is revoked, doc b is soft-deleted (with a deleted_at far in the PAST: clock skew must not
+    matter), doc a gets a newer version, and an orphan chunk of a purged document sits in the target."""
     (da, va), (db_, vb) = two_docs
     es.put(f"{va}:0", da.id)
     es.put(f"{vb}:0", db_.id)
@@ -93,38 +93,34 @@ def test_target_is_converged_with_postgres_before_the_swap(
     order = []
     _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the copy (both chunks land in the target)
     assert set(es.data["chunks-new-1"]) == {f"{va}:0", f"{vb}:0"}
+    es.put(f"{uuid.uuid4()}:0", uuid.uuid4(), index="chunks-new-1")  # purged document's chunk (no PG row)
     # --- mutations that ran while the target was not yet refreshed, so ES never applied them to it ---
     da.visibility = "private"  # revoke
-    db_.deleted_at = datetime.now(UTC) + timedelta(seconds=1)  # soft delete
+    db_.deleted_at = datetime.now(UTC) - timedelta(days=30)  # skewed / old timestamp
+    v1 = db_session.get(DocumentVersion, uuid.UUID(va))
+    v1.is_latest = False  # PG: version 2 superseded it
     db_session.add(
         DocumentVersion(
-            document_id=da.id, version=2, blob_sha256=db_session.get(DocumentVersion, uuid.UUID(va)).blob_sha256,
-            filename="a2.pdf", content_type="x", size=1, stage="searchable", is_latest=True,
+            document_id=da.id, version=2, blob_sha256=v1.blob_sha256, filename="a2.pdf", content_type="x",
+            size=1, stage="searchable", is_latest=True, created_at=datetime.now(UTC) - timedelta(days=30),
         )
     )  # fmt: skip
     db_session.commit()
     es.drift_docs = [str(da.id)]  # what the acl_hash comparison against Postgres reports
-    synced, marked = [], []
+    synced = []
     monkeypatch.setattr(
         search_index, "sync_acl", lambda es_, d, compute: (synced.append(d), order.append("acl"), compute())
-    )
-    monkeypatch.setattr(
-        search_index,
-        "mark_previous_versions",
-        lambda es_, d, n, **k: (marked.append((d, n)), order.append("latest")),
     )
     real_update = es.indices.update_aliases
     es.indices.update_aliases = lambda actions: (order.append("swap"), real_update(actions))
     _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the cutover
     assert synced == [str(da.id)]  # revoke pushed to the target
-    assert (
-        f"{vb}:0" not in es.data["chunks-new-1"] and f"{va}:0" in es.data["chunks-new-1"]
-    )  # deleted doc gone
-    assert marked == [(da.id, 2)]  # older version of doc a no longer "latest"
-    assert order.index("swap") > max(
-        order.index("acl"), order.index("latest")
-    )  # ALL of it before readers move
-    assert order.count("swap") == 1
+    assert set(es.data["chunks-new-1"]) == {f"{va}:0"}  # soft-deleted doc and the orphan are gone
+    (up,) = [u for u in es.updates if u["index"] == "chunks-new-1"]
+    assert up["query"]["bool"]["filter"][0] == {
+        "terms": {"version_id": [va]}
+    }  # v1 demoted by id, not by date
+    assert order == ["acl", "swap"]  # ALL of it before readers move, one swap
 
 
 def test_copy_target_refreshes_every_30s_and_keeps_replicas(db_session, session_factory, es, base, two_docs):

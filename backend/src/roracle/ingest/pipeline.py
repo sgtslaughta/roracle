@@ -21,7 +21,15 @@ from roracle.auth import principal_for_user
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.context import notes_for
-from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, from_bytes, prompt_sha, to_bytes
+from roracle.ingest.embed import (
+    BATCH_RETRIES,
+    chunk_prompt,
+    doc_prompt,
+    embed,
+    from_bytes,
+    prompt_sha,
+    to_bytes,
+)
 from roracle.ingest.neardup import find_near_duplicate, find_sibling_duplicate, minhash, write_bands
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
@@ -221,7 +229,14 @@ def _index(
     cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
     miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
     fresh_vecs = iter(
-        embed(llm, settings.embed_model, miss, settings.embed_dims, concurrency=settings.embed_concurrency)
+        embed(
+            llm,
+            settings.embed_model,
+            miss,
+            settings.embed_dims,
+            concurrency=settings.embed_concurrency,
+            retries=BATCH_RETRIES,
+        )
         if miss
         else []
     )
@@ -238,7 +253,13 @@ def _index(
         session, settings
     )  # before any write: a cutover cleared summary vectors
     if (sv is None or len(sv) != settings.embed_dims) and (v.summary or "").strip():
-        sv = embed(llm, settings.embed_model, [doc_prompt(title, v.summary)], settings.embed_dims)[0]
+        sv = embed(
+            llm,
+            settings.embed_model,
+            [doc_prompt(title, v.summary)],
+            settings.embed_dims,
+            retries=BATCH_RETRIES,
+        )[0]
         backfill = True
     elif sv is not None and len(sv) != settings.embed_dims:
         sv = None
@@ -307,7 +328,9 @@ def _index_units(
         shas = [prompt_sha(p) for p in prompts]
         cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
         miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
-        fresh = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
+        fresh = iter(
+            embed(llm, settings.embed_model, miss, settings.embed_dims, retries=BATCH_RETRIES) if miss else []
+        )
         vecs = [cache[h] if h in cache else next(fresh) for h in shas]
         runtime.assert_embedding_unchanged(session, settings)
         search_index.index_units(
@@ -412,7 +435,13 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         llm_ok = not Policy.load(session).has(d.label_id, "exclude_llm")  # gate (a), label at ingest time
         summary = summarize(llm, settings.summary_model, title, text) if llm_ok else ""
         vec = (
-            embed(llm, settings.embed_model, [doc_prompt(title, summary)], settings.embed_dims)[0]
+            embed(
+                llm,
+                settings.embed_model,
+                [doc_prompt(title, summary)],
+                settings.embed_dims,
+                retries=BATCH_RETRIES,
+            )[0]
             if summary.strip()
             else None
         )

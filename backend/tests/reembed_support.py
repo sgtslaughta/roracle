@@ -69,6 +69,7 @@ class FakeEs:
         self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
         self.indices = FakeIndices(self)
         self.mutations = []
+        self.updates: list[dict] = []
         self.drift_docs: list[str] = []  # doc ids the fake reports as acl-drifted
         self.index_settings, self.settings_calls, self.refreshes, self.merges = {}, [], [], []
         self.created: dict[str, dict] = {}
@@ -94,6 +95,14 @@ class FakeEs:
 
     def search(self, index, size=10, sort=None, search_after=None, query=None, **kw):
         docs = self.data[index]
+        if kw.get("aggs"):  # composite aggregation over doc_id (orphan purge)
+            comp = kw["aggs"]["docs"]["composite"]
+            done = comp.get("after", {}).get("d", "")
+            ids = sorted({d["doc_id"] for d in docs.values() if d["doc_id"] > done})[: comp["size"]]
+            agg = {"buckets": [{"key": {"d": i}} for i in ids]}
+            if ids:
+                agg["after_key"] = {"d": ids[-1]}
+            return {"hits": {"hits": []}, "aggregations": {"docs": agg}}
         if query and "should" in query.get("bool", {}):  # acl drift query of the pre-swap convergence
             return {"hits": {"hits": [{"fields": {"doc_id": [d]}} for d in self.drift_docs]}}
         if query and "ids" in query:
@@ -106,6 +115,7 @@ class FakeEs:
 
     def update_by_query(self, **kw):
         self.mutations.append(kw["index"])
+        self.updates.append(kw)
         return {}
 
     def delete_by_query(self, **kw):
@@ -116,6 +126,9 @@ class FakeEs:
         elif "term" in q:
             ((f, v),) = q["term"].items()
             doomed = [i for i, d in docs.items() if d.get(f) == v]
+        elif "terms" in q:
+            ((f, vs),) = q["terms"].items()
+            doomed = [i for i, d in docs.items() if d.get(f) in vs]
         else:
             doomed = []
         for i in doomed:

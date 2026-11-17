@@ -2,8 +2,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const dir = new URL("../dist/assets", import.meta.url).pathname;
+const dir = fileURLToPath(new URL("../dist/assets", import.meta.url));
 const KB = 1024;
 // [file prefix, max gzip KB]. The entry chunk is what every page load pays; the rest load on demand.
 const LIMITS = [["index-", 150], ["PdfPage-", 160], ["AskRoute-", 110], ["pdf.worker", 450]];

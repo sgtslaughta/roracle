@@ -48,6 +48,7 @@ from roracle.api.routes import (
 from roracle.auth import JwksCache
 from roracle.config import Settings, get_settings
 from roracle.db import api_session_factory
+from roracle.ingest.embed import EmbedUnavailable
 from roracle.labels.policy import ExportBlocked, export_blocked_handler
 from roracle.mcp.auth import BearerAuth
 from roracle.mcp.server import build_mcp
@@ -65,6 +66,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory.kw["bind"].dispose()
 
 
+async def _embed_unavailable(_request, _exc):
+    """The query embedding endpoint is throttled/down: fail fast (no retries on the interactive path)."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse({"detail": "inference unavailable"}, status_code=503, headers={"Retry-After": "2"})
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="rOracle", version=__version__, lifespan=_lifespan)
     app.state.settings = settings or get_settings()
@@ -74,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(http_middleware)
     input_guard.install(app)
     app.add_exception_handler(ExportBlocked, export_blocked_handler)
+    app.add_exception_handler(EmbedUnavailable, _embed_unavailable)
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(admin_settings.router)

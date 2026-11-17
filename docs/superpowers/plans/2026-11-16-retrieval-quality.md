@@ -414,6 +414,9 @@ on titles, size ≤ 10, no kNN or rerank); tests `library.test.tsx`, `palette.te
 - [ ] Tests: typing "abc" quickly sends 1 request; page 2 sends no request; quick mode applies the ACL filter and
   makes no embed or rerank call.
 - [ ] **Commit** `perf(web): quieter search typing, quick palette search, client paging`
+- **Deviation (ruling, 2026-11-17):** paging stays server-side. The 10.8 page cache makes page 2 cost 0 ES/embed/rerank
+  calls, and a client-held 200-result set (with passages and notes) would be a larger payload than the 20 shown.
+  `mode=quick` takes only `q` (422 otherwise).
 
 #### Task 10.13: Budget gate and report
 

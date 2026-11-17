@@ -291,7 +291,10 @@ def _quick(session: Session, es: Elasticsearch, settings: Settings, p: Principal
             ids.append(d)
     by_id = {r.doc.id: r for r in _load(session, p, ids[: 2 * QUICK_DOCS])}
     rows = [by_id[i] for i in ids if i in by_id][:QUICK_DOCS]
-    return {"total": len(rows), "page": 1, "results": [_hit(r) for r in rows], "facets": {}}
+    out = [_hit(r) for r in rows]
+    for h in out:
+        h["label"] = label_json(policy.get(h["label"]))  # same shape as the full search
+    return {"total": len(rows), "page": 1, "results": out, "facets": {"label": []}}
 
 
 def _empty(page: int) -> dict:
@@ -321,7 +324,13 @@ def search(
     after: Annotated[str | None, Query(max_length=100)] = None,
     mode: Literal["full", "quick"] = "full",
 ) -> dict:
-    if mode == "quick" and q.strip():
+    if mode == "quick":
+        if any((tags, year, file_type, org_unit, collection, author, label, after)) or page != 1:
+            raise HTTPException(
+                422, "mode=quick takes only q"
+            )  # title search for the palette: no filters/paging
+        if not q.strip():
+            return _empty(1)
         return _quick(session, es, settings, p, q.strip())
     cursor = None
     if after:  # keyset paging of the browse list (empty q, newest-first); `next` in the response

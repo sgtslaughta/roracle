@@ -53,3 +53,35 @@ def test_quick_returns_at_most_10_documents(client, as_ana, ana, db_session, fes
     fes.hits = hits
     r = client.get("/search", headers=as_ana, params={"q": "alpha", "mode": "quick"})
     assert len(r.json()["results"]) == 10
+
+
+def test_quick_rejects_filters_and_paging_and_shapes_the_label_like_search(
+    client, as_ana, ana, db_session, fes
+):
+    d, v = seed(db_session, ana, title="Alpha paper")
+    fes.hits = [hit(d, v)]
+    for extra in ({"tags": "x"}, {"year": 2020}, {"page": 2}, {"collection": "c"}, {"after": "x"}):
+        assert (
+            client.get("/search", headers=as_ana, params={"q": "alpha", "mode": "quick", **extra}).status_code
+            == 422
+        )
+    r = client.get("/search", headers=as_ana, params={"q": "alpha", "mode": "quick"})
+    assert isinstance(r.json()["results"][0]["label"], dict)  # label JSON, not a bare id
+
+
+def test_a_throttled_embedding_endpoint_is_a_fast_503_for_search(client, as_ana, ana, db_session, app, fes):
+    import time
+    from types import SimpleNamespace
+
+    class Throttled(Exception):
+        status_code = 429
+        response = SimpleNamespace(headers={"retry-after": "30"})
+
+    def boom(model, input):
+        raise Throttled("slow down")
+
+    app.dependency_overrides[get_llm] = lambda: SimpleNamespace(embeddings=SimpleNamespace(create=boom))
+    seed(db_session, ana, title="x")
+    t = time.monotonic()
+    r = client.get("/search", headers=as_ana, params={"q": "uncached throttled query"})
+    assert r.status_code == 503 and time.monotonic() - t < 1.5

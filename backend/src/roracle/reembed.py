@@ -17,7 +17,6 @@ catchup  twice, 300 s apart: copy chunks present in the old index but missing in
 import logging
 import re
 import uuid
-from datetime import datetime
 from typing import Any
 
 from elasticsearch import Elasticsearch, NotFoundError, helpers
@@ -27,7 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from roracle import runtime, search_index
 from roracle.acl_sync import drifted, read_acl, read_acl_many
 from roracle.config import Settings
-from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, prompt_sha
+from roracle.ingest.embed import BATCH_RETRIES, chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
 from roracle.models import Document, DocumentVersion, Job
 from roracle.models_eval import EvalSet
@@ -80,9 +79,6 @@ def start(session: Session, es: Elasticsearch, settings: Settings, model: str, d
     gens = [int(n[len(prefix) :]) for n in used if re.fullmatch(re.escape(prefix) + r"\d+", n)]
     target = {"model": model, "dims": dims, "index": search_index.index_name(model, max(gens, default=0) + 1)}
     n = max(1, min(16, settings.reembed_slices))
-    started = session.scalar(
-        select(func.now())
-    ).isoformat()  # the convergence pass looks at changes since here
     ids = [
         enqueue(
             session,
@@ -96,7 +92,6 @@ def start(session: Session, es: Elasticsearch, settings: Settings, model: str, d
                 "total": None,
                 "round": 0,
                 "slice": {"i": i, "n": n},
-                "started_at": started,
             },
         )
         for i in range(n)
@@ -284,7 +279,14 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Se
     }
     sum_prompts = [doc_prompt(x["title"], summaries[_uuid(x["version_id"])]) for x in sums.values()]
     # chunk and summary prompts go out as ONE stream of requests, `embed_concurrency` in flight
-    allv = embed(llm, target["model"], [*prompts, *sum_prompts], target["dims"], concurrency=conc)
+    allv = embed(
+        llm,
+        target["model"],
+        [*prompts, *sum_prompts],
+        target["dims"],
+        concurrency=conc,
+        retries=BATCH_RETRIES,
+    )
     vectors, svecs = allv[: len(prompts)], allv[len(prompts) :]
     sv = dict(zip(sums, svecs, strict=True))
     check_lease()  # last cooperative checkpoint before the page is written
@@ -393,15 +395,14 @@ def _pass_has_failed_slice(session: Session, payload: dict) -> bool:
     )
 
 
-def _converge(es, sf, target: dict, started_at: str | None) -> None:
+def _converge(es, sf, target: dict) -> None:
     """Right before the swap, with the target refreshed: make it agree with Postgres about everything that changed
-    while it was being copied (mutations only reach refreshed chunks). All of it is bounded by the corpus, but cheap
-    when in sync (one ES search per RECONCILE_BATCH documents, writes only for drifted ones).
+    while it was being copied (mutations only reach refreshed chunks). Clock-free: nothing here compares timestamps.
     1. ACL/tags/title drift of every live document (acl_hash vs Postgres) -> `sync_acl`
-    2. documents soft-deleted since the pass started -> their target chunks are deleted
-    3. documents that got a newer version since the pass started -> older versions marked not latest
-    A hard purge in the last COPY_REFRESH before its page's verify is the one thing left (the purge job's own
-    delete_by_query sees the page after the next refresh); `reconcile` / purge GC handle it."""
+    2. target chunks of EVERY soft-deleted, not yet purged document are deleted
+    3. target chunks still `is_latest` whose Postgres version is not the latest are demoted (by version id)
+    4. orphans: target documents that no longer exist in Postgres (hard purge raced the copy) are deleted
+    Bounded by the corpus, cheap when in sync (an ES search per RECONCILE_BATCH documents, writes only for drift)."""
     idx, after = target["index"], None
     while True:
         check_lease()
@@ -416,21 +417,59 @@ def _converge(es, sf, target: dict, started_at: str | None) -> None:
         if len(ids) < RECONCILE_BATCH:
             break
         after = ids[-1]
-    if not started_at:
-        return
-    started_at = datetime.fromisoformat(started_at)
-    with sf() as s:
-        gone = [str(i) for i in s.scalars(select(Document.id).where(Document.deleted_at >= started_at))]
-        newer = s.execute(
-            select(DocumentVersion.document_id, func.max(DocumentVersion.version))
-            .where(DocumentVersion.created_at >= started_at, DocumentVersion.stage == "searchable")
-            .group_by(DocumentVersion.document_id)
-        ).all()
-    for d in gone:
+    for ids in _pages(sf, select(Document.id).where(Document.deleted_at.is_not(None))):
         check_lease()
-        _dbq(es, idx, {"term": {"doc_id": d}})
-    for d, n in newer:
-        search_index.mark_previous_versions(es, d, n)
+        _dbq(es, idx, {"terms": {"doc_id": ids}})
+    sup = select(DocumentVersion.id).where(
+        DocumentVersion.stage == "searchable", DocumentVersion.is_latest.is_(False)
+    )
+    for ids in _pages(sf, sup):
+        check_lease()
+        es.update_by_query(
+            index=idx,
+            query={"bool": {"filter": [{"terms": {"version_id": ids}}, {"term": {"is_latest": True}}]}},
+            script={"source": "ctx._source.is_latest = false", "lang": "painless"},
+            refresh=True,
+            conflicts="proceed",
+        )
+    _purge_orphans(es, sf, idx)
+
+
+def _pages(sf, stmt, size: int = RECONCILE_BATCH):
+    """Keyset pages (as strings) of a one-column id select, ordered by id."""
+    col = stmt.selected_columns[0]
+    after = None
+    while True:
+        with sf() as s:
+            q = stmt if after is None else stmt.where(col > after)
+            ids = list(s.scalars(q.order_by(col).limit(size)))
+        if not ids:
+            return
+        yield [str(i) for i in ids]
+        if len(ids) < size:
+            return
+        after = ids[-1]
+
+
+def _purge_orphans(es, sf, idx: str) -> None:
+    """Target documents with no Postgres row (purged while we copied): composite aggregation over `doc_id`."""
+    after = None
+    while True:
+        check_lease()
+        comp: dict = {"size": 1000, "sources": [{"d": {"terms": {"field": "doc_id"}}}]}
+        if after:
+            comp["after"] = after
+        agg = es.search(index=idx, size=0, aggs={"docs": {"composite": comp}})["aggregations"]["docs"]
+        keys = [b["key"]["d"] for b in agg["buckets"]]
+        if keys:
+            uu = [u for k in keys if (u := _uuid(k))]
+            with sf() as s:
+                have = {str(i) for i in s.scalars(select(Document.id).where(Document.id.in_(uu)))}
+            if gone := [k for k in keys if k not in have]:
+                _dbq(es, idx, {"terms": {"doc_id": gone}})
+        after = agg.get("after_key")
+        if not after or len(keys) < 1000:
+            return
 
 
 def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> None:
@@ -497,7 +536,7 @@ def _cutover(session: Session, payload: dict, es, settings: Settings, sf) -> Non
     _restore_target(
         es, target, settings
     )  # FIRST and idempotent: whatever fails below, the index is back to normal
-    _converge(es, sf, target, payload.get("started_at"))  # mutations that raced the copy, before readers move
+    _converge(es, sf, target)  # mutations that raced the copy, before readers move
     before = runtime.effective(session, settings)
     if (before.embed_model, before.embed_dims) != (target["model"], target["dims"]):
         clear_summary_embeddings(sf)  # slow, derived cache of the old model: BEFORE the swap (R2-I)

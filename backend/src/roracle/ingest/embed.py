@@ -15,6 +15,10 @@ class EmbedError(RuntimeError):
     pass
 
 
+class EmbedUnavailable(EmbedError):
+    """Transient upstream failure on a no-retry (interactive) call: the API answers 503 at once."""
+
+
 def doc_prompt(title: str, text: str, summary: str | None = None) -> str:
     if summary and summary.strip():
         return f"title: {title or 'none'} | text: {summary}\n\n{text}"
@@ -39,8 +43,11 @@ def query_prompt(q: str) -> str:
     return f"task: search result | query: {q}"
 
 
-RETRIES = 4  # attempts per request after the first
+BATCH_RETRIES = (
+    4  # retries per request for batch callers (ingest, re-embed, rebuild); the query path uses none
+)
 _BACKOFF_S, _BACKOFF_MAX_S = 0.5, 20.0
+_RETRY_AFTER_MAX_S = 30.0
 _RETRY_STATUS = {408, 429, 500, 502, 503, 504}
 _pause = {"until": 0.0}  # shared throttle: after a 429 / Retry-After EVERY thread of this process holds off
 _pause_lock = threading.Lock()
@@ -61,25 +68,31 @@ def _transient(e: Exception) -> bool:
     )
 
 
-def _create(client, model: str, part: list[str]):
-    """One embeddings request; 429/5xx/connection errors retried with jittered exponential backoff (Retry-After
-    honoured, and shared with the other threads so a throttled endpoint is not hammered by the rest)."""
-    for attempt in range(RETRIES + 1):
-        if (wait_s := _pause["until"] - time.monotonic()) > 0:
+def _create(client, model: str, part: list[str], retries: int):
+    """One embeddings request. `retries` = 0 (the query path: /search, /ask): a transient failure raises
+    `EmbedUnavailable` immediately, never sleeps and never pauses other threads. `retries` > 0 (batch work): 429/5xx/
+    connection errors are retried with jittered exponential backoff; Retry-After is honoured (capped) and shared, so
+    the other batch threads of this process hold off too."""
+    for attempt in range(retries + 1):
+        if retries and (wait_s := _pause["until"] - time.monotonic()) > 0:
             _sleep(wait_s)
         try:
             return client.embeddings.create(model=model, input=part)
         except Exception as e:
-            if attempt == RETRIES or not _transient(e):
+            if not _transient(e):
                 raise
-            delay = _retry_after(e) or min(_BACKOFF_MAX_S, _BACKOFF_S * 2**attempt)
+            if not retries:
+                raise EmbedUnavailable("embedding service unavailable") from e
+            if attempt == retries:
+                raise
+            delay = min(_RETRY_AFTER_MAX_S, _retry_after(e) or min(_BACKOFF_MAX_S, _BACKOFF_S * 2**attempt))
             delay *= 1 + random.random() * 0.25
             with _pause_lock:
                 _pause["until"] = max(_pause["until"], time.monotonic() + delay)
 
 
-def _embed_batch(client, model: str, part: list[str], dims: int) -> list[list[float]]:
-    resp = _create(client, model, part)
+def _embed_batch(client, model: str, part: list[str], dims: int, retries: int = 0) -> list[list[float]]:
+    resp = _create(client, model, part, retries)
     data = resp.data
     if len(data) != len(part):
         raise EmbedError("embedding response count mismatch")
@@ -94,18 +107,19 @@ def _embed_batch(client, model: str, part: list[str], dims: int) -> list[list[fl
 
 
 def embed(
-    client, model: str, texts: list[str], dims: int, batch: int = 32, concurrency: int = 1
+    client, model: str, texts: list[str], dims: int, batch: int = 32, concurrency: int = 1, retries: int = 0
 ) -> list[list[float]]:
     """Embeddings in input order. `concurrency` > 1 keeps that many requests of `batch` texts in flight (embedding
-    replicas are the bottleneck of a re-embed: one request at a time leaves them idle). The first hard failure
+    replicas are the bottleneck of a re-embed: one request at a time leaves them idle). `retries` > 0 only for batch
+    callers (see `_create`). The first hard failure
     cancels every request not yet started and is re-raised. Sizing rule: reembed_slices x embed_concurrency
     (+ ingest workers x embed_concurrency) ~ replicas x per-replica concurrency."""
     parts = [texts[i : i + batch] for i in range(0, len(texts), batch)]
     if concurrency <= 1 or len(parts) <= 1:
-        return [v for part in parts for v in _embed_batch(client, model, part, dims)]
+        return [v for part in parts for v in _embed_batch(client, model, part, dims, retries)]
     pool = ThreadPoolExecutor(max_workers=min(concurrency, len(parts)), thread_name_prefix="embed")
     try:
-        futs = [pool.submit(_embed_batch, client, model, part, dims) for part in parts]
+        futs = [pool.submit(_embed_batch, client, model, part, dims, retries) for part in parts]
         wait(futs, return_when=FIRST_EXCEPTION)
         for f in futs:  # in order: the first failure (in input order among the finished) wins
             if f.done() and f.exception() is not None:
