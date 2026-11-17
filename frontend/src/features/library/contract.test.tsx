@@ -19,12 +19,12 @@ async function renderLibrary(path = "/library") {
   );
   return router;
 }
-const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], label: [] };
+const EMPTY_FACETS = { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [], label: [] };
 const hit = (o: Partial<SearchHit> = {}): SearchHit => ({
   doc_id: "d1", title: "A paper", authors: ["A. Author"], year: 2020, score: 1, passages: [], tags: [], votes: { up: 0, down: 0, mine: 0 },
-  file_type: "PDF", version: 1, venue: "Journal", org_unit: "Math", owner_id: "x", flag: null, cited_by_count: 0, ...o,
+  file_type: "PDF", version: 1, venue: "Journal", org_unit: "Math", owner_id: "x", flag: null, cited_by_count: 0, page_count: null, added_at: "2026-01-01T00:00:00Z", ...o,
 });
-const respond = (r: Partial<SearchResponse>) => server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 0, page: 1, results: [], facets: EMPTY_FACETS, ...r })));
+const respond = (r: Partial<SearchResponse>) => server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 0, total_capped: false, next: null, page: 1, results: [], facets: EMPTY_FACETS, ...r })));
 
 describe("P3 contract: collections by id", () => {
   it("sidebar collection link filters by id", async () => {
@@ -88,7 +88,7 @@ describe("P3 contract: nullable fields and caps", () => {
   });
 
   it("total at the cap shows 200+ and the pager stops at ceil(total/size)", async () => {
-    respond({ total: 200, results: [hit()] });
+    respond({ total: 200, total_capped: true, results: [hit()] });
     await renderLibrary();
     expect(await screen.findByText(/of 200\+ documents/)).toBeInTheDocument();
     const nav = await screen.findByRole("navigation", { name: "Pages" });
@@ -97,7 +97,7 @@ describe("P3 contract: nullable fields and caps", () => {
   });
 
   it("browse facets at the cap are labelled approximate; a search is not", async () => {
-    respond({ total: 200, results: [hit()] });
+    respond({ total: 200, total_capped: true, results: [hit()] });
     await renderLibrary();
     expect(await screen.findAllByText("Counts cover the 200 newest documents.")).not.toHaveLength(0);
   });

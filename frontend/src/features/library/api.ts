@@ -3,16 +3,14 @@ import { toast } from "sonner";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { apiFetch, seg } from "@/api/client";
 import type { Collection, DocumentDetail, SearchResponse, TagsResponse, Votes, VoteRequest } from "@/api/types";
-import { stringifySearch, type LibrarySearch } from "@/lib/searchParams";
+import { toApiQuery, type LibrarySearch } from "@/lib/searchParams";
 
 export const PAGE_SIZE = 20;
-/** The backend caps `total` here; at the cap the count reads "200+". */
-export const RESULT_CAP = 200;
 
 export const useSearch = (s: LibrarySearch) =>
   useQuery({
     queryKey: ["search", s],
-    queryFn: () => apiFetch<SearchResponse>(`/search${stringifySearch(s, { size: PAGE_SIZE, notes: true })}`),
+    queryFn: () => apiFetch<SearchResponse>(`/search${toApiQuery(s, { size: PAGE_SIZE, notes: true })}`),
     placeholderData: keepPreviousData,
   });
 

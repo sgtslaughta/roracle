@@ -57,10 +57,10 @@ describe("library search", () => {
   });
 
   it("a selected facet value with no matches stays visible at zero", async () => {
-    await renderLibrary("/library?q=spectral&year=1999");
-    const g = await screen.findByRole("group", { name: "Year" });
-    await waitFor(() => expect(within(g).getByRole("checkbox", { name: "Year: 1999" })).toBeChecked());
-    expect(within(g).getByRole("checkbox", { name: "Year: 1999" }).closest("label")).toHaveTextContent("0");
+    await renderLibrary("/library?q=spectral&file_type=zzz");
+    const g = await screen.findByRole("group", { name: "File type" });
+    await waitFor(() => expect(within(g).getByRole("checkbox", { name: "File type: zzz" })).toBeChecked());
+    expect(within(g).getByRole("checkbox", { name: "File type: zzz" }).closest("label")).toHaveTextContent("0");
   });
 
   it("clicking a tag chip on a result filters by that tag", async () => {
@@ -125,7 +125,7 @@ describe("library search", () => {
   });
 
   it("paging controls follow total / page size", async () => {
-    server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 45, page: 2, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } })));
+    server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 45, page: 2, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [] } })));
     await renderLibrary("/library?page=2");
     const nav = await screen.findByRole("navigation", { name: "Pages" });
     expect(within(nav).getByRole("button", { name: "Page 2" })).toHaveAttribute("aria-current", "true");
@@ -135,7 +135,7 @@ describe("library search", () => {
 
   it("sends the page size to the API but keeps it out of the browser URL", async () => {
     let seen: URL | undefined;
-    server.use(http.get(`${API_BASE}/search`, ({ request }) => { seen = new URL(request.url); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } }); }));
+    server.use(http.get(`${API_BASE}/search`, ({ request }) => { seen = new URL(request.url); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [] } }); }));
     const router = await renderLibrary("/library?q=x");
     await screen.findByText(/No documents match/);
     expect(seen?.searchParams.get("size")).toBe("20");
@@ -147,7 +147,7 @@ describe("library search", () => {
     expect(pageItems(1, 100)).toEqual([1, 2, "gap-r", 100]);
     expect(pageItems(100, 100)).toEqual([1, "gap-l", 99, 100]);
     expect(pageItems(3, 5)).toEqual([1, 2, 3, 4, 5]);
-    server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 2000, page: 50, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } })));
+    server.use(http.get(`${API_BASE}/search`, () => HttpResponse.json({ total: 2000, page: 50, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [] } })));
     await renderLibrary("/library?page=50");
     const nav = await screen.findByRole("navigation", { name: "Pages" });
     expect(within(nav).getAllByRole("button").length).toBeLessThanOrEqual(7 + 2);
@@ -155,7 +155,7 @@ describe("library search", () => {
   });
 
   it("offers a Filters (n) popover for narrow panes; facets never use a stacked auto-fill grid", async () => {
-    await renderLibrary("/library?tags=expanders&year=2021");
+    await renderLibrary("/library?tags=expanders&file_type=PDF");
     const btn = await screen.findByRole("button", { name: "Filters (2)" });
     await userEvent.click(btn);
     const pop = await screen.findByLabelText("Filters", { selector: ".facets-pop" });
@@ -194,7 +194,7 @@ describe("library search", () => {
 describe("global search typing", () => {
   it("navigates once, after 300 ms and 3 characters, and clears on empty", async () => {
     const qs: (string | null)[] = [];
-    server.use(http.get(`${API_BASE}/search`, ({ request }) => { qs.push(new URL(request.url).searchParams.get("q")); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [] } }); }));
+    server.use(http.get(`${API_BASE}/search`, ({ request }) => { qs.push(new URL(request.url).searchParams.get("q")); return HttpResponse.json({ total: 0, page: 1, results: [], facets: { tags: [], year: [], file_type: [], org_unit: [], collection: [], author: [], venue: [] } }); }));
     await renderLibrary();
     await waitFor(() => expect(qs).toHaveLength(1)); // the initial browse
     const box = screen.getByLabelText("Search documents");

@@ -1,4 +1,4 @@
-import { Building2, Calendar, File, Folder, Tag, User, ShieldHalf } from "lucide-react";
+import { BookOpen, Building2, File, Folder, Tag, User, ShieldHalf } from "lucide-react";
 import { OverflowList } from "@/components/OverflowList";
 import type { FacetName, FacetValue } from "@/api/types";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,7 +11,7 @@ export const FACET_META: Record<FacetKey, { label: string; icon: typeof Tag }> =
   tags: { label: "Tags", icon: Tag },
   file_type: { label: "File type", icon: File },
   org_unit: { label: "Org unit", icon: Building2 },
-  year: { label: "Year", icon: Calendar },
+  venue: { label: "Venue", icon: BookOpen },
   author: { label: "Author", icon: User },
   label: { label: "Sensitivity", icon: ShieldHalf },
 };

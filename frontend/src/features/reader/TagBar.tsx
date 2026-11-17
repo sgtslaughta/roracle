@@ -17,7 +17,7 @@ export function TagBar({ docId, tags, ownerId }: { docId: string; tags: string[]
       <Tag aria-hidden />
       <OverflowList
         items={tags} max={6} menuLabel="More tags" getLabel={(t) => t}
-        renderItem={(t) => <TagChip key={t} docId={docId} tag={t} plain canRemove={canRemove} onFilter={() => nav.add("tags", t)} />}
+        renderItem={(t) => <TagChip key={t} docId={docId} tag={t} plain canRemove={canRemove} onFilter={() => nav.patch({ tags: [...new Set([...(nav.search.tags ?? []), t])], tags_not: undefined })} />}
       />
       <input
         placeholder="Add a tag" aria-label="Add tag" value={v} onChange={(e) => setV(e.target.value)}

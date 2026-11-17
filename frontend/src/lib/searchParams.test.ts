@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { parseSearch, stringifySearch } from "./searchParams";
+import { COLUMNS, parseSearch, stringifySearch, toApiQuery, validateLibrarySearch, type LibrarySearch } from "./searchParams";
+
+const U = "123e4567-e89b-42d3-a456-426614174000";
 
 describe("search params", () => {
   it("round-trips repeated keys and numbers", () => {
-    const s = { q: "spectral gap", tags: ["a", "b"], year: ["2021"], sort: "newest", page: 2 };
+    const s = { q: "spectral gap", tags: ["a", "b"], year_min: 2021, sort: "newest", page: 2 };
     const url = stringifySearch(s);
-    expect(url).toBe("?q=spectral+gap&tags=a&tags=b&year=2021&sort=newest&page=2");
+    expect(url).toBe("?q=spectral+gap&tags=a&tags=b&year_min=2021&sort=newest&page=2");
     expect(parseSearch(url)).toEqual(s);
   });
   it("omits empty values and page 1", () => {
@@ -16,10 +18,21 @@ describe("search params", () => {
   });
 });
 
-import { validateLibrarySearch } from "./searchParams";
 describe("validateLibrarySearch", () => {
   it("drops malformed values", () => {
     expect(validateLibrarySearch({ q: "x", sort: "bogus", page: -3, tags: ["a", 5, ""], year: "2021" })).toEqual({ q: "x", tags: ["a"] });
     expect(validateLibrarySearch({ sort: "newest", page: 4 })).toEqual({ sort: "newest", page: 4 });
   });
+  it("round-trips every key and omits defaults", () => {
+    const s: LibrarySearch = { q: 'a "b" -c', in: "title", author: ["Smith", "Lee"], author_op: "and", tags_not: ["x"], year_min: 2018, year_max: 2024,
+      added_min: "2025-01-01", has_doi: "yes", owner: "mine", cites: U, sort: "cited", view: "table", cols: ["title", "year"] };
+    expect(validateLibrarySearch(parseSearch(stringifySearch(s)))).toEqual(s);
+    expect(stringifySearch({ in: "anywhere", view: "list", cols: [...COLUMNS] })).toBe("");
+  });
+  it("drops malformed values", () => {
+    expect(validateLibrarySearch(parseSearch("?year_min=abc&cites=nope&added_min=2025-13&pages_min=-1&sort=weird&foo=1"))).toEqual({});
+  });
+  it("converts legacy year lists", () => expect(validateLibrarySearch(parseSearch("?year=2021&year=2019"))).toEqual({ year_min: 2019, year_max: 2021 }));
+  it("exclusion wins in a hand-edited URL", () => expect(validateLibrarySearch(parseSearch("?tags=ml&tags_not=ml"))).toEqual({ tags_not: ["ml"] }));
+  it("api query drops view and cols", () => expect(toApiQuery({ q: "x", view: "table", cols: ["title"] })).toBe("?q=x"));
 });

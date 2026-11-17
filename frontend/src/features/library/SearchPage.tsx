@@ -6,13 +6,16 @@ import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { ActiveFilters } from "./ActiveFilters";
 import { Facets } from "./Facets";
 import { FiltersButton } from "./FiltersButton";
-import { PAGE_SIZE, RESULT_CAP, useCollectionName, useSearch } from "./api";
+import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
 import { Pager } from "./Pager";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
 
-const SORT_LABEL = { relevance: "Relevance", newest: "Newest", votes: "Most useful", title: "Title" } as const;
+const SORT_LABEL = {
+  relevance: "Relevance", newest: "Recently added", votes: "Most useful", title: "Title", published_desc: "Newest published", published_asc: "Oldest published",
+  cited: "Most cited", pages: "Shortest", venue: "Venue", author: "Author",
+} as const;
 
 /** Exactly one collection filter hands off the collection; otherwise the search with this page's results. */
 function searchHandoff(search: LibrarySearch, docIds: string[], total: number, collName: (id: string) => string): HandoffSource {
@@ -43,7 +46,7 @@ export function SearchPage() {
   const terms = searchTerms(search.q ?? "");
   const page = data?.page ?? search.page ?? 1;
   const total = data?.total ?? 0;
-  const capped = total >= RESULT_CAP;
+  const capped = data?.total_capped ?? false;
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
   const collName = useCollectionName();
@@ -54,7 +57,7 @@ export function SearchPage() {
         <div>
           <h1>{search.q ? `Results for “${search.q}”` : "Library"}</h1>
           <p className="sub" aria-live="polite">
-            {!data ? "Loading…" : total ? `Showing ${first}–${first + data.results.length - 1} of ${capped ? `${RESULT_CAP}+` : total} documents` : "No documents match"}
+            {!data ? "Loading…" : total ? `Showing ${first}–${first + data.results.length - 1} of ${total}${capped ? "+" : ""} documents` : "No documents match"}
           </p>
         </div>
         <div className="sortrow">
@@ -66,14 +69,14 @@ export function SearchPage() {
           </select></span>
         </div>
       </div>
-      <ActiveFilters search={search} onRemove={nav.remove} onClear={nav.clear} />
+      <ActiveFilters search={search} onRemove={(k, v) => nav.patch({ [k]: (search[k] ?? []).filter((x) => x !== v) })} onClear={nav.clear} />
       <div className="sbody">
         <div className="facet-rail"><Facets facets={data?.facets} selected={search} onToggle={nav.toggle} approximate={!search.q && capped} /></div>
         <div>
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">
             {data?.results.map((hit) => (
-              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.add("tags", t)} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
+              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.patch({ tags: [...new Set([...(search.tags ?? []), t])], tags_not: undefined })} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
             ))}
             {data && !data.results.length && (
               <li className="empty">
