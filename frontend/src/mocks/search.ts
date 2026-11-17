@@ -130,3 +130,11 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
   }));
   return { total: kept.length, total_capped: false, next: null, page, results, facets };
 }
+
+/** Facet find: case-insensitive substring over the matched set's values, plus one value outside the sample for accent tests. */
+export function findFacet(name: string, find: string, sp: URLSearchParams): FacetValue[] {
+  const f = name as FacetName;
+  const c: Record<string, number> = name === "author" ? { "Émile Zola": 1 } : {};
+  runSearch(sp).facets[f]?.forEach((v) => { c[v.value] = v.count; });
+  return Object.entries(c).filter(([v]) => v.toLowerCase().includes(find)).map(([value, count]) => ({ value, count }));
+}

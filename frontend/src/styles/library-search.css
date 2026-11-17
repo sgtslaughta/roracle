@@ -1,0 +1,16 @@
+/* library search: facet rail rows, exclude toggle, match any/all, find box */
+.frow { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.frow label { flex: 1; }
+.frow[data-excluded] .v { text-decoration: line-through; color: var(--muted); }
+.fx { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border: 0; border-radius: var(--r); background: none; color: var(--muted); cursor: pointer; }
+.fx svg { width: 15px; height: 15px; }
+.fx:hover { background: var(--muted-bg); color: var(--ink); }
+.fx[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary); }
+.fx:focus-visible, .ffind:focus-visible, .fop input:focus-visible { outline: none; border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+.ffind { width: 100%; margin: 0 0 6px; padding: 5px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--ink); }
+.fop { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 6px; font-size: 12.5px; }
+.fop label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.fop input { accent-color: var(--primary); }
+@media (prefers-reduced-motion: no-preference) {
+  .fx { transition: background-color .15s, color .15s; }
+}

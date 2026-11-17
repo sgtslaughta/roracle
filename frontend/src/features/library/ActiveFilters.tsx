@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ARRAY_KEYS, type FacetKey, type LibrarySearch, type NotKey } from "@/lib/searchParams";
 import { useCollectionName } from "./api";
 import { useLabelName } from "@/features/labels/api";
-import { FACET_META } from "./Facets";
+import { FACET_META } from "./FacetRail";
 
 export function ActiveFilters({ search, onRemove, onClear }: { search: LibrarySearch; onRemove: (k: FacetKey | NotKey, v: string) => void; onClear: () => void }) {
   const collName = useCollectionName();

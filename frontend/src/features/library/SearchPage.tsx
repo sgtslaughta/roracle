@@ -4,7 +4,7 @@ import { ARRAY_KEYS, SORTS, type LibrarySearch } from "@/lib/searchParams";
 import { ContinueInAgent } from "@/features/agents/ContinueInAgent";
 import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { ActiveFilters } from "./ActiveFilters";
-import { Facets } from "./Facets";
+import { FacetRail } from "./FacetRail";
 import { FiltersButton } from "./FiltersButton";
 import { PAGE_SIZE, useCollectionName, useSearch } from "./api";
 import { searchTerms } from "./highlight";
@@ -62,7 +62,7 @@ export function SearchPage() {
         </div>
         <div className="sortrow">
           <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
-          <FiltersButton facets={data?.facets} selected={search} onToggle={nav.toggle} />
+          <FiltersButton facets={data?.facets} search={search} nav={nav} />
           <span className="sortpair"><label className="vis" htmlFor="sort">Sort</label>
           <select id="sort" className="sel" value={search.sort ?? "relevance"} onChange={(e) => nav.setSort(e.target.value as (typeof SORTS)[number])}>
             {SORTS.map((s) => <option key={s} value={s}>{SORT_LABEL[s]}</option>)}
@@ -71,7 +71,7 @@ export function SearchPage() {
       </div>
       <ActiveFilters search={search} onRemove={(k, v) => nav.patch({ [k]: (search[k] ?? []).filter((x) => x !== v) })} onClear={nav.clear} />
       <div className="sbody">
-        <div className="facet-rail"><Facets facets={data?.facets} selected={search} onToggle={nav.toggle} approximate={!search.q && capped} /></div>
+        <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>
         <div>
           {isError && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           <ol className="results">

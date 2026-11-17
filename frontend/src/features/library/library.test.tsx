@@ -44,23 +44,23 @@ describe("library search", () => {
     const router = await renderLibrary();
     await screen.findByText(/of 7 documents/);
     const tagGroup = screen.getByRole("group", { name: "Tags" });
-    await userEvent.click(within(tagGroup).getByRole("checkbox", { name: "Tags: expanders" }));
+    await userEvent.click(within(tagGroup).getByRole("checkbox", { name: "Include Tags: expanders" }));
     await waitFor(() => expect(results()).toHaveLength(2));
     expect(router.state.location.search).toMatchObject({ tags: ["expanders"] });
     const chip = screen.getByRole("button", { name: "Remove filter Tags: expanders" });
     // facets show only values present in the current results
-    expect(within(screen.getByRole("group", { name: "File type" })).queryByRole("checkbox", { name: "File type: Word" })).toBeNull();
+    expect(within(screen.getByRole("group", { name: "File type" })).queryByRole("checkbox", { name: "Include File type: Word" })).toBeNull();
     await userEvent.click(chip);
     await waitFor(() => expect(results()).toHaveLength(7));
-    expect(within(screen.getByRole("group", { name: "File type" })).getByRole("checkbox", { name: "File type: Word" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "File type" })).getByRole("checkbox", { name: "Include File type: Word" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove filter/ })).toBeNull();
   });
 
   it("a selected facet value with no matches stays visible at zero", async () => {
     await renderLibrary("/library?q=spectral&file_type=zzz");
     const g = await screen.findByRole("group", { name: "File type" });
-    await waitFor(() => expect(within(g).getByRole("checkbox", { name: "File type: zzz" })).toBeChecked());
-    expect(within(g).getByRole("checkbox", { name: "File type: zzz" }).closest("label")).toHaveTextContent("0");
+    await waitFor(() => expect(within(g).getByRole("checkbox", { name: "Include File type: zzz" })).toBeChecked());
+    expect(within(g).getByRole("checkbox", { name: "Include File type: zzz" }).closest("label")).toHaveTextContent("0");
   });
 
   it("clicking a tag chip on a result filters by that tag", async () => {

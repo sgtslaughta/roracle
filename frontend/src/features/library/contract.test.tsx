@@ -38,7 +38,7 @@ describe("P3 contract: collections by id", () => {
     const router = await renderLibrary("/library?collection=c1");
     expect(await screen.findByRole("button", { name: "Remove filter Collection: Thesis reading list" })).toBeInTheDocument();
     const g = await screen.findByRole("group", { name: "Collection" });
-    expect(await within(g).findByRole("checkbox", { name: "Collection: Thesis reading list" })).toBeChecked();
+    expect(await within(g).findByRole("checkbox", { name: "Include Collection: Thesis reading list" })).toBeChecked();
     expect(router.state.location.search).toMatchObject({ collection: ["c1"] });
     await waitFor(() => expect(document.querySelectorAll(".result").length).toBeGreaterThan(0));
   });
@@ -47,7 +47,7 @@ describe("P3 contract: collections by id", () => {
     respond({ facets: { ...EMPTY_FACETS, collection: [{ value: "c9", count: 3, label: "Reading group" }] } });
     await renderLibrary();
     const g = await screen.findByRole("group", { name: "Collection" });
-    expect(within(g).getByRole("checkbox", { name: "Collection: Reading group" })).toBeInTheDocument();
+    expect(within(g).getByRole("checkbox", { name: "Include Collection: Reading group" })).toBeInTheDocument();
   });
 });
 
@@ -96,16 +96,11 @@ describe("P3 contract: nullable fields and caps", () => {
     expect(within(nav).queryByRole("button", { name: "Page 11" })).toBeNull();
   });
 
-  it("browse facets at the cap are labelled approximate; a search is not", async () => {
-    respond({ total: 200, total_capped: true, results: [hit()] });
-    await renderLibrary();
-    expect(await screen.findAllByText("Counts cover the 200 newest documents.")).not.toHaveLength(0);
-  });
-
-  it("no approximate note below the cap or with a query", async () => {
+  it("one note: browse counts cover everything visible", async () => {
     respond({ total: 5, results: [hit()] });
     await renderLibrary();
     await screen.findByText(/of 5 documents/);
+    expect(screen.getAllByText("Counts cover everything you can see.")).not.toHaveLength(0);
     expect(screen.queryByText("Counts cover the 200 newest documents.")).toBeNull();
   });
 
