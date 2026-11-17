@@ -259,7 +259,7 @@ def test_close_persists_before_cleanup_closes_the_session(db_session, user):
     db_session.add(chat)
     db_session.commit()
     seen = []
-    cleanup = lambda: seen.append(db_session.scalars(select(ChatMessage)).all() != [])  # noqa: E731
+    cleanup = lambda: seen.append(db_session.scalars(select(ChatMessage)).all() != [])
     gen = stream_answer(db_session, FakeStreamLLM(), chat.id, "m", [], [P(1)], cleanup=cleanup)
     next(gen)
     gen.close()
