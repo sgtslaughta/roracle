@@ -221,3 +221,6 @@ mTLS). Monorepo; GitLab CI must pass before merge; Conventional Commits; one Sem
 | 10 | Connectors & admin | S3/fs/HTTP connectors, admin section, notifications |
 | 11 | Production | Helm, HA, observability, backups, hardening, load tests against latency targets |
 | 12 | Documentation | Comprehensive pass after all features: user guide, admin guide, API + MCP reference, architecture overview, enterprise docs audit, developer guide; every doc verified against code |
+| 14 | Infrastructure as code | Terraform onto existing Kubernetes wrapping the Helm charts; placeholder-gated air-gap mirrors; sizing profiles; kind apply rehearsal in CI-able script |
+
+Plan 14 runs after 13 and before 12 (Documentation), which stays last so it can document the IaC.
