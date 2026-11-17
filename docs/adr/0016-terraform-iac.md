@@ -22,3 +22,7 @@ Operators need a repeatable way to install the operator layer (CNPG, barman-clou
 - Two ways to install (helm, terraform) must stay equivalent: Terraform only sets documented chart values, never templates the chart.
 - Uninstalling the release deletes the data-tier CRs and PVCs (the chart has no keep policy). `protect_data=true` (default) sets `prevent_destroy` on the release (two resources selected by the variable, since the lifecycle argument cannot be dynamic); the README gives the `state mv` procedure, StorageClass `Retain` and backup guidance.
 - State holds secrets in `create` mode: use an access-controlled backend.
+
+## Update (2026-11-17)
+
+Correction: the sentence "Not exercised on live Ceph in CI/kind" is out of date. A live Rook-Ceph rehearsal exists on kind (`deploy/terraform/test/kind-e2e-ceph.sh`, profile `ceph` of `kind-e2e.sh`, with `environments/kind-ceph.tfvars` and `ceph-checks.py`). It uses three sparse-file loop devices as OSDs in a privileged kind node, so it is local only and not part of CI. See [kind rehearsal](../enterprise/deployment-kind-rehearsal.md). The `protect_data`, placeholder gate and mode decisions are unchanged.

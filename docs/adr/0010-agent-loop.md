@@ -15,3 +15,7 @@ Status: Accepted (2026-11-15)
 ## Consequences
 
 - Accountability stays with people; agent output cannot silently enter the corpus or retrieval.
+
+## Update (2026-11-17)
+
+Handoffs have no live mode. Contents are frozen when the handoff is created (kinds: chat, collection, search, document, agent; `handoff.py:28`). Who may load one, and what is redacted, is re-evaluated on every load. Postgres re-checks visibility and version stage (R19; older versions of a visible document are allowed). Documents hidden by `block_agents` are dropped from the package for every loader, admins included ([ADR-0014](0014-sensitivity-labels.md) R10).

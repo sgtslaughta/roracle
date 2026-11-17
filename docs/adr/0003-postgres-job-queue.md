@@ -103,3 +103,7 @@ transaction and has no lease; new workers simply claim through leases). `ROR_JOB
 gap between two heartbeats a stalled process could have (a stop-the-world pause longer than the lease makes the
 job be requeued; the fencing token still prevents double completion). The invariants doc
 (`.superpowers/teams/README.md`) mentions "claim/handler/complete in one transaction": update it to this amendment.
+
+## Update (2026-11-17)
+
+Valkey is not part of the shipped system: no setting or code uses it, and the rate limit is an in-process token bucket per API replica (`backend/src/roracle/ratelimit.py`). The first addendum above ("no stale-job reaper", "a process crash does not bump `attempts`") is superseded by the lease amendment: expired leases are requeued by `requeue_expired` and a claim spends an attempt.

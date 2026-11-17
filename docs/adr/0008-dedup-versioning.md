@@ -20,3 +20,7 @@ Status: Accepted (2026-11-15)
 ## Addendum (2026-11-15, P1 final review)
 
 Uploads always PUT the blob, even when the content-addressed object already exists. Skipping the PUT made duplicate uploads measurably faster, an oracle revealing that someone else holds identical bytes. Cost: upload bandwidth on duplicates.
+
+## Update (2026-11-17)
+
+Near-duplicate candidates are found through a MinHash LSH band table (`version_lsh`, 16 bands x 8 rows, `ingest/neardup.py`) instead of a scan; below a 0.8 threshold the code falls back to scanning. Visibility filtering still happens before any candidate is shown.

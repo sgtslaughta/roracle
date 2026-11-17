@@ -19,3 +19,7 @@ Whole-document embeddings are used only for "papers about X" and near-dup, never
 
 - Every model and tokenizer must be mirrored; nothing downloads weights at runtime.
 - Each stage is retryable on its own; users see per-stage status.
+
+## Update (2026-11-17)
+
+Amended in part by [ADR-0015](0015-retrieval-quality.md): the chunk context prefix can gain an LLM situating note (`ROR_CONTEXT_NOTES`, default `false` until its eval report passes), and per-document summary units (`ROR_RAPTOR`, default `false`) are an optional extra index layer. The stage order above is otherwise as built (`ingest/pipeline.py`).

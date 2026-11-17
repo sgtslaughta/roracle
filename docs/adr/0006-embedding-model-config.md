@@ -17,3 +17,7 @@ use int8 HNSW quantization for large models.
 ## Consequences
 
 - Zero-downtime model changes; temporary double storage during re-embed.
+
+## Update (2026-11-17)
+
+Elasticsearch is 9.5.6 (it was 8.15 when this was written). Vector `index_options` are always explicit; the default is `int8_hnsw` (`ROR_VECTOR_INDEX_TYPE`, `config.py:93`). `bbq_hnsw` is available but eval-gated: it needs a recall A/B through the eval harness before anyone adopts it, and `int4_hnsw` is the fallback. The setting applies when an index is created; an existing index keeps its own. See [ADR-0015](0015-retrieval-quality.md), Outcomes.

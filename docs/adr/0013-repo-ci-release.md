@@ -20,3 +20,7 @@ Status: Accepted (2026-11-15)
 - CI jobs added: `frontend` (tsc, vitest, build), `helm` (version check, `helm lint --strict`, render min/full values), `assert-render` (PyYAML invariants),
   `kubeconform` (schemas mirror via `KUBECONFORM_SCHEMA_LOCATION`), `build-web` (kaniko). One tool per mirrored image; no internet downloads.
 - Air-gap: all images/charts listed in `docs/enterprise/airgap-mirror-manifest.md`.
+
+## Update (2026-11-17)
+
+Version and CI have moved on. `/VERSION` and the chart are 0.2.0 (chart 0.2.0 removed the bundled MinIO tenant: a breaking change shipped as a minor bump, because the product is before 1.0). The pipeline in `.gitlab-ci.yml` now also has the jobs `docs`, `eval`, `perf`, `terraform` and the manual `iac-kind-e2e`; `scripts/docs/check.sh` is the documentation gate.

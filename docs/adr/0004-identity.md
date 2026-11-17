@@ -18,3 +18,7 @@ An org proxy terminates user mTLS and forwards the certificate. Agents may run h
 ## Consequences
 
 - One validation path for web, API and MCP. Local dev uses a Keycloak test realm without mTLS.
+
+## Update (2026-11-17)
+
+Details settled in code. A PAT is a `ror_pat_` token whose hash is a plain, unsalted SHA-256 (no pepper or other server secret), default expiry 30 days and at most 365 (`api/routes/tokens.py:26`). A PAT is never admin: admin routes refuse it with 403, even for an admin owner. Token management needs an interactive JWT.

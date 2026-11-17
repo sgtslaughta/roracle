@@ -119,3 +119,7 @@ random vectors, API CPU per process, and a reconcile-gate gap (all fixed or docu
 Structural changes behind the numbers: job leases with a per-claim fencing token and drain (ADR-0003 amendment), keyset
 browse, LSH near-duplicate lookup, sliced re-embed with a pre-swap convergence pass, explicit connection budget
 (`docs/perf/connection-budget.md`).
+
+## Update (2026-11-17)
+
+The Elasticsearch 9.5.6 decision above says "a rebuild from Postgres + MinIO"; read "the object store" (Rook-Ceph RGW or external S3, [ADR-0016](0016-terraform-iac.md)). Still true and eval-gated: `bbq_hnsw` is not the default (`int8_hnsw` is, `config.py:93`), and every feature flag in the table stays `false` in `config.py` until its report says PASS. The agentic planner model (`ROR_AGENTIC_PLANNER_MODEL`, empty = the first chat model) has only a ledger ruling, not its own ADR.
