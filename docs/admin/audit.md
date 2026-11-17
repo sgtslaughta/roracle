@@ -1,6 +1,6 @@
 # Audit log
 
-rOracle writes an append-only record of admin actions, label changes, access-token use and other security-relevant events. **Admin, Audit** is the viewer. This page covers how to read it, which events it holds, how to get data out and how long it is kept.
+rOracle keeps a record of admin actions, label changes, access-token use and other security-relevant events. **Admin, Audit** is the viewer. The application only ever inserts audit rows: it has no code that edits or deletes them. Nothing in the database stops someone with write access from changing or removing rows, so protect database write access accordingly. This page covers how to read it, which events it holds, how to get data out and how long it is kept.
 
 ## The viewer
 
@@ -63,7 +63,7 @@ There is no export button and no CSV download. The options are:
 
 - **The viewer.** Filter, then copy details or targets from the row menu.
 - **The API.** Page through `GET /api/admin/audit` with `next_before_id`. It needs an interactive admin sign-in: an access token is refused, so a scheduled export cannot use one. Every page fetched adds its own `admin.list_audit` row.
-- **The database.** The data is the `audit_log` table in Postgres (columns `id`, `at`, `user_id`, `action`, `target`, `client`, `detail`, with `detail` as JSON). Operators with database access can query it directly and forward it to a SIEM. That is an operator task: see the [security guide](../enterprise/security.md#6-audit) and the [operations runbook](../enterprise/operations-runbook.md) for sample queries.
+- **The database.** The data is the `audit_log` table in Postgres (columns `id`, `at`, `user_id`, `action`, `target`, `client`, `detail`, with `detail` as JSON). Operators with database access can query it directly and forward it to a SIEM. That is an operator task: see the [security guide](../enterprise/security.md#6-audit). The [operations runbook](../enterprise/operations-runbook.md) has sample queries for label and blocked-export events only.
 
 ## Retention
 
