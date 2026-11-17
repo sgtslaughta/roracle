@@ -305,3 +305,20 @@ def test_legacy_single_version_payload_still_works(db_session, session_factory, 
     db_session.commit()
     _units(db_session, session_factory, es, {"version_id": str(v.id), "what": ["context"], "into": None})
     assert len(calls) == 1
+
+
+def test_drop_refuses_generations_and_running_jobs(db_session, es, base, vid):
+    cfg = Settings(embed_model="old", embed_dims=2)
+    active = search_index.active_index(cfg)
+    es.data[active], es.aliases["chunks"], es.aliases["chunks-all"] = {}, {active}, {active}
+    es.data["chunks-old-3"] = {}
+    es.aliases["chunks-all"].add("chunks-old-3")
+    with pytest.raises(ValueError, match="generation"):
+        rebuild.drop_shadow(es, "chunks-old-3", active, session=db_session)
+    rebuild.create_shadow(es, cfg, "chunks-old-shadow")
+    rebuild.enqueue_all(db_session, {"context"}, "chunks-old-shadow")
+    with pytest.raises(ValueError, match="running"):
+        rebuild.drop_shadow(es, "chunks-old-shadow", active, session=db_session)
+    db_session.execute(Job.__table__.update().values(status="done"))
+    rebuild.drop_shadow(es, "chunks-old-shadow", active, session=db_session)
+    assert "chunks-old-shadow" not in es.data

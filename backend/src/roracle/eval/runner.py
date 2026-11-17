@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 from sqlalchemy import select
@@ -50,6 +51,18 @@ def visible_ids(session: Session, p: Principal, doc_ids: set[str], path: str) ->
     if path == "chat":
         cond.append(llm_allowed())
     return {str(i) for i in session.scalars(select(Document.id).where(*cond))}
+
+
+def redact_url(v):
+    """`user:pass@host` and query strings (tokens) never reach eval_runs.config or the reports."""
+    if not isinstance(v, str) or "://" not in v:
+        return v
+    u = urlsplit(v)
+    host = u.hostname or ""
+    if ":" in host:  # IPv6 literal
+        host = f"[{host}]"
+    netloc = host + (f":{u.port}" if u.port else "")
+    return urlunsplit((u.scheme, netloc, u.path, "", ""))
 
 
 def _global_answer(session, es, llm, settings: Settings, p: Principal, q: str, docs) -> dict:
@@ -131,7 +144,7 @@ def run_set(
     judge_fn = judge_fn or (lambda p, q, ps: judge_mod.judge_pair(session, llm, settings, p, q, ps))
     db_set = store.set_by_name(session, gs.name) if gs.name else None
     config = {
-        "overrides": overrides or {},
+        "overrides": {k: redact_url(v) for k, v in (overrides or {}).items()},
         "embed_model": settings.embed_model,
         "embed_index": settings.embed_index,
         "principals": {k: p.is_admin for k, p in principals.items()},

@@ -263,3 +263,20 @@ def passage_stub(cid):
     return Passage(
         chunk_id=cid, doc_id="d", version_id="v", text="t", highlight="", pages=[1], bboxes=[], score=1.0
     )
+
+
+def test_redact_url_drops_userinfo_and_query():
+    from roracle.eval.runner import redact_url
+
+    assert redact_url("http://u:p@h:28080/rerank?token=x") == "http://h:28080/rerank"
+    assert redact_url("http://[::1]:80/r") == "http://[::1]:80/r"
+    assert redact_url("tei") == "tei" and redact_url(5) == 5
+
+
+def test_blend_and_planner_overrides_allowed_api_key_never():
+    from roracle.eval.cli import parse_overrides
+
+    ov = parse_overrides(["rerank_blend=1.0", "agentic_planner_model=small", "agentic_call_timeout_s=2"])
+    assert ov == {"rerank_blend": 1.0, "agentic_planner_model": "small", "agentic_call_timeout_s": 2.0}
+    with pytest.raises(ValueError):
+        parse_overrides(["rerank_api_key=x"])

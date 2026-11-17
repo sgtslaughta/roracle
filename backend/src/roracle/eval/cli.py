@@ -60,7 +60,7 @@ def add_parser(sub) -> None:
 EVAL_KEYS = (
     "rerank_url", "rerank_api", "rerank_model", "rerank_timeout_s", "rerank_max_chars", "rerank_max_batch",
     "chat_candidates", "context_notes", "context_model", "raptor", "router_llm", "agentic_retrieval", "agentic_max_steps",
-    "agentic_max_subqueries", "agentic_timeout_s",
+    "agentic_max_subqueries", "agentic_timeout_s", "agentic_call_timeout_s", "agentic_planner_model", "rerank_blend",
 )  # fmt: skip
 
 

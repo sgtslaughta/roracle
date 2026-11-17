@@ -57,11 +57,26 @@ def create_shadow(es: Elasticsearch, settings: Settings, name: str) -> str:
     return name
 
 
-def drop_shadow(es: Elasticsearch, name: str, active: str | None = None, read_alias: str = "chunks") -> None:
-    """Delete one non-active index of `chunks-all`. Refuses the active index, the read-alias holder and
-    anything outside `chunks-all`."""
+def drop_shadow(
+    es: Elasticsearch, name: str, active: str | None = None, read_alias: str = "chunks",
+    session: Session | None = None,
+) -> None:  # fmt: skip
+    """Delete one shadow index of `chunks-all`. Refuses the active index, the read-alias holder, re-embed
+    generations (`chunks-<slug>-<n>`), anything outside `chunks-all` and, given a `session`, any moment a
+    rebuild or re-embed job is queued or running."""
     if name == active or name in _holders(es, read_alias):
         raise ValueError("refusing the active index")
+    if _GENERATION.fullmatch(name):
+        raise ValueError("refusing a re-embed generation (use DELETE /admin/reindex/old)")
+    if session is not None and (
+        reembed.running_job(session) is not None
+        or session.scalar(
+            select(Job.id)
+            .where(Job.kind.in_(("rebuild_units", "rebuild_watch")), Job.status.in_(("queued", "running")))
+            .limit(1)
+        )
+    ):
+        raise ValueError("a rebuild or re-embed is running")
     if name not in _holders(es, MUTATE_ALIAS):
         raise ValueError(f"{name!r} is not an index of {MUTATE_ALIAS}")
     es.indices.delete(index=name)
