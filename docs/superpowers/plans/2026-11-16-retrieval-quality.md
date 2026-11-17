@@ -200,3 +200,225 @@
 - **Spec coverage:** spec §5.1 bullets → eval (T1–T3), rerank 200 + timeout (T4), contextual notes + `exclude_llm` fallback + prompt hash + rebuild (T5), per-doc units + ACL/label + citations (T6), router + global over visible/LLM-allowed docs + bounded fan-out (T7), agentic loop behind setting (T8), GraphRAG rejection (ADR-0015, R14). Per-principal eval, CI, re-index/model-change runs, admin trend: T1, T2, T3, T5 (`rebuild_watch`).
 - **Type consistency:** `Passage` gains `unit: str = "chunk"`, `source_chunks: list[str] = []` (T6) used by T7; `rank_for_chat` (T1) consumed by T2 judge, T6, T8; `gate.verdict` scopes match T7/T8; settings names identical in table and tasks.
 - **Proportion:** tasks list files, signatures, tests and commits only; no code transcripts beyond the deployment command.
+
+---
+
+## Task 10: Performance at scale (added 2026-11-16 per user requirement; source: perf audit)
+
+Budgets (binding): /search p95 ≤400 ms (≤500 filtered), ≤25 ms PG; browse p95 ≤100 ms @10M docs; chat TTFT ex-LLM ≤800 ms (≤1.1 s RAPTOR); claim p99 ≤5 ms @100k queued; ingest ≥4 docs/min/worker, ≤2 s overhead/doc, near-dup ≤50 ms; rebuild ≥1,000 chunks/s with 4 embed replicas; reconcile with no drift = 0 ES writes.
+
+User decision: Elasticsearch 9.5.6 (fresh cluster + rebuild, no 8.19 hop) — Task 10.10 adopts bbq_hnsw (explicit index_options, oversample≈3 rescore; eval-gated vs int8, int4 fallback), ACORN filtered kNN (filters inside knn), vectors excluded from _source (fix _source vector reads), refresh_interval -1 during bulk; skip native rrf/linear retrievers + bbq_disk (non-Basic). See .superpowers/sdd/rq/es9-research.md.
+
+#### Task 10.1: Synthetic data generators and the load-test harness
+
+**Files:** `backend/src/roracle/perf/__init__.py`, `perf/synth_pg.py`, `perf/synth_es.py`, `perf/load.py`,
+`perf/report.py`, `perf/cli.py` (registered in `__main__.py` as `roracle perf ...`); tests
+`tests/test_perf_report.py`, `tests/test_perf_synth.py` (integration).
+**Interfaces:**
+- `synth_pg.seed(url: str, *, docs: int, users: int, shares_pct=10, coauthor_every=20, citations_per_doc=5,
+  tags_per_doc=2, jobs_done: int, jobs_queued: int, audit_rows: int, seed: int = 1) -> dict[str, int]`.
+  It runs pure `generate_series` SQL with deterministic `md5` ids (the same shape as this audit used: 1M docs
+  in about 3 min) and finishes with `VACUUM (ANALYZE, PARALLEL 0)`.
+- `synth_es.seed(es, index: str, *, chunks: int, dims: int, docs: int, personas: dict, seed=1, batch=2000)`.
+  It writes unit-norm random vectors (numpy), Zipf-distributed vocabulary text, and ACL fields drawn from the
+  persona mix: everyone 60%, org_unit 15%, private 15%, shared 10%.
+- `load.run(base_url: str, tokens: list[str], scenario: Literal["search","search_filtered","browse","chat_retrieve","mcp_search","doc_read"], *, rps: float, duration_s: int, concurrency: int) -> Report`.
+  Open-loop arrivals with `httpx.Client` per thread.
+- `report.Report(p50, p95, p99, errors, n)`; `report.percentile(xs, q)`; `report.gate(report, budget_ms) -> bool`.
+- `perf.cli`: `roracle perf seed-pg|seed-es|load|explain --budget docs/perf/budgets.yaml`.
+- `perf.explain.plan(session, stmt) -> dict` (`EXPLAIN (FORMAT JSON, ANALYZE)`) and
+  `perf.explain.seq_scans(plan) -> set[str]`.
+
+- [ ] Tests: percentile math (nearest-rank); a deterministic seed produces the same ids; `seq_scans` finds a
+  nested `Seq Scan` node; `gate` fails above budget.
+- [ ] Integration: `seed(docs=20_000)` row counts; `synth_es.seed(chunks=10_000)` count and mapping
+  (`perf-` index).
+- [ ] `docs/perf/budgets.yaml` (table (b)) and `docs/perf/README.md` (how to run).
+- [ ] **Commit** `feat(perf): synthetic corpus generators and load-test harness`
+
+#### Task 10.2: Queue indexes, claim, retention and metrics (M11, H1 parts 1-4)
+
+**Files:** `migrations/versions/0014_perf_jobs.py`, `models.py` (Job indexes), `queue.py` (`claim` two-step),
+`maintenance.py` (`prune_jobs` step), `metrics.py` (`_DEPTH_SQL`); tests `tests/test_queue_claim.py`,
+`tests/test_perf_plans.py` (integration).
+**Interfaces:**
+- Indexes:
+  - `ix_jobs_due_user (run_after, id) WHERE status='queued' AND kind <> 'rebuild_units'`
+  - `ix_jobs_due_bulk (run_after, id) WHERE status='queued' AND kind = 'rebuild_units'`
+  - `ix_jobs_kind_status (kind, status)`
+  - drop `ix_jobs_status_run_after`.
+- `queue.claim(session, kinds)`: first selects non-bulk kinds ordered by `(run_after, id)`, then bulk kinds
+  (same order). The SQL must repeat each index predicate literally (`kind <> 'rebuild_units'`).
+- `maintenance.prune_jobs(session, *, done_days=7, failed_days=30, batch=10_000) -> int`, chained like `purge`.
+- `_DEPTH_SQL` filters `status IN ('queued','running','failed')`.
+
+- [ ] Tests: bulk jobs never win over due user jobs; ties are FIFO by id; prune keeps `queued`/`running`.
+- [ ] Plan test: 200k synthetic queued jobs, `claim` uses `ix_jobs_due_user` and has no Sort node; `_scheduled`
+  uses `ix_jobs_kind_status`.
+- [ ] Perf: `roracle perf explain claim` p99 ≤ 5 ms at 100k queued + 3M done.
+- [ ] **Commit** `perf(queue): partial claim indexes, job retention, cheap queue metrics`
+
+#### Task 10.3: Lease-based job execution (H1 part 5, ADR-0003 amendment, opus review)
+
+**Files:** `docs/adr/0003-postgres-job-queue.md` (amendment), `migrations/versions/0015_job_lease.py`
+(`lease_until timestamptz`), `queue.py` (`run_once`, `heartbeat`, `requeue_expired`), `worker.py`;
+test `tests/test_queue_lease.py`.
+**Interfaces:**
+- `claim` sets `status='running', lease_until=now()+lease_s` and COMMITs.
+- The handler runs in a fresh session and transaction. Stage writes already use `sf`.
+- `heartbeat(sf, job_id, lease_s)` runs in a daemon thread every `lease_s/3`.
+- `complete` and `fail` are guarded by `WHERE status='running' AND id=:id`.
+- `requeue_expired(session) -> int` (in maintenance; at-least-once preserved).
+- Setting `ROR_JOB_LEASE_S=300`.
+- [ ] Tests: a crashed worker (no heartbeat) is requeued after its lease expires; a slow but alive worker is never
+  double-claimed; a handler exception rolls back the handler work only; `attempts` increments exactly once per
+  claim.
+- [ ] **Commit** `perf(queue): lease-based execution, no long-lived claim transactions`
+
+#### Task 10.4: No-op-aware, batched ACL sync and a drift-only reconcile (C1)
+
+**Files:** `search_index.py` (`_ACL_SCRIPT` noop, `sync_acl_many`, `acl_hash` field, `_ensure_label_mapping`
+moved into `ensure_index`), `acl_sync.py` (`acl_hash(acl, title) -> str`), `maintenance.py`
+(`handle_reconcile_tags` drift detection), `queue.BULK_KINDS += ("reconcile_tags",)`; tests
+`tests/test_acl_sync.py`, `tests/test_acl_reconcile_es.py` (integration).
+**Interfaces:**
+- The script ends with `if (unchanged) { ctx.op = 'noop' }`.
+- `sync_acl_many(es, items: dict[str, tuple[dict, str]])` runs one `update_by_query` over
+  `terms doc_id` (≤ 500) with `params.acl[doc_id]`.
+- Reconcile reads 500 doc ids and their PG `acl_hash`, then queries ES for
+  `terms doc_id ∧ ¬terms acl_hash` (`collapse doc_id`) and syncs only the drifted docs.
+- [ ] Tests: an unchanged document produces `noop` (ES `updated == 0`); a changed share reaches every chunk and
+  unit; a reconcile of 1,000 in-sync docs performs 0 updates and enqueues ≤ 3 jobs; a stale chunk is found and
+  fixed.
+- [ ] Perf: reconcile of 100k synthetic docs with 0 drift ≤ 60 s, 0 writes.
+- [ ] **Commit** `perf(acl): noop-aware batched ACL sync, drift-only reconcile`
+
+#### Task 10.5: Near-duplicate candidates through LSH and ES (C2, opus review)
+
+**Files:** `migrations/versions/0016_version_lsh.py`, `models.py` (`VersionLsh`), `ingest/neardup.py`
+(`bands(minhash) -> list[tuple[int,int]]`, `find_near_duplicate` rewritten), `ingest/pipeline.py` (`_dedupe`
+writes bands), `maintenance.py` (one-off backfill job `lsh_backfill`); test `tests/test_neardup_lsh.py`.
+**Interfaces:**
+- `bands(mh: bytes, b=16, r=8) -> list[(band, hash64)]`.
+- Candidates: `SELECT DISTINCT version_id FROM version_lsh WHERE (band,hash) IN (...)` joined to the existing
+  visibility, R16 and stage predicates, plus ES kNN on `summary_embedding` (k=10, `acl_filter` of the owner).
+  The thresholds are unchanged.
+- [ ] Tests: a near-copy (0.95 Jaccard) is found; an unrelated doc is not; an invisible candidate is never
+  returned; the summary-only path still works; the result equals the old linear scan on a 2k-doc fixture
+  (property test).
+- [ ] Perf: ≤ 50 ms at 1M synthetic docs.
+- [ ] **Commit** `perf(ingest): LSH + kNN near-duplicate candidates`
+
+#### Task 10.6: Citation counts and `best_targets` scoped to the requested ids (C3)
+
+**Files:** `citations.py` (`cited_by_counts`, `best_targets(p, *, targets=None, sources=None)`),
+`api/routes/citations.py`; test `tests/test_citations.py` (+ plan test).
+**Interfaces:** `best_targets(p, targets: list[UUID] | None = None, sources: list[UUID] | None = None)`. With
+`targets`, it pre-selects `DISTINCT (src_version_id, ref_no)` groups containing a target before the window, as
+in the audit's tested SQL.
+- [ ] Tests: counts are identical to the old query on the fixture, including tie rules (confidence, then oldest
+  doc, then id) and invisible-candidate cases.
+- [ ] Plan test: no `WindowAgg` input larger than 10x the citations of the given ids, and no `Seq Scan` on
+  `doc_citations`.
+- [ ] **Commit** `perf(citations): scope best-target ranking to requested ids`
+
+#### Task 10.7: Hot-path indexes and narrow loads (C4, H7, M1, M3)
+
+**Files:** `migrations/versions/0017_perf_indexes.py`, `models.py`, `api/routes/search.py` (`_load` uses
+`load_only`, keyset `after` cursor for browse), `api/routes/me.py` (keyset), `labels/policy.py`
+(`audit_inline_view` index use); test `tests/test_perf_plans.py`.
+**Interfaces:**
+- Indexes:
+  - `ix_versions_latest_searchable (created_at DESC, document_id) WHERE is_latest AND stage='searchable'`
+  - `ix_tags_tag (tag, document_id)`
+  - `ix_document_shares_principal (principal_kind, principal, document_id)`
+  - `ix_documents_vis_org (visibility, org_unit) WHERE deleted_at IS NULL`
+  - `ix_audit_label_view (user_id, target, at) WHERE action='label.view'`
+- `_load(..., columns=ROW_COLUMNS)`.
+- `GET /search?after=<created_at,id>` for browse; the response keeps `total` capped at 200.
+- [ ] Tests: browse order and paging are unchanged; the deferred columns are never touched by `Row`.
+- [ ] Plan tests at 200k docs: browse has no Sort node spilling to disk and no `Seq Scan on document_versions`;
+  tag filter uses `ix_tags_tag`; shares lookup uses `ix_document_shares_principal`.
+- [ ] Perf: browse p95 ≤ 100 ms and `_load(ids=200)` ≤ 15 ms wall at 1M docs.
+- [ ] **Commit** `perf(db): hot-path indexes, narrow row loads, keyset browse`
+
+#### Task 10.8: Lean `/search` and chat retrieval (H2, H6, M4)
+
+**Files:** `retrieval.py` (`_msearch` for BM25/kNN/sKNN, shared client, `expand_units` batched),
+`api/routes/search.py` (light universe pass, single `_votes`, result cache), `chat/retrieve.py` (one
+`Policy` per turn), `labels/policy.py` (`Policy.cached(session, ttl=5)`), `config.py`
+(`search_rerank_depth=50`, `embed_cache_size=10000`, `search_cache_s=60`), `api/app.py` (`app.state.http`);
+tests `tests/test_retrieval.py`, `tests/test_search_cache.py`, `tests/test_units_retrieval.py`.
+**Interfaces:**
+- `search_chunks(..., rerank_depth: int | None = None)` makes 1 `msearch` call: a fake ES records 1 request with
+  3 bodies.
+- `embed_query` is memoized by `(model, prompt_sha(query_prompt(q)))`.
+- `expand_units` makes ≤ 1 ES call and ≤ 1 rerank call per turn.
+- The cache key is `(user_id, groups, via, q, filters, sort, label policy version)`. ACL-relevant changes are
+  covered by the short TTL plus the R19 PG recheck, which still runs on every request.
+- [ ] Tests: RRF order is unchanged against the 3-call version (fixture); the universe pass sends no rerank;
+  rerank uses one keep-alive client; a page-2 request within the TTL makes 0 ES calls; the cache is never shared
+  between principals; R19 still drops a doc made private during the TTL.
+- [ ] Perf: `/search` p95 ≤ 400 ms and chat retrieve ≤ 800 ms on the 50M-chunk synthetic index.
+- [ ] **Commit** `perf(search): one msearch round trip, light facet pass, cached embeds and pages`
+
+#### Task 10.9: API concurrency and connection budget (H3)
+
+**Files:** `db.py` (`pool_size`, `max_overflow`, `pool_timeout` from settings), `config.py`, `api/app.py`
+(anyio limiter at startup: `ROR_API_THREADS=200`), `api/routes/search.py` and `chat/retrieve.py` (commit before
+external I/O), `deploy/helm/roracle/templates/data-postgres.yaml` (CNPG `Pooler`, `max_connections`,
+`shared_buffers`, autovacuum for `jobs`), `values.yaml`; tests `tests/test_db_pool.py`, `helm template` check in
+CI.
+- [ ] Tests: a search does not hold a checked-out connection during the (faked) ES/rerank call (pool
+  `checkedout()` == 0 inside the fake); 100 concurrent fake SSE streams do not block `/healthz`.
+- [ ] Perf: 200 concurrent chats plus 50 rps of search per pod without queueing beyond budget.
+- [ ] **Commit** `perf(api): explicit pool and thread budgets, PgBouncer pooler`
+
+#### Task 10.10: ES index settings, refresh policy and capacity (C5, H4)
+
+**Files:** `search_index.py` (`_settings(settings)` passed to `indices.create`; `refresh=False` on intermediate
+ops; memoized `ensure_index`), `ingest/pipeline.py` (skip `delete_stale_chunks` on the first index of a version
+and `mark_previous_versions` for v1; one final refresh), `config.py` (`es_shards`, `es_replicas`,
+`es_refresh_interval`), `values.yaml` (node sizing presets for 1M/10M docs, mmap enabled through a sysctl
+DaemonSet option), `docs/enterprise/capacity-planning.md` (table from C5); tests `tests/test_search_index.py`,
+`tests/test_ingest_refresh.py`.
+- [ ] Tests: a new index gets the configured shards and refresh interval; one ingest issues exactly 1 refresh
+  (a fake ES counts `refresh` params); a searchable stage is set only after that refresh.
+- [ ] Perf: ingest at 100 docs/min keeps search p95 within 10% of the idle value (harness runs both together).
+- [ ] **Commit** `perf(es): sized index settings, single refresh per ingest`
+
+#### Task 10.11: Parallel re-embed, batched rebuild, concurrent context notes (H5)
+
+**Files:** `reembed.py` (`slices` in payload, PIT + slice, `BATCH=1000`, embed concurrency, target
+`refresh_interval=-1`/replicas 0 during copy and restore before cutover), `ingest/embed.py`
+(`embed(..., concurrency=1)` with a thread pool), `ingest/context.py` (bounded concurrency, label check every
+32 chunks), `ingest/rebuild.py` (25 versions per job); tests `tests/test_reembed.py`,
+`tests/test_context_notes.py`, `tests/test_rebuild.py`.
+- [ ] Tests: slices cover every chunk exactly once (fake ES); cutover waits for all slices; settings are restored
+  even on failure; notes keep their order under concurrency; an `exclude_llm` raise mid-document stops LLM calls
+  within 32 chunks; the cache still works.
+- [ ] Perf: re-embed of 1M synthetic chunks against a fake embedder (fixed 5 ms per request) at ≥ 2,000
+  chunks/s, i.e. pipeline overhead < 10%.
+- [ ] **Commit** `perf(reindex): sliced parallel re-embed and batched rebuild`
+
+#### Task 10.12: Frontend load shaping (M7)
+
+**Files:** `frontend/src/app/GlobalSearch.tsx` (300 ms, at least 3 chars),
+`frontend/src/features/palette/CommandPalette.tsx` (`mode=quick`), `frontend/src/features/library/api.ts`
+(fetch the result set once, page on the client), `backend/src/roracle/api/routes/search.py` (`mode=quick`: BM25
+on titles, size ≤ 10, no kNN or rerank); tests `library.test.tsx`, `palette.test.tsx`,
+`tests/test_search_quick.py`.
+- [ ] Tests: typing "abc" quickly sends 1 request; page 2 sends no request; quick mode applies the ACL filter and
+  makes no embed or rerank call.
+- [ ] **Commit** `perf(web): quieter search typing, quick palette search, client paging`
+
+#### Task 10.13: Budget gate and report
+
+**Files:** `.gitlab-ci.yml` (nightly `perf` job: seed 200k docs / 10M chunks, run scenarios, `roracle perf gate`),
+`docs/perf/2026-11-xx-baseline.md` (before/after for every finding), `.superpowers/sdd/rq/progress.md`.
+- [ ] Gate fails when any p95 exceeds `docs/perf/budgets.yaml`; the report lists the `EXPLAIN` of each hot
+  query.
+- [ ] **Commit** `ci(perf): nightly budget gate with synthetic corpus`
+
+Suggested order: 10.1 → 10.2 → 10.4 → 10.6 → 10.5 → 10.7 → 10.8 → 10.9 → 10.10 → 10.3 → 10.11 → 10.12 → 10.13.
+C1, C3 and the M11 part of H1 are small changes with the largest impact. Ship them first.
