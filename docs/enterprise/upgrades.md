@@ -41,13 +41,13 @@ Chart 0.2.0 removes the bundled MinIO tenant. Object storage is external only: R
 4. **Point the app at the new store**, upgrade, and run the first backup (`kubectl get backup`; the immediate backup can run before the bucket exists).
 5. After the checks, remove the old tenant's PVCs and the operator.
 
-The 0.2.0 release also moves the Elasticsearch default to 9.5.6; on an existing 8.x cluster pin `elasticsearch.version` to the running 8.x for this upgrade, then hop (section 3) and adds migrations up to 0019 (section 4).
+The 0.2.0 release also moves the Elasticsearch default to 9.5.6 and adds migrations up to 0019 (section 4). Its backend ships the elasticsearch-py 9.x client, which **cannot talk to an 8.x cluster**: on an existing 8.x cluster finish both Elasticsearch hops (section 3) **on your current chart first** (the old 8.x client keeps working against 9.x through REST compatibility), then upgrade to chart 0.2.0.
 
 ## 3. Elasticsearch 8.15 to 8.19 to 9.5.6
 
 The chart default is `elasticsearch.version: 9.5.6` with ECK; external Elasticsearch must be 9.x (the client sends `compatible-with=9`, and `hnsw_filter_heuristic` and `exclude_source_vectors` are 9.x settings). For an existing 8.x cluster:
 
-1. **Never jump straight.** A direct 8.15 to 9 jump is refused (by ECK's webhook or the node). Go 8.15 to 8.19.x first. Because the chart 0.2.0 default is 9.5.6, **set `elasticsearch.version` in your values to the 8.x release the cluster runs now** for the chart 0.2.0 upgrade (section 2), then hop.
+1. **Never jump straight.** A direct 8.15 to 9 jump is refused (by ECK's webhook or the node). Go 8.15 to 8.19.x first. Run both hops **before** the chart 0.2.0 upgrade (section 2), on the chart you run now: the 0.2.0 backend's 9.x client fails against 8.x, so pinning 8.x under 0.2.0 means a search outage.
 2. **Hop 1, rolling.** Mirror the 8.19.x image first. Set `elasticsearch.version` to an 8.19.x release, let ECK finish the rolling restart, and run the Elasticsearch Upgrade Assistant (resolve what it reports). Snapshot before each hop.
 3. **Hop 2, rolling.** Set `elasticsearch.version` to `9.5.6`. ECK must be a release whose support matrix lists 9.5 (the 3.x line); upgrade the operator before the cluster.
 4. **After the hop** 9.x reads the indices created on 8.x unchanged. The new index settings (`exclude_source_vectors`, shard count, `index_options`) only apply to indices created afterwards. `hnsw_filter_heuristic` is dynamic and is re-applied to the active index at the next `ensure_index`.

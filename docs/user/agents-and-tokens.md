@@ -35,7 +35,7 @@ The limits that apply to every token:
 - **Human-only actions.** Approving proposals, acknowledging citations and managing tokens need you signed in; a token cannot do them.
 - **A read-only token cannot change anything**, through MCP or the web API.
 
-Calls a token makes are recorded in the audit log under its name, so your admins can see which agent did what. Web-API calls are recorded only when they succeed. Agent (MCP) tool calls are recorded even when they fail. Only sign-in failures, rate limiting and oversize or malformed requests leave no entry.
+Calls a token makes are recorded in the audit log under its name, so your admins can see which agent did what. Web-API calls are recorded only when they succeed; failed web-API calls leave no entry. For agent (MCP) tool calls, only sign-in failures, rate limiting and oversize or malformed requests leave no entry; other failed tool calls are recorded.
 
 ## The token list
 
