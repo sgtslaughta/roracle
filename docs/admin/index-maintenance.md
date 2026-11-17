@@ -17,6 +17,8 @@ All of these are admin-only and audited. Where each is done:
 
 The admin screen does not start any of these. Use the API with an admin sign-in token, or the command line.
 
+Each admin API call also writes the generic `admin.<handler>` audit row ([audit](audit.md#what-is-recorded)), next to the specific action named below.
+
 ## Change the embedding model
 
 Use this when the embedding model or its vector size changes, or to rebuild the index from scratch with the same model. Search stays up throughout.

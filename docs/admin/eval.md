@@ -57,7 +57,7 @@ Under **Runs** pick a set, a **path** and press **Run now**.
 - **Judge answers** is only available on `chat`. It has the model answer a sample of questions and grade the answers for faithfulness and citation support. The sample is `ROR_EVAL_JUDGE_SAMPLE` pairs (default 100), the same pairs on every run of a set.
 - The run is a job of kind `eval_run`; follow it in **Admin, Jobs**. An eval run that fails is not retried automatically, because a judged run is expensive.
 
-Each run is stored with its **trigger**: `cli`, `ci`, `admin` (Run now), `compare`, and `reindex`. `reindex` runs start themselves: when a [re-embed](index-maintenance.md#change-the-embedding-model) finishes its last catch-up round, and after a [rebuild into the active index](index-maintenance.md#rebuild-derived-index-fields), a judged run on the reference set is queued. Switch that off with `ROR_EVAL_ON_REINDEX=false`. A run that finds a paper a principal may not see ends as `failed` with `acl_violations: <n>`. Treat that as a security finding.
+Each run is stored with its **trigger**: `cli`, `ci`, `admin` (Run now), `compare`, `model_change` and `reindex`. `reindex` runs start themselves: when a [re-embed](index-maintenance.md#change-the-embedding-model) finishes its last catch-up round, and after a [rebuild into the active index](index-maintenance.md#rebuild-derived-index-fields), a judged run on the reference set is queued. Switch that off with `ROR_EVAL_ON_REINDEX=false`. A run that finds a paper a principal may not see ends as `failed` with `acl_violations: <n>`. Treat that as a security finding.
 
 The chart plots one line per ticked metric across runs, oldest first. The table lists runs with their scores, and **Details** shows the scores by kind and by principal and the twenty worst question and principal pairs by recall@10 with the top papers returned. The metrics are `p_ndcg@10`, `p_recall@10`, `p_recall@100`, `p_mrr` (passage level) and, from judged runs, `faithfulness` and `citation_support`.
 
@@ -103,8 +103,7 @@ Two features stay off until their report in [docs/eval](../eval/README.md) holds
 
 - Build a reference set of at least 200 active queries with at least 3 principals, one or more of them non-admin, and, for a scoped compare, at least 50 queries of that kind.
 - RAPTOR is built into a shadow index first (`roracle rebuild --what raptor --into chunks-<slug>-shadow`) and judged with `--candidate-index`. `rebuild --what raptor` turns RAPTOR on for the rebuild even while the setting is off, so a large rebuild is a large number of model calls. Each paper gets at most `ROR_RAPTOR_MAX_SECTIONS` (default 64) section summaries.
-- The reports name open items to clear first. For RAPTOR: a chunking-version guard in the in-place rebuild. For `router_llm` (the model-assisted routing, environment-only): releasing the database session before the router's model call.
-
-> TODO(verify): the open items above are quoted from the reports in docs/eval and could not be confirmed as still open in the code (the in-place RAPTOR rebuild only checks that the embedding model is unchanged, and the router classify call runs before the session is released). Remove or update once the owners confirm.
+- The in-place RAPTOR rebuild (`roracle rebuild --what raptor` without `--into`) re-chunks each paper and checks only that the embedding model is unchanged. There is no chunking-version guard, so do not run it while the chunker is being changed.
+- With `router_llm` on, the router's model call runs while the request still holds its database session. Leave `router_llm` off (the default, environment-only). The heuristic router, which makes no model call, is not affected.
 
 See also [index maintenance](index-maintenance.md), [runtime settings](runtime-settings.md) and the [audit log](audit.md#what-is-recorded) for the `eval.*` actions.
