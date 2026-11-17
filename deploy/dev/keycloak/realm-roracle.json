@@ -2,10 +2,25 @@
   "realm": "roracle",
   "enabled": true,
   "sslRequired": "none",
-  "roles": {"realm": [{"name": "roracle-admin", "description": "rOracle administrator"}]},
+  "roles": {
+    "realm": [
+      {
+        "name": "roracle-admin",
+        "description": "rOracle administrator"
+      }
+    ]
+  },
   "groups": [
-    {"name": "Mathematics", "path": "/Mathematics",
-     "subGroups": [{"name": "Spectral Theory", "path": "/Mathematics/Spectral Theory"}]}
+    {
+      "name": "Mathematics",
+      "path": "/Mathematics",
+      "subGroups": [
+        {
+          "name": "Spectral Theory",
+          "path": "/Mathematics/Spectral Theory"
+        }
+      ]
+    }
   ],
   "clients": [
     {
@@ -14,24 +29,63 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:*", "http://127.0.0.1:*"],
-      "webOrigins": ["+"],
-      "attributes": {"pkce.code.challenge.method": "S256"},
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
       "protocolMappers": [
-        {"name": "roracle-audience", "protocol": "openid-connect",
-         "protocolMapper": "oidc-audience-mapper",
-         "config": {"included.custom.audience": "roracle", "access.token.claim": "true", "id.token.claim": "false"}},
-        {"name": "groups", "protocol": "openid-connect",
-         "protocolMapper": "oidc-group-membership-mapper",
-         "config": {"claim.name": "groups", "full.path": "true", "access.token.claim": "true",
-                    "id.token.claim": "true", "userinfo.token.claim": "true"}}
+        {
+          "name": "roracle-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "roracle",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
       ]
     }
   ],
   "users": [
-    {"username": "researcher", "enabled": true, "email": "researcher@example.org", "emailVerified": true,
-     "firstName": "Re", "lastName": "Searcher",
-     "credentials": [{"type": "password", "value": "researcher", "temporary": false}],
-     "groups": ["/Mathematics/Spectral Theory"]}
+    {
+      "username": "researcher",
+      "enabled": true,
+      "email": "researcher@example.org",
+      "emailVerified": true,
+      "firstName": "Re",
+      "lastName": "Searcher",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "researcher",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/Mathematics/Spectral Theory"
+      ]
+    }
   ]
 }
