@@ -35,4 +35,13 @@ describe("validateLibrarySearch", () => {
   it("converts legacy year lists", () => expect(validateLibrarySearch(parseSearch("?year=2021&year=2019"))).toEqual({ year_min: 2019, year_max: 2021 }));
   it("exclusion wins in a hand-edited URL", () => expect(validateLibrarySearch(parseSearch("?tags=ml&tags_not=ml"))).toEqual({ tags_not: ["ml"] }));
   it("api query drops view and cols", () => expect(toApiQuery({ q: "x", view: "table", cols: ["title"] })).toBe("?q=x"));
+  it("drops values the backend would 422", () => {
+    expect(validateLibrarySearch(parseSearch("?year_min=5000"))).toEqual({});
+    expect(validateLibrarySearch(parseSearch("?cited_min=0"))).toEqual({});
+  });
+  it("drops both ends of an inverted range", () => {
+    expect(validateLibrarySearch(parseSearch("?year_min=2024&year_max=2018&pages_min=9&pages_max=3&added_min=2025-02-01&added_max=2025-01-01"))).toEqual({});
+    expect(validateLibrarySearch(parseSearch("?year_min=2018&year_max=2018"))).toEqual({ year_min: 2018, year_max: 2018 });
+  });
+  it("exclusion wins for author too", () => expect(validateLibrarySearch(parseSearch("?author=Lee&author=Kim&author_not=Lee"))).toEqual({ author: ["Kim"], author_not: ["Lee"] }));
 });

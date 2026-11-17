@@ -31,8 +31,11 @@ export type LibrarySearch = {
 } & { [K in FacetKey | NotKey]?: string[] };
 
 const ORDER = ["q", "in", ...ARRAY_KEYS, ...OP_KEYS, ...NUM_KEYS, ...DATE_KEYS, ...YESNO_KEYS, "owner", "cites", "sort", "page", "view", "cols"] as const;
-const NUM_MIN: Record<string, number> = { year_min: 0, year_max: 0, pages_min: 0, pages_max: 0, votes_min: -1_000_000, cited_min: 0 };
-const NUM_MAX = 1_000_000;
+/** [min, max] per numeric key, matching backend/src/roracle/search_params.py. */
+const NUM_RANGE: Record<(typeof NUM_KEYS)[number], [number, number]> = {
+  year_min: [0, 3000], year_max: [0, 3000], pages_min: [0, Number.MAX_SAFE_INTEGER], pages_max: [0, Number.MAX_SAFE_INTEGER],
+  votes_min: [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER], cited_min: [1, Number.MAX_SAFE_INTEGER],
+};
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isArr = (k: string) => (ARRAY_KEYS as readonly string[]).includes(k);
@@ -94,12 +97,16 @@ export function validateLibrarySearch(s: Record<string, unknown>): LibrarySearch
   for (const k of OP_KEYS) if (s[k] === "and") out[k] = "and";
   for (const k of NUM_KEYS) {
     const v = s[k];
-    if (Number.isInteger(v) && (v as number) >= NUM_MIN[k] && (v as number) <= NUM_MAX) out[k] = v;
+    if (Number.isInteger(v) && (v as number) >= NUM_RANGE[k][0] && (v as number) <= NUM_RANGE[k][1]) out[k] = v;
   }
-  const legacy = strs(s.year).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= NUM_MAX);
+  const legacy = strs(s.year).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 3000);
   if (legacy.length && out.year_min === undefined && out.year_max === undefined) { out.year_min = Math.min(...legacy); out.year_max = Math.max(...legacy); }
   for (const k of DATE_KEYS) if (typeof s[k] === "string" && validDate(s[k] as string)) out[k] = s[k];
   for (const k of YESNO_KEYS) if (s[k] === "yes" || s[k] === "no") out[k] = s[k];
+  for (const r of ["year", "pages", "added"]) { // the backend 422s an inverted range: drop both ends
+    const lo = out[`${r}_min`] as number | string | undefined, hi = out[`${r}_max`] as number | string | undefined;
+    if (lo !== undefined && hi !== undefined && lo > hi) { delete out[`${r}_min`]; delete out[`${r}_max`]; }
+  }
   if (s.owner === "mine" || s.owner === "shared") out.owner = s.owner;
   if (typeof s.cites === "string" && UUID_RE.test(s.cites)) out.cites = s.cites;
   if (VIEWS.includes(s.view as View) && s.view !== "list") out.view = s.view;
