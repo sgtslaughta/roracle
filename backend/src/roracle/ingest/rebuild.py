@@ -86,9 +86,7 @@ def start(session: Session, es: Elasticsearch, settings: Settings, what: set[Kin
     session.execute(text(reembed.LOCK))  # same lock as reembed.start: the two never interleave
     if reembed.running_job(session) is not None:
         raise reembed.AlreadyRunning
-    if "context" not in what:
-        raise ValueError("raptor rebuilds are not available yet")
-    if not settings.context_model:
+    if "context" in what and not settings.context_model:
         raise ValueError("context_model (ROR_CONTEXT_MODEL) is not set")
     if into == search_index.active_index(settings):
         into = None
@@ -112,11 +110,16 @@ def handle_rebuild_units(
     into = payload.get("into") or None
     if into == search_index.active_index(settings):
         into = None
-    if "context" not in (payload.get("what") or []):
-        return  # raptor-only: nothing to rebuild before Task 6
-    if not settings.context_model:
+    what = payload.get("what") or []
+    if "context" in what and not settings.context_model:
         raise NonRetryable("ROR_CONTEXT_MODEL is not set")
-    settings = settings.model_copy(update={"context_notes": True})
+    # a raptor-only job keeps the configured notes setting (cached), so chunks are rewritten identically
+    settings = settings.model_copy(
+        update={
+            "context_notes": settings.context_notes or "context" in what,
+            "raptor": settings.raptor or "raptor" in what,
+        }
+    )
     v = session.get(DocumentVersion, vid)
     if v is None:
         return

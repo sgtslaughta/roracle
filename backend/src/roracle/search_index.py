@@ -17,6 +17,7 @@ from roracle.queue import NonRetryable
 
 if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeline -> here)
     from roracle.ingest.chunking import Chunk
+    from roracle.ingest.raptor import Unit
 
 ALIAS = "chunks"  # read alias: exactly one (the active) index
 ALIAS_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('reembed-alias', 0))"  # cutover vs ensure_index
@@ -68,6 +69,8 @@ def _mapping(dims: int) -> dict[str, Any]:
             "text": {"type": "text", "analyzer": "english"},
             "headings": {"type": "text", "analyzer": "english"},
             "context": {"type": "text", "analyzer": "english"},
+            "unit": kw,  # "section" | "document"; absent = ordinary chunk
+            "source_chunks": kw,
             "pages": {"type": "integer"},
             "bboxes": {"type": "object", "enabled": False},
             "embedding_model": kw,
@@ -259,6 +262,62 @@ def index_chunks(
     return ok
 
 
+def index_units(
+    es: Elasticsearch,
+    version: DocumentVersion,
+    document: Document,
+    units: "list[Unit]",
+    vectors: list[list[float]],
+    acl: dict[str, Any],
+    model: str,
+    *,
+    title: str,
+    is_latest: bool | None = None,
+    tags: list[str] | None = None,
+    index: str | None = None,
+    prompt_shas: list[str] | None = None,
+) -> int:
+    """Bulk index per-document summary units (same ACL/label fields as the document's chunks)."""
+    meta = version.meta or {}
+    base = {
+        **acl,
+        "doc_id": str(document.id),
+        "version_id": str(version.id),
+        "version": version.version,
+        "is_latest": version.is_latest if is_latest is None else is_latest,
+        "title": title,
+        "authors": meta.get("authors") or [],
+        "year": meta.get("year"),
+        "tags": tags or [],
+        "file_type": file_type(version.filename),
+        "embedding_model": model,
+    }
+    actions = [
+        {
+            "_op_type": "index",
+            "_index": index or index_name(model),
+            "_id": f"{version.id}:{u.key}",
+            "_source": {
+                **base,
+                "chunk_id": f"{version.id}:{u.key}",
+                "unit": u.kind,
+                "source_chunks": u.source_chunks,
+                "text": u.text,
+                "headings": u.headings,
+                "pages": u.pages,
+                "bboxes": [],
+                "embedding": v,
+                **({"prompt_sha": prompt_shas[i]} if prompt_shas else {}),
+            },
+        }
+        for i, (u, v) in enumerate(zip(units, vectors, strict=True))
+    ]
+    ok, errors = helpers.bulk(es, actions, refresh="wait_for", raise_on_error=False)
+    if errors:
+        raise RuntimeError(f"bulk indexing failed for {len(errors)} units: {errors[0]}")
+    return ok
+
+
 def cached_vectors(
     es: Elasticsearch, model: str, doc_id, shas: list[str], dims: int, index: str | None = None
 ) -> dict[str, list[float]]:
@@ -298,7 +357,25 @@ def delete_stale_chunks(es: Elasticsearch, version_id, keep: int, alias: str = M
         query={
             "bool": {
                 "filter": [{"term": {"version_id": str(version_id)}}],
-                "must_not": [{"ids": {"values": [f"{version_id}:{n}" for n in range(keep)]}}],
+                "must_not": [
+                    {"ids": {"values": [f"{version_id}:{n}" for n in range(keep)]}},
+                    {"exists": {"field": "unit"}},  # summary units have their own lifecycle
+                ],
+            }
+        },
+        refresh=True,
+        conflicts="proceed",
+    )
+
+
+def delete_stale_units(es: Elasticsearch, version_id, keep_ids: list[str], alias: str = MUTATE_ALIAS) -> None:
+    """Remove summary units of this version that were not just (re)written (`keep_ids` = their chunk ids)."""
+    es.delete_by_query(
+        index=alias,
+        query={
+            "bool": {
+                "filter": [{"term": {"version_id": str(version_id)}}, {"exists": {"field": "unit"}}],
+                "must_not": [{"ids": {"values": keep_ids}}] if keep_ids else [],
             }
         },
         refresh=True,

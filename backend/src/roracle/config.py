@@ -103,6 +103,11 @@ class Settings(BaseSettings):
     context_doc_chars: int = 24000  # document window sent in the stable prefix
     context_max_chunks: int = 400  # per document; later chunks get the heading path (bounds one job)
     context_max_tokens: int = 120  # hard cap per note
+    raptor: bool = (
+        False  # P13 T6: per-document section/document summary units (flips on a PASS in docs/eval/)
+    )
+    raptor_model: str = ""  # empty = summary_model
+    raptor_section_chars: int = 12000  # section text sent per summary call
     upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
     db_connect_timeout_s: int = (
         5  # PG connect timeout (api/worker/readyz); a ?connect_timeout= in the URL wins

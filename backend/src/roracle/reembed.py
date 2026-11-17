@@ -181,7 +181,9 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str) -> None:
             ).all()
         )
     prompts = [
-        chunk_prompt(
+        doc_prompt(x["title"], x["text"])  # summary unit: same prompt as pipeline._index_units
+        if x.get("unit")
+        else chunk_prompt(
             x["title"],
             "\n".join([*(x.get("headings") or []), x["text"]]),  # = Chunk.contextual
             summaries.get(_uuid(x["version_id"])),
@@ -193,7 +195,9 @@ def _copy(es, llm, sf, hits: list[dict], target: dict, source: str) -> None:
     sums = {
         i: x
         for i, x in enumerate(srcs)
-        if x["chunk_id"].endswith(":0") and (summaries.get(_uuid(x["version_id"])) or "").strip()
+        if x["chunk_id"].endswith(":0")
+        and not x.get("unit")
+        and (summaries.get(_uuid(x["version_id"])) or "").strip()
     }
     svecs = embed(
         llm,

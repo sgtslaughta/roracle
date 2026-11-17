@@ -34,7 +34,11 @@ FACET_FIELDS = {
     "author": "authors",
     "label": "label_id",
 }
-_SOURCE = ["chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title", "authors", "year"]
+_SOURCE = [
+    "chunk_id", "doc_id", "version_id", "text", "pages", "bboxes", "title", "authors", "year",
+    "unit", "source_chunks",
+]  # fmt: skip
+UNIT_KINDS = ("section", "document")
 
 
 @dataclass
@@ -51,6 +55,8 @@ class Passage:
     authors: list[str] = field(default_factory=list)
     year: int | None = None
     note_id: str | None = None
+    unit: str | None = None  # "section" | "document": a summary unit, never citable (expand_units first)
+    source_chunks: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -79,10 +85,25 @@ def vote_multiplier(up: int, down: int) -> float:
     return 1 + 0.15 * max(-1.0, min(1.0, (vote_ratio(up, down) - 0.5) * 2))
 
 
+def _unit_filter(units: tuple[str, ...]) -> dict[str, Any]:
+    """chunk = no `unit` field; section/document = that `unit` value. Absent `unit` mapping matches nothing."""
+    should: list[dict[str, Any]] = []
+    if "chunk" in units:
+        should.append({"bool": {"must_not": [{"exists": {"field": "unit"}}]}})
+    if kinds := [u for u in units if u in UNIT_KINDS]:
+        should.append({"terms": {"unit": kinds}})
+    return {"bool": {"should": should, "minimum_should_match": 1}}
+
+
 def _filters(
-    p: Principal, policy: Policy, filters: dict, doc_ids: list[str] | None, exclude_llm: bool
+    p: Principal,
+    policy: Policy,
+    filters: dict,
+    doc_ids: list[str] | None,
+    exclude_llm: bool,
+    units: tuple[str, ...] = ("chunk",),
 ) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = [acl_filter(p, policy), {"term": {"is_latest": True}}]
+    out: list[dict[str, Any]] = [acl_filter(p, policy), {"term": {"is_latest": True}}, _unit_filter(units)]
     if exclude_llm and (ids := policy.ids("exclude_llm")):  # gate (a): never let these chunks near a prompt
         out.append({"bool": {"must_not": [{"terms": {"label_id": sorted(ids)}}]}})
     for key, values in filters.items():
@@ -110,6 +131,8 @@ def _passage(hit: dict, score: float = 0.0) -> Passage:
         title=s.get("title") or "",
         authors=s.get("authors") or [],
         year=s.get("year"),
+        unit=s.get("unit"),
+        source_chunks=s.get("source_chunks") or [],
     )
 
 
@@ -224,16 +247,19 @@ def search_chunks(
     min_similarity: float | None = None,
     summary_knn: bool = True,
     exclude_llm: bool = False,
+    units: tuple[str, ...] = ("chunk",),
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
     summary_knn adds a third kNN list on the document summary vector (doc-level recall for search);
     only chunk 0 carries it, so a hit means "this document", not "this passage".
     exclude_llm=True drops chunks whose label has the `exclude_llm` gate (every LLM-bound caller sets it).
+    units picks the retrieval units: "chunk" (default, library search unchanged), "section", "document"
+    (summary units: LLM-bound callers must `expand_units` the result before use).
     """
     if not query.strip():
         raise ValueError("empty query")
-    flt = _filters(p, policy, filters, doc_ids, exclude_llm)
+    flt = _filters(p, policy, filters, doc_ids, exclude_llm, units)
     index = active_index(settings)
     bm25 = es.search(
         index=index,
@@ -293,3 +319,59 @@ def group_by_document(passages: list[Passage], votes: dict[str, tuple[int, int]]
             DocHit(doc_id, best.title, best.authors, best.year, best.score * vote_multiplier(up, down), top)
         )
     return sorted(hits, key=lambda h: -h.score)
+
+
+def _overlap(query: str, text: str) -> int:
+    q = {w for w in query.casefold().split() if len(w) > 2}
+    return len(q & set(text.casefold().split()))
+
+
+def expand_units(
+    es,
+    settings: Settings,
+    p: Principal,
+    policy: Policy,
+    query: str,
+    passages: list[Passage],
+    *,
+    exclude_llm: bool,
+    per_unit: int = 2,
+    http: httpx.Client | None = None,
+) -> list[Passage]:
+    """R11: replace every summary unit with up to `per_unit` of its own source chunks, so only real passages
+    (real chunk ids and pages) reach the LLM and citations. The fetch re-applies the ACL + label filters and
+    pins the unit's own document and version; a source id pointing elsewhere is dropped. A unit without
+    surviving sources is dropped. Chunks already present keep their place (score = max of the two)."""
+    out: dict[str, Passage] = {x.chunk_id: x for x in passages if not x.unit}
+    flt = _filters(p, policy, {}, None, exclude_llm)
+    for u in (x for x in passages if x.unit):
+        if not u.source_chunks:
+            continue
+        hits = es.search(
+            index=active_index(settings),
+            size=min(len(u.source_chunks), 200),
+            source=_SOURCE,
+            query={
+                "bool": {
+                    "filter": [
+                        *flt,
+                        {"ids": {"values": u.source_chunks[:200]}},
+                        {"term": {"doc_id": u.doc_id}},
+                        {"term": {"version_id": u.version_id}},
+                    ]
+                }
+            },
+        )["hits"]["hits"]
+        cands = [_passage(h, u.score) for h in hits if not h["_source"].get("unit")]
+        if not cands:
+            continue
+        cands.sort(key=lambda c: -_overlap(query, c.text))  # lexical order when no reranker answers
+        if settings.rerank_url:
+            cands = _rerank(settings, query, cands, http)
+        for c in cands[:per_unit]:
+            old = out.get(c.chunk_id)
+            if old is None:
+                out[c.chunk_id] = c
+            else:
+                old.score = max(old.score, u.score)
+    return sorted(out.values(), key=lambda x: -x.score)

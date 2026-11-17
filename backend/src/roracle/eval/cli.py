@@ -59,7 +59,7 @@ def add_parser(sub) -> None:
 # so it can never land in eval_runs.config).
 EVAL_KEYS = (
     "rerank_url", "rerank_api", "rerank_model", "rerank_timeout_s", "rerank_max_chars", "rerank_max_batch",
-    "chat_candidates", "context_notes", "context_model",
+    "chat_candidates", "context_notes", "context_model", "raptor",
 )  # fmt: skip
 
 

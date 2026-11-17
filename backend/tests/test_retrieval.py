@@ -86,7 +86,8 @@ def test_filters_shape():
     p = SimpleNamespace(user_id="u", is_admin=True, groups=(), via="jwt")
     f = _filters(p, Policy([]), {"author": ["A"], "year": [2020, 2021], "tags": []}, ["d1"], False)
     assert f[1] == {"term": {"is_latest": True}}
-    assert f[2:] == [
+    assert "unit" in str(f[2])  # chunks only unless units are requested
+    assert f[3:] == [
         {"terms": {"authors": ["A"]}},
         {"terms": {"year": [2020, 2021]}},
         {"terms": {"doc_id": ["d1"]}},

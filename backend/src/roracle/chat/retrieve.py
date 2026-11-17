@@ -19,7 +19,7 @@ from roracle.config import Settings
 from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion
 from roracle.notes.community import note_passages, strict_gate
-from roracle.retrieval import Passage, embed_query, search_chunks
+from roracle.retrieval import Passage, embed_query, expand_units, search_chunks
 
 MAX_CHARS = 1200
 MIN_K, MAX_K = 4, 12
@@ -129,8 +129,9 @@ def open_blocked(session: Session, p: Principal, viewer: Viewer) -> list[dict]:
 
 
 def _search(
-    session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec
-):
+    session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec,
+    units: tuple[str, ...] = ("chunk",),
+):  # fmt: skip
     try:
         return search_chunks(
             es,
@@ -146,6 +147,7 @@ def _search(
             qvec=qvec,
             min_similarity=settings.chat_min_similarity or None,
             summary_knn=False,  # summary hit is chunk 0 of a doc, not the matching passage
+            units=units,
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []
@@ -229,13 +231,19 @@ def rank_for_chat(
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
         qvec = embed_query(llm, settings, question)  # embed once per turn
-        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec)
+        units = ("chunk", "section", "document") if settings.raptor else ("chunk",)
+        main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units)
         tab = (
             _search(session, es, llm, settings, p, question, tab_ids, 20, qvec)
             if tab_ids and scope != "open"
             else []
         )
         found = _merge(main, tab)
+        if any(x.unit for x in found.values()):  # R11: the LLM only ever sees real passages
+            ex = expand_units(
+                es, settings, p, Policy.load(session), question, list(found.values()), exclude_llm=True
+            )
+            found = {x.chunk_id: x for x in ex}
     if raw is not None:
         raw.extend(found.values())
 

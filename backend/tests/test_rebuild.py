@@ -188,15 +188,14 @@ def test_start_rejects_unusable_requests(db_session, es, vid):
     cfg = Settings(embed_model="old", embed_dims=2)
     with pytest.raises(ValueError, match="context_model"):
         rebuild.start(db_session, es, cfg, {"context"}, None)
-    with pytest.raises(ValueError, match="raptor"):
-        rebuild.start(db_session, es, cfg.model_copy(update={"context_model": "m"}), {"raptor"}, None)
     assert _jobs(db_session, "rebuild_units") == []
 
 
-def test_raptor_only_unit_is_noop(db_session, session_factory, es, vid, calls):
+def test_raptor_only_unit_turns_raptor_on_keeps_notes_setting(db_session, session_factory, es, vid, calls):
     _searchable(db_session, vid)
     _units(db_session, session_factory, es, {"version_id": vid, "what": ["raptor"]})
-    assert calls == []
+    ((a, k),) = calls
+    assert a[4].raptor is True and a[4].context_notes is False and k["rebuild"] is True
 
 
 def test_rebuild_does_not_starve_ingest(db_session, document, vid):

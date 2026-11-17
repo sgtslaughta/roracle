@@ -22,6 +22,7 @@ from roracle.ingest.embed import chunk_prompt, doc_prompt, embed, from_bytes, pr
 from roracle.ingest.neardup import find_near_duplicate, minhash
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata
+from roracle.ingest.raptor import build_units
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
     bump_attempts,
@@ -188,6 +189,8 @@ def _index(
         es, v, d, chunks, vectors, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
         summary_vector=sv, prompt_shas=shas, index=index, contexts=notes,
     )  # fmt: skip
+    if settings.raptor:
+        _index_units(session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index)
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
@@ -210,6 +213,25 @@ def _index(
             clear_outdated_reasons(sf, d.id, v.id)
     # R6 + demotion: stage, citations job and the is_latest flip commit atomically
     mark_searchable_and_enqueue(sf, v.id, demote_doc=d.id if latest else None)
+
+
+def _index_units(session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index) -> None:
+    """Per-document summary units (retrieval aids; citations resolve to the source chunks). Written before the
+    ACL convergence below so a racing PATCH reaches them too; old units that were not rewritten are removed."""
+    units = build_units(session, llm, settings, store, v, d, chunks)
+    if units:
+        prompts = [doc_prompt(title, u.text) for u in units]
+        shas = [prompt_sha(p) for p in prompts]
+        cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
+        miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
+        fresh = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
+        vecs = [cache[h] if h in cache else next(fresh) for h in shas]
+        runtime.assert_embedding_unchanged(session, settings)
+        search_index.index_units(
+            es, v, d, units, vecs, acl, settings.embed_model, title=title, is_latest=latest, tags=tags,
+            index=index, prompt_shas=shas,
+        )  # fmt: skip
+    search_index.delete_stale_units(es, v.id, [f"{v.id}:{u.key}" for u in units])
 
 
 def handle_ingest(
