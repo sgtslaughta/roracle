@@ -52,3 +52,27 @@ def test_scheduled_uses_kind_status_index(big_queue):
     )
     assert "ix_jobs_kind_status" in index_names(p) and "jobs" not in seq_scans(p)
     big_queue.rollback()
+
+
+def test_cited_by_counts_is_scoped_to_the_requested_ids(db_session, settings):
+    """40k docs / 200k citations: the window reads only the groups citing the 20 ids, never the table."""
+    from roracle.auth import Principal
+    from roracle.citations import cited_by_counts_stmt
+    from roracle.perf import synth_pg
+    from roracle.perf.explain import nodes
+
+    synth_pg.seed(settings.database_url, docs=40_000, users=100)
+    p = Principal(user_id=synth_pg.det_uuid(1, "u", 0), sub="s", username="u", groups=(), is_admin=False)
+    ids = [synth_pg.det_uuid(1, "d", i) for i in range(0, 4000, 200)]
+    pl = plan(db_session, cited_by_counts_stmt(p, ids))
+    db_session.rollback()
+    assert "doc_citations" not in seq_scans(pl)
+    n_cites = db_session.scalar(
+        text("SELECT count(*) FROM doc_citations WHERE target_document_id = ANY(:i)"), {"i": ids}
+    )
+    for n in nodes(pl):
+        if n.get("Node Type") == "WindowAgg":
+            fed = n["Plans"][0]["Actual Rows"] * n["Plans"][0]["Actual Loops"]
+            assert fed <= 10 * max(n_cites, 1), (fed, n_cites)
+    db_session.execute(text("TRUNCATE users, documents, jobs, blobs RESTART IDENTITY CASCADE"))
+    db_session.commit()
