@@ -20,7 +20,7 @@ export function buildViewer(
   const ordered = [...open.filter((t) => t.docId === reader.active), ...open.filter((t) => t.docId !== reader.active)];
   return {
     tabs: ordered.slice(0, MAX).map((t) => ({ doc_id: t.docId, version_id: versionIdOf(t.docId, t.version), page: t.page })),
-    ignored,
+    ignored: ignored.filter((id) => reader.tabs.some((t) => t.docId === id)), // closed tab => no chip => no exclusion
     selection: selection && { ...selection, text: selection.text.slice(0, MAX_TEXT) },
   };
 }
