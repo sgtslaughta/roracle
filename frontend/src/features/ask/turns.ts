@@ -6,6 +6,7 @@ export interface AnswerData {
   text: string; citations: Citation[]; status: MessageStatus | "streaming"; detail?: string;
   /** server message id, set once the answer is saved */
   id?: string; retrieved: RetrievedPassage[]; rating?: Rating | null; excluded?: ExcludedByLabel[];
+  progress?: string;
 }
 /** `key` is positional so a pending turn keeps its identity when the saved messages replace it. */
 export interface TurnData { key: string; question: string; quote: string | null; answer: AnswerData | null }
@@ -40,6 +41,6 @@ export function buildTurns(all: ChatMessage[], pending: PendingTurn | undefined)
   const q: Quote | null = pending.selection;
   return [...turns, {
     key: `t${turns.length}`, question: pending.question, quote: q?.text ?? null,
-    answer: { text: pending.text, citations: pending.citations, retrieved: [], excluded: pending.excluded, status: pending.status === "done" ? "complete" : pending.status, detail: pending.detail },
+    answer: { text: pending.text, citations: pending.citations, retrieved: [], excluded: pending.excluded, progress: pending.progress, status: pending.status === "done" ? "complete" : pending.status, detail: pending.detail },
   }];
 }

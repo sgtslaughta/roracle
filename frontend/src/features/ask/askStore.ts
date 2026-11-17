@@ -15,6 +15,8 @@ export interface PendingTurn {
   text: string;
   citations: Citation[];
   excluded?: ExcludedByLabel[];
+  /** status line while the library is searched (agentic retrieval), cleared by the first token */
+  progress?: string;
   status: "streaming" | "done" | "interrupted" | "failed";
   detail?: string;
   messageId?: string;
@@ -92,6 +94,7 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
 
   streamMessage(chatId, { content: question, viewer, model }, {
     onToken: (t) => { buf += t; schedule(); },
+    onProgress: (g) => patch(chatId, (p) => ({ ...p, progress: `Searching sub-question ${Math.min(g.done + 1, g.of)}/${g.of} (round ${g.step})…` })),
     onCitations: (items) => { flush(); patch(chatId, (p) => ({ ...p, citations: items })); },
     onExcluded: (items) => patch(chatId, (p) => ({ ...p, excluded: items })),
     onDone: (messageId) => {

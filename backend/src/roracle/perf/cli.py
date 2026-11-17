@@ -233,7 +233,7 @@ def reconcile_walk(sf, es, index: str) -> dict:
     real = maintenance.drifted
 
     def counting(es_, items, *a, **k):
-        out = real(es_, items, *a, **k)
+        out = real(es_, items, index=index)  # the scratch index itself: never the import-time alias constant
         found[0] += len(out)  # reconcile dedupes against queued repairs, so counting jobs would hide drift
         return out
 

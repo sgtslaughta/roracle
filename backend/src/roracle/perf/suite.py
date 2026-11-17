@@ -154,10 +154,14 @@ def run_suite(profile: dict, *, pg_url: str, es_url: str, budgets: dict, seed: b
 
 
 def reconcile_row(profile: dict, sf, es, budgets: dict, f: float) -> dict:
+    from unittest import mock
+
     from roracle.perf.cli import reconcile_walk
 
-    os.environ.update({"ROR_READ_ALIAS": READ, "ROR_MUTATE_ALIAS": MUTATE})
-    res = reconcile_walk(sf, es, INDEX)
+    with mock.patch.dict(
+        os.environ, {"ROR_READ_ALIAS": READ, "ROR_MUTATE_ALIAS": MUTATE}
+    ):  # restored afterwards
+        res = reconcile_walk(sf, es, INDEX)
     note = (
         f"full walk of {profile['docs']:,} documents in {res['batches']} batches, {res['seconds']} s; "
         f"{res['es_writes']} ES writes, {res['drift_found']} documents with drift"

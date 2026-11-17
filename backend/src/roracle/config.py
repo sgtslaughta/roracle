@@ -176,7 +176,14 @@ class Settings(AliasConfig):
     agentic_max_steps: int = Field(3, ge=1, le=6)  # planner rounds after the first retrieval
     agentic_max_subqueries: int = Field(4, ge=1, le=8)  # sub-queries per planner round
     agentic_timeout_s: float = 30.0  # deadline of the whole loop (the first retrieval always completes)
-    agentic_call_timeout_s: float = 8.0  # one planner call, also bounded by the remaining deadline
+    agentic_call_timeout_s: float = (
+        1.5  # one planner call (model = router_model or summary_model: its latency is part of
+    )
+    # the per-round budget, ruling: added p95 <= 1.0 s per round), also bounded by the remaining deadline
+    agentic_max_parallel: int = Field(
+        4, ge=1, le=8
+    )  # sub-query retrievals in flight, process-wide (own sessions)
+    agentic_answer_reserve_s: float = 20.0  # MCP `ask`: time kept for the answer out of `global_mcp_budget_s`
     agentic_max_admitted: int = (
         4  # loops admitted per process at once (one per user); the rest take the fact path
     )

@@ -30,7 +30,7 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
           {!!answer.excluded?.length && <ExcludedNote items={answer.excluded} />}
           <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">
-            {streaming && !answer.text && <p className="stat" role="status">Reading the library…</p>}
+            {streaming && !answer.text && <p className="stat" role="status">{answer.progress ?? "Reading the library…"}</p>}
             {answer.status === "interrupted" && <p className="stat">Stopped before the answer finished.</p>}
             {answer.status === "failed" && (
               <div className="stat bad" role="alert">

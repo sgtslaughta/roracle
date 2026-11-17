@@ -10,7 +10,7 @@ import httpx
 import openai
 from elasticsearch import ConnectionError as EsConnectionError
 from elasticsearch import Elasticsearch, TransportError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -176,7 +176,7 @@ def _fact_fallback(
 
 
 def _agentic_prepare(
-    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history
+    ss: Session, es, llm, settings: Settings, p: Principal, body: "MessageIn", chat: Chat, history, factory
 ):
     """For `AnswerStream(prepare=...)`: the agentic retrieval loop INSIDE the stream, after the first `meta` frame
     (no pooled connection is held while the planner model runs). Yields `progress` frames, then a `meta` frame with the
@@ -191,12 +191,21 @@ def _agentic_prepare(
     def run():
         ss.commit()
         gen = agentic.iter_retrieve(
-            ss, es, llm, settings, p, body.content, viewer=body.viewer, scope=scope, excludes=excludes
+            ss,
+            es,
+            llm,
+            settings,
+            p,
+            body.content,
+            viewer=body.viewer,
+            scope=scope,
+            excludes=excludes,
+            session_factory=factory,
         )
         try:
             while True:
-                step, n = next(gen)
-                yield frame("progress", {"step": step, "subqueries": n})
+                step, of, done = next(gen)
+                yield frame("progress", {"step": step, "of": of, "done": done})
         except StopIteration as e:
             ranked, subqueries = e.value
         excluded: list[dict] = []
@@ -226,6 +235,7 @@ def post_message(
     es: Annotated[Elasticsearch, Depends(get_es)],
     llm: Annotated[object, Depends(get_llm)],
     ss: Annotated[Session, Depends(get_stream_session)],
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; direct calls in tests omit it
 ) -> StreamingResponse:
     chat = owned_chat(session, p, chat_id)
     _check_model(settings, body.model)
@@ -293,7 +303,7 @@ def post_message(
             excluded, meta, settings.global_reduce_tokens if prep else None,
             stream_prepare(ss, es, llm, settings, p, body.content, prep, hist, fact)
             if prep
-            else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history) if agent else None),
+            else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
             _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent else None),
         )  # fmt: skip
     except BaseException:

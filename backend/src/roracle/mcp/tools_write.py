@@ -77,7 +77,9 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             try:  # blocking loop inside the MCP budget; every sub-query goes through rank_for_chat
                 ranked, subqueries = agentic.retrieve(
                     session, dep(app, library.get_es), llm, s, p, question, scope=scope,
-                    deadline=time.monotonic() + min(s.agentic_timeout_s, s.global_mcp_budget_s),
+                    deadline=time.monotonic()
+                    + min(s.agentic_timeout_s, s.global_mcp_budget_s - s.agentic_answer_reserve_s),  # keep time to answer
+                    session_factory=app.state.session_factory,
                 )  # fmt: skip
                 meta = {**meta, "subqueries": subqueries}
             finally:
