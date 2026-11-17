@@ -1,4 +1,4 @@
-"""Generate docs/reference/{openapi.json,settings.md,cli.md,mcp-tools.md} from the code.
+"""Generate docs/reference/{openapi.json,settings.md,cli.md,mcp-tools.md,helm-values.md} from the code.
 
 Run from the repo root (offline, no services needed):
 
@@ -16,6 +16,7 @@ import inspect
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import tokenize
@@ -23,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "docs" / "reference"
-FILES = ("openapi.json", "settings.md", "cli.md", "mcp-tools.md")
+FILES = ("openapi.json", "settings.md", "cli.md", "mcp-tools.md", "helm-values.md")
 
 DUMMY_ENV = {
     "ROR_DATABASE_URL": "postgresql+psycopg://roracle:dummy@db.example.internal/roracle",
@@ -289,6 +290,93 @@ def gen_mcp(app) -> str:
     return "\n".join(out) + "\n"
 
 
+# ---------------------------------------------------------------- helm values
+_KEYLIKE = re.compile(r"[a-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9-]*)+")
+
+
+def _helm_default(v) -> str:
+    if isinstance(v, bool):
+        s = "true" if v else "false"
+    elif v is None:
+        s = "null"
+    elif isinstance(v, (dict, list)):
+        s = json.dumps(v, separators=(", ", ": "))
+    else:
+        s = str(v) if str(v) != "" else '""'
+    s = s.replace("|", "\\|")
+    # check_refs reads dotted tokens in backticks as Helm keys: show look-alikes (e.g. ca.crt) as plain text
+    return s if _KEYLIKE.fullmatch(s) else f"`{s}`"
+
+
+def gen_helm() -> str:
+    """Table of every values.yaml leaf: block maps are walked; flow maps, lists and scalars are one row each.
+
+    Descriptions come from the comment on the key's line, else the comment block right above it.
+    Comment blocks above a top-level key become that section's intro.
+    """
+    import yaml
+
+    text = (ROOT / "deploy/helm/roracle/values.yaml").read_text()
+    lines = text.splitlines()
+
+    def trailing(i: int) -> str:
+        m = re.search(r"\s#\s?(.*)$", lines[i])
+        return m.group(1).strip() if m and not lines[i].lstrip().startswith("#") else ""
+
+    def above(i: int) -> str:
+        out: list[str] = []
+        j = i - 1
+        while j >= 0 and lines[j].lstrip().startswith("#"):
+            out.insert(0, lines[j].lstrip().lstrip("# -").rstrip("- ").strip())
+            j -= 1
+        return (
+            "" if j < 0 else " ".join(out)
+        )  # a comment block at the top of the file is the header, not a description
+
+    def _plain(n):
+        return yaml.safe_load(yaml.serialize(n))
+
+    rows: dict[str, list[str]] = {}
+    intro: dict[str, str] = {}
+
+    def walk(node, path: list[str]) -> None:
+        for k, v in node.value:
+            p = [*path, k.value]
+            if (
+                isinstance(v, yaml.MappingNode)
+                and not v.flow_style
+                and v.value
+                and not any("." in x.value for x, _ in v.value)
+            ):
+                if not path:
+                    intro[k.value] = above(k.start_mark.line)
+                walk(v, p)
+                continue
+            d = _helm_default(_plain(v))
+            desc = " ".join(x for x in (above(k.start_mark.line), trailing(k.start_mark.line)) if x)
+            rows.setdefault(p[0] if len(p) > 1 else "general", []).append(
+                f"| `{'.'.join(p)}` | {d} | {_cell(desc)} |"
+            )
+
+    walk(yaml.compose(text), [])
+    out = [
+        HEADER + "# Helm values reference\n",
+        (
+            "Chart `deploy/helm/roracle` (generated from values.yaml). One row per key: block maps are expanded, "
+            "inline maps and lists are shown whole. Descriptions are the comments in values.yaml; "
+            "see the [deployment guide](../enterprise/deployment-guide.md) for how the values fit together.\n"
+        ),
+    ]
+    for top, rs in sorted(rows.items(), key=lambda kv: kv[0] != "general"):
+        out.append(f"## {top}\n")
+        if intro.get(top):
+            out.append(_cell(intro[top]) + "\n")
+        out.append("| Key | Default | Description |\n|---|---|---|")
+        out.extend(rs)
+        out.append("")
+    return "\n".join(out)
+
+
 def generate(dest: Path) -> None:
     setup()
     app = _app()
@@ -297,6 +385,7 @@ def generate(dest: Path) -> None:
     (dest / "settings.md").write_text(gen_settings())
     (dest / "cli.md").write_text(gen_cli())
     (dest / "mcp-tools.md").write_text(gen_mcp(app))
+    (dest / "helm-values.md").write_text(gen_helm())
 
 
 def drift(fresh: Path, committed: Path = OUT) -> list[str]:

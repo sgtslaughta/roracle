@@ -1,8 +1,8 @@
 # rOracle Enterprise Deployment Guide
 
-Audience: platform engineers deploying rOracle on an air-gapped Kubernetes cluster.
-Read with: [spec](../spec.md), [security](security.md), [operations runbook](operations-runbook.md),
-[Keycloak setup](keycloak-setup.md), [mirror manifest](airgap-mirror-manifest.md).
+Audience: operators and SRE deploying rOracle (Helm chart 0.2.0, `deploy/helm/roracle`) on an air-gapped Kubernetes cluster.
+Read with: [Terraform deployment](deployment-terraform.md), [kind rehearsal](deployment-kind-rehearsal.md), [upgrades](upgrades.md), [Helm values reference](../reference/helm-values.md), [security](security.md), [operations runbook](operations-runbook.md),
+[Keycloak setup](keycloak-setup.md), [mirror manifest](airgap-mirror-manifest.md). Terms are in the [glossary](../glossary.md).
 
 ## 1. Topology
 
@@ -102,16 +102,24 @@ First-install ordering:
 
 Post hooks run in weight order: ES snapshot repo + SLM (0, retries repository registration up to 5 min until the S3 bucket and snapshot identity exist). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
 
+Render-time guards (the render fails, nothing is installed) cover: missing `secrets.existingSecret`, `ingress.host` (when ingress is on),
+`config.ROR_OIDC_ISSUER` or `web.oidcAuthority`, `postgres.appCredentialsSecret` (cnpg), `postgres.backup.credentialsSecret.name` and
+`postgres.backup.endpointURL` (backups on), `elasticsearch.appUserSecret` (eck), `elasticsearch.snapshot.credentialsSecret` and
+`elasticsearch.snapshot.endpoint` (snapshots on); ClamAV `parsers.clamav.limits` below the upload and evidence caps or at 4G or more,
+or a ClamAV `/tmp` smaller than limits x `maxThreads`, or `parsers.clamav.mirrorUrl` without `mirrorCIDRs`; the database connection budget
+(replicas x pool + overflow, plus `postgres.reservedConnections`, above `postgres.parameters.max_connections` or the pooler budget);
+`postgres.recovery.enabled` without backups or with a `postgres.backup.serverName` equal to the source; and the values removed in 0.2.0
+(see [upgrades](upgrades.md)).
+
 Smoke test: `GET /healthz`; sign in; upload a PDF until *Searchable*; ask a question and open a citation.
 `helm test` is not provided.
 
 ### 4.3a Deploy with Terraform
 
 `deploy/terraform` wraps the steps above (namespaces, pull secret, operator charts, Secrets, the `roracle` release) for an existing cluster
-reached through a kubeconfig; it creates no cloud resources and does not replace the chart ([ADR-0016](../adr/0016-terraform-iac.md)).
-Operator chart repositories/versions are placeholders until you set your mirror values; `apply` refuses to run while any remain.
-Object storage is `object_store = "rook-ceph"` (Terraform installs Rook-Ceph RGW, buckets and credentials; needs >= 3 nodes with raw disks) or `"external"` (your S3, recommended for small installs); Terraform never deploys a MinIO tenant (community images ended Oct 2025).
-See [deploy/terraform/README.md](../../deploy/terraform/README.md) for prerequisites, the placeholder table, plan/apply order, state backends and destroy cautions.
+reached through a kubeconfig. It creates no cloud resources and does not replace the chart ([ADR-0016](../adr/0016-terraform-iac.md)).
+Object storage is Rook-Ceph RGW (Terraform installs it, needs at least 3 nodes with raw disks) or your own S3; Terraform never deploys a MinIO tenant.
+The full procedure, the placeholder gate, `allow_placeholders` and `protect_data` are in [Deploying with Terraform](deployment-terraform.md).
 
 ### 4.4 Ingress
 
@@ -159,7 +167,9 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 | `ROR_OIDC_ORIGIN` | derived from the authority | used in CSP `connect-src`/`frame-src`/`form-action` |
 | `API_UPSTREAM` | `http://<fullname>-api:8000` | `/api/` proxy; unset = `/api/` returns 404 |
 
-### 4.8 Values reference (top-level keys; see `values.yaml` comments)
+### 4.8 Values reference (top-level keys)
+
+Every key with its default is in the generated [Helm values reference](../reference/helm-values.md). Overview:
 
 | Key | Purpose |
 |---|---|
@@ -172,18 +182,18 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 | `metrics.enabled` | `prometheus.io/{scrape,port,path}` pod annotations on api and worker (default on); no ServiceMonitor is shipped |
 | `podSecurityContext`, `containerSecurityContext`, `topologySpread` | restricted baseline, zone spread |
 | `api`, `worker`, `web` | replicas, resources, HPA, PDB, `tmpSize`, grace periods |
+| `rerank` | reranker `url`, `api` (`cohere` or `tei`), `model`; `secrets.rerankApiKeyEnabled` injects `ROR_RERANK_API_KEY` |
 | `migrate` | hook Job resources and deadline (1500 s) |
 | `ingress` | host, class, TLS secret, annotations |
 | `postgres` | CNPG mode, instances, storage, image, `backup` (plugin/legacy, schedule, retention) |
 | `elasticsearch` | ECK mode, version, nodeSets, storage, TLS, `snapshot` (bucket, SLM schedule/retention) |
-| `networkPolicy.s3` | egress to the object store (CIDRs and/or in-cluster peer) |
 | `parsers` | gotenberg, draftgotenberg, docling, grobid, clamav (+ PDB) |
 | `connectors` | worker egress CIDRs/ports for connectors |
 | `caBundle` | interim CA bundle (see section 8) |
-| `networkPolicy` | see 4.6 |
+| `networkPolicy` | see 4.6, including `networkPolicy.s3` (egress to the object store: CIDRs and/or an in-cluster peer) |
 
 Observability (Prometheus, Grafana, Loki, OTel collector) are separate releases: see
-[`deploy/observability/README.md`](../../deploy/observability/README.md). 
+`deploy/observability/README.md` in the repository.
 Probes and metrics (api and worker):
 
 - api `readinessProbe` is `GET /readyz`: Postgres `SELECT 1`, Elasticsearch ping and S3 `head_bucket`, each limited to 2 s. It answers 503 with `{"checks":{"db","es","s3"}}` (`ok`/`fail`, no error text) while a dependency is down. `/healthz` stays static and is the startup and liveness probe.
@@ -195,142 +205,51 @@ Probes and metrics (api and worker):
 
 Apply [keycloak-setup.md](keycloak-setup.md). The org proxy must not buffer below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3 for `/mcp`.
 
-## 5. Configuration reference (environment, prefix `ROR_`)
+## 5. Configuration
 
-| Variable | Example | Purpose |
-|---|---|---|
-| `ROR_DATABASE_URL` | `postgresql+psycopg://roracle:…@pg-rw:5432/roracle` | Postgres (read-write service) |
-| `ROR_S3_ENDPOINT`, `ROR_S3_BUCKET`, `ROR_S3_ACCESS_KEY`, `ROR_S3_SECRET_KEY` | `https://s3.internal:9000` (Ceph RGW: `https://rook-ceph-rgw-roracle.rook-ceph.svc`), `roracle` | Blob store |
-| `ROR_OIDC_ISSUER`, `ROR_OIDC_AUDIENCE`, `ROR_OIDC_JWKS_URL` | `https://kc/realms/research`, `roracle` | Token validation |
-| `ROR_MAX_UPLOAD_BYTES` | `524288000` | Upload limit (500 MB) |
-| `ROR_EVIDENCE_MAX_BYTES` | `1073741824` | Max evidence file size (default 1 GiB). Keep ClamAV `StreamMaxLength`/`MaxFileSize`/`MaxScanSize` >= this value (>= 1 GiB, with `AlertExceedsMax yes`) and the reverse proxy `client_max_body_size` (nginx; ingress `proxy-body-size`) >= this value, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`): the API needs no large `/tmp` (`api.tmpSize` default `1Gi`). The bucket must allow multipart uploads and server-side copy for the app user, and should expire `tmp/` after 1 day and abort incomplete multipart uploads (Terraform rook-ceph sets this lifecycle; external S3: `aws s3api put-bucket-lifecycle-configuration`, runbook 2).example.org` | External origin used in OAuth metadata and handoff URLs; empty = derive from the request |
-| `ROR_PATS_ENABLED` | `true` | Personal access tokens for agents (`false` rejects all PATs) |
-| `ROR_PAT_MAX_IDENTITY_AGE_DAYS` | `30` | PAT rejected if its owner has not signed in via JWT within this many days |
-| `ROR_ELASTIC_URL`, `ROR_ELASTIC_API_KEY` | `https://es-http:9200` | Search index (plan 3) |
-| `ROR_LLM_BASE_URL`, `ROR_LLM_API_KEY` | `https://inference/v1` | OpenAI-spec endpoint (plan 2+) |
-| `ROR_EMBED_MODEL`, `ROR_RERANK_MODEL` | `embeddinggemma-300m` | Defaults; admins override in UI |
-| `ROR_CHAT_MODELS` | `qwen2.5:14b` | Comma-separated allowlist of chat models; the first is the default |
-| `ROR_CHAT_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of chat retrieval only (BM25 hits are not floored); `0` disables |
-| `ROR_SEARCH_MIN_SIMILARITY` | `0.35` | Raw cosine floor on the kNN half of library search (BM25 hits are not floored); `0` disables. Measured on embeddinggemma: relevant hits 0.38-0.73, unrelated <=0.28. Scores are model-specific: re-tune after changing the embedding model |
-| `ROR_CHAT_PASSAGES` | `8` | Passages sent to the model per question; clamped to 4-12 |
-| `ROR_CHAT_NOTE_MIN_UPVOTES`, `ROR_CHAT_NOTE_MIN_RATIO` | `3`, `0.6` | Community notes by other users reach an LLM (chat, MCP `ask`/`search`) only with at least this many upvotes and a vote ratio above the floor (the asker's own notes always qualify); prompt-injection gate |
-| `ROR_RERANK_DEPTH` | `200` | Top-N passages sent to the reranker (10-500) |
-| `ROR_RERANK_URL`, `ROR_RERANK_API` | empty, `cohere` | Reranker endpoint; `tei` = HF text-embeddings-inference (`deploy/game-01`). Empty URL disables |
-| `ROR_RERANK_API_KEY` | empty | Optional bearer token for the reranker (Secret key `rerankApiKey`; never logged) |
-| `ROR_RERANK_TIMEOUT_S`, `ROR_RERANK_MAX_CHARS` | `3`, `2000` | Slow/failed rerank keeps the fused order (`roracle_rerank_fallback_total{reason}`); chars per passage sent |
-| `ROR_RERANK_MAX_BATCH` | `256` | Texts per rerank request (keep <= server `--max-client-batch-size`); the timeout is one budget for all requests |
-| `ROR_CHAT_CANDIDATES` | `200` (20-500) | BM25 and kNN list size on the chat path |
-| `ROR_UPLOAD_QUOTA_BYTES` | `0` | Per-user quota: logical bytes of the user's document versions, including trash until purged and excluding rejected/cancelled versions; over = 413 `upload quota exceeded`; hard (uploads serialized per user); `0` = unlimited |
-| `ROR_DB_CONNECT_TIMEOUT_S` | `5` | Postgres connect timeout (seconds) for API, worker, `/readyz` and the metrics collector. Raise for cross-AZ/managed PG under load; a `?connect_timeout=` in `ROR_DATABASE_URL` overrides it |
-| `ROR_RATE_LIMIT_PER_MINUTE` | `0` | Per-token request budget per API replica (token bucket, `0` = off): `429` + `Retry-After` when exceeded; PATs and JWTs are separate buckets; with N replicas the cluster-wide limit is about N x this value (use ingress limits for a hard cap). See security.md section 8 |
-| `ROR_CONNECTOR_FS_ROOTS` | empty | Comma or JSON list of directories filesystem connectors may read (a connector path must resolve, symlinks included, to a root or below it). Empty = filesystem connectors are rejected. Mount sources **read-only** into the worker (and the API, which validates paths at create), e.g. `volumes: [/srv/papers:/data/papers:ro]` with `ROR_CONNECTOR_FS_ROOTS=/data/papers`; give the mount nothing but the documents to ingest |
-| `ROR_CONNECTOR_MAX_ITEMS` | `1000` | Items that need work (new, changed, too large; unchanged items do not count) per connector run; more = run ends `partial`, the rest is picked up next run |
-| `ROR_CONNECTOR_MAX_RUN_S` | `3600` | Wall-clock cap per connector run (`partial` when hit). A run holds one database transaction (the job claim) for its whole duration: set Postgres `idle_in_transaction_session_timeout` above this value (or `0`) |
-| `ROR_CONNECTOR_TICK_S` | `60` | Scheduler interval: the worker enqueues due scheduled connectors this often (a self-rescheduling `connector_tick` job, created at worker start) |
-| `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` | empty | Comma or JSON list of CIDRs (e.g. `10.20.0.0/16,fd12:3456::/32`) that HTTP crawl connectors may reach although they are not public addresses. Empty = only public internet hosts. Needed for air-gapped/internal crawling. Link-local (`169.254.0.0/16`, `fe80::/10`, cloud metadata), the IPv4 inside a mapped address when it is link-local/metadata, multicast and unspecified addresses are blocked even inside an allowed CIDR. IPv4-mapped answers (`::ffff:a.b.c.d`) follow the IPv4 rules (allowlist `10.0.0.0/8`, not a mapped CIDR). Any IPv6 CIDR overlapping a translator/tunnel range (`::/96`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2002::/16`, `2001::/32`) must be a `/96` (e.g. `64:ff9b::/96` for NAT64); its low 32 bits are vetted as IPv4. The translator CIDR must be the translator's real `/96` prefix (RFC 6052 `/96` layout); NAT64 deployments using `/32`-`/64` layouts are unsupported. IPv6 loopback (`::1`) cannot be allowlisted: use IPv4 `127.0.0.0/8` for local test crawls. Invalid CIDR = startup error |
-| `ROR_CONNECTOR_HTTP_TIMEOUT_S` | `60` | Per-request cap for HTTP crawl connectors, connect to last byte (also bounded by the remaining run time) |
-| `ROR_DOCLING_URL`, `ROR_GROBID_URL`, `ROR_CLAMAV_HOST` | service URLs | Ingest sidecars |
-| `ROR_RETENTION_DELETED_DAYS` | `0` | Hard-purge documents soft-deleted more than this many days ago (chunks, versions, notes, evidence rows; blob refcounts decremented). `0` = never purge (trash kept forever). Irreversible: align with backup retention. Chart: `config.ROR_RETENTION_DELETED_DAYS` |
-| `ROR_MAINTENANCE_INTERVAL_S` | `86400` | Period of the self-rescheduling `maintenance` job (purge, blob GC, ES tag reconcile); created at worker start. Chart: `config.ROR_MAINTENANCE_INTERVAL_S` |
-| `ROR_WORKER_HEALTH_PORT` | `8001` | Worker `/healthz` + `/metrics` port; `0` disables the listener (set by the chart from `worker.healthPort`) |
-| `ROR_CLAMAV_PORT` | `3310` | clamd port (chart: `parsers.clamav.port` when bundled; external clamd: set `config.ROR_CLAMAV_PORT`) |
-| `ROR_ELASTIC_USERNAME`, `ROR_ELASTIC_PASSWORD` | empty | ES basic auth, instead of URL userinfo (secret keys `secrets.keys.elasticUsername/elasticPassword`, optional) |
-| `ROR_DATABASE_PASSWORD` | empty | Injected into `ROR_DATABASE_URL` (URL-escaped for you; the URL must carry a username); secret key `secrets.keys.databasePassword`, optional. `ROR_DATABASE_URL` itself accepts `postgresql://`, `postgres://` or `postgresql+psycopg://` (driver normalised) |
-| `ROR_ELASTIC_CA_CERTS`, `ROR_S3_CA_BUNDLE` | empty | PEM CA file paths for ES / S3 TLS; the chart sets both to the merged bundle when `caBundle` is active |
-| `ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S` | `http://gotenberg:3000`, `300` | Office (doc/docx/odt/rtf/ppt/pptx/odp/xls/xlsx/ods) uploads are converted to PDF in the parse stage; the original is kept untouched, the rendition is stored at `derived/{version_id}/rendition.pdf`, and Docling/GROBID read the rendition (page/bbox provenance refers to it). Empty URL = office files go to Docling directly. Gotenberg down or 5xx = retryable (fails after retries are exhausted); invalid file = permanent failure |
-| `ROR_NEAR_DUP_SUMMARY_THRESHOLD` | `0.97` | Cosine similarity of document summary embeddings at or above which a new upload is parked for a near-duplicate decision (in addition to the MinHash `ROR_NEAR_DUP_THRESHOLD`); only visible documents are compared |
-| `ROR_MAX_RENDITION_BYTES` | `524288000` | Cap on the Gotenberg PDF rendition (streamed, aborted when exceeded); over = permanent failure. Page/size caps are enforced by Docling itself: set `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` on the docling-serve container (over-limit documents fail; the error is not distinguishable, so they surface as a conversion failure). The ingest Gotenberg is a dedicated, isolated instance with chromium routes disabled (office → PDF only); the later paper-drafts HTML/Markdown → PDF build (spec §8) needs its own separate Chromium-enabled instance. Deploy Gotenberg isolated: own namespace, deny-all egress NetworkPolicy (ingress from worker only), no secrets, read-only root FS, command `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s` |
-| `ROR_DRAFT_GOTENBERG_URL`, `ROR_BUILD_TIMEOUT_S`, `ROR_BUILD_MAX_PDF_BYTES`, `ROR_BUILD_CONCURRENCY`, `ROR_LATEX_BUILDER` | empty, `120`, `104857600`, `2`, `disabled` | Paper-draft PDF build (`POST /drafts/{id}/build`, synchronous). Markdown goes through the bundled pandoc (pypandoc-binary wheel, run with `--sandbox`, rlimits, empty env, stdout cap) and a Python AST sanitizer, then to a **separate Chromium-enabled Gotenberg** (never the ingest instance): command `gotenberg --api-disable-download-from --webhook-disable --pdfengines-disable-routes --libreoffice-disable-routes --api-timeout=120s`, own namespace, deny-all egress NetworkPolicy (ingress from api only), no secrets, read-only root FS. `ROR_BUILD_TIMEOUT_S` is one deadline for the whole build (both pandoc passes and the Gotenberg response stream). `ROR_BUILD_CONCURRENCY` (default `2`; chart: `config.ROR_BUILD_CONCURRENCY`, and `ROR_DRAFT_GOTENBERG_URL` is auto-filled to the in-chart `parsers.draftgotenberg` Service, enabled by default, port 3000, no egress, ingress from the api only) caps simultaneous builds per api process because builds are CPU-heavy; beyond it the route returns 503 `build service busy`; the cap is read once at first use, so changing it needs an api restart. Empty URL = build returns 503 `build service not configured`. The response is streamed and aborted past `ROR_BUILD_MAX_PDF_BYTES`; it must start with `%PDF-`. `ROR_LATEX_BUILDER=disabled` = `format: latex` drafts return 501; the optional service contract is in `latex-builder.md` |
-| `ROR_DRAFT_MAX_BYTES`, `ROR_WRITING_MAX_CITATIONS`, `ROR_WRITING_VALIDATE_BUDGET_S`, `ROR_WRITING_MODEL` | `2097152`, `200`, `10`, empty | Paper drafts. `ROR_DRAFT_MAX_BYTES`: Markdown cap in UTF-8 bytes per save (over = 413). `ROR_WRITING_MAX_CITATIONS`: distinct citation keys per draft (over = blocking validation finding, fail closed). `ROR_WRITING_VALIDATE_BUDGET_S`: wall-clock budget in seconds for the deterministic checks (exceeded = blocking finding, fail closed). `ROR_WRITING_MODEL`: chat model for the style check and citation judge; empty = the first of `ROR_CHAT_MODELS`. Published PDFs name only `everyone`-visible searchable references; others render as "Restricted reference" |
+Every `ROR_*` setting, its default and whether an admin can override it at runtime is in the generated [settings reference](../reference/settings.md);
+do not copy values from older notes. In Helm put non-secret settings under `config:` (ConfigMap), others in `api.extraEnv` or `worker.extraEnv`;
+credentials only in the Secrets of section 4.2. The chart already sets the database pools, `ROR_JOB_*`, `ROR_API_THREADS`, `ROR_ES_*` and
+`ROR_VECTOR_INDEX_TYPE` in `values.yaml`. Settings that admins change in the UI live in Postgres and win over the environment: see
+[runtime settings](../admin/runtime-settings.md). Notes that affect how you deploy:
 
-### 5.1 Retrieval-quality, indexing and scale settings
+- **Elasticsearch credentials**: put them in `ROR_ELASTIC_URL` as userinfo, or leave them out and set `ROR_ELASTIC_USERNAME` and `ROR_ELASTIC_PASSWORD` (secret keys `secrets.keys.elasticUsername` and `elasticPassword`, optional). There is no API-key setting.
+- **Database password**: `ROR_DATABASE_PASSWORD` (secret key `secrets.keys.databasePassword`, optional) is injected into `ROR_DATABASE_URL`, which must then carry a username. `ROR_DATABASE_URL` accepts `postgresql://`, `postgres://` or `postgresql+psycopg://`.
+- **Upload and evidence caps**: `ROR_MAX_UPLOAD_BYTES` and `ROR_EVIDENCE_MAX_BYTES` (1 GiB by default). Keep ClamAV `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` (`parsers.clamav.limits`, 1100M) and the reverse proxy body limit (ingress `proxy-body-size`, nginx `client_max_body_size`) at or above `ROR_EVIDENCE_MAX_BYTES`, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`), so the api needs no large `/tmp` (`api.tmpSize`, 1Gi). The bucket must allow multipart uploads and server-side copy for the app user. The api adds a 1-day `tmp/` expiry rule at start when it may; otherwise set it yourself (see [Terraform deployment](deployment-terraform.md), external S3 commands).
+- **MCP uploads**: the org proxy must not buffer below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3 for `/mcp`.
+- **Database**: `ROR_DB_CONNECT_TIMEOUT_S` applies to the api, worker, `/readyz` and the metrics collector; a `?connect_timeout=` in `ROR_DATABASE_URL` overrides it. `ROR_DB_DISABLE_PREPARED` is set by the chart with the PgBouncer pooler. Connection budget formula: `docs/perf/connection-budget.md`.
+- **Jobs**: `ROR_JOB_LEASE_S` is 90, `ROR_JOB_DRAIN_S` is 120 in the chart. Keep `worker.terminationGracePeriodSeconds` at or above drain plus 30 (chart: 150).
+- **Connectors**: `ROR_CONNECTOR_FS_ROOTS` is empty by default, so filesystem connectors are rejected. Mount sources read-only into the worker and the api (for example `/srv/papers:/data/papers:ro`). `ROR_CONNECTOR_MAX_RUN_S` (3600): a run holds one database transaction for its whole duration, so set Postgres `idle_in_transaction_session_timeout` above it (or `0`). Crawl targets outside the public internet need `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` and, with NetworkPolicy on, `connectors.egressCIDRs`. See [connectors](../admin/connectors.md).
+- **Retention and maintenance**: `ROR_RETENTION_DELETED_DAYS` (0 = never purge; irreversible, align it with backup retention) and `ROR_MAINTENANCE_INTERVAL_S` (86400), both under `config:`.
+- **Office conversion** (`ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S`): office uploads are converted to PDF in the parse stage; Docling and GROBID read the rendition. Gotenberg down or 5xx is retryable, an invalid file a permanent failure. `ROR_MAX_RENDITION_BYTES` caps the rendition. Docling enforces page and size caps itself: the chart sets `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` (`parsers.docling.env`).
+- **Gotenberg isolation**: the ingest instance runs `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s`. The draft-build instance (`parsers.draftgotenberg`, `ROR_DRAFT_GOTENBERG_URL`, Chromium enabled, called by the api only) runs `--api-disable-download-from --webhook-disable --pdfengines-disable-routes --libreoffice-disable-routes --api-timeout=120s`. Never share one instance: Chromium renders attacker-influenced HTML. Both get no egress, no secrets and a read-only root filesystem. External instances need the same hardening.
+- **Draft builds**: `ROR_BUILD_CONCURRENCY` (2) caps simultaneous builds per api process (more is 503 `build service busy`; read once, so restart the api to change it). An empty draft Gotenberg URL gives 503 `build service not configured`. `ROR_LATEX_BUILDER=disabled` (default) makes `format: latex` drafts return 501; the optional service contract is in [latex builder](latex-builder.md).
+- **Reranker**: `ROR_RERANK_URL` empty disables it. `ROR_RERANK_API` is `cohere` or `tei` (chart `rerank.api`); `ROR_RERANK_API_KEY` is an optional Bearer token. A slow or failed rerank keeps the fused order.
+- **Rate limit**: `ROR_RATE_LIMIT_PER_MINUTE` (0 = off) is per api replica, so the cluster-wide limit is about N times the value; use ingress limits for a hard cap.
+- **Elasticsearch index settings** (`ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_VECTOR_INDEX_TYPE`) apply when an index is created. Sizing: [capacity planning](capacity-planning.md). Do not change `ROR_READ_ALIAS`, `ROR_MUTATE_ALIAS` or `ROR_EMBED_INDEX` on a live system.
 
-Defaults are the code defaults (`backend/src/roracle/config.py`). In Helm put any of them under `config:` (or `api.extraEnv` /
-`worker.extraEnv`); the chart already sets `ROR_DB_*`, `ROR_JOB_*`, `ROR_API_THREADS`, `ROR_ES_*` and `ROR_VECTOR_INDEX_TYPE` in `values.yaml`.
-Features marked **off** stay off until a PASS report in `docs/eval/` (ADR-0015).
+### 5.1 GPU host services (reranker, context-note model, planner)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `ROR_VECTOR_INDEX_TYPE`, `ROR_VECTOR_RESCORE_OVERSAMPLE` | `int8_hnsw`, `3.0` | Vector index type of NEW indices (`int4_hnsw`, `bbq_hnsw`; bbq only after the eval gate; oversample > 1 and < 10 applies to bbq). An existing index keeps its own |
-| `ROR_ES_SHARDS`, `ROR_ES_REPLICAS`, `ROR_ES_REFRESH_INTERVAL` | `1`, `1`, `5s` | Index settings applied when an index is created (sizing: `capacity-planning.md`) |
-| `ROR_ES_EXCLUDE_SOURCE_VECTORS`, `ROR_ES_HNSW_FILTER_HEURISTIC` | `true`, `acorn` | Vectors out of `_source` (ES >= 9.2); filtered kNN heuristic `acorn` or `fan_out` |
-| `ROR_EMBED_DIMS`, `ROR_EMBED_TOKENIZER` | `768`, `sentence-transformers/all-MiniLM-L6-v2` | Dimensions of the bootstrap embedding model; tokenizer used for chunk sizing in workers |
-| `ROR_SUMMARY_MODEL` | `qwen2.5:3b` | Ingest summaries; also the default for `ROR_RAPTOR_MODEL` |
-| `ROR_LLM_TIMEOUT_S`, `ROR_DOCLING_TIMEOUT_S`, `ROR_GROBID_TIMEOUT_S` | `120`, `300`, `120` | Client timeouts of the inference, docling and GROBID calls |
-| `ROR_OIDC_ALLOWED_CLIENTS` | `roracle-web,roracle-mcp` | Keycloak `azp` values accepted for access tokens |
-| `ROR_SEARCH_RERANK_DEPTH`, `ROR_RERANK_BLEND` | `50`, `0.3` | `/search` rerank depth (chat/MCP use `ROR_RERANK_DEPTH`); weight of the min-max reranker score against the fused score (`1.0` = replace). The reranker input is `title + text` |
-| `ROR_EMBED_CACHE_SIZE`, `ROR_EMBED_CACHE_TTL_S`, `ROR_SEARCH_CACHE_S` | `10000`, `600`, `60` | In-process caches: query embeddings (0 = off), `/search` first stage for paging (0 = off) |
-| `ROR_EVAL_JUDGE_MODEL`, `ROR_EVAL_JUDGE_SAMPLE`, `ROR_EVAL_ON_REINDEX` | empty (first chat model), `100`, `true` | Eval LLM judge model and pairs per run; enqueue `eval_run` on the reference set after a cutover or rebuild |
-| `ROR_CONTEXT_NOTES` (off), `ROR_CONTEXT_MODEL` | `false`, empty | Contextual chunk notes. An empty model = no notes. Needs an Ollama variant with `num_ctx >= 16384` (`deploy/game-01/README.md`) |
-| `ROR_CONTEXT_DOC_CHARS`, `ROR_CONTEXT_MAX_CHUNKS`, `ROR_CONTEXT_MAX_TOKENS`, `ROR_CONTEXT_CONCURRENCY` | `24000`, `400`, `120`, `8` | Document window sent per note; notes per document (later chunks get the heading path); cap per note; notes in flight per document |
-| `ROR_RAPTOR` (off), `ROR_RAPTOR_MODEL`, `ROR_RAPTOR_SECTION_CHARS`, `ROR_RAPTOR_MAX_SECTIONS` | `false`, empty, `12000`, `64` | Per-document section/document summary units; model empty = `ROR_SUMMARY_MODEL` |
-| `ROR_ROUTER` (off; admin runtime override), `ROR_ROUTER_LLM`, `ROR_ROUTER_MODEL`, `ROR_ROUTER_TIMEOUT_S` | `false`, `false`, empty, `1.5` | Query router. Heuristic only unless `ROR_ROUTER_LLM`; an ambiguous question then costs one small-model call (empty model = `ROR_SUMMARY_MODEL`) |
-| `ROR_GLOBAL_MAX_DOCS`, `ROR_GLOBAL_CONCURRENCY`, `ROR_GLOBAL_MAX_CONCURRENT`, `ROR_GLOBAL_MAX_ADMITTED` | `40`, `8`, `16`, `4` | Global answers: documents per question, map calls in parallel per question, in-flight map calls per process, questions admitted per process (one per user); busy = the normal fact path |
-| `ROR_GLOBAL_CALL_TIMEOUT_S`, `ROR_GLOBAL_TIMEOUT_S`, `ROR_GLOBAL_MCP_BUDGET_S` | `20`, `90`, `45` | Per map call, whole map phase, MCP `ask` budget |
-| `ROR_GLOBAL_DOC_CHARS`, `ROR_GLOBAL_MAP_TOKENS`, `ROR_GLOBAL_REDUCE_TOKENS` | `6000`, `200`, `1200` | Text per map call, cap per finding, cap on the reduce answer |
-| `ROR_AGENTIC_RETRIEVAL` (off; admin runtime override), `ROR_AGENTIC_PLANNER_MODEL` | `false`, empty | Query decomposition loop for multi-hop questions in chat and MCP `ask`. **Use a small fast planner model** (dev: `qwen2.5:3b`); empty = the first chat model, which is slower. Budget: added p95 <= 1 s per planning round |
-| `ROR_AGENTIC_MAX_STEPS`, `ROR_AGENTIC_MAX_SUBQUERIES`, `ROR_AGENTIC_TIMEOUT_S`, `ROR_AGENTIC_CALL_TIMEOUT_S` | `3`, `4`, `30`, `1.5` | Planning rounds, sub-queries per round, deadline of the loop, one planner call (slower = dropped, the loop stops) |
-| `ROR_AGENTIC_MAX_PARALLEL`, `ROR_AGENTIC_MAX_ADMITTED`, `ROR_AGENTIC_ANSWER_RESERVE_S` | `4`, `4`, `20` | Sub-query retrievals in flight per process (each takes a pooled DB connection), loops admitted per process (one per user), time kept for the MCP answer |
-| `ROR_EMBED_CONCURRENCY`, `ROR_REEMBED_SLICES` | `4`, `4` (1-16) | Embedding requests in flight (re-embed, rebuild, ingest) and parallel slice chains of a re-embed. Rule of thumb: `slices x concurrency` ~ embedding replicas x per-replica concurrency. Batch embedding calls retry 429/5xx with backoff; interactive queries never retry |
-| `ROR_DB_POOL_SIZE`, `ROR_DB_MAX_OVERFLOW`, `ROR_DB_POOL_TIMEOUT_S` | `8`, `4`, `10` | API connection pool (max `pool + overflow` per process) and the wait for a free connection |
-| `ROR_WORKER_DB_POOL_SIZE`, `ROR_WORKER_DB_MAX_OVERFLOW` | `3`, `1` | Worker pool; plus one separate connection for the lease heartbeat |
-| `ROR_DB_DISABLE_PREPARED` | `false` | Set by the chart with the PgBouncer pooler (no server-side prepared statements) |
-| `ROR_JOB_LEASE_S`, `ROR_JOB_DRAIN_S` | `90`, `0` (chart `120`) | Job lease (renewed every lease/3; a crashed worker's job is requeued after it) and the time a running job gets after SIGTERM before it is released (no attempt spent). Keep `worker.terminationGracePeriodSeconds` >= drain + 30 (chart 150) |
-| `ROR_API_THREADS` | `256` | Worker threads per API pod: one per in-flight sync route or answer stream |
-| `ROR_READ_ALIAS`, `ROR_MUTATE_ALIAS` | `chunks`, `chunks-all` | Only to isolate a scratch index (perf harness): both or neither, and they must differ. Never change on a live system |
-| `ROR_EMBED_INDEX` | empty | Set by the re-embed cutover / eval overrides; do not set it |
-
-### 5.2 GPU host services (reranker, context-note model, planner)
-- **Reranker (TEI)**: `deploy/game-01/reranker.sh` (pull on a connected host, `install` on the GPU host, `run`, `health`) serves
-  `BAAI/bge-reranker-v2-m3` with `ghcr.io/huggingface/text-embeddings-inference:89-1.9` on `127.0.0.1:28080`, offline (`HF_HUB_OFFLINE=1`,
-  model mounted read-only). Point the app at it with `ROR_RERANK_URL=http://<host>/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3`
-  (an SSH tunnel or mesh address; TEI has no authentication, put a proxy in front if it is reachable beyond that and set `ROR_RERANK_API_KEY`). Budget:
-  p95 <= 800 ms for 200 passages. Failure or timeout keeps the fused order (`roracle_rerank_fallback_total{reason}`). It is OFF
-  until the eval gate passes (ADR-0015 outcomes).
-- **Context-note model**: an Ollama variant of the notes model with `PARAMETER num_ctx 16384` (the default 4096 silently truncates
-  the document window); recipe in `deploy/game-01/README.md`. Set `ROR_CONTEXT_MODEL` to its name.
-- **Planner model** for `ROR_AGENTIC_PLANNER_MODEL`: any small fast chat model on the same OpenAI-spec endpoint (dev: `qwen2.5:3b`).
-
-Runtime settings that admins change in the UI (model allowlist, thresholds, retention, profiles) live in
-Postgres, not env. Admins can override `chat_models`, `chat_default_model`, `chat_passages`, `chat_note_min_upvotes`, `chat_note_min_ratio`, `rerank_depth`,
-`near_dup_threshold`, `near_dup_summary_threshold`, `max_upload_bytes`, `upload_quota_bytes`,
-`rate_limit_per_minute`, `pats_enabled`, `router` and `agentic_retrieval` at runtime via `GET`/`PUT /admin/settings` (the DB value wins over
-the env value; `null` removes the override). Changes apply to new requests and jobs without a restart.
+- **Reranker (TEI)**: `deploy/game-01/reranker.sh` (pull on a connected host, `install` on the GPU host, `run`, `health`) serves `BAAI/bge-reranker-v2-m3` with `ghcr.io/huggingface/text-embeddings-inference:89-1.9` on `127.0.0.1:28080`, offline (`HF_HUB_OFFLINE=1`, model mounted read-only). Point the app at it with `ROR_RERANK_URL=http://<host>/rerank ROR_RERANK_API=tei ROR_RERANK_MODEL=bge-reranker-v2-m3` through an SSH tunnel or mesh address. TEI has no authentication: put a proxy in front if it is reachable beyond that and set `ROR_RERANK_API_KEY`. Budget: p95 of 800 ms for 200 passages.
+- **Context-note model**: an Ollama variant with `PARAMETER num_ctx 16384` (the default 4096 silently truncates the document window); recipe in `deploy/game-01/README.md`. Set `ROR_CONTEXT_MODEL` to its name.
+- **Planner model** for `ROR_AGENTIC_PLANNER_MODEL`: any small fast chat model on the same OpenAI-spec endpoint.
 
 ## 6. High availability
 
 - Stateless tiers (`web`, `api`, `worker`, sidecars): ≥ 2 replicas, PodDisruptionBudget `minAvailable: 1`,
-  topology spread across zones, readiness on `/healthz`.
+  topology spread across zones, readiness on `/readyz` (api).
 - Postgres: CNPG automatic failover; app connects via the `-rw` service.
-- Elastic: 3 dedicated masters; ≥ 1 replica shard; shard size target 30–50 GB.
+- Elasticsearch: the chart default is one nodeSet of 3 nodes with roles master, data and ingest; add dedicated masters and data nodes through `elasticsearch.nodeSets`. One replica shard (`ROR_ES_REPLICAS`); shard size target 30–50 GB.
 - Object storage: Ceph erasure coding tolerates node/disk loss; replicate buckets to another site (RGW multisite or external S3 elsewhere) for DR.
-- Worker jobs are idempotent and retried (max 5, exponential backoff); a worker crash releases its
-  row lock and the job is retried.
-- Rolling upgrades: migrations are additive (expand → migrate → contract across releases).
+- Worker jobs run under a lease (`ROR_JOB_LEASE_S`, renewed by a heartbeat): a crashed worker's job is requeued after the lease expires.
+  On SIGTERM a running job gets `ROR_JOB_DRAIN_S` seconds, then is released without spending an attempt.
+- Rolling upgrades: some migrations rebuild job indexes and need workers drained first; see [upgrades](upgrades.md).
 
-## 7. Upgrade policy
+## 7. Upgrades
 
-SemVer: patch = drop-in; minor = additive migrations, rolling upgrade; major = release notes with
-manual steps. Always take a Postgres backup and an ES snapshot before a minor/major upgrade (runbook section 2, Release upgrade).
-
-P2b changed chunk embedding prompts (summary context): existing vectors stay usable; optional re-embed in the operations runbook.
-
-### Upgrading to 0.2.0 (breaking)
-
-Chart 0.2.0 removes the bundled MinIO tenant; object storage is external only (Rook-Ceph RGW via Terraform, or your own S3).
-`helm upgrade` (or `terraform apply`) deletes the `Tenant` CR, so the MinIO pods go away (PVCs stay per operator default). **Copy the data out first**
-(`rclone sync` or `aws s3 sync` of the `roracle`, `roracle-pg-backup` and `roracle-es-snapshots` buckets to the new store, then verify object counts) and take a Postgres backup and ES snapshot.
-Then migrate the values; the chart fails the render if a removed value is still set:
-
-| Old | New |
-|---|---|
-| `minio.*` (mode, image, users, configurationSecret, policyJob, backupRetentionDays, ...) | removed. Set `config.ROR_S3_ENDPOINT`, `postgres.backup.endpointURL`, `elasticsearch.snapshot.endpoint` (+ `protocol`, `extraCASecret`) |
-| backup/snapshot Secrets = MinIO users | dedicated identities per bucket that **you** (or Terraform rook-ceph) create; the app identity must not be able to delete backups |
-| `networkPolicy.s3Cidrs` | `networkPolicy.s3.cidrs` (+ `ports`, `namespaceSelector`, `podSelector`); an unmigrated value would silently drop S3 egress |
-| `caBundle.kubeRootCa` | removed; add any CA you still need through `caBundle.extraSecrets` (including the S3 CA) |
-| `networkPolicy.operatorNamespaces.minio` | removed |
-| `minio-policy` hook (users, policies, `tmp/` lifecycle, backup retention) | gone. Create the lifecycle, object lock and bucket policies yourself (Terraform README, "External S3 commands"); Terraform rook-ceph does it |
-| optional | `secrets.s3Secret`: separate Secret for `ROR_S3_ACCESS_KEY/SECRET_KEY` |
+SemVer: patch is drop-in, minor adds additive migrations with a rolling upgrade, major comes with release notes and manual steps. The procedure,
+the chart 0.1 to 0.2.0 migration (MinIO removal), Elasticsearch 8.x to 9.x, the migration list with risky ones flagged, and re-embedding are in
+[upgrades](upgrades.md). Take a Postgres backup and an ES snapshot before every minor or major upgrade ([runbook](operations-runbook.md) section 2).
 
 ## 8. TLS trust, hooks and ordering (bundled data services)
 

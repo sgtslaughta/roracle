@@ -96,7 +96,7 @@ roracle reparse-refs [--limit N]
 
 ## Draining workers
 
-A worker told to stop (SIGTERM) claims no new jobs. A running job gets `ROR_JOB_DRAIN_S` seconds to finish (default 0, which means wait; the chart sets 120) and is then released to the queue without using an attempt. Ingest, rebuild pages and the re-embed copy resume where they stopped. A judged evaluation run and a single long model batch start over, so avoid rolling or scaling down workers while an `eval_run` is running. Scaling and rollouts are an operator task: see the [operations runbook](../enterprise/operations-runbook.md). Database migrations that rebuild a job index ask for workers to be drained first; the [upgrade notes](../architecture/jobs-queue.md) say when.
+A worker told to stop (SIGTERM) claims no new jobs. A running job gets `ROR_JOB_DRAIN_S` seconds to finish (default 0, which means wait; the chart sets 120) and is then released to the queue without using an attempt. Ingest, rebuild pages and the re-embed copy resume where they stopped. A judged evaluation run and a single long model batch start over, so avoid rolling or scaling down workers while an `eval_run` is running. Scaling and rollouts are an operator task: see the [operations runbook](../enterprise/operations-runbook.md). Database migrations that rebuild a job index ask for workers to be drained first; the [upgrade guide](../enterprise/upgrades.md) says when.
 
 ## Related
 

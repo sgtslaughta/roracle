@@ -14,7 +14,8 @@ Reference for integrators and operators. Generated pages are rewritten by `scrip
 - [settings.md](settings.md): `ROR_*` settings
 - [cli.md](cli.md): `roracle` command line
 - [mcp-tools.md](mcp-tools.md): MCP tools
+- [helm-values.md](helm-values.md): Helm chart values and defaults
 
 ## Planned
 
-Jobs, metrics, audit events, Helm values.
+Jobs, metrics, audit events.

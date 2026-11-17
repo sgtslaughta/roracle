@@ -17,11 +17,11 @@ Terms are defined in the [glossary](glossary.md).
 
 ## Start here by task
 
-- Install: [deployment guide](enterprise/deployment-guide.md)
+- Install: [deployment guide](enterprise/deployment-guide.md), [Terraform](enterprise/deployment-terraform.md), [kind rehearsal](enterprise/deployment-kind-rehearsal.md)
 - First login: [Keycloak setup](enterprise/keycloak-setup.md) (operator side), [getting started](user/getting-started.md)
 - Upload a paper: [user guide](user/README.md)
 - Integrate an agent: [agent integration how-to](enterprise/agent-integration.md), [MCP guide](reference/mcp.md), [MCP tools](reference/mcp-tools.md), [HTTP API guide](reference/api.md)
-- Upgrade: [deployment guide](enterprise/deployment-guide.md)
+- Upgrade: [upgrades](enterprise/upgrades.md)
 - Handle an incident: [operations runbook](enterprise/operations-runbook.md)
 
 ## Sections
@@ -62,7 +62,7 @@ Later tasks append a link line under the matching heading when they add a page.
 - [HTTP API guide](reference/api.md): auth, pagination, rate limits, SSE, uploads, curl examples
 - [Errors](reference/errors.md): error bodies and status codes
 - [MCP guide](reference/mcp.md): endpoint, auth, scopes, label gates, handoffs, proposals, limits, audit, errors
-- [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md) (generated)
+- [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md), [helm-values.md](reference/helm-values.md) (generated)
 
 ### Architecture
 
@@ -78,6 +78,10 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Enterprise (operations and security)
 
 - [Enterprise index](enterprise/README.md)
+- [Deployment guide](enterprise/deployment-guide.md): Helm chart 0.2.0 install, prerequisites, values, NetworkPolicy, TLS
+- [Deploying with Terraform](enterprise/deployment-terraform.md): modules, tfvars profiles, placeholder gate, `protect_data`, Rook-Ceph or external S3
+- [Kind rehearsal](enterprise/deployment-kind-rehearsal.md): local rehearsal scripts and decommissioning the Ceph object store
+- [Upgrades](enterprise/upgrades.md): upgrade order, chart 0.1 to 0.2.0, Elasticsearch 8 to 9, migrations, re-embed
 
 ### Developer
 
