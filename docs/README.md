@@ -117,6 +117,7 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Decisions
 
 - [Decisions index](decisions/README.md)
+- [Decision matrix](decisions/decision-matrix.md): options, weighted ratings, status and revisit triggers for 20 areas; ADR gaps
 - [ADRs](adr/README.md)
 
 ### Other
