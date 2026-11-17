@@ -112,9 +112,10 @@ def test_label_raised_mid_job_stops_calls(db_session, vd):
             db_session.execute(update(Document).where(Document.id == d.id).values(label_id=lab.id))
 
     llm, store = SpyLLM(raise_label), Store()
-    out = context.notes_for(db_session, llm, CFG, store, v, d, "doc", chunks(5))
-    assert len(llm.calls) == 2 and out[2:] == ["Intro > Methods"] * 3
-    assert len(json.loads(store.data[f"derived/{v.id}/context-v1.json"])) == 2
+    out = context.notes_for(db_session, llm, CFG, store, v, d, "doc", chunks(100))
+    # the label is re-read every CHECK_EVERY chunks: at most one window of calls after the raise, then headings only
+    assert len(llm.calls) <= context.CHECK_EVERY and out[context.CHECK_EVERY :] == ["Intro > Methods"] * 68
+    assert len(json.loads(store.data[f"derived/{v.id}/context-v1.json"])) == len(llm.calls)
 
 
 def test_progress_kept_on_failure(db_session, vd):
@@ -127,10 +128,11 @@ def test_progress_kept_on_failure(db_session, vd):
 
     with pytest.raises(RuntimeError):
         context.notes_for(db_session, SpyLLM(boom), CFG, store, v, d, "doc", chunks(4))
-    assert len(json.loads(store.data[f"derived/{v.id}/context-v1.json"])) == 2
+    kept = len(json.loads(store.data[f"derived/{v.id}/context-v1.json"]))
+    assert kept == 3  # the failing call does not discard its finished siblings
     llm = SpyLLM()  # retry only generates the rest
     context.notes_for(db_session, llm, CFG, store, v, d, "doc", chunks(4))
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 4 - kept
 
 
 def test_window_snaps_and_contains_chunk():
@@ -176,3 +178,32 @@ def test_chunk_cap_falls_back_to_headings(db_session, vd):
     cfg = CFG.model_copy(update={"context_max_chunks": 2})
     out = context.notes_for(db_session, llm, cfg, Store(), v, d, "doc", chunks(5))
     assert len(llm.calls) == 2 and out[2:] == ["Intro > Methods"] * 3
+
+
+def test_notes_keep_chunk_order_under_concurrency_and_run_concurrently(db_session, vd):
+    import re
+    import threading
+    import time
+
+    v, d = vd
+    live, peak, lock = [0], [0], threading.Lock()
+
+    class SlowLLM:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kw):
+            marker = re.search(r"chunk-\d+", kw["messages"][2]["content"]).group(0)
+            with lock:
+                live[0] += 1
+                peak[0] = max(peak[0], live[0])
+            time.sleep(0.05 if marker == "chunk-3" else 0.01)  # chunk 3 finishes after its successors
+            with lock:
+                live[0] -= 1
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=f"N:{marker}"))])
+
+    cs = [Chunk(i, f"chunk-{i} body", "", ["H"], [], []) for i in range(20)]
+    cfg = CFG.model_copy(update={"context_concurrency": 8})
+    out = context.notes_for(db_session, SlowLLM(), cfg, Store(), v, d, "doc", cs)
+    assert out == [f"N:chunk-{i}" for i in range(20)]  # input order, whatever the completion order
+    assert 2 <= peak[0] <= 8  # concurrent, and bounded

@@ -339,9 +339,12 @@ def test_rest_contract(client, adm, as_ana, db_session, api_es):
     assert j.kind == "reembed" and j.payload["target"] == {"model": "m", "dims": 2, "index": "chunks-m-1"}
     assert client.post("/admin/reindex", json={"model": "m2", "dims": 2}, headers=adm).status_code == 409
     g = client.get("/admin/reindex", headers=adm).json()
-    assert g["running"] == {"target": j.payload["target"], "copied": 0, "total": None, "phase": "copy"}
+    assert g["running"] == {
+        "target": j.payload["target"], "copied": 0, "total": None, "phase": "copy", "slices": 4,
+    }  # fmt: skip
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # running
-    j.status = "done"
+    for other in db_session.scalars(select(Job).where(Job.kind == "reembed")):
+        other.status = "done"  # every slice chain
     db_session.flush()
     assert client.delete("/admin/reindex/old", headers=adm).status_code == 409  # alias != active index
     runtime.set_active_embedding(db_session, "m0", 2, SRC)

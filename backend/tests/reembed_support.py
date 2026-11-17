@@ -27,6 +27,7 @@ class FakeIndices:
 
     def create(self, index, mappings=None, aliases=None, settings=None):
         self.es.data[index] = {}
+        self.es.created[index] = (settings or {}).get("index", {})
         for a in aliases or {}:
             self.es.aliases.setdefault(a, set()).add(index)
 
@@ -45,6 +46,16 @@ class FakeIndices:
             s = self.es.aliases.setdefault(spec["alias"], set())
             (s.add if op == "add" else s.discard)(spec["index"])
 
+    def put_settings(self, index, settings):
+        self.es.index_settings.setdefault(index, {}).update(settings["index"])
+        self.es.settings_calls.append((index, settings["index"]))
+
+    def refresh(self, index):
+        self.es.refreshes.append(index)
+
+    def forcemerge(self, index, **kw):
+        self.es.merges.append(index)
+
     def delete(self, index):
         for i in [index] if isinstance(index, str) else index:
             self.es.data.pop(i)
@@ -58,6 +69,8 @@ class FakeEs:
         self.aliases = {"chunks": {SRC}, "chunks-all": {SRC}}
         self.indices = FakeIndices(self)
         self.mutations = []
+        self.index_settings, self.settings_calls, self.refreshes, self.merges = {}, [], [], []
+        self.created: dict[str, dict] = {}
         self.after_bulk = lambda: None  # hook: a concurrent change landing right after our write
 
     def put(self, cid, doc_id, text="hello", index=SRC, **kw):
@@ -68,8 +81,13 @@ class FakeEs:
             "embedding": [9.0, 9.0], "embedding_model": "old", **kw,
         }  # fmt: skip
 
-    def count(self, index):
-        return {"count": len(self.data[index])}
+    @staticmethod
+    def _in_slice(cid, query):
+        rng = (query or {}).get("range", {}).get("chunk_id")
+        return rng is None or (cid >= rng.get("gte", "") and cid < rng.get("lt", "\uffff"))
+
+    def count(self, index, query=None):
+        return {"count": sum(1 for k in self.data[index] if self._in_slice(k, query))}
 
     msearch = _es_msearch
 
@@ -78,7 +96,9 @@ class FakeEs:
         if query and "ids" in query:
             ids = [i for i in query["ids"]["values"] if i in docs]
             return {"hits": {"hits": [{"_id": i} for i in ids]}}
-        keys = sorted(k for k in docs if not search_after or k > search_after[0])[:size]
+        keys = sorted(
+            k for k in docs if (not search_after or k > search_after[0]) and self._in_slice(k, query)
+        )[:size]
         return {"hits": {"hits": [{"_id": k, "_source": dict(docs[k]), "sort": [k]} for k in keys]}}
 
     def update_by_query(self, **kw):
@@ -141,7 +161,7 @@ def vid(db_session, document, blob):
 
 @pytest.fixture
 def base():
-    return Settings(embed_model="old", embed_dims=2)
+    return Settings(embed_model="old", embed_dims=2, reembed_slices=1)  # serial chain: the legacy tests
 
 
 def drain(db, sf, es, llm, base, limit=50):

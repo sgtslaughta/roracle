@@ -6,6 +6,7 @@ read alias. Live search is untouched: the existing alias/cutover mechanics are n
 """
 
 import json
+import logging
 import re
 import uuid
 from typing import Literal
@@ -23,6 +24,7 @@ from roracle.models_eval import EvalSet
 from roracle.queue import NonRetryable, check_lease, enqueue, payload_uuid
 from roracle.search_index import MUTATE_ALIAS
 
+log = logging.getLogger(__name__)
 WATCH_S = 60
 _NAME = re.compile(r"chunks-[a-z0-9][a-z0-9-]{0,100}")
 _GENERATION = re.compile(r"chunks-.+-\d+")  # re-embed generations are never shadows
@@ -65,20 +67,29 @@ def drop_shadow(es: Elasticsearch, name: str, active: str | None = None, read_al
     es.indices.delete(index=name)
 
 
+VERSIONS_PER_JOB = 25  # one job per page of versions: queue rows and job round trips stay O(versions / 25)
+
+
 def enqueue_all(session: Session, what: set[Kind], into: str | None) -> int:
-    """One `rebuild_units` job per latest searchable non-deleted version (INSERT ... SELECT) + one watch."""
+    """`rebuild_units` jobs of VERSIONS_PER_JOB latest searchable non-deleted versions each (INSERT ... SELECT, in id
+    order) + one watch. Returns the number of jobs."""
     batch, kinds = uuid.uuid4().hex, sorted(what)
-    payload = func.jsonb_build_object(
-        "version_id", cast(DocumentVersion.id, String), "what", cast(literal(json.dumps(kinds)), JSONB),
-        "into", cast(literal(into), String), "batch", batch,
-    )  # fmt: skip
-    sel = (
-        select(literal("rebuild_units"), payload)
+    live = (
+        select(
+            DocumentVersion.id.label("id"),
+            func.div(func.row_number().over(order_by=DocumentVersion.id) - 1, VERSIONS_PER_JOB).label("g"),
+        )
         .select_from(DocumentVersion.__table__.join(Document, Document.id == DocumentVersion.document_id))
         .where(
             DocumentVersion.stage == "searchable", DocumentVersion.is_latest, Document.deleted_at.is_(None)
         )
+        .subquery()
     )
+    payload = func.jsonb_build_object(
+        "version_ids", func.jsonb_agg(cast(live.c.id, String)), "what", cast(literal(json.dumps(kinds)), JSONB),
+        "into", cast(literal(into), String), "batch", batch,
+    )  # fmt: skip
+    sel = select(literal("rebuild_units"), payload).select_from(live).group_by(live.c.g)
     n = len(session.execute(insert(Job).from_select(["kind", "payload"], sel).returning(Job.id)).all())
     enqueue(session, "rebuild_watch", {"what": kinds, "into": into, "batch": batch}, run_after_s=WATCH_S)
     return n
@@ -108,7 +119,10 @@ def handle_rebuild_units(
     llm,
     session_factory: sessionmaker[Session],
 ) -> None:
-    vid = payload_uuid(payload, "version_id")
+    ids = payload.get("version_ids") or [
+        payload.get("version_id")
+    ]  # a single `version_id`: jobs queued before 10.11
+    vids = [payload_uuid({"version_id": x}, "version_id") for x in ids]
     settings = runtime.effective(session, settings)
     into = payload.get("into") or None
     if into == search_index.active_index(settings):
@@ -123,10 +137,22 @@ def handle_rebuild_units(
             "raptor": settings.raptor or "raptor" in what,
         }
     )
+    failed: list[str] = []
+    for vid in vids:  # up to VERSIONS_PER_JOB versions, each idempotent; progress survives in ES, not here
+        check_lease()
+        try:
+            _rebuild_one(session, vid, payload, settings, store, es, llm, session_factory, into, what)
+        except NonRetryable as e:  # one broken version must not discard the other 24; reported at the end
+            log.warning("rebuild of version %s skipped: %s", vid, e)
+            failed.append(f"{vid}: {e}")
+    if failed:
+        raise NonRetryable(f"{len(failed)} of {len(vids)} versions could not be rebuilt: {failed[0]}")
+
+
+def _rebuild_one(session, vid, payload, settings, store, es, llm, session_factory, into, what) -> None:
     v = session.get(DocumentVersion, vid)
     if v is None:
         return
-    check_lease()
     session.refresh(v)
     d = session.get(Document, v.document_id)
     session.refresh(d)

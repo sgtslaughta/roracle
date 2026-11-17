@@ -80,7 +80,7 @@ def test_enqueue_all_selects_latest_searchable_live(db_session, document, vid, b
     db_session.flush()
     assert rebuild.enqueue_all(db_session, {"context"}, "chunks-x-shadow") == 1
     (job,) = _jobs(db_session, "rebuild_units")
-    assert job.payload["version_id"] == str(v.id) and job.payload["into"] == "chunks-x-shadow"
+    assert job.payload["version_ids"] == [str(v.id)] and job.payload["into"] == "chunks-x-shadow"
     assert job.payload["what"] == ["context"]
     (watch,) = _jobs(db_session, "rebuild_watch")
     assert watch.payload["batch"] == job.payload["batch"]
@@ -236,3 +236,72 @@ def test_shadow_refuses_old_generation(es):
     es.aliases["chunks-all"].add("chunks-old-2")
     with pytest.raises(ValueError):
         rebuild.create_shadow(es, cfg, "chunks-old-2")
+
+
+def test_enqueue_all_pages_versions_25_per_job(db_session, document, blob):
+    import uuid as _uuid
+
+    from roracle.ingest import rebuild as rb
+
+    docs = []
+    for _ in range(60):
+        d = Document(owner_id=document.owner_id, title="t", org_unit="/", visibility="private")
+        db_session.add(d)
+        docs.append(d)
+    db_session.flush()
+    for d in docs:
+        db_session.add(
+            DocumentVersion(
+                id=_uuid.uuid4(), document_id=d.id, version=1, blob_sha256=blob.sha256, filename="a.pdf",
+                content_type="x", size=1, stage="searchable", is_latest=True,
+            )
+        )  # fmt: skip
+    db_session.flush()
+    assert rb.VERSIONS_PER_JOB == 25
+    assert rb.enqueue_all(db_session, {"context"}, None) == 3  # 60 versions: 25 + 25 + 10
+    sizes = sorted(len(j.payload["version_ids"]) for j in _jobs(db_session, "rebuild_units"))
+    assert sizes == [10, 25, 25]
+    all_ids = [x for j in _jobs(db_session, "rebuild_units") for x in j.payload["version_ids"]]
+    assert len(set(all_ids)) == 60  # every version exactly once
+
+
+def test_a_job_rebuilds_every_version_of_its_page_and_reports_a_broken_one_at_the_end(
+    db_session, session_factory, es, document, vid, blob, calls, monkeypatch
+):
+    import uuid as _uuid
+
+    v1 = _searchable(db_session, vid)
+    d2 = Document(owner_id=document.owner_id, title="t2", org_unit="/", visibility="private")
+    db_session.add(d2)
+    db_session.flush()
+    v2 = DocumentVersion(
+        id=_uuid.uuid4(), document_id=d2.id, version=1, blob_sha256=blob.sha256, filename="b.pdf",
+        content_type="x", size=1, stage="searchable", is_latest=True,
+    )  # fmt: skip
+    db_session.add(v2)
+    db_session.commit()
+    payload = {"version_ids": [str(v1.id), str(v2.id)], "what": ["context"], "into": None}
+    _units(db_session, session_factory, es, payload)
+    assert len(calls) == 2  # both versions went through the index path in ONE job
+    # a version whose parsed document is gone: skipped, the rest still rebuilt, the job fails loudly at the end
+    calls.clear()
+    real = {str(v1.id): False}
+
+    def get_bytes(key):
+        if str(v1.id) in key:
+            raise RuntimeError("missing")
+        return b"{}"
+
+    with pytest.raises(NonRetryable, match="1 of 2"):
+        rebuild.handle_rebuild_units(
+            db_session, payload, settings=Settings(context_model="m", embed_dims=2),
+            store=SimpleNamespace(get_bytes=get_bytes), es=es, llm=None, session_factory=session_factory,
+        )  # fmt: skip
+    assert len(calls) == 1 and real
+
+
+def test_legacy_single_version_payload_still_works(db_session, session_factory, es, document, vid, calls):
+    v = _searchable(db_session, vid)
+    db_session.commit()
+    _units(db_session, session_factory, es, {"version_id": str(v.id), "what": ["context"], "into": None})
+    assert len(calls) == 1

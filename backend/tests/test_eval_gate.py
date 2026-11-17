@@ -191,7 +191,11 @@ def test_markdown_has_verdict_deltas_and_config_diff():
 
 # ---- cutover enqueues eval_run only with a reference set -------------------------------------------
 def _cutover(db, settings, **kw):
-    payload = {"target": {"model": "new", "dims": 3, "index": "chunks-new-1"}, "source": "chunks-old-1"}
+    payload = {
+        "target": {"model": "new", "dims": 3, "index": "chunks-new-1"},
+        "source": "chunks-old-1",
+        "slice": {"i": 0, "n": 1},
+    }
     from types import SimpleNamespace
 
     es = SimpleNamespace(
@@ -199,6 +203,9 @@ def _cutover(db, settings, **kw):
             exists_alias=lambda **k: True,
             update_aliases=lambda **k: None,
             get_alias=lambda **k: {"chunks-new-1": {}},
+            put_settings=lambda **k: None,
+            refresh=lambda **k: None,
+            forcemerge=lambda **k: None,
         )
     )
     reembed._cutover(db, payload, es, settings.model_copy(update=kw), None)

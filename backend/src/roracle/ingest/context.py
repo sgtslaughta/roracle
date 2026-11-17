@@ -1,6 +1,6 @@
 """LLM contextual note per chunk (R9): situates the chunk in its document for BM25 + embedding.
 
-One call per chunk, sequential, with a stable `<document>` message first so server-side prefix caching
+One call per chunk (up to `context_concurrency` in flight), with a stable `<document>` message first so server-side prefix caching
 applies. Notes are cached per version; an `exclude_llm` label (re-read from Postgres before EVERY call,
 ADR-0014) turns the note into the heading path with no LLM call.
 
@@ -13,6 +13,7 @@ change of context model or prompt requires bumping CONTEXT_PROMPT_VERSION.
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from botocore.exceptions import ClientError
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 from roracle.config import Settings
 from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion
+from roracle.queue import check_lease
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +77,29 @@ def _excluded(session: Session, d: Document) -> bool:
     return Policy.load(session).has(d.label_id, "exclude_llm")
 
 
+CHECK_EVERY = (
+    32  # chunks between two label re-checks (and lease checkpoints): the bound on LLM calls after a raise
+)
+
+
+def _note(llm, settings: Settings, doc_text: str, c, total: int) -> str:
+    win = window(doc_text, c, c.n, total, settings.context_doc_chars)
+    resp = llm.chat.completions.create(
+        model=settings.context_model,
+        messages=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": f"<document>\n{win}\n</document>"},
+            {
+                "role": "user",
+                "content": f"<chunk>\n{c.text}\n</chunk>\nSituate this chunk within the document.",
+            },
+        ],
+        temperature=0,
+        max_tokens=settings.context_max_tokens,
+    )
+    return " ".join((resp.choices[0].message.content or "").split())[:MAX_NOTE_CHARS]
+
+
 def notes_for(
     session: Session,
     llm,
@@ -85,36 +110,44 @@ def notes_for(
     doc_text: str,
     chunks: list,
 ) -> list[str]:
+    """One note per chunk, in chunk order. The chunks are walked in windows of CHECK_EVERY: before each window the
+    label is re-read from Postgres (an `exclude_llm` raise stops further LLM calls within <= CHECK_EVERY chunks;
+    calls already in flight finish) and the job lease is checked; inside a window up to `context_concurrency` calls
+    are in flight (same document prefix: the server's prefix cache stays hot). Database access stays on this thread."""
     key = cache_key(v.id)
     cache = _load(store, key)
     fresh: dict[str, str] = {}
     out: list[str] = []
     try:
-        for i, c in enumerate(chunks):
-            sha = _sha(c.text)
-            if sha in cache:  # reused even after a later label raise (same as summaries, R9)
-                out.append(cache[sha])
-                continue
-            if i >= settings.context_max_chunks or _excluded(session, d):
-                out.append(heading_note(c))
-                continue
-            win = window(doc_text, c, c.n, len(chunks), settings.context_doc_chars)
-            resp = llm.chat.completions.create(
-                model=settings.context_model,
-                messages=[
-                    {"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": f"<document>\n{win}\n</document>"},
-                    {
-                        "role": "user",
-                        "content": f"<chunk>\n{c.text}\n</chunk>\nSituate this chunk within the document.",
-                    },
-                ],
-                temperature=0,
-                max_tokens=settings.context_max_tokens,
-            )
-            note = " ".join((resp.choices[0].message.content or "").split())[:MAX_NOTE_CHARS]
-            fresh[sha] = cache[sha] = note
-            out.append(note)
+        with ThreadPoolExecutor(
+            max_workers=max(1, settings.context_concurrency), thread_name_prefix="ctx"
+        ) as pool:
+            for lo in range(0, len(chunks), CHECK_EVERY):
+                window_chunks = chunks[lo : lo + CHECK_EVERY]
+                shas = [_sha(c.text) for c in window_chunks]
+                need = [
+                    j
+                    for j, (c, sha) in enumerate(zip(window_chunks, shas, strict=True))
+                    if sha not in cache and lo + j < settings.context_max_chunks
+                ]  # cached notes are reused even after a later label raise (same as summaries, R9)
+                if need:
+                    check_lease()
+                    excluded = _excluded(session, d)
+                    if not excluded:
+                        futs = {
+                            j: pool.submit(_note, llm, settings, doc_text, window_chunks[j], len(chunks))
+                            for j in need
+                        }
+                        error = None
+                        for j, f in futs.items():  # keep every finished note even if a sibling call failed
+                            try:
+                                fresh[shas[j]] = cache[shas[j]] = f.result()
+                            except Exception as e:  # noqa: BLE001  # first failure is re-raised after the loop
+                                error = error or e
+                        if error is not None:
+                            raise error
+                for c, sha in zip(window_chunks, shas, strict=True):
+                    out.append(cache[sha] if sha in cache else heading_note(c))
     finally:
         if fresh:  # keep progress on a mid-document failure; heading fallbacks are never cached
             store.put_bytes(key, json.dumps(cache).encode(), "application/json")

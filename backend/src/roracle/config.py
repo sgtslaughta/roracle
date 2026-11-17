@@ -74,6 +74,11 @@ class Settings(AliasConfig):
     llm_timeout_s: float = 120.0
     embed_model: str = "embeddinggemma"
     embed_dims: int = 768
+    embed_concurrency: int = Field(
+        4, ge=1
+    )  # embedding requests in flight during re-embed/rebuild (~replicas)
+    reembed_slices: int = Field(4, ge=1, le=16)  # parallel chunk_id slices of a re-embed (one job chain each)
+    context_concurrency: int = Field(8, ge=1)  # context-note LLM calls in flight per document
     # Elasticsearch index settings (applied when an index is CREATED; an existing index keeps its own)
     vector_index_type: Literal["int8_hnsw", "int4_hnsw", "bbq_hnsw"] = (
         "int8_hnsw"  # bbq only after an eval gate

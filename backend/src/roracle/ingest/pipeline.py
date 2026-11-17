@@ -220,7 +220,11 @@ def _index(
     index = into or search_index.active_index(settings)
     cache = search_index.cached_vectors(es, settings.embed_model, d.id, shas, settings.embed_dims, index)
     miss = [p for p, h in zip(prompts, shas, strict=True) if h not in cache]
-    fresh_vecs = iter(embed(llm, settings.embed_model, miss, settings.embed_dims) if miss else [])
+    fresh_vecs = iter(
+        embed(llm, settings.embed_model, miss, settings.embed_dims, concurrency=settings.embed_concurrency)
+        if miss
+        else []
+    )
     vectors = [cache[h] if h in cache else next(fresh_vecs) for h in shas]
     if not rebuild:
         set_stage(sf, v.id, "embedded")
