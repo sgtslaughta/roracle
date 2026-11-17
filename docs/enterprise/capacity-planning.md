@@ -60,3 +60,10 @@ External Elasticsearch must be 9.x: the client sends `compatible-with=9` and the
 The Python client is `elasticsearch` 9.x. The 9.0 breaking changes that touch this code: vectors absent from `_source`
 (fixed in `cached_vectors` and the tests) and stricter bulk parsing. `bbq_disk`, native RRF/linear retrievers and
 searchable snapshots need an Enterprise license and are not used.
+
+## Postgres settings that the performance budgets assume
+
+- `jit = off` (the chart sets it; set it yourself on an external Postgres). With JIT on, the ACL queries are compiled on every
+  statement (150-500 ms each under load) and `/search` is about 4x slower (`docs/perf/report-2026-11-17.md`, F1).
+- `shared_buffers` ~ 25 % of memory: at the default 128 MB a search spends ~130 ms in Postgres, at 3 GB ~13 ms (F5).
+- API replicas: one process sustains about 10 searches/s (5 filtered searches/s) before it is CPU-bound (F3).

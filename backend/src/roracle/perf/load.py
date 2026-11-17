@@ -41,7 +41,9 @@ def build_request(scenario: str, n: int, *, docs: int = 1000, seed: int = 1) -> 
                 {"json": body, "headers": {"Accept": "application/json, text/event-stream"}},
             )
         case "doc_read":
-            return "GET", f"/documents/{det_uuid(seed, 'd', (n * 7919) % max(docs, 1))}", {}
+            # a document everybody may read (index % 100 >= 40, see synth_pg.visibility): the scenario measures reads, not 404s
+            i = ((n * 7919) % max(docs // 100, 1)) * 100 + 40 + n % 60 if docs >= 100 else 0
+            return "GET", f"/documents/{det_uuid(seed, 'd', i)}", {}
     raise ValueError(f"unknown scenario {scenario!r}")
 
 
@@ -55,7 +57,10 @@ def run(
     concurrency: int,
     docs: int = 1000,
     seed: int = 1,
+    warmup_s: int = 0,
 ) -> Report:
+    """`warmup_s` seconds of the same traffic run first and are NOT measured (connections, JIT/page caches, memo
+    caches warm); the report covers the following `duration_s`."""
     local = threading.local()
     lat: list[float] = []
     errors = 0
@@ -71,6 +76,8 @@ def run(
                 clients.append(local.c)
         return local.c
 
+    warm_n = int(rps * warmup_s)
+
     def fire(n: int, due: float) -> None:
         nonlocal errors
         method, path, kw = build_request(scenario, n, docs=docs, seed=seed)
@@ -81,13 +88,15 @@ def run(
         except httpx.HTTPError:
             ok = False
         ms = (time.monotonic() - due) * 1000
+        if n < warm_n:
+            return  # warm-up sample: executed, never recorded
         with lock:
             if ok:
                 lat.append(ms)
             else:
                 errors += 1
 
-    total = int(rps * duration_s)
+    total = int(rps * (warmup_s + duration_s))
     start = time.monotonic()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         for _ in range(total):

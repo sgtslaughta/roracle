@@ -5,6 +5,7 @@ Only indices named `perf-*` are ever written. Documents align with `synth_pg.see
 """
 
 from collections.abc import Iterator
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -13,8 +14,26 @@ from elasticsearch import Elasticsearch, helpers
 from roracle.perf.synth_pg import det_uuid, visibility
 from roracle.search_index import _mapping, acl_hash, index_settings
 
+CLUSTERS = (
+    1000  # topic centres: real embeddings cluster; uniformly random unit vectors are the worst case for HNSW
+)
+SPREAD = 0.6  # noise norm around a centre (cosine to the centre ~0.86, between two members ~0.74)
 VOCAB = 5000
 WORDS_PER_CHUNK = 40
+
+
+@lru_cache(maxsize=4)
+def centers(dims: int, clusters: int = CLUSTERS, seed: int = 12345) -> np.ndarray:
+    c = np.random.default_rng(seed).standard_normal((clusters, dims)).astype(np.float32)
+    return c / np.linalg.norm(c, axis=1, keepdims=True)
+
+
+def clustered(rng: np.random.Generator, cluster: int, dims: int) -> np.ndarray:
+    """Unit vector near topic centre `cluster` (shared by the corpus and the fake query embedder)."""
+    v = centers(dims)[cluster % CLUSTERS] + rng.standard_normal(dims).astype(np.float32) * (
+        SPREAD / dims**0.5
+    )
+    return v / np.linalg.norm(v)
 
 
 def _actions(
@@ -27,8 +46,7 @@ def _actions(
         d = c % docs
         n = c // docs
         vis = visibility(d, shares_pct)
-        vec = rng.standard_normal(dims).astype(np.float32)
-        vec /= np.linalg.norm(vec)
+        vec = clustered(rng, d * 2654435761 % CLUSTERS, dims)
         words = np.minimum(rng.zipf(1.3, WORDS_PER_CHUNK), VOCAB)
         vid = str(det_uuid(seed, "v", d))
         src: dict[str, Any] = {

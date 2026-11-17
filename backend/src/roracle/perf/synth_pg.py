@@ -134,3 +134,45 @@ def seed(
     finally:
         engine.dispose()
     return counts
+
+
+def signature(seed: int, i: int) -> bytes:
+    """Deterministic MinHash-shaped signature (NUM_PERM uint64) of synthetic version `i`."""
+    from roracle.ingest.neardup import NUM_PERM
+
+    rng = __import__("numpy").random.default_rng([seed, i])
+    return rng.integers(0, 2**63, NUM_PERM, dtype="<u8").tobytes()
+
+
+def seed_lsh(url: str, *, n: int, seed: int = 1, batch: int = 20_000) -> int:
+    """minhash + LSH bands for the first `n` synthetic versions (COPY), then the backfill marker, so the ingest path
+    uses the banded lookup exactly as in production. Returns the number of band rows."""
+    import psycopg
+
+    from roracle.ingest.neardup import bands
+
+    rows = 0
+    with psycopg.connect(url.replace("+psycopg", "")) as conn:
+        for lo in range(0, n, batch):
+            ids = [det_uuid(seed, "v", i) for i in range(lo, min(n, lo + batch))]
+            sigs = [signature(seed, i) for i in range(lo, lo + len(ids))]
+            with conn.cursor() as cur:
+                cur.execute("CREATE TEMP TABLE IF NOT EXISTS _mh (id uuid, mh bytea) ON COMMIT DELETE ROWS")
+                with cur.copy("COPY _mh (id, mh) FROM STDIN") as cp:
+                    for vid, sig in zip(ids, sigs, strict=True):
+                        cp.write_row((vid, sig))
+                cur.execute("UPDATE document_versions v SET minhash = t.mh FROM _mh t WHERE v.id = t.id")
+                with cur.copy("COPY version_lsh (band, hash, version_id) FROM STDIN") as cp:
+                    for vid, sig in zip(ids, sigs, strict=True):
+                        for band, h in bands(sig):
+                            cp.write_row((band, h, vid))
+                            rows += 1
+            conn.commit()
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('lsh_backfilled', 'true'::jsonb) ON CONFLICT DO NOTHING"
+        )
+        conn.commit()
+        conn.autocommit = True
+        conn.execute("VACUUM (ANALYZE, PARALLEL 0) version_lsh")
+        conn.execute("VACUUM (ANALYZE, PARALLEL 0) document_versions")
+    return rows

@@ -29,4 +29,28 @@ transaction, and a claim shares one transaction with its handler): drain workers
 before `roracle migrate`. A failed build leaves an invalid index; re-running the migration drops and rebuilds it.
 `ROR_READ_ALIAS` and `ROR_MUTATE_ALIAS` must be set together (Settings validates it) on API and worker.
 
+## One command: `roracle perf suite` (Task 10.13)
+
+Runs every budget in `budgets.yaml` against a scratch environment and exits non-zero when one is missed:
+
+```bash
+# CI profile (20k docs, fixed, budgets x1.5): this is what the nightly/manual `perf` GitLab job runs
+uv run roracle perf suite --profile ci --url "$ROR_DATABASE_URL" --es-url http://localhost:9200 --out perf-results.json
+# full profile (1M docs / 1M chunks, factor 1): seed once, then re-run with --skip-seed
+uv run roracle perf suite --profile full --url "$ROR_DATABASE_URL" --es-url http://localhost:9200 --skip-seed
+```
+
+- HTTP scenarios hit a real `roracle api` process. Tokens: `perf/tokens.py` mints RS256 access tokens for the synthetic
+  users with a throw-away key and serves its JWKS from a local port; the API is simply configured with that JWKS URL and
+  issuer, so it validates them like Keycloak's. **There is no minting code path in the application**, nothing to enable
+  or to leave on in production (a production deployment trusts only the keys its Keycloak publishes), and the CLI refuses
+  databases whose name lacks `perf`.
+- Models are `perf/fake_models.py` (OpenAI-style embeddings, TEI-style rerank, fixed latency: `--embed-ms 10`,
+  `--rerank-ms 50`), so results mean "our code + a model answering in X ms".
+- In-process: claim (4 concurrent claimers, warm-up discarded), near-dup (LSH over the seeded versions), ingest overhead
+  (`handle_ingest` from `parsed`, instant fake models), reconcile (full no-drift walk, counts ES index operations),
+  rebuild (the real `reembed._copy` page pipeline with an embedding service modelled as 4 replicas x 250 chunks/s).
+- Warm-up: `load.run(warmup_s=)` and `perf explain claim --warmup/--workers` discard the warm-up samples.
+- `--profile ci` loosens latency limits x1.5 and `min` limits / 1.5 (shared runners); `reconcile_es_writes` stays 0.
+
 Drop the scratch database when done: `dropdb -h localhost -p 55433 -U roracle roracle_perf`.
