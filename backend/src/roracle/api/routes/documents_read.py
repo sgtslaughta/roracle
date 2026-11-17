@@ -33,6 +33,14 @@ HIDDEN_STAGES = {"rejected", "cancelled"}  # R5
 MAX_CHUNKS = 10_000  # ES search size cap: chunks beyond this get no passage box in the reader
 
 
+def _public_ids(meta: dict) -> dict[str, str]:
+    raw = meta.get("ids") if isinstance(meta.get("ids"), dict) else {}
+    out = {k: v for k, v in raw.items() if isinstance(v, str) and v}
+    if isinstance(meta.get("doi"), str) and meta["doi"] and "doi" not in out:
+        out["doi"] = meta["doi"]
+    return out
+
+
 def visible_doc(session: Session, p: Principal, doc_id: UUID) -> Document:
     doc = session.scalar(select(Document).where(Document.id == doc_id, visible_documents(p)))
     if doc is None:
@@ -126,6 +134,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "authors": list(meta.get("authors") or []),
         "year": meta.get("year"),
         "venue": meta.get("venue"),
+        "ids": _public_ids(meta),
         "org_unit": doc.org_unit,
         "visibility": doc.visibility,
         "label": label_json(Policy.load(session).get(doc.label_id)),

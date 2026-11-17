@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { docTitle } from "@/lib/docTitle";
 import { AddTitle } from "@/features/uploads/TitlePrompt";
 import { CiteLine } from "@/components/CiteLine";
+import { Identifiers } from "./Identifiers";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddToCollectionDialog } from "@/features/library/AddToCollection";
@@ -57,6 +58,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
         <h2 title={title}>{title}</h2>
         {canManage && !d.title.trim() && <div className="tdet title"><span className="msg">This document has no title.</span><AddTitle documentId={d.id} name={title} /></div>}
         <CiteLine authors={d.authors} venue={d.venue} year={d.year} org={d.org_unit} />
+        <Identifiers ids={d.ids} />
         <div className="rlabel"><DocLabel doc={d} canManage={canManage} /></div>
         <div className="rtools">
           <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
