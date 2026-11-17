@@ -73,6 +73,8 @@ def seed(
     documents. `aliases` (e.g. the ROR_READ_ALIAS / ROR_MUTATE_ALIAS values) are added to it. Returns count."""
     if not index.startswith("perf-"):
         raise ValueError("synthetic data is only written to perf-* indices")
+    if bad := [a for a in aliases if not a.startswith("perf-")]:
+        raise ValueError(f"aliases must start with 'perf-': {bad}")
     if not es.indices.exists(index=index):
         es.indices.create(
             index=index,

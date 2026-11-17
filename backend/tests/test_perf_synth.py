@@ -70,3 +70,61 @@ def test_alias_override_via_env():
         [sys.executable, "-c", code], env=os.environ, check=False, capture_output=True, text=True
     )
     assert out.stdout.split() == ["chunks", "chunks-all"]
+
+
+def test_es_aliases_must_be_perf_prefixed():
+    with pytest.raises(ValueError, match="perf-"):
+        synth_es.seed(None, "perf-x", chunks=1, dims=8, docs=1, personas={}, aliases=("chunks",))
+
+
+def test_alias_settings_both_or_neither():
+    from pydantic import ValidationError
+
+    from roracle.config import AliasConfig
+
+    assert (AliasConfig().read_alias, AliasConfig().mutate_alias) == ("chunks", "chunks-all")
+    ok = AliasConfig(read_alias="perf-c", mutate_alias="perf-c-all")
+    assert ok.read_alias == "perf-c"
+    for kw in (
+        {"read_alias": "perf-c"},
+        {"mutate_alias": "perf-all"},
+        {"read_alias": "x", "mutate_alias": "x"},
+    ):
+        with pytest.raises(ValidationError):
+            AliasConfig(**kw)
+
+
+def test_load_sends_the_persona_token_with_every_request():
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from roracle.perf import load
+
+    seen: list[str] = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers["Authorization"])
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        r = load.run(
+            f"http://127.0.0.1:{srv.server_port}",
+            ["a", "b", "c"],
+            "search",
+            rps=60,
+            duration_s=1,
+            concurrency=1,
+        )
+    finally:
+        srv.shutdown()
+    assert r.errors == 0 and r.n == 60
+    assert {"Bearer a", "Bearer b", "Bearer c"} == set(seen)  # one thread, three personas

@@ -13,7 +13,7 @@ from sqlalchemy.sql.elements import ClauseElement
 
 from roracle import worker_health
 from roracle.metrics import JOB_RUNS
-from roracle.models import Job
+from roracle.models import BULK_KINDS, Job, bulk_sql
 
 log = logging.getLogger(__name__)
 
@@ -48,22 +48,24 @@ def enqueue(session: Session, kind: str, payload: dict, run_after_s: float = 0) 
     return job.id
 
 
-BULK_KINDS = ("rebuild_units",)
 # The claim SQL repeats the predicates of ix_jobs_due_user / ix_jobs_due_bulk (migration 0014) literally:
 # a partial index is used only when the query's WHERE implies the index predicate.
-assert BULK_KINDS == ("rebuild_units",)
-_USER_ONLY = text("kind <> 'rebuild_units'")
-_BULK_ONLY = text("kind = 'rebuild_units'")
+_USER_ONLY = text(bulk_sql(bulk=False))
+_BULK_ONLY = text(bulk_sql(bulk=True))
 
 
-def _claim_step(session: Session, kinds: list[str], only: ClauseElement) -> Job | None:
-    return session.scalar(
+def claim_stmt(kinds: list[str], only: ClauseElement):
+    return (
         select(Job)
         .where(text("status = 'queued'"), only, Job.run_after <= text("now()"), Job.kind.in_(kinds))
         .order_by(Job.run_after, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     )
+
+
+def _claim_step(session: Session, kinds: list[str], only: ClauseElement) -> Job | None:
+    return session.scalar(claim_stmt(kinds, only))
 
 
 def claim(session: Session, kinds: Collection[str]) -> Job | None:

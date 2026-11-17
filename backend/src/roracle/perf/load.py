@@ -62,18 +62,21 @@ def run(
     lock = threading.Lock()
     counter = itertools.count()
 
-    def client(token: str) -> httpx.Client:
+    clients: list[httpx.Client] = []
+
+    def client() -> httpx.Client:  # one per thread; the persona's token travels with each request
         if getattr(local, "c", None) is None:
-            local.c = httpx.Client(
-                base_url=base_url, headers={"Authorization": f"Bearer {token}"}, timeout=30
-            )
+            local.c = httpx.Client(base_url=base_url, timeout=30)
+            with lock:
+                clients.append(local.c)
         return local.c
 
     def fire(n: int, due: float) -> None:
         nonlocal errors
         method, path, kw = build_request(scenario, n, docs=docs, seed=seed)
         try:
-            r = client(tokens[n % len(tokens)]).request(method, path, **kw)
+            kw["headers"] = {**kw.get("headers", {}), "Authorization": f"Bearer {tokens[n % len(tokens)]}"}
+            r = client().request(method, path, **kw)
             ok = r.status_code < 400
         except httpx.HTTPError:
             ok = False
@@ -93,4 +96,6 @@ def run(
             if (wait := due - time.monotonic()) > 0:
                 time.sleep(wait)
             pool.submit(fire, n, due)
+    for c in clients:
+        c.close()
     return Report.of(lat, errors)

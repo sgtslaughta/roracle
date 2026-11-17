@@ -25,9 +25,28 @@ WRAPPERS = [
 UNALLOWABLE = [ipaddress.ip_network("2002::/16"), ipaddress.ip_network("2001::/32")]
 
 
-class Settings(BaseSettings):
+class AliasConfig(BaseSettings):
+    """ES alias names; overridden only to isolate a scratch index (perf harness). Both or neither: reads on one
+    index while ACL update_by_query hits another would leave revoked shares visible."""
+
     model_config = SettingsConfigDict(env_prefix="ROR_", hide_input_in_errors=True)
 
+    read_alias: str = "chunks"
+    mutate_alias: str = "chunks-all"
+
+    @model_validator(mode="after")
+    def _aliases(self):
+        default = (self.read_alias == "chunks", self.mutate_alias == "chunks-all")
+        if default[0] != default[1]:
+            raise ValueError(
+                "read_alias and mutate_alias must both be overridden or both left at the default"
+            )
+        if self.read_alias == self.mutate_alias:
+            raise ValueError("read_alias and mutate_alias must differ")
+        return self
+
+
+class Settings(AliasConfig):
     database_url: str
     database_password: str = ""  # injected into database_url when set (keeps the secret out of the URL)
     s3_endpoint: str

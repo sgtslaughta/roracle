@@ -24,4 +24,9 @@ Scenarios: `search`, `search_filtered`, `browse`, `chat_retrieve` (the retrieval
 approximated by a wide `/search`), `mcp_search`, `doc_read`. Budgets live in `budgets.yaml`.
 Documents/chunks share deterministic ids (`md5('<seed>:d:<i>')::uuid`) across Postgres and ES.
 Plan-shape tests (`tests/test_perf_plans.py`) run in the integration suite; timing gates run nightly only.
+Upgrading (migration 0014 builds queue indexes with `CREATE INDEX CONCURRENTLY`, which waits for every open
+transaction, and a claim shares one transaction with its handler): drain workers or let long jobs finish
+before `roracle migrate`. A failed build leaves an invalid index; re-running the migration drops and rebuilds it.
+`ROR_READ_ALIAS` and `ROR_MUTATE_ALIAS` must be set together (Settings validates it) on API and worker.
+
 Drop the scratch database when done: `dropdb -h localhost -p 55433 -U roracle roracle_perf`.

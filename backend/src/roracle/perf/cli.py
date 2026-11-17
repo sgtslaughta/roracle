@@ -106,13 +106,10 @@ def _explain_claim(args: argparse.Namespace) -> int:
     """Claim latency: each iteration claims one due job in a transaction and rolls back (jobs stay queued)."""
     import time
 
-    from sqlalchemy import select, text
-
     from roracle.db import make_session_factory
-    from roracle.models import Job
     from roracle.perf.explain import index_names, plan
     from roracle.perf.report import Report
-    from roracle.queue import BULK_KINDS, claim
+    from roracle.queue import _USER_ONLY, BULK_KINDS, claim, claim_stmt
 
     _require_scratch(args.url)
     sf = make_session_factory(args.url)
@@ -124,11 +121,7 @@ def _explain_claim(args: argparse.Namespace) -> int:
             claim(s, kinds)
             lat.append((time.perf_counter() - t) * 1000)
             s.rollback()
-        user_plan = plan(
-            s,
-            select(Job.id).where(Job.status == "queued", Job.run_after <= text("now()"))
-            .where(Job.kind != "rebuild_units").order_by(Job.run_after, Job.id).limit(1),
-        )  # fmt: skip
+        user_plan = plan(s, claim_stmt([k for k in kinds if k not in BULK_KINDS], _USER_ONLY))
         s.rollback()
     r = Report.of(lat)
     budget = _budgets(args.budget).get("claim", {})

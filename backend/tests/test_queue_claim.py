@@ -84,3 +84,41 @@ def test_depth_metric_ignores_done_rows(db_session):
     _add(db_session, "ingest", status="failed")
     rows = {(k, s): n for k, s, n, _ in db_session.execute(_DEPTH_SQL)}
     assert rows == {("ingest", "queued"): 1, ("ingest", "failed"): 1}
+
+
+def test_every_bulk_kind_is_covered_by_the_index_predicates(db_session):
+    """Adding a bulk kind (BULK_KINDS in models.py) needs a migration recreating both partial indexes."""
+    from roracle.models import BULK_KINDS
+
+    defs = {
+        n: d
+        for n, d in db_session.execute(
+            text(
+                "SELECT indexname, indexdef FROM pg_indexes WHERE indexname IN ('ix_jobs_due_user','ix_jobs_due_bulk')"
+            )
+        )
+    }
+    assert set(defs) == {"ix_jobs_due_user", "ix_jobs_due_bulk"}
+    for kind in BULK_KINDS:
+        assert f"'{kind}'" in defs["ix_jobs_due_user"] and f"'{kind}'" in defs["ix_jobs_due_bulk"]
+    assert "<>" in defs["ix_jobs_due_user"] or "NOT" in defs["ix_jobs_due_user"].upper()
+    n_user = defs["ix_jobs_due_user"].count("'") // 2
+    assert n_user - 1 == len(BULK_KINDS)  # 'queued' + one literal per bulk kind, nothing else
+
+
+def test_concurrent_claims_get_different_jobs_in_both_steps(session_factory, db_session):
+    a_id = _add(db_session, "ingest", age_s=20)
+    b_id = _add(db_session, "ingest", age_s=10)
+    bulk1 = _add(db_session, "rebuild_units", age_s=20)
+    bulk2 = _add(db_session, "rebuild_units", age_s=10)
+    db_session.commit()
+    a, b = session_factory(), session_factory()
+    try:
+        got = [claim(a, KINDS).id, claim(b, KINDS).id, claim(a, KINDS).id, claim(b, KINDS).id]
+        assert got == [a_id, b_id, bulk1, bulk2]
+        assert claim(a, KINDS) is None
+    finally:
+        a.rollback()
+        b.rollback()
+        a.close()
+        b.close()

@@ -290,6 +290,9 @@ moved into `ensure_index`), `acl_sync.py` (`acl_hash(acl, title) -> str`), `main
 - [ ] Tests: an unchanged document produces `noop` (ES `updated == 0`); a changed share reaches every chunk and
   unit; a reconcile of 1,000 in-sync docs performs 0 updates and enqueues ≤ 3 jobs; a stale chunk is found and
   fixed.
+- [ ] Adding `reconcile_tags` to `models.BULK_KINDS` needs migration 0014b: recreate `ix_jobs_due_user`/`ix_jobs_due_bulk`
+  with `kind NOT IN (...)`/`IN (...)` (CONCURRENTLY, drop-invalid-first, verify `indisvalid`);
+  `tests/test_queue_claim.py::test_every_bulk_kind_is_covered...` fails until then.
 - [ ] Perf: reconcile of 100k synthetic docs with 0 drift ≤ 60 s, 0 writes.
 - [ ] **Commit** `perf(acl): noop-aware batched ACL sync, drift-only reconcile`
 

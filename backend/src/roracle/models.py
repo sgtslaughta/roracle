@@ -127,6 +127,19 @@ class DocumentCoauthor(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
 
 
+# Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
+# claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
+# (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
+BULK_KINDS = ("rebuild_units",)
+
+
+def bulk_sql(*, bulk: bool) -> str:
+    quoted = ", ".join(f"'{k}'" for k in BULK_KINDS)
+    if len(BULK_KINDS) == 1:
+        return f"kind {'=' if bulk else '<>'} {quoted}"
+    return f"kind {'IN' if bulk else 'NOT IN'} ({quoted})"
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
@@ -137,13 +150,13 @@ class Job(Base):
             "ix_jobs_due_user",
             "run_after",
             "id",
-            postgresql_where=text("status = 'queued' AND kind <> 'rebuild_units'"),
+            postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=False)}"),
         ),
         Index(
             "ix_jobs_due_bulk",
             "run_after",
             "id",
-            postgresql_where=text("status = 'queued' AND kind = 'rebuild_units'"),
+            postgresql_where=text(f"status = 'queued' AND {bulk_sql(bulk=True)}"),
         ),
         Index("ix_jobs_kind_status", "kind", "status"),
         Index("ix_jobs_version_id", text("(payload->>'version_id')"), "created_at"),

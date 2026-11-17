@@ -2,7 +2,6 @@
 `chunks-all` (all live generations, ADR-0002 ACL fields)."""
 
 import logging
-import os
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -13,6 +12,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime
+from roracle.config import AliasConfig
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion
 from roracle.queue import NonRetryable
 
@@ -20,11 +20,11 @@ if TYPE_CHECKING:  # runtime import would be circular (ingest/__init__ -> pipeli
     from roracle.ingest.chunking import Chunk
     from roracle.ingest.raptor import Unit
 
-# ROR_READ_ALIAS / ROR_MUTATE_ALIAS isolate a scratch index (perf harness); the defaults are the real names
-ALIAS = os.environ.get("ROR_READ_ALIAS") or "chunks"  # read alias: exactly one (the active) index
+_aliases = AliasConfig()  # ROR_READ_ALIAS / ROR_MUTATE_ALIAS (Settings fields; both or neither)
+ALIAS = _aliases.read_alias  # read alias: exactly one (the active) index
 ALIAS_LOCK = "SELECT pg_advisory_xact_lock(hashtextextended('reembed-alias', 0))"  # cutover vs ensure_index
 # every live generation: ALL update_by_query / delete_by_query go here
-MUTATE_ALIAS = os.environ.get("ROR_MUTATE_ALIAS") or "chunks-all"
+MUTATE_ALIAS = _aliases.mutate_alias
 
 
 def slug(model: str) -> str:

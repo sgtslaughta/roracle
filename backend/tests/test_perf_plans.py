@@ -5,7 +5,7 @@ from sqlalchemy import select, text
 
 from roracle.models import Job
 from roracle.perf.explain import has_node, index_names, plan, seq_scans
-from roracle.queue import _BULK_ONLY, _USER_ONLY
+from roracle.queue import _BULK_ONLY, _USER_ONLY, claim_stmt
 
 pytestmark = pytest.mark.integration
 
@@ -34,21 +34,11 @@ def big_queue(db_session):
     db_session.commit()
 
 
-def _claim_stmt(only, kinds):
-    return (
-        select(Job)
-        .where(text("status = 'queued'"), only, Job.run_after <= text("now()"), Job.kind.in_(kinds))
-        .order_by(Job.run_after, Job.id)
-        .limit(1)
-        .with_for_update(skip_locked=True)
-    )
-
-
 def test_claim_uses_partial_indexes_without_sort(big_queue):
-    p = plan(big_queue, _claim_stmt(_USER_ONLY, ["ingest"]))
+    p = plan(big_queue, claim_stmt(["ingest"], _USER_ONLY))
     assert "ix_jobs_due_user" in index_names(p)
     assert not has_node(p, "Sort") and "jobs" not in seq_scans(p)
-    p = plan(big_queue, _claim_stmt(_BULK_ONLY, ["rebuild_units"]))
+    p = plan(big_queue, claim_stmt(["rebuild_units"], _BULK_ONLY))
     assert "ix_jobs_due_bulk" in index_names(p) and not has_node(p, "Sort")
     big_queue.rollback()
 
