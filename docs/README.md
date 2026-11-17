@@ -31,6 +31,13 @@ Later tasks append a link line under the matching heading when they add a page.
 ### User
 
 - [User guide index](user/README.md)
+- [Getting started](user/getting-started.md): sign-in, layout, theme, keyboard shortcuts
+- [Library and search](user/library-search.md): queries, filters, sorting, votes
+- [Reading a paper](user/reader.md): focus mode, references, cited-by, identifiers
+- [Notes and annotations](user/notes-annotations.md): note kinds, anchoring, community notes
+- [Sensitivity labels](user/labels.md): what each gate means, changing a label
+- [Collections and sharing](user/collections-sharing.md): collections, visibility, sharing
+- [Uploads](user/uploads.md): adding papers, duplicates, near-duplicates, titles
 
 ### Admin
 
