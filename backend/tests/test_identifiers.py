@@ -120,3 +120,10 @@ def test_doi_hostile_input_bounded():
     assert normalize("doi", "10.1234/" + ")" * 200_000) is None
     extract_ids("10.1234/x" + ")" * 200_000)
     assert time.perf_counter() - t < 1.0
+
+
+def test_arxiv_new_style_month_checked():
+    from roracle.identifiers import normalize
+
+    assert normalize("arxiv", "2021.12345") is None
+    assert normalize("arxiv", "2012.12345") == "2012.12345"

@@ -81,7 +81,7 @@ def _norm_arxiv(v: str) -> str | None:
     s = re.sub(r"(?i)^\s*(arxiv\s*:\s*|https?://(www\.)?arxiv\.org/(abs|pdf)/)", "", unquote(v)).strip()
     s = re.sub(r"(?i)(v\d+)?/?$", "", re.sub(r"(?i)\.pdf/?$", "", s))
     if re.fullmatch(_ARX_NEW, s):
-        return s
+        return s if 1 <= int(s[2:4]) <= 12 else None  # YYMM: reject month 00/13+
     m = re.fullmatch(r"([a-z\-]+)(?:\.[a-z]{2})?/(\d{7})", s, _I)  # the subject class is not part of the id
     return f"{m[1].lower()}/{m[2]}" if m else None
 
