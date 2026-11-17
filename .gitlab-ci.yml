@@ -138,7 +138,7 @@ perf:
   variables:
     POSTGRES_USER: roracle
     POSTGRES_PASSWORD: roracle
-    POSTGRES_DB: roracle_perf  # the perf tooling refuses any database whose name lacks "perf"
+    POSTGRES_DB: roracle_perf  # the perf tooling accepts only a database named roracle_perf[a-z0-9_]*
     ROR_DATABASE_URL: postgresql+psycopg://roracle:roracle@postgres:5432/roracle_perf
     ROR_ELASTIC_URL: http://elasticsearch:9200
     ROR_S3_ENDPOINT: http://minio.invalid:9000

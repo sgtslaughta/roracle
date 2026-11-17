@@ -29,8 +29,9 @@ Operator documentation lives in the docs site sources:
 ```sh
 cd deploy/terraform
 terraform init
-terraform plan  -var-file=environments/dev.tfvars -var allow_placeholders=true   # review (copy environments/example.tfvars first)
-terraform apply -var-file=environments/dev.tfvars                                 # placeholders must be replaced
+cp environments/example.tfvars environments/my.tfvars                             # then edit my.tfvars (`*.tfvars` is git-ignored)
+terraform plan  -var-file=environments/my.tfvars -var allow_placeholders=true     # review
+terraform apply -var-file=environments/my.tfvars                                   # placeholders must be replaced
 ```
 
 ## Verification

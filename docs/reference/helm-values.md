@@ -211,11 +211,11 @@ Data services: operator CRs (CNPG, ECK must be installed by the platform) Each c
 | `postgres.storage` | `{"size": "100Gi", "storageClass": ""}` |  |
 | `postgres.resources.requests` | `{"cpu": "2", "memory": "8Gi"}` |  |
 | `postgres.resources.limits` | `{"memory": "8Gi"}` |  |
-| `postgres.parameters` | `{"max_connections": "200", "shared_buffers": "2GB", "work_mem": "16MB", "jit": "off"}` | postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters). max_connections is checked against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory. NB: a `parameters` override without max_connections leaves PostgreSQL's own default (100), which the guard then uses. jit off: see docs/perf/report-2026-11-17.md (F1) |
+| `postgres.parameters` | `{"max_connections": "200", "shared_buffers": "2GB", "work_mem": "16MB", "jit": "off"}` | postgresql.parameters; archive_timeout is forced to 5min; it bounds the RPO (about 5 min) only while WAL is being produced. max_connections is checked against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory. NB: a `parameters` override without max_connections leaves PostgreSQL's own default (100), which the guard then uses. jit off: see docs/perf/report-2026-11-17.md (F1) |
 | `postgres.reservedConnections` | `15` | superuser_reserved (3) + CNPG/monitoring/replication + migrate Job + operator headroom |
 | `postgres.pooler` | `{"enabled": false, "instances": 2, "poolMode": "transaction", "maxClientConn": 1000, "defaultPoolSize": 40}` | PgBouncer (CNPG Pooler, transaction mode). When enabled, point ROR_DATABASE_URL at <release>-pg-pooler-rw and keep the migrate Job on the direct <release>-pg-rw service. Server connections = instances x defaultPoolSize. |
 | `postgres.appCredentialsSecret` | `""` | REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner. ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg. |
-| `postgres.monitoring` | `{"enabled": true}` | PodMonitor + roracle_jobs queue metrics. Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated upstream (still works); if it is removed, create the PodMonitor from the observability values instead. |
+| `postgres.monitoring` | `{"enabled": true}` | PodMonitor + CNPG custom queries (roracle_archiver; roracle_jobs is no longer used by the dashboard). Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated upstream (still works); if it is removed, create the PodMonitor from the observability values instead. |
 | `postgres.backup.enabled` | `true` |  |
 | `postgres.backup.method` | `plugin` | plugin: barman-cloud plugin (ObjectStore CR, CNPG >= 1.26; plugin + cert-manager must be installed). barmanObjectStore: legacy in-tree config (deprecated upstream, still works). |
 | `postgres.backup.destinationPath` | `s3://roracle-pg-backup/` |  |
@@ -225,7 +225,7 @@ Data services: operator CRs (CNPG, ECK must be installed by the platform) Each c
 | `postgres.backup.retentionPolicy` | `30d` |  |
 | `postgres.backup.schedule` | `0 0 2 * * *` | 6-field cron (seconds first): daily base backup 02:00 |
 | `postgres.backup.serverName` | `""` | archive path name; "" = cluster name. MUST be new (differs from the source) after a recovery |
-| `postgres.recovery` | `{"enabled": false, "targetTime": "", "sourceServerName": ""}` | PITR: bootstrap the Helm-managed cluster from backups instead of initdb (runbook 3.1). Needs backup.enabled + a new backup.serverName. targetTime "" = latest; sourceServerName "" = cluster name |
+| `postgres.recovery` | `{"enabled": false, "targetTime": "", "sourceServerName": ""}` | PITR: bootstrap the Helm-managed cluster from backups instead of initdb (docs/enterprise/backup-dr.md). Needs backup.enabled + a new backup.serverName. targetTime "" = latest; sourceServerName "" = cluster name |
 
 ## elasticsearch
 
