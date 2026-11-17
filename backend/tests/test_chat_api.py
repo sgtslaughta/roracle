@@ -270,3 +270,21 @@ def test_rejected_version_unavailable(client, db_session, as_ana, ana, world):
     db_session.flush()
     a = client.get(f"/chats/{world['chat'].id}", headers=as_ana).json()["messages"][1]
     assert a["citations"] == [{"n": 1, "available": False}]
+
+
+def test_hide_chat(client, db_session, as_ana, as_bob, bob, world):
+    cid = world["chat"].id
+    share_user(db_session, world["chat"], bob)
+    assert client.delete(f"/chats/{cid}", headers=as_bob).status_code == 403
+    assert client.delete(f"/chats/{uuid.uuid4()}", headers=as_ana).status_code == 404
+    assert [c["id"] for c in client.get("/chats", headers=as_ana).json()["items"]] == [str(cid)]
+    assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204
+    assert client.delete(f"/chats/{cid}", headers=as_ana).status_code == 204  # idempotent
+    assert client.get("/chats", headers=as_ana).json()["items"] == []
+    assert client.get(f"/chats/{cid}", headers=as_ana).status_code == 200
+    assert client.get(f"/chats/{cid}", headers=as_bob).status_code == 200  # shares untouched
+    assert len(client.get(f"/chats/{cid}", headers=as_ana).json()["messages"]) == 2
+
+
+def test_hide_stranger_404(client, as_bob, world):
+    assert client.delete(f"/chats/{world['chat'].id}", headers=as_bob).status_code == 404
