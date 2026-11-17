@@ -1,8 +1,11 @@
 import { BookOpen, Building2, File, Folder, ShieldHalf, Tag, User } from "lucide-react";
+import { Fragment } from "react";
 import type { FacetName, FacetValue } from "@/api/types";
 import { useLabelName } from "@/features/labels/api";
 import type { FacetKey, LibrarySearch } from "@/lib/searchParams";
 import { useCollectionName } from "./api";
+import { SignalFilters } from "./SignalFilters";
+import { YearFacet } from "./YearFacet";
 import { FacetGroup, type FacetRow } from "./FacetGroup";
 import type { useLibraryNav } from "./useLibraryNav";
 
@@ -44,13 +47,17 @@ export function FacetRail({ facets, search, nav }: { facets: Record<FacetName, F
         const values: FacetRow[] = vals.map((v) => ({ value: v, name: nameOf(v), count: counts.get(v) ?? 0 }));
         const opKey = k === "author" ? "author_op" : k === "tags" ? "tags_op" : undefined;
         return (
+          <Fragment key={k}>
+          {k === "venue" && <YearFacet buckets={facets?.year ?? []} min={search.year_min} max={search.year_max} onCommit={(a, b) => nav.patch({ year_min: a, year_max: b })} />}
           <FacetGroup
-            key={k} k={k} facet={FACET_META[k]} values={values} selected={sel} excluded={exc} search={search} nameOf={nameOf}
+            k={k} facet={FACET_META[k]} values={values} selected={sel} excluded={exc} search={search} nameOf={nameOf}
             onToggle={(v, mode) => nav.toggle(k, v, mode)}
             op={opKey ? search[opKey] : undefined} onOp={opKey ? (o) => nav.patch({ [opKey]: o }) : undefined}
           />
+          </Fragment>
         );
       })}
+      <SignalFilters search={search} nav={nav} />
     </aside>
   );
 }

@@ -117,7 +117,7 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
     matched.filter((r) => passes(r.d, f)).forEach((r) => values[f](r.d).forEach((v) => (c[v] = (c[v] ?? 0) + 1)));
     facets[f] = Object.entries(c)
       .map(([value, count]): FacetValue => (f === "collection" ? { value, count, label: COLLECTION_NAMES[Number(value.slice(1)) - 1] } : f === "label" ? { value, count, label: labelJson(value) } : { value, count }))
-      .sort((a, b) => (f === "year" ? Number(b.value) - Number(a.value) : b.count - a.count || a.value.localeCompare(b.value)));
+      .sort((a, b) => (f === "year" ? Number(a.value) - Number(b.value) : b.count - a.count || a.value.localeCompare(b.value)));
   }
 
   const size = Math.min(50, Number(sp.get("size")) || 20);

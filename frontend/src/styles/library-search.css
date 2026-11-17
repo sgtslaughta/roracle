@@ -14,3 +14,24 @@
 @media (prefers-reduced-motion: no-preference) {
   .fx { transition: background-color .15s, color .15s; }
 }
+
+/* year histogram, range fields, signal filters */
+.yfacet h4 { display: flex; justify-content: space-between; gap: 8px; }
+.ycap { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.yhist { display: block; width: 100%; height: 44px; margin: 4px 0; }
+.ybar { fill: var(--border); cursor: pointer; }
+.ybar[data-in] { fill: var(--primary); }
+.ybar:focus-visible { outline: none; stroke: var(--apricot); stroke-width: 2; }
+.yrange { display: grid; gap: 2px; margin-bottom: 6px; }
+.yrange input { width: 100%; margin: 0; accent-color: var(--primary); }
+.rrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rrow input, .sfield input, .sfield select { min-width: 0; width: 100%; padding: 4px 6px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); color: var(--ink); }
+.rrow input:focus-visible, .sfield input:focus-visible, .sfield select:focus-visible, .yrange input:focus-visible { outline: none; border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+.rerr { margin: 4px 0 0; font-size: 12px; color: var(--danger, #b3261e); }
+.rfield { margin-bottom: 8px; }
+.sfield { display: grid; gap: 3px; margin-bottom: 8px; font-size: 12.5px; }
+.scite { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 13px; }
+.scite .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .ybar { transition: fill .15s; }
+}
