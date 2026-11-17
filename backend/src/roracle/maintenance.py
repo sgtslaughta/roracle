@@ -19,7 +19,6 @@ from elasticsearch import Elasticsearch, NotFoundError
 from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle import search_index
 from roracle.acl_sync import drifted, read_acl_many
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue, payload_uuid
@@ -183,16 +182,21 @@ def gc_blobs(session: Session, store: BlobStore) -> int:
 
 
 def handle_reconcile_tags(session: Session, payload: dict, *, es: Elasticsearch) -> None:
-    """Drift-only reconcile of the next RECONCILE_BATCH live documents after the id cursor: compare each
-    document's Postgres `acl_hash` with the hashes in ES and sync only the drifted ones (an in-sync corpus
-    causes 0 ES writes). One chain job per batch while full."""
+    """Drift DETECTION over the next RECONCILE_BATCH live documents after the id cursor (bulk priority): compare
+    each document's Postgres `acl_hash` with the hashes in ES (an in-sync corpus costs 0 ES writes). Repair is a
+    normal-priority `acl_sync` job per drifted document (deduped), so a revocation fix never waits behind user
+    work and always re-reads Postgres when it runs. One chain job per batch while full."""
     q = select(Document.id).where(Document.deleted_at.is_(None))
     if payload.get("after"):
         q = q.where(Document.id > payload_uuid(payload, "after"))
     ids = session.scalars(q.order_by(Document.id).limit(RECONCILE_BATCH)).all()
-    items = read_acl_many(session, ids)
-    if bad := drifted(es, items):
-        search_index.sync_acl_many(es, {d: items[d] for d in bad})
+    if bad := drifted(es, read_acl_many(session, ids)):
+        key = Job.payload["doc_id"].astext
+        pending = set(
+            session.scalars(select(key).where(Job.kind == "acl_sync", Job.status == "queued", key.in_(bad)))
+        )
+        for doc_id in sorted(bad - pending):
+            enqueue(session, "acl_sync", {"doc_id": doc_id})
     if len(ids) == RECONCILE_BATCH:
         enqueue(session, "reconcile_tags", {"after": str(ids[-1])})
 

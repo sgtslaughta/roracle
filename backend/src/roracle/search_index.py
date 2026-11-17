@@ -473,14 +473,20 @@ def _acl_request(items: dict[str, tuple[dict[str, Any], str | None]]) -> dict[st
     }
 
 
-def sync_acl_many(es: Elasticsearch, items: dict[str, tuple[dict[str, Any], str | None]]) -> int:
-    """Converge ACL/title/tags of many documents (`doc_id -> (acl, title)`), `ACL_BATCH` per update_by_query;
-    unchanged documents are no-ops. Returns the number of chunks actually updated."""
+def sync_acl_many(
+    es: Elasticsearch,
+    doc_ids: "list[str]",
+    compute: "Callable[[list[str]], dict[str, tuple[dict[str, Any], str | None]]]",
+) -> int:
+    """Converge ACL/title/tags of many documents, `ACL_BATCH` per update_by_query; unchanged documents are
+    no-ops. `compute(ids)` re-reads Postgres on EVERY try (documents it omits are skipped), so a concurrent
+    revocation is never overwritten with data read earlier. Returns the number of chunks actually updated."""
     updated = 0
-    keys = list(items)
-    for i in range(0, len(keys), ACL_BATCH):
-        part = {k: items[k] for k in keys[i : i + ACL_BATCH]}
-        updated += (run_update_by_query(es, lambda part=part: _acl_request(part)) or {}).get("updated", 0)
+    for i in range(0, len(doc_ids), ACL_BATCH):
+        ids = doc_ids[i : i + ACL_BATCH]
+        updated += (run_update_by_query(es, lambda ids=ids: _acl_request(compute(ids))) or {}).get(
+            "updated", 0
+        )
     return updated
 
 

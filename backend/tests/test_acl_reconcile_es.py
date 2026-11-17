@@ -59,12 +59,25 @@ def _src(es, doc_id, n=0):
     return es.get(index=es.test_index, id=f"{doc_id}:{n}")["_source"]
 
 
+def _run_acl_syncs(es, db, session_factory):
+    """Run the queued acl_sync jobs the reconcile enqueued (what the worker would do)."""
+    db.commit()
+    for j in db.scalars(
+        select(Job).where(Job.kind == "acl_sync", Job.status == "queued").order_by(Job.id)
+    ).all():
+        acl_sync.handle_acl_sync(db, j.payload, es=es, session_factory=session_factory)
+        j.status = "done"
+    db.commit()
+
+
 def test_unchanged_document_is_a_noop(es, db_session, user):
     d = _doc(db_session, user, 0)
     _index(es, db_session, [d])
     before = _seq(es)
     items = acl_sync.read_acl_many(db_session, [d.id])
-    assert search_index.sync_acl_many(es, items) == 0
+    assert (
+        search_index.sync_acl_many(es, list(items), lambda ids, items=items: {i: items[i] for i in ids}) == 0
+    )
     assert _seq(es) == before
 
 
@@ -74,7 +87,9 @@ def test_changed_share_reaches_every_chunk(es, db_session, user):
     db_session.add(DocumentShare(document_id=d.id, principal_kind="group", principal="g9"))
     db_session.flush()
     items = acl_sync.read_acl_many(db_session, [d.id])
-    assert search_index.sync_acl_many(es, items) == 3
+    assert (
+        search_index.sync_acl_many(es, list(items), lambda ids, items=items: {i: items[i] for i in ids}) == 3
+    )
     for n in range(3):
         s = _src(es, d.id, n)
         assert s["share_groups"] == ["g9"] and s["acl_hash"] == acl_hash(*items[str(d.id)])
@@ -105,7 +120,10 @@ def test_every_field_change_is_written(es, db_session, user):
         change()
         db_session.flush()
         items = acl_sync.read_acl_many(db_session, [d.id])
-        assert search_index.sync_acl_many(es, items) == 2, name
+        assert (
+            search_index.sync_acl_many(es, list(items), lambda ids, items=items: {i: items[i] for i in ids})
+            == 2
+        ), name
         assert _src(es, d.id)["acl_hash"] == acl_hash(*items[str(d.id)]), name
 
 
@@ -127,7 +145,7 @@ def test_reconcile_in_sync_corpus_writes_nothing(es, db_session, user, monkeypat
     assert db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "acl_sync")) == 0
 
 
-def test_reconcile_fixes_only_the_drifted_docs(es, db_session, user):
+def test_reconcile_fixes_only_the_drifted_docs(es, db_session, user, session_factory):
     docs = [_doc(db_session, user, i) for i in range(5)]
     db_session.flush()
     _index(es, db_session, docs, chunks=2)
@@ -136,13 +154,19 @@ def test_reconcile_fixes_only_the_drifted_docs(es, db_session, user):
     target.visibility = "private"  # PG moved on; ES still says everyone
     db_session.flush()
     maintenance.handle_reconcile_tags(db_session, {}, es=es)
+    assert [j.payload["doc_id"] for j in db_session.scalars(select(Job).where(Job.kind == "acl_sync"))] == [
+        str(target.id)
+    ]
+    maintenance.handle_reconcile_tags(db_session, {}, es=es)  # again: a pending job is not duplicated
+    assert db_session.scalar(select(func.count()).select_from(Job).where(Job.kind == "acl_sync")) == 1
+    _run_acl_syncs(es, db_session, session_factory)
     after = _seq(es)
     changed = {i for i in after if after[i] != before[i]}
     assert changed == {f"{target.id}:0", f"{target.id}:1"}
     assert _src(es, target.id)["visibility"] == "private"
 
 
-def test_reconcile_finds_one_stale_chunk_and_missing_hash(es, db_session, user):
+def test_reconcile_finds_one_stale_chunk_and_missing_hash(es, db_session, user, session_factory):
     d, legacy = _doc(db_session, user, 0), _doc(db_session, user, 1)
     db_session.flush()
     _index(es, db_session, [d], chunks=3)
@@ -151,11 +175,12 @@ def test_reconcile_finds_one_stale_chunk_and_missing_hash(es, db_session, user):
         index=es.test_index, id=f"{d.id}:1", doc={"visibility": "private", "acl_hash": "stale"}, refresh=True
     )
     maintenance.handle_reconcile_tags(db_session, {}, es=es)
+    _run_acl_syncs(es, db_session, session_factory)
     assert _src(es, d.id, 1)["visibility"] == "everyone" and _src(es, d.id, 1)["acl_hash"] != "stale"
     assert "acl_hash" in _src(es, legacy.id)
 
 
-def test_partial_sync_invalidates_the_hash_so_reconcile_repairs_it(es, db_session, user):
+def test_partial_sync_invalidates_the_hash_so_reconcile_repairs_it(es, db_session, user, session_factory):
     d = _doc(db_session, user, 0)
     _index(es, db_session, [d])
     acl, _ = acl_sync.read_acl_many(db_session, [d.id])[str(d.id)]
@@ -165,4 +190,38 @@ def test_partial_sync_invalidates_the_hash_so_reconcile_repairs_it(es, db_sessio
     d.visibility = "private"
     db_session.flush()
     maintenance.handle_reconcile_tags(db_session, {}, es=es)
+    _run_acl_syncs(es, db_session, session_factory)
     assert _src(es, d.id)["acl_hash"] == acl_hash(*acl_sync.read_acl_many(db_session, [d.id])[str(d.id)])
+
+
+def test_revocation_between_detect_and_repair_is_never_overwritten(es, db_session, user, session_factory):
+    """The reconcile only detects. A share revoked after detection must win: the repair job re-reads Postgres."""
+    d = _doc(db_session, user, 0, vis="shared")
+    db_session.add(DocumentShare(document_id=d.id, principal_kind="group", principal="g-old"))
+    db_session.flush()
+    _index(es, db_session, [d])
+    d.title = "renamed"  # drift: ES is behind
+    db_session.flush()
+    maintenance.handle_reconcile_tags(db_session, {}, es=es)  # detects, enqueues acl_sync
+    db_session.execute(
+        DocumentShare.__table__.delete().where(DocumentShare.document_id == d.id)
+    )  # revoked now
+    _run_acl_syncs(es, db_session, session_factory)
+    s = _src(es, d.id)
+    assert s["share_groups"] == [] and s["title"] == "renamed"
+
+
+def test_sync_acl_many_rereads_postgres_on_every_try(es, db_session, user):
+    d = _doc(db_session, user, 0, vis="shared")
+    db_session.add(DocumentShare(document_id=d.id, principal_kind="group", principal="g-old"))
+    db_session.flush()
+    _index(es, db_session, [d])
+    calls = []
+
+    def compute(ids):
+        calls.append(ids)
+        db_session.execute(DocumentShare.__table__.delete().where(DocumentShare.document_id == d.id))
+        return acl_sync.read_acl_many(db_session, [d.id])
+
+    search_index.sync_acl_many(es, [str(d.id)], compute)
+    assert len(calls) == 1 and _src(es, d.id)["share_groups"] == []

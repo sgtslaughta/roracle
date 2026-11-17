@@ -212,13 +212,13 @@ def test_reconcile_batches_resumes_and_syncs_only_drifted(db_session, user, monk
     maintenance.handle_reconcile_tags(db_session, {}, es=es)
     nxt = jobs(db_session, "reconcile_tags")
     assert len(nxt) == 1 and nxt[0].payload["after"] == str(sorted(ids)[1])
-    assert es.synced == [[str(sorted(ids)[1])]]
+    assert [j.payload["doc_id"] for j in jobs(db_session, "acl_sync")] == [str(sorted(ids)[1])]
+    assert es.synced == []  # detection only: nothing is written by the reconcile itself
     es.drift = set()
     maintenance.handle_reconcile_tags(db_session, nxt[0].payload, es=es)
     maintenance.handle_reconcile_tags(db_session, jobs(db_session, "reconcile_tags")[-1].payload, es=es)
     assert len(jobs(db_session, "reconcile_tags")) == 2  # last batch (1 < 2) does not chain
-    assert len(es.synced) == 1  # no drift, no further writes
-    assert not jobs(db_session, "acl_sync")
+    assert len(jobs(db_session, "acl_sync")) == 1  # no further drift: no more jobs
     queried = {
         c["term"]["doc_id"]
         for q in es.queries
@@ -426,3 +426,18 @@ def test_purge_decrements_evidence_on_relation_notes_from_other_docs(db_session,
     trash(db_session, db_session.get(Document, target.document_id), 40)
     maintenance.purge(db_session, FakeEs(), settings(), store)
     assert db_session.get(Blob, "5" * 64).refcount == 0
+
+
+def test_drift_repair_is_claimed_before_older_bulk_work_while_user_jobs_arrive(db_session, user):
+    from roracle.queue import claim, enqueue
+
+    d = Document(owner_id=user.id, title="t", org_unit="/", visibility="private")
+    db_session.add(d)
+    db_session.flush()
+    enqueue(db_session, "reconcile_tags", {"after": str(d.id)})  # an older bulk job is already waiting
+    db_session.execute(text("UPDATE jobs SET run_after = now() - interval '1 hour'"))
+    maintenance.handle_reconcile_tags(db_session, {}, es=DriftEs(drift={str(d.id)}))
+    db_session.commit()
+    kinds = ["ingest", "acl_sync", "reconcile_tags"]
+    first = claim(db_session, kinds)
+    assert first.kind == "acl_sync" and first.payload == {"doc_id": str(d.id)}
