@@ -79,7 +79,7 @@ Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs
 1. Take a Postgres backup and ES snapshot ([runbook](../../docs/enterprise/operations-runbook.md), section 2).
 2. Mirror the new images/charts, bump `charts.*.version` / `images.*`. Operators first (`deploy_app=false`), then the app. CRD upgrades: Helm does not upgrade CRDs in a chart's `crds/`
    directory (chart specific: cnpg, cert-manager with `crds.enabled` and ECK ship CRDs as templates, which Helm does upgrade); follow each operator's upgrade notes.
-3. `terraform plan` and read the helm diff before apply. Keep `helm_timeout_s` large: migrate runs as a hook.
+3. `terraform plan` and read the helm diff before apply. Keep `helm_timeout_s` large: migrate runs as a hook. The release uses `wait` + `wait_for_jobs`, so a green apply means workloads are Ready; the chart's worker waits for the schema (bounded 25 min) so the post-install migrate hook does not deadlock against `--wait`.
 
 ## Destroy cautions
 
@@ -96,6 +96,19 @@ Switch with `terraform init -migrate-state`. The S3 `use_lockfile` example needs
 - Before any deliberate teardown: backups and snapshots (and replicate the backup buckets off-cluster: bundled backups live on the same MinIO that would be destroyed), StorageClass `Retain`.
 - Operator namespaces are created by Terraform; destroying operators before their CRs are gone leaves orphaned finalizers. Terraform destroys app before operators.
 - In `existing` mode the Secrets are not Terraform-owned and survive destroy.
+
+## Failed apply (tainted release)
+
+A failed install (e.g. a hook failed, timeout) leaves the `helm_release` in state **tainted** (`atomic = false`). Fix the cause first, then
+`terraform untaint 'module.app[0].helm_release.protected[0]'` (or `.unprotected[0]`) and apply again (Helm upgrades the failed release).
+**Never apply a tainted release of the unprotected variant (`protect_data = false`) that holds data**: Terraform replaces it, i.e. uninstalls the release and
+deletes the data-tier CRs and PVCs. With `protect_data = true` the next plan errors on `prevent_destroy` instead (untaint, then apply).
+
+## MinIO images (production)
+
+The chart defaults `quay.io/minio/{minio,mc}` are no longer pullable (community images ended Oct 2025). `minio_mode = "tenant"` therefore needs
+`minio_images = { server = {repository, tag}, mc = {repository, tag} }` pointing at images you control; the placeholder gate refuses apply without them
+(see [airgap-mirror-manifest.md](../../docs/enterprise/airgap-mirror-manifest.md)). Alternative: `minio_mode = "external"`.
 
 ## Optional inference module
 
@@ -116,8 +129,8 @@ Pods run non-root with a read-only root filesystem (emptyDirs for `/tmp`, home/c
 
 `test/kind-e2e.sh` applies this stack for real on a throwaway kind cluster, with a local `registry:2` as the air-gap mirror
 (`localhost:5055`, containerd mirror hosts on the node). Subcommands: `up | apply | verify | destroy | down | all`; idempotent; state, kubeconfig,
-tools (pinned kind v0.33.0, kubectl, Helm 3.17.3, sha256 in the script) live in git-ignored `test/.tools/`; `~/.kube/config` is never touched.
-Needs docker, terraform, curl, jq, openssl and internet on the first run. Names: cluster `rorac-kind`, registry `rorac-kind-registry`.
+tools (pinned kind v0.33.0, kubectl v1.34.12, Helm 3.17.3, `registry:2.8.3@sha256`; sha256 in the script) live in git-ignored `test/.tools/`; `~/.kube/config` is never touched.
+Needs bash 4+, docker, terraform, curl, jq, tar, openssl, sha256sum and internet on the first run (the dev kubectl/helm on PATH are shadowed by the pinned ones). `KIND_E2E_KEEP=1` keeps the cluster when `all` fails (otherwise a trap runs `down`). Names: cluster `rorac-kind`, registry `rorac-kind-registry`.
 
 ```sh
 deploy/terraform/test/kind-e2e.sh all      # up, apply, verify, destroy, down
@@ -144,4 +157,5 @@ Known gaps (not faked):
 
 CI: manual job `iac-kind-e2e` (stage `terraform`, `when: manual`). It needs a **privileged** runner with Docker-in-Docker (kind nodes and registry are
 containers), the dind service sharing the job's network namespace (Kubernetes executor; the script uses `127.0.0.1`), ~8 GB RAM, internet on first run, and
-`KIND_E2E_IMAGE` (docker CLI, terraform, curl, jq, tar, openssl). Not part of the default pipeline.
+`KIND_E2E_IMAGE` (bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum; the job fails fast when unset). dockerd is started on loopback only
+(`--host=tcp://127.0.0.1:2375`), never on the pod IP. Run the job in a runner namespace with a default-deny ingress NetworkPolicy. Not part of the default pipeline.
