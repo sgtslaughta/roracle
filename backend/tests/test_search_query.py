@@ -36,9 +36,12 @@ def test_bm25_phrase_only_and_summary_boosting():
 def test_text_clauses():
     flt, nn = text_clauses(parse_query('a "b c" -d'), "title")
     assert flt == [{"multi_match": {"query": "b c", "type": "phrase", "fields": ["title"]}}]
-    assert nn == [{"multi_match": {"query": "d", "fields": ["title"]}}]
-    _, nn = text_clauses(parse_query('a -"d e"'), "title")
-    assert nn[0]["multi_match"]["type"] == "phrase"
+    assert nn == [{"multi_match": {"query": "d", "type": "phrase", "fields": ["title"]}}]
+
+
+def test_hyphenated_exclusion_is_a_phrase():
+    _, nn = text_clauses(parse_query("a -state-of-the-art"), "anywhere")
+    assert nn[0]["multi_match"]["query"] == "state-of-the-art" and nn[0]["multi_match"]["type"] == "phrase"
 
 
 def test_embed_text_drops_exclusions():

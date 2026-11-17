@@ -67,12 +67,8 @@ def text_clauses(pq: ParsedQuery, scope: Scope) -> tuple[list[dict], list[dict]]
     """(filter, must_not): phrases must match; excluded terms must not."""
     fields = SCOPE_FIELDS[scope]
     flt = [{"multi_match": {"query": p, "type": "phrase", "fields": fields}} for p in pq.phrases]
-    nn = []
-    for e in pq.excluded:
-        mm: dict[str, Any] = {"query": e, "fields": fields}
-        if " " in e:
-            mm["type"] = "phrase"
-        nn.append({"multi_match": mm})
+    # phrase for every exclusion: a hyphenated/punctuated term analyzes to several tokens that must all match
+    nn = [{"multi_match": {"query": e, "type": "phrase", "fields": fields}} for e in pq.excluded]
     return flt, nn
 
 

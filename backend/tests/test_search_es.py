@@ -96,3 +96,14 @@ def test_exclusion_and_field_scope_real_es(client, as_ana, db_session, es, wired
         extra_filter=[{"term": {"doc_head": True}}], bm25=bm25_clause(pq, "authors", ("chunk",)),
     )  # fmt: skip
     assert {x.doc_id for x in got} == {str(d1.id)}
+
+
+def test_hyphenated_exclusion_is_phrase_real_es(client, as_ana, db_session, es, wired):
+    ana = user_id(db_session, client, as_ana, "ana")
+    d1, v1 = seed(db_session, ana, title="One")
+    d2, v2 = seed(db_session, ana, title="Two")
+    index(es, wired, db_session, d1, v1, "alpha state of the art")
+    index(es, wired, db_session, d2, v2, "alpha of the")
+    _flt, nn = text_clauses(parse_query("alpha -state-of-the-art"), "anywhere")
+    got = _search(es, wired, db_session, db_session.get(User, ana), "alpha", must_not=nn)
+    assert {x.doc_id for x in got} == {str(d2.id)}
