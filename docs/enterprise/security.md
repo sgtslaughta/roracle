@@ -256,7 +256,7 @@ Cross-Origin-Opener-Policy: same-origin
 | worker | gotenberg / docling / grobid / clamav | 3000 / 5001 / 8070 / 3310 | parsers have no egress |
 | api, worker, migrate | Postgres (bundled pods, or `externalCIDRs.postgres`) | 5432 | |
 | api, worker, migrate | Elasticsearch (bundled, or `externalCIDRs.elasticsearch`) | 9200 | |
-| api, worker, migrate, CNPG/ES pods | object store (`networkPolicy.s3`: CIDRs and/or in-cluster peer) | 443 / 9000 (configurable; Rook-Ceph RGW 8443) | empty = denied |
+| api, worker, migrate, CNPG/ES pods | object store (`networkPolicy.s3`: CIDRs and/or in-cluster peer) | 443 / 9000 (configurable; Rook-Ceph RGW 443) | empty = denied |
 | api, worker | `egressCIDRs.llm` / `oidc` / `otel` | 443 / 443 / 4318 (configurable) | empty = denied |
 | worker | `egressCIDRs.parsers` (external parsers), `connectors.egressCIDRs` | configurable | |
 | all pods | DNS (`networkPolicy.dns`) | 53 | |

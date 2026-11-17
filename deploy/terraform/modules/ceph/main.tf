@@ -322,7 +322,7 @@ resource "kubernetes_network_policy_v1" "rgw_ingress" {
         pod_selector {}
       }
       ports {
-        port     = local.tls ? 8443 : 8080 # RGW container port behind the Service (post-DNAT)
+        port     = local.tls ? 443 : 80 # RGW container port (Rook binds the same ports as the Service: ssl_port=443), post-DNAT
         protocol = "TCP"
       }
     }

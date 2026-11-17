@@ -111,7 +111,7 @@ locals {
       # object storage egress for api/worker/migrate and the CNPG/ES data tier: external CIDRs, or the in-cluster RGW pods (post-DNAT port)
       s3 = {
         cidrs             = local.ceph_on ? [] : var.network.s3_cidrs
-        ports             = local.ceph_on ? [local.rgw_tls ? 8443 : 8080] : var.network.s3_ports
+        ports             = local.ceph_on ? [local.rgw_tls ? 443 : 80] : var.network.s3_ports
         namespaceSelector = local.ceph_on ? { "kubernetes.io/metadata.name" = var.namespaces.rook_ceph } : {}
         podSelector       = local.ceph_on ? { app = "rook-ceph-rgw", rook_object_store = var.ceph.store_name } : {}
       }

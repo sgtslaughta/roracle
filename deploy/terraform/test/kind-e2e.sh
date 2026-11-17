@@ -8,6 +8,9 @@
 # destroy protect_data flip (state mv) + terraform destroy      down  delete cluster + registry (+ tools untouched)
 # Needs bash 4+, docker, terraform, curl, jq, tar, openssl, sha256sum. KIND_E2E_KEEP=1: `all` keeps the cluster on failure. Idempotent: every step skips what already exists. Never touches ~/.kube/config.
 set -euo pipefail
+# profile: default = external S3 stand-in; `ceph` = live Rook-Ceph on loop devices (local only, see kind-e2e-ceph.sh and the README)
+PROFILE="${KIND_E2E_PROFILE:-s3stub}"
+if [ "${1:-}" = ceph ]; then PROFILE=ceph; set -- all; fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$(cd "$HERE/.." && pwd)"
@@ -26,6 +29,7 @@ NS=roracle
 REL=roracle
 VERSION="$(cat "$REPO/VERSION")"
 TFVARS=environments/kind.tfvars
+[ "$PROFILE" = ceph ] && TFVARS=environments/kind-ceph.tfvars
 export PATH="$TOOLS/bin:$PATH"
 
 # Pinned tools (kind, kubectl, helm 3), sha256 verified on download (linux); the tools dir shadows anything on PATH.
@@ -64,13 +68,22 @@ IMAGES=(
   "docker.elastic.co/elasticsearch/elasticsearch:8.15.3 docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
   "curlimages/curl:8.10.1 curlimages/curl:8.10.1"
   "gotenberg/gotenberg:8.20.1 gotenberg/gotenberg:8.20.1"
+)
+[ "$PROFILE" = ceph ] || IMAGES+=(
   "bitnamilegacy/minio:2025.5.24 bitnamilegacy/minio:2025.5.24" # S3 stand-in (test/s3-stub.yaml)
 )
+if [ "$PROFILE" = ceph ]; then
+  IMAGES+=("docker.io/rook/ceph:v1.18.0 rook/ceph:v1.18.0" "quay.io/ceph/ceph:v19.2.3 ceph/ceph:v19.2.3")
+  CHARTS+=("rook-ceph https://charts.rook.io/release v1.18.0" "rook-ceph-cluster https://charts.rook.io/release v1.18.0")
+fi
 
 log() { printf '\n== %s (%ss)\n' "$*" "$SECONDS" >&2; }
 die() { echo "FAIL: $*" >&2; exit 1; }
 tf() { [ -s "$TOOLS/secrets.json" ] || die "missing $TOOLS/secrets.json (run apply first)"; (cd "$TF_DIR" && TF_VAR_secret_data="$(cat "$TOOLS/secrets.json")" terraform "$@"); }
 tfargs=(-input=false -var-file="$TFVARS")
+[ "$PROFILE" = ceph ] && tfargs+=(-var-file="$TOOLS/ceph-osd.tfvars")
+# shellcheck disable=SC1091
+[ "$PROFILE" = ceph ] && source "$HERE/kind-e2e-ceph.sh"
 
 fetch() { # name url dest sha
   local f="$TOOLS/dl/$1"; mkdir -p "$TOOLS/dl" "$TOOLS/bin"
@@ -162,6 +175,7 @@ cmd_up() {
   log tools; tools
   log registry; registry
   log cluster; cluster
+  [ "$PROFILE" = ceph ] && { log "ceph loop devices"; ceph_loops_up; }
   log "mirror images + charts"; mirror_all
   log "build rOracle images"; build_app
 }
@@ -178,21 +192,25 @@ gate_checks() { # fresh state: nothing is created in the cluster
   tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var mirror_registry=MIRROR.example.com -var allow_placeholders=true \
     -target=terraform_data.placeholder_gate >/dev/null || die "allow_placeholders=true did not pass the gate"
   echo "gate: allow_placeholders=true passes (ok)"
+  if [ "$PROFILE" != ceph ]; then
   # 3. object_store=rook-ceph without mirrored charts/images/devices is refused (nothing created)
   if out="$(tf apply -auto-approve "${tfargs[@]}" -state="$gs" -var object_store=rook-ceph 2>&1)"; then die "rook-ceph applied without charts/images/devices"; fi
   grep -q "ceph.device_filter\|ceph.image\|rook_ceph" <<<"$out" || { echo "$out" >&2; die "rook-ceph refusal did not name ceph placeholders"; }
   echo "gate: object_store=rook-ceph without mirror values/devices refused (ok)"
+  fi
   rm -f "$gs" "$gs.backup"
 }
 
 cmd_apply() {
   [ -f "$KUBECONFIG" ] || die "run 'up' first"
   secrets
+  if [ "$PROFILE" = ceph ]; then ceph_write_tfvars; else
   log "s3 stand-in"
-    kubectl apply -f "$HERE/s3-stub.yaml" >/dev/null
+  kubectl apply -f "$HERE/s3-stub.yaml" >/dev/null
   kubectl -n rorac-s3 create secret generic s3-stub --from-env-file=<(jq -r '"access=\(.s3_access_key)\nsecret=\(.s3_secret_key)"' "$TOOLS/secrets.json") \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n rorac-s3 rollout status deploy/s3-stub --timeout=180s
+  fi
   log "terraform init"; tf init -input=false >/dev/null
   log "gate checks"; gate_checks
   log "terraform plan"; tf plan "${tfargs[@]}" -state="$STATE" -out="$TOOLS/kind.tfplan" | tail -5
@@ -240,6 +258,7 @@ cmd_verify() {
   kubectl -n "$NS" get cluster.postgresql.cnpg.io >/dev/null || die "data tier gone after blocked destroy"
   echo "OK: destroy refused (prevent_destroy), data tier intact"
   echo "VERIFY PASSED"
+  [ "$PROFILE" != ceph ] || ceph_verify
 }
 
 cmd_destroy() {
@@ -250,11 +269,18 @@ cmd_destroy() {
     tf state mv -state="$STATE" 'module.app[0].helm_release.protected[0]' 'module.app[0].helm_release.unprotected[0]'
   fi
   log "terraform destroy (protect_data=false)"
-  tf destroy -auto-approve "${tfargs[@]}" -state="$STATE" -var protect_data=false | tail -5
+  if [ "$PROFILE" = ceph ]; then
+    # Rook refuses to delete the object store while buckets/users exist (documented): bounded, `down` removes the cluster anyway
+    TF_VAR_secret_data="$(cat "$TOOLS/secrets.json")" timeout 900 terraform -chdir="$TF_DIR" destroy -auto-approve "${tfargs[@]}" -state="$STATE" -var protect_data=false 2>&1 | tail -5 ||
+      echo "terraform destroy incomplete (expected for Rook-Ceph with buckets); tearing the cluster down"
+  else
+    tf destroy -auto-approve "${tfargs[@]}" -state="$STATE" -var protect_data=false | tail -5
+  fi
   kubectl delete ns rorac-s3 --ignore-not-found >/dev/null
 }
 
 cmd_down() {
+  [ "$PROFILE" != ceph ] || ceph_loops_down
   kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" 2>/dev/null || kind delete cluster --name "$CLUSTER" || true
   docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
   rm -f "$STATE" "$STATE.backup" "$KUBECONFIG" "$TOOLS/kind.tfplan"
