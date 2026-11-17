@@ -44,6 +44,7 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Architecture
 
 - [Architecture index](architecture/README.md)
+- [Architecture overview](architecture/overview.md): context, containers, components
 
 ### Enterprise (operations and security)
 
