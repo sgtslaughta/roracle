@@ -9,6 +9,7 @@ Reference for integrators and operators. Generated pages are rewritten by `scrip
 - [MCP guide](mcp.md): endpoint, PAT and OAuth auth, scope and tool matrix, label gates, handoffs, proposals, limits, audit and error mapping
 - [Metrics](metrics.md): every Prometheus series with type, labels and meaning
 - [Jobs](jobs.md): every job kind with payload, enqueuers, retries and idempotency
+- [Audit events](audit-events.md): every audit action with actor, target, detail fields and where it is visible
 
 ## Generated
 
@@ -17,7 +18,3 @@ Reference for integrators and operators. Generated pages are rewritten by `scrip
 - [cli.md](cli.md): `roracle` command line
 - [mcp-tools.md](mcp-tools.md): MCP tools
 - [helm-values.md](helm-values.md): Helm chart values and defaults
-
-## Planned
-
-Audit events.

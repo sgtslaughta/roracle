@@ -23,12 +23,12 @@ Opening the log is itself recorded: each page you load adds an `admin.list_audit
 
 ## What is recorded
 
-Rows share one shape: when, who (user id), an action, a target (usually an id or a path), the client and a JSON detail. The actions below are the ones present in the code. The [security guide](../enterprise/security.md#6-audit) gives the policy view.
+Rows share one shape: when, who (user id), an action, a target (usually an id or a path), the client and a JSON detail. The actions below are the ones present in the code; the full list with fields is the [audit events reference](../reference/audit-events.md). Rows are written inside the request, so a request that fails after its row was added leaves no row. Sign-in, search, general document views, chat questions, uploads and sharing changes are not audited. The [security guide](../enterprise/security/audit.md) gives the policy view.
 
 | Action | Written when | Target and detail |
 |---|---|---|
-| `admin.<handler>` | Any admin request (`admin.list_users`, `admin.list_audit` and so on), reads included | The request path; the query parameters |
-| `admin.denied` | A non-admin, or an access token, calls an admin route (`403`) | The path; the user id and name are in the detail, not in the User column |
+| `admin.<handler>` | Any **successful** admin request (`admin.list_users`, `admin.list_audit` and so on), reads included. A request that fails in its handler rolls the row back | The request path; the query parameters |
+| `admin.denied` | A non-admin, or an access token, calls an admin route (`403`). Written separately and best effort | The path; the user id and name are in the detail, not in the User column |
 | `admin.connector_create`, `admin.connector_update`, `admin.connector_delete` | Connector changes | The connector id; its settings with `***` for the secret, before and after for updates |
 | `admin.settings_update` | A runtime setting changed or reset | `changes` with old and new values |
 | `admin.revoke_pats` | An admin revoked a user's tokens | The user id |
@@ -40,7 +40,7 @@ Rows share one shape: when, who (user id), an action, a target (usually an id or
 | `label.export_blocked` | A download or export was refused by a label | The document id; the route |
 | `label.view` | A non-owner non-admin read a no-export paper in the reader | The document id; at most one row per user, document and day |
 | `pat.create`, `pat.revoke` | A user made or revoked an access token | The token id; scopes on create |
-| `pat.use` | A REST request made with an access token | `METHOD /path` (cut at 200 characters); the client is `pat:<token name>` |
+| `pat.use` | A **successful** REST request made with an access token | `METHOD /path` (cut at 200 characters); the client is `pat:<token name>`. Not written when the request is rate limited (429), refused for a read-only token (403) or fails in the handler: those leave no row |
 | `mcp.<tool>` | An agent called an MCP tool | The tool's target; `error` in the detail when it failed |
 | `document.delete`, `document.transfer` | A paper deleted or given to another owner | The document id; title and owner, or old and new owner |
 | `annotation.hide`, `annotation.unhide`, `annotation.remove` | Note moderation | The note id |
@@ -63,7 +63,7 @@ There is no export button and no CSV download. The options are:
 
 - **The viewer.** Filter, then copy details or targets from the row menu.
 - **The API.** Page through `GET /api/admin/audit` with `next_before_id`. It needs an interactive admin sign-in: an access token is refused, so a scheduled export cannot use one. Every page fetched adds its own `admin.list_audit` row.
-- **The database.** The data is the `audit_log` table in Postgres (columns `id`, `at`, `user_id`, `action`, `target`, `client`, `detail`, with `detail` as JSON). Operators with database access can query it directly and forward it to a SIEM. That is an operator task: see the [security guide](../enterprise/security.md#6-audit). The [operations runbook](../enterprise/operations-runbook.md) has sample queries for label and blocked-export events only.
+- **The database.** The data is the `audit_log` table in Postgres (columns `id`, `at`, `user_id`, `action`, `target`, `client`, `detail`, with `detail` as JSON). Operators with database access can query it directly and forward it to a SIEM. That is an operator task: see the [security guide](../enterprise/security/audit.md). The [operations runbook](../enterprise/operations-runbook.md) has sample queries for label and blocked-export events only.
 
 ## Retention
 
@@ -75,4 +75,5 @@ If your policy needs a limit, it has to be applied outside rOracle, for example 
 
 - [Users and groups](users-groups.md)
 - [Sensitivity labels](labels.md)
-- [Security guide](../enterprise/security.md#6-audit)
+- [Security guide](../enterprise/security/audit.md)
+- [Audit events reference](../reference/audit-events.md)

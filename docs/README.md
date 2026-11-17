@@ -9,7 +9,7 @@ rOracle is an air-gapped research-paper RAG service. Pick your audience, or jump
 | Researchers | [user/](user/README.md) |
 | rOracle admins | [admin/](admin/README.md) |
 | Operators / SRE | [enterprise/](enterprise/README.md) (ops), [reference/](reference/README.md) |
-| Security / compliance | [enterprise/](enterprise/README.md) (security), [decisions/](decisions/README.md) |
+| Security / compliance | [security architecture](enterprise/security.md), [audit events](reference/audit-events.md), [decisions/](decisions/README.md) |
 | Integrators / agent developers | [reference/](reference/README.md), [MCP guide](reference/mcp.md) |
 | Developers | [developer/](developer/README.md), [architecture/](architecture/README.md), [adr/](adr/README.md) |
 
@@ -65,6 +65,7 @@ Later tasks append a link line under the matching heading when they add a page.
 - [MCP guide](reference/mcp.md): endpoint, auth, scopes, label gates, handoffs, proposals, limits, audit, errors
 - [Metrics](reference/metrics.md): every Prometheus series
 - [Jobs](reference/jobs.md): job kinds, payloads, retries, idempotency
+- [Audit events](reference/audit-events.md): every audit action, actor, target, fields
 - [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md), [helm-values.md](reference/helm-values.md) (generated)
 
 ### Architecture
@@ -93,6 +94,14 @@ Later tasks append a link line under the matching heading when they add a page.
 - [Observability](enterprise/observability.md): metrics, dashboard, Prometheus, Loki, OpenTelemetry, alert rules
 - [Capacity planning](enterprise/capacity-planning.md): Elasticsearch with BBQ, Postgres, connections, Ceph, inference
 - [Air-gap mirror manifest](enterprise/airgap-mirror-manifest.md): every image, chart, package, model and dataset
+- [Security architecture](enterprise/security.md): index of the security pages
+- [Threat model](enterprise/security/threat-model.md): STRIDE per boundary, untrusted content, prompt injection, connectors
+- [Security: access control](enterprise/security/access-control.md): authN, PATs, authZ, labels, guarantees and non-guarantees
+- [Security: audit](enterprise/security/audit.md): what the audit log guarantees and misses
+- [Security: secrets and TLS](enterprise/security/secrets-tls.md): Terraform secrets, PAT hashing, TLS rotation
+- [Security: network](enterprise/security/network.md): NetworkPolicies, web headers, pod baseline
+- [Security: data retention](enterprise/security/data-retention.md): deletion cascade, blob GC, tmp, handoff expiry
+- [Security: known limits](enterprise/security/known-limits.md): behaviours reviewers should know
 
 ### Developer
 
