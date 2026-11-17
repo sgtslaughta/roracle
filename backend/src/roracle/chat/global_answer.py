@@ -79,7 +79,7 @@ def candidates(
     release_before_io(
         session
     )  # connection back to the pool before the embedding call (and the search commits again)
-    qvec = embed_query(llm, settings, question)
+    qvec = embed_query(llm, settings, question, p.user_id)
     hits = _search(session, es, llm, settings, p, question, None, settings.chat_candidates, qvec, UNITS)
     pinned = [d for d in pins if d not in dropped]
     if pinned:

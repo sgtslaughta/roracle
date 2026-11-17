@@ -257,7 +257,7 @@ def rank_for_search(
     """Library ranking as the `/search` endpoint produces it (PG-rechecked, grouped per document, votes),
     flattened to passages in document-rank order. `raw` (out-param, eval) receives the ES hits pre-recheck."""
     rows = _query_rows(
-        session, es, llm, settings, p, q, filters or {}, None, embed_query(llm, settings, q), raw
+        session, es, llm, settings, p, q, filters or {}, None, embed_query(llm, settings, q, p.user_id), raw
     )
     return [x for r in rows for x in r.passages]
 
@@ -363,7 +363,7 @@ def search(
     if q.strip():
         release_before_io(session)  # no pooled connection held idle-in-transaction across embed / ES / rerank
         try:
-            qvec = embed_query(llm, settings, q)  # once for both searches
+            qvec = embed_query(llm, settings, q, p.user_id)  # once for both searches
             rows = _query_rows(
                 session, es, llm, settings, p, q, es_filters, coll_docs, qvec, policy=policy, http=http
             )

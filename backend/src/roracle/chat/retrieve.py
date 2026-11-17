@@ -236,7 +236,7 @@ def rank_for_chat(
     found: dict[str, Passage] = {}
     if scoped is None or scoped:
         release_before_io(session)  # connection back to the pool before the embedding call
-        qvec = embed_query(llm, settings, question)  # embed once per turn
+        qvec = embed_query(llm, settings, question, p.user_id)  # embed once per turn
         units = ("chunk", "section", "document") if settings.raptor else ("chunk",)
         main = _search(session, es, llm, settings, p, question, scoped, depth, qvec, units, policy)
         tab = (

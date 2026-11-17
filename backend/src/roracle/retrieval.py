@@ -309,7 +309,7 @@ def search_chunks(
     flt = _filters(p, policy, filters, doc_ids, exclude_llm, units)
     index = active_index(settings)
     source = LIGHT_SOURCE if light else _SOURCE
-    vec = qvec if qvec is not None else embed_query(llm, settings, query)
+    vec = qvec if qvec is not None else embed_query(llm, settings, query, p.user_id)
 
     def knn_body(field: str) -> dict:
         knn_q: dict[str, Any] = {

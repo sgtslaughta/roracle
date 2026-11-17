@@ -45,10 +45,12 @@ class TtlLru:
 _EMBEDS = TtlLru()
 
 
-def embed_query(llm, settings: Settings, query: str) -> list[float]:
+def embed_query(llm, settings: Settings, query: str, owner: object = "") -> list[float]:
     """Query embedding, memoized per (model, dims, prompt digest). Entries are float32 arrays (3 KB at 768
-    dims; 10k entries ~ 30 MB), so repeated and paged searches skip the call at a bounded memory cost."""
-    key = (settings.embed_model, settings.embed_dims, prompt_sha(query_prompt(query)))
+    dims; 10k entries ~ 30 MB), so repeated and paged searches skip the call at a bounded memory cost.
+    Keyed per `owner` (the requesting user): a hit is faster than a miss, so a shared memo would tell one user
+    whether ANOTHER user recently searched the same text."""
+    key = (str(owner), settings.embed_model, settings.embed_dims, prompt_sha(query_prompt(query)))
     if settings.embed_cache_size > 0 and (hit := _EMBEDS.get(key, settings.embed_cache_ttl_s)) is not None:
         return list(hit)
     [vec] = embed(

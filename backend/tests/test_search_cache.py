@@ -110,6 +110,9 @@ def test_embed_query_is_memoized_per_model_and_prompt():
     retrieval.embed_query(llm, s, "other")
     retrieval.embed_query(llm, s.model_copy(update={"embed_model": "m2"}), "hello")
     assert len(calls) == 3
+    retrieval.embed_query(llm, s, "hello", "user-b")  # another user never hits user-a's entry (timing side channel)
+    assert retrieval.embed_query(llm, s, "hello", "user-b") == a and len(calls) == 4
+    calls.pop()
     off = s.model_copy(update={"embed_cache_size": 0})
     retrieval.embed_query(llm, off, "hello")
     retrieval.embed_query(llm, off, "hello")
