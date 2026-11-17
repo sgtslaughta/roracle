@@ -244,3 +244,11 @@ def test_pdf_non_missing_s3_error_propagates(client, as_ana, ana, db_session, st
     monkeypatch.setattr(store, "open_key", boom)
     with pytest.raises(ClientError):
         client.get(_pdf_url(d), headers=as_ana)
+
+
+def test_detail_exposes_ids_incl_legacy_doi(client, as_ana, ana, db_session):
+    d, v = seed(db_session, ana, title="T")
+    v.meta = {**v.meta, "doi": "10.1/x", "ids": {"arxiv": "1706.03762", "issn": "0378-5955"}}
+    db_session.flush()
+    b = client.get(f"/documents/{d.id}", headers=as_ana).json()
+    assert b["ids"] == {"arxiv": "1706.03762", "issn": "0378-5955", "doi": "10.1/x"}

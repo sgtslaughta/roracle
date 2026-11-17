@@ -16,6 +16,7 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "reembed",
         "rebuild_units",
         "rebuild_watch",
+        "reparse_refs",
         "eval_run",
         "eval_generate",
     } and callable(h["ingest"])

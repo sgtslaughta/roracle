@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> None:
     from roracle.ingest.rebuild_cli import add_parser as add_rebuild
 
     add_rebuild(sub)
+    from roracle.ingest.reparse import add_parser as add_reparse
+
+    add_reparse(sub)
     from roracle.perf.cli import add_parser as add_perf
 
     add_perf(sub)
@@ -57,6 +60,10 @@ def main(argv: list[str] | None = None) -> None:
         from roracle.ingest.rebuild_cli import run as rebuild_run
 
         sys.exit(rebuild_run(args))
+    elif args.cmd == "reparse-refs":
+        from roracle.ingest.reparse import run as reparse_run
+
+        sys.exit(reparse_run(args))
     elif args.cmd == "perf":
         from roracle.perf.cli import run as perf_run
 

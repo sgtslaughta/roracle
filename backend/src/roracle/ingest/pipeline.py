@@ -32,7 +32,7 @@ from roracle.ingest.embed import (
 )
 from roracle.ingest.neardup import find_near_duplicate, find_sibling_duplicate, minhash, write_bands
 from roracle.ingest.office import is_office, rendition_key, to_pdf
-from roracle.ingest.parse import convert, document_text, grobid_metadata
+from roracle.ingest.parse import convert, document_text, grobid_metadata, merge_page_ids
 from roracle.ingest.raptor import build_units
 from roracle.ingest.scan import scan
 from roracle.ingest.state import (
@@ -107,6 +107,7 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
             meta, refs = grobid_metadata(data, settings.grobid_url, timeout=settings.grobid_timeout_s)
         except Exception:
             log.warning("grobid failed for version %s; continuing without metadata", v.id, exc_info=True)
+    meta = merge_page_ids(meta, doc)
     update_version(
         sf, v.id, page_count=len(doc.get("pages") or {}) or None, meta=meta, references=refs, stage="parsed"
     )

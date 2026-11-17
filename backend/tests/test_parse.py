@@ -71,6 +71,8 @@ def test_parse_tei():
         "authors": ["J Smith"],
         "year": 2020,
         "doi": "10.1000/dense.2020",
+        "ids": {"doi": "10.1000/dense.2020"},
+        "raw": "",
     }
     assert refs[1]["doi"] is None and len(refs[1]["authors"]) == 2
 
@@ -142,7 +144,7 @@ def test_parse_tei_empty_bibl_and_monogr_authors():
     )
     meta, refs = parse_tei(xml)
     assert meta["authors"] == ["A B"] and meta["year"] == 2018
-    assert refs == [{"title": None, "authors": [], "year": None, "doi": None}]
+    assert refs == [{"title": None, "authors": [], "year": None, "doi": None, "ids": {}, "raw": ""}]
 
 
 def test_parse_tei_xxe_not_resolved():
@@ -193,3 +195,64 @@ def test_convert_real(name, needle):
         pytest.skip("docling-serve unreachable")
     doc = convert((FX / name).read_bytes(), name, "http://localhost:5001")
     assert needle in document_text(doc)
+
+
+def test_parse_tei_ids():
+    meta, refs = parse_tei((FX / "grobid_tei_ids.xml").read_bytes())
+    assert meta["ids"] == {
+        "issn": "0378-5955",
+        "eissn": "2049-3630",
+        "arxiv": "2611.20773",
+        "pmcid": "PMC5834102",
+        "doi": "10.1234/agents.1",
+    }  # the abstract's arXiv:1111.2222 is another paper: never header ids
+    assert meta["doi"] == "10.1234/agents.1"
+    assert refs[0]["ids"] == {"arxiv": "1706.03762"} and refs[0]["doi"] is None
+    assert refs[1]["ids"] == {"acl": "2020.acl-main.1"}
+    assert refs[2]["ids"] == {"arxiv": "1810.04805", "pmid": "31452104"}
+    assert refs[2]["raw"].startswith("Devlin J. BERT")
+    assert refs[3]["ids"] == {} and refs[3]["raw"] == ""
+
+
+def test_grobid_requests_raw_citations():
+    seen = {}
+
+    def handler(r):
+        seen["body"] = r.content
+        return httpx.Response(204)
+
+    grobid_metadata(b"%PDF", "http://g", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert b"includeRawCitations" in seen["body"]
+
+
+def _doc(*texts):
+    return {"texts": [{"text": t, "prov": [{"page_no": p}]} for t, p in texts]}
+
+
+def test_merge_page_ids_stamp_only_first_page_grobid_wins():
+    from roracle.ingest.parse import merge_page_ids
+
+    doc = _doc(
+        ("arXiv:2611.20773v1 [cs.MA] 20 Nov 2026", 1),
+        ("see arXiv:1111.2222 [cs.CL]", 2),
+        ("doi:10.1234/x", 1),
+    )
+    assert merge_page_ids({"ids": {}}, doc) == {"ids": {"arxiv": "2611.20773"}}  # no page-1 DOI
+    assert merge_page_ids({"ids": {"arxiv": "9999.00001"}}, doc)["ids"]["arxiv"] == "9999.00001"
+    assert merge_page_ids({"ids": {}}, _doc(("BERT (arXiv:1810.04805)", 1), ("arXiv:2611.20773 [cs.MA]", 1)))[
+        "ids"
+    ] == {"arxiv": "2611.20773"}
+    assert merge_page_ids({"ids": {}}, _doc(("BERT (arXiv:1810.04805)", 1))) == {"ids": {}}
+    assert merge_page_ids({}, doc) == {}  # GROBID gave nothing: no marker is invented
+    assert merge_page_ids({"title": "T"}, _doc(("nothing", 1))) == {"title": "T"}
+
+
+def test_parse_tei_header_ambiguous_scheme_dropped_issne_and_isbn_kept_as_meta():
+    xml = (
+        b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><sourceDesc><biblStruct>'
+        b'<analytic><title>T</title><idno type="DOI">10.1/a</idno><idno type="DOI">10.1/b</idno></analytic>'
+        b'<monogr><idno type="ISSNe">2049-3630</idno><idno type="ISBN">978-0-306-40615-7</idno></monogr>'
+        b'<idno type="arXiv">1706.03762</idno></biblStruct></sourceDesc></fileDesc></teiHeader></TEI>'
+    )
+    meta, _ = parse_tei(xml)
+    assert meta["ids"] == {"eissn": "2049-3630", "isbn": "9780306406157", "arxiv": "1706.03762"}
