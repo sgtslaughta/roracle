@@ -1,6 +1,6 @@
 """Search request limits and the error for violating them (no route/framework imports)."""
 
-Q_MAX, LIST_MAX, VALUE_MAX = 1000, 50, 200
+Q_MAX, LIST_MAX, VALUE_MAX, FACET_MAX = 1000, 50, 200, 50
 
 
 class BadInput(ValueError):
