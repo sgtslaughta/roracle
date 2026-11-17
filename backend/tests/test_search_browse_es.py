@@ -293,7 +293,7 @@ def test_cited_window_ranks_by_global_not_user_sort(
     assert r["total_capped"] is True and r["total"] == 2
 
 
-@pytest.mark.parametrize("max_docs", [1, 200])
+@pytest.mark.parametrize("max_docs", [1, 2, 200])
 def test_cited_min_never_reveals_invisible_citers(
     client, as_ana, ana, bob, db_session, es, wired, session_factory, monkeypatch, max_docs
 ):

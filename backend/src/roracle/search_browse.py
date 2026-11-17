@@ -209,6 +209,8 @@ def _cited(
     ids = [h["_source"]["doc_id"] for h in hits]
     by_id = _rows(session, p, ids)  # R19
     counts = cited_by_counts(session, p, [r.doc.id for r in by_id.values()])
+    # more visible qualifiers may lie beyond a full window only if its LAST doc still qualifies (visible counts)
+    capped = len(ids) == MAX_DOCS and counts.get(ids[-1], 0) >= (f.cited_min or 1)
     ids = [i for i in ids if i in by_id and counts.get(i, 0) >= (f.cited_min or 0)]
     facets = read_facets(resp.get("aggregations", {}), policy, scope.colls)
     if exact:
@@ -222,7 +224,7 @@ def _cited(
     return {
         "rows": keep[start : start + f.size],
         "total": len(keep),
-        "total_capped": len(hits) == MAX_DOCS and bool(keep),
+        "total_capped": capped,
         "next": None,
         "facets": facets,
     }
