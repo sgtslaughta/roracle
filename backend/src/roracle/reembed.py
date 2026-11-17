@@ -19,18 +19,18 @@ import logging
 import re
 from typing import Any
 
-from elasticsearch import Elasticsearch, NotFoundError, helpers
+from elasticsearch import Elasticsearch, NotFoundError, helpers  # noqa: F401 - tests patch reembed.helpers.bulk
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import runtime, search_index
 from roracle.config import Settings
-from roracle.ingest.embed import BATCH_RETRIES, chunk_prompt, doc_prompt, embed, prompt_sha
 from roracle.ingest.state import clear_summary_embeddings
-from roracle.models import DocumentVersion, Job
+from roracle.models import Job
 from roracle.models_eval import EvalSet
 from roracle.queue import NonRetryable, check_lease, enqueue
 from roracle.reembed_converge import RECONCILE_BATCH, _dbq, _pg_state, _uuid, _verify, converge_step  # noqa: F401
+from roracle.reembed_copy import _copy
 from roracle.search_index import MUTATE_ALIAS
 
 log = logging.getLogger(__name__)
@@ -223,75 +223,6 @@ def _restore_target(es: Elasticsearch, target: dict, settings: Settings) -> None
         log.warning("force-merge of %s not started", target["index"], exc_info=True)
 
 
-def _copy(es, llm, sf, hits: list[dict], target: dict, source: str, settings: Settings | None = None) -> None:
-    acls, live, newest = _pg_state(
-        sf, [h["_source"] for h in hits]
-    )  # AFTER the ES read: ACL never from source
-    hits = [
-        h for h in hits
-        if acls[h["_source"]["doc_id"]] is not None and _uuid(h["_source"]["version_id"]) in live
-    ]  # fmt: skip
-    if not hits:
-        return
-    srcs = [h["_source"] for h in hits]
-    with sf() as s:
-        summaries = dict(
-            s.execute(
-                select(DocumentVersion.id, DocumentVersion.summary).where(
-                    DocumentVersion.id.in_([_uuid(x["version_id"]) for x in srcs])
-                )
-            ).all()
-        )
-    prompts = [
-        doc_prompt(x["title"], x["text"])  # summary unit: same prompt as pipeline._index_units
-        if x.get("unit")
-        else chunk_prompt(
-            x["title"],
-            "\n".join([*(x.get("headings") or []), x["text"]]),  # = Chunk.contextual
-            summaries.get(_uuid(x["version_id"])),
-            x.get("context"),  # copied from the source chunk: the note is never regenerated here
-        )
-        for x in srcs
-    ]
-    conc = settings.embed_concurrency if settings is not None else 1
-    sums = {
-        i: x
-        for i, x in enumerate(srcs)
-        if x["chunk_id"].endswith(":0")
-        and not x.get("unit")
-        and (summaries.get(_uuid(x["version_id"])) or "").strip()
-    }
-    sum_prompts = [doc_prompt(x["title"], summaries[_uuid(x["version_id"])]) for x in sums.values()]
-    # chunk and summary prompts go out as ONE stream of requests, `embed_concurrency` in flight
-    allv = embed(
-        llm,
-        target["model"],
-        [*prompts, *sum_prompts],
-        target["dims"],
-        concurrency=conc,
-        retries=BATCH_RETRIES,
-    )
-    vectors, svecs = allv[: len(prompts)], allv[len(prompts) :]
-    sv = dict(zip(sums, svecs, strict=True))
-    check_lease()  # last cooperative checkpoint before the page is written
-    actions = []
-    for i, (h, x, v, p) in enumerate(zip(hits, srcs, vectors, prompts, strict=True)):
-        acl, title = acls[x["doc_id"]]
-        doc = {k: val for k, val in x.items() if k not in _VECTORS}
-        doc.update(acl, title=title)  # ACL/tags/title from the fresh Postgres read, never from the source
-        doc["acl_hash"] = search_index.acl_hash(acl, title)  # describes exactly the fields written above
-        doc["is_latest"] = bool(x.get("is_latest")) and x.get("version", 0) >= newest.get(x["doc_id"], 0)
-        doc.update(embedding=v, embedding_model=target["model"], prompt_sha=prompt_sha(p))
-        if i in sv:
-            doc["summary_embedding"] = sv[i]
-        actions.append({"_op_type": "index", "_index": target["index"], "_id": h["_id"], "_source": doc})
-    # no explicit refresh: the target refreshes every COPY_REFRESH (and the cutover once more)
-    _, errors = helpers.bulk(es, actions, refresh=False, raise_on_error=False)
-    if errors:
-        raise RuntimeError(f"re-embed bulk failed for {len(errors)} chunks: {errors[0]}")
-    _verify(es, sf, target["index"], source, hits, acls)
-
-
 def _slice_query(sl: dict) -> dict | None:
     """chunk_id starts with the version uuid (uniform hex): slice i of n = a range of the first hex digit."""
     i, n = sl["i"], sl["n"]
@@ -356,12 +287,14 @@ def _scan(session: Session, payload: dict, es, llm, sf, settings: Settings) -> N
         payload["total"] = es.count(index=src, **({"query": sq} if sq else {}))["count"]
     cursor = payload["cursor"]
     page = {"query": sq} if sq else {}
+    # same model as the source (the active index while copying): the stored vectors are reused, never re-embedded
+    keep = phase == "copy" and runtime.effective(session, settings).embed_model == target["model"]
     hits = es.search(
         index=src,
         size=BATCH,
         sort=[{"chunk_id": "asc"}],
         search_after=[cursor] if cursor else None,
-        source_excludes=_VECTORS,
+        **({"source": {"exclude_vectors": False}} if keep else {"source_excludes": _VECTORS}),
         **page,
     )["hits"]["hits"]
     todo = hits

@@ -235,6 +235,13 @@ a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed 
   purged), then the alias swap, then `reconcile_tags` and two catch-up rounds per slice (300 s apart). The pass reads Postgres for every live document:
   expect minutes per million documents before the swap, with no ES writes when everything is in sync.
 
+### Library search upgrade (search-field backfill)
+A release that adds library-search fields (venue, abstract, signals; index `_meta.search_fields = 1`) needs one reindex of the
+current model. After deploying, run `POST /admin/reindex {"model": <current embed model>, "dims": <current dims>}`. A same-model
+generation copies the stored vectors (no embedding load, no embedding calls), writes the new fields from Postgres, and swaps the
+`chunks` alias at cutover; the marker turns the new search on within 30 s. Until then the library uses the previous search, and
+requests using the new filters answer 503 `search index upgrade in progress`. Afterwards `DELETE /admin/reindex/old` frees the old generation.
+
 ### Job leases, drain and worker shutdown
 Jobs run under a **lease** (`ROR_JOB_LEASE_S`, 90 s, renewed every lease/3 by the worker): a crashed or stuck worker's job is requeued after the lease
 (plus up to 30 s sweep), spending an attempt; a worker that lost its lease discards its result. On SIGTERM a running job gets `ROR_JOB_DRAIN_S` (chart 120 s),
