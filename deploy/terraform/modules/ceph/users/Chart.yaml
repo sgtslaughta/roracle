@@ -1,0 +1,4 @@
+apiVersion: v2
+name: roracle-rgw-users
+description: CephObjectStoreUsers for rOracle (admin = bucket owner, one writer per backup bucket); local chart shipped with the Terraform module
+version: 0.1.0

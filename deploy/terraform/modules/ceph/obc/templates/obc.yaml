@@ -8,4 +8,8 @@ metadata:
 spec:
   bucketName: {{ $bucket }}
   storageClassName: {{ $.Values.storageClass }}
+  {{- with $.Values.lifecycle }}
+  additionalConfig:
+    bucketLifecycle: {{ . | toJson | quote }}
+  {{- end }}
 {{- end }}

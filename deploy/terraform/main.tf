@@ -59,6 +59,9 @@ module "ceph" {
   kubeconfig_path     = var.kubeconfig_path
   kubeconfig_context  = var.kubeconfig_context
   timeout             = var.ceph.obc_timeout
+  image               = local.backend_ref
+  pull_secret_name    = local.pull_name
+  object_lock         = var.ceph.object_lock
   depends_on          = [module.operators, module.platform] # operators = CRDs + RGW chart installed
 }
 

@@ -38,6 +38,9 @@ locals {
     repository = coalesce(var.ceph.image.repository, "${var.mirror_registry}/ceph/ceph")
     tag        = coalesce(var.ceph.image.tag, local.placeholder_version)
   }
+  app_chart_version = yamldecode(file("${path.module}/../helm/roracle/Chart.yaml")).appVersion
+  # backup-bucket setup Job: the rOracle backend image from the mirror (python + boto3)
+  backend_ref       = "${coalesce(var.images.registry, var.mirror_registry)}/roracle/backend${var.images.backend_digest != "" ? "@${var.images.backend_digest}" : ":${coalesce(var.images.backend_tag, local.app_chart_version)}"}"
   rgw_tls           = var.ceph.rgw.tls_secret != "" || var.ceph.rgw.cert_manager_issuer != ""
   rgw_tls_secret    = var.ceph.rgw.cert_manager_issuer != "" ? "${var.ceph.store_name}-rgw-tls" : var.ceph.rgw.tls_secret
   ceph_bucket_class = "roracle-ceph-bucket"
@@ -75,9 +78,10 @@ locals {
     })
     # S3 only: no CSI drivers, no block/file pools, no toolbox/monitoring (smaller footprint, fewer images to mirror)
     rook_ceph = yamlencode({
-      image            = local.img.rook_ceph
-      imagePullSecrets = local.pull_list
-      csi              = { rookUseCsiOperator = false, disableCsiDriver = "true", enableRbdDriver = false, enableCephfsDriver = false } # no ceph-csi-operator image to mirror
+      image                          = local.img.rook_ceph
+      obcAllowAdditionalConfigFields = "maxObjects,maxSize,bucketLifecycle" # bucketPolicy stays off (can brick the store); lifecycle for the app bucket tmp/ rule
+      imagePullSecrets               = local.pull_list
+      csi                            = { rookUseCsiOperator = false, disableCsiDriver = "true", enableRbdDriver = false, enableCephfsDriver = false } # no ceph-csi-operator image to mirror
     })
     rook_ceph_cluster = yamlencode({
       operatorNamespace                 = var.namespaces.rook_ceph

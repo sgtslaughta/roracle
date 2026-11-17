@@ -22,9 +22,7 @@ operator_images = {
 }
 
 images = {
-  registry    = "localhost:5055"
-  backend_tag = "0.1.0" # built from this repo and pushed to the mirror by the script
-  web_tag     = "0.1.0"
+  registry = "localhost:5055"
 }
 
 # Object storage: external. Rook-Ceph cannot run in kind (needs raw disks); a bitnamilegacy/minio stand-in (test/s3-stub.yaml, created by the script)

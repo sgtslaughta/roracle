@@ -59,6 +59,10 @@ variable "ceph" {
       mgr = { requests = { cpu = "500m", memory = "512Mi" }, limits = { memory = "1Gi" } }
       osd = { requests = { cpu = "1", memory = "4Gi" }, limits = { memory = "6Gi" } }
     })
+    object_lock = optional(object({
+      mode           = optional(string, "GOVERNANCE")
+      retention_days = optional(number, 30) # keep >= postgres.backup.retentionPolicy / elasticsearch.snapshot.retention
+    }), {})
     obc_timeout = optional(string, "1800s") # kubectl wait for the ObjectBucketClaims to bind (RGW must be up)
   })
   default = {}

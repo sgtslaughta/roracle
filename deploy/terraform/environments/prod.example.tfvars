@@ -56,9 +56,9 @@ quota = {
 
 images = {
   registry       = "registry.internal.example"
-  backend_tag    = "0.1.0"
+  backend_tag    = "0.2.0"
   backend_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  web_tag        = "0.1.0"
+  web_tag        = "0.2.0"
   web_digest     = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 }
 
