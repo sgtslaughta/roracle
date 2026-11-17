@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from roracle.api.routes.search import LIST_MAX, Q_MAX, VALUE_MAX
+from roracle.search_limits import LIST_MAX, Q_MAX, VALUE_MAX
 
 Scope = Literal["anywhere", "title", "authors", "abstract", "fulltext"]
 Sort = Literal[

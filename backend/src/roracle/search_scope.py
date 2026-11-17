@@ -6,11 +6,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from roracle.access import visible_documents
-from roracle.api.routes.search import BadInput
+from roracle.access import readable_documents, visible_documents
 from roracle.auth import Principal
 from roracle.citations import best_targets
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion
+from roracle.search_limits import BadInput
 from roracle.search_params import SearchParams
 
 SCOPE_IDS_MAX = 10_000
@@ -50,7 +50,7 @@ def _docs(session: Session, p: Principal, cids: list[UUID]) -> list[str]:
 
 def _citers(session: Session, p: Principal, target: UUID) -> list[str] | None:
     """Visible latest-searchable docs whose best visible target for some reference is `target`."""
-    if session.scalar(select(Document.id).where(Document.id == target, visible_documents(p))) is None:
+    if session.scalar(select(Document.id).where(Document.id == target, readable_documents(p))) is None:
         return None
     bt = best_targets(p, targets=[target])
     rows = session.scalars(

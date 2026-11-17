@@ -77,3 +77,10 @@ def test_scope_too_large(db_session, ana, monkeypatch):
     with pytest.raises(BadInput, match="too large"):
         resolve_scope(db_session, _p(ana), SearchParams(collection=[str(c.id)]))
     assert SCOPE_IDS_MAX == 10_000
+
+
+def test_cites_visible_but_unsearchable_is_none(db_session, ana, bob):
+    d, _ = seed(
+        db_session, bob, title="ingesting", stage="embedded"
+    )  # everyone-visible, no searchable version
+    assert resolve_scope(db_session, _p(ana), SearchParams(cites=d.id)) is None

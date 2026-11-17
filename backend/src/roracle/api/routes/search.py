@@ -35,18 +35,14 @@ from roracle.search_acl import acl_filter
 from roracle.search_cache import PAGE_CACHE, PAGE_CACHE_MAX, cache_key, rehydrate, slim
 from roracle.search_index import active_index
 from roracle.search_index import file_type as ext_of
+from roracle.search_limits import LIST_MAX, Q_MAX, VALUE_MAX, BadInput
 
 router = APIRouter()
 MAX_DOCS = 200  # R15: browse cap; the query path is bounded by the fused lists (~100+ docs)
 FACET_MAX = 50
 FACETS = ("tags", "year", "file_type", "org_unit", "collection", "author", "label")
 Who = Annotated[Principal, Depends(current_principal)]
-Q_MAX, LIST_MAX, VALUE_MAX = 1000, 50, 200
 Multi = Annotated[list[Annotated[str, Query(max_length=VALUE_MAX)]] | None, Query(max_length=LIST_MAX)]
-
-
-class BadInput(ValueError):
-    """Caller-supplied search parameter outside the documented limits (REST: 422, MCP: tool error)."""
 
 
 def validate_search_params(q: str, lists: dict[str, list | None], size: int, page: int = 1) -> None:
