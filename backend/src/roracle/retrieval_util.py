@@ -51,7 +51,13 @@ def embed_query(llm, settings: Settings, query: str) -> list[float]:
     key = (settings.embed_model, settings.embed_dims, prompt_sha(query_prompt(query)))
     if settings.embed_cache_size > 0 and (hit := _EMBEDS.get(key, settings.embed_cache_ttl_s)) is not None:
         return list(hit)
-    [vec] = embed(llm, settings.embed_model, [query_prompt(query)], settings.embed_dims)
+    [vec] = embed(
+        llm,
+        settings.embed_model,
+        [query_prompt(query)],
+        settings.embed_dims,
+        retries=settings.embed_query_retries,
+    )
     if settings.embed_cache_size > 0:
         _EMBEDS.put(key, array("f", vec), settings.embed_cache_size)
     return vec

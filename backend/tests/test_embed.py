@@ -207,3 +207,15 @@ def test_batch_retry_after_is_capped(sleeps):
     client, _ = _client(script)
     embed(client, "m", ["a"], 1, retries=emb.BATCH_RETRIES)
     assert max(sleeps) <= emb._RETRY_AFTER_MAX_S * 1.25 + 0.01
+
+
+def test_query_embedding_retries_follow_the_setting(monkeypatch):
+    from roracle import retrieval_util
+    from roracle.config import Settings
+
+    seen = []
+    monkeypatch.setattr(retrieval_util, "embed", lambda *a, **k: (seen.append(k["retries"]), [[0.0]])[1])
+    retrieval_util._EMBEDS.clear() if hasattr(retrieval_util._EMBEDS, "clear") else None
+    retrieval_util.embed_query(None, Settings(embed_cache_size=0), "q1")
+    retrieval_util.embed_query(None, Settings(embed_cache_size=0, embed_query_retries=4), "q1")
+    assert seen == [0, 4]  # interactive: none; eval runner: batch retries

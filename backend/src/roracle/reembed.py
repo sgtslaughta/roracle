@@ -429,10 +429,12 @@ def _converge(es, sf, target: dict) -> None:
             index=idx,
             query={"bool": {"filter": [{"terms": {"version_id": ids}}, {"term": {"is_latest": True}}]}},
             script={"source": "ctx._source.is_latest = false", "lang": "painless"},
-            refresh=True,
+            refresh=False,
             conflicts="proceed",
         )
+    es.indices.refresh(index=idx)  # one refresh for all the demotion pages
     _purge_orphans(es, sf, idx)
+    _purge_orphans(es, sf, idx, field="version_id", model=DocumentVersion)
 
 
 def _pages(sf, stmt, size: int = RECONCILE_BATCH):
@@ -451,12 +453,13 @@ def _pages(sf, stmt, size: int = RECONCILE_BATCH):
         after = ids[-1]
 
 
-def _purge_orphans(es, sf, idx: str) -> None:
-    """Target documents with no Postgres row (purged while we copied): composite aggregation over `doc_id`."""
+def _purge_orphans(es, sf, idx: str, field: str = "doc_id", model=Document) -> None:
+    """Target documents (or versions, `field="version_id"`) with no Postgres row (purged while we copied):
+    composite aggregation over the id field."""
     after = None
     while True:
         check_lease()
-        comp: dict = {"size": 1000, "sources": [{"d": {"terms": {"field": "doc_id"}}}]}
+        comp: dict = {"size": 1000, "sources": [{"d": {"terms": {"field": field}}}]}
         if after:
             comp["after"] = after
         agg = es.search(index=idx, size=0, aggs={"docs": {"composite": comp}})["aggregations"]["docs"]
@@ -464,9 +467,9 @@ def _purge_orphans(es, sf, idx: str) -> None:
         if keys:
             uu = [u for k in keys if (u := _uuid(k))]
             with sf() as s:
-                have = {str(i) for i in s.scalars(select(Document.id).where(Document.id.in_(uu)))}
+                have = {str(i) for i in s.scalars(select(model.id).where(model.id.in_(uu)))}
             if gone := [k for k in keys if k not in have]:
-                _dbq(es, idx, {"terms": {"doc_id": gone}})
+                _dbq(es, idx, {"terms": {field: gone}})
         after = agg.get("after_key")
         if not after or len(keys) < 1000:
             return

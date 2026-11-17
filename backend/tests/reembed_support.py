@@ -98,7 +98,8 @@ class FakeEs:
         if kw.get("aggs"):  # composite aggregation over doc_id (orphan purge)
             comp = kw["aggs"]["docs"]["composite"]
             done = comp.get("after", {}).get("d", "")
-            ids = sorted({d["doc_id"] for d in docs.values() if d["doc_id"] > done})[: comp["size"]]
+            fld = comp["sources"][0]["d"]["terms"]["field"]
+            ids = sorted({d[fld] for d in docs.values() if d[fld] > done})[: comp["size"]]
             agg = {"buckets": [{"key": {"d": i}} for i in ids]}
             if ids:
                 agg["after_key"] = {"d": ids[-1]}

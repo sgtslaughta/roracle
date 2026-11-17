@@ -135,6 +135,9 @@ class Settings(AliasConfig):
     rerank_depth: int = 200  # chat / LLM-bound callers
     search_rerank_depth: int = 50  # /search only: the page shows ~20 documents
     rerank_blend: float = Field(0.3, ge=0.0, le=1.0)  # weight of the min-max reranker score; 1.0 = replace
+    embed_query_retries: int = Field(
+        0, ge=0, le=6
+    )  # 0 on the interactive path; the eval runner sets batch retries
     embed_cache_size: int = 10_000  # query embeddings memoized in process (0 = off)
     embed_cache_ttl_s: float = 600.0
     search_cache_s: float = 60.0  # /search first-stage result cache for paging (0 = off)

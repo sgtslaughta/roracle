@@ -27,6 +27,7 @@ from roracle.eval import judge as judge_mod
 from roracle.eval import metrics as m
 from roracle.eval import store
 from roracle.eval.gold import GoldSet, resolve_principals
+from roracle.ingest.embed import BATCH_RETRIES
 from roracle.labels.textgate import gated_docs
 from roracle.models import Document
 from roracle.models_eval import EvalSet
@@ -138,7 +139,9 @@ def run_set(
     if judge and path != "chat":
         raise ValueError("the judge needs the chat path")
     principals = resolve_principals(session, gs)  # R5 before anything is written
-    settings = runtime.apply(settings, overrides or {})
+    settings = runtime.apply(settings, overrides or {}).model_copy(
+        update={"embed_query_retries": BATCH_RETRIES}
+    )  # eval is batch work: one 429 must not fail a run
     answers: dict = {}
     rank = rank or default_rank(session, es, llm, settings, path, answers if judge else None, parallel_sf)
     judge_fn = judge_fn or (lambda p, q, ps: judge_mod.judge_pair(session, llm, settings, p, q, ps))

@@ -131,3 +131,16 @@ def test_copy_target_refreshes_every_30s_and_keeps_replicas(db_session, session_
     _run_one(db_session, session_factory, es, FakeLlm(2), base)
     created = es.created["chunks-new-1"]
     assert created["refresh_interval"] == "30s" and created["number_of_replicas"] != 0
+
+
+def test_orphan_version_of_a_live_document_is_purged(db_session, session_factory, es, base, two_docs):
+    (da, va), _ = two_docs
+    es.put(f"{va}:0", da.id)
+    reembed.start(db_session, es, base, "new", 2)
+    db_session.commit()
+    _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the copy
+    ghost = uuid.uuid4()
+    es.put(f"{ghost}:0", da.id, index="chunks-new-1")  # a hard-deleted version of a surviving document
+    es.data["chunks-new-1"][f"{ghost}:0"]["version_id"] = str(ghost)
+    _run_one(db_session, session_factory, es, FakeLlm(2), base)  # the cutover
+    assert f"{ghost}:0" not in es.data["chunks-new-1"] and f"{va}:0" in es.data["chunks-new-1"]
