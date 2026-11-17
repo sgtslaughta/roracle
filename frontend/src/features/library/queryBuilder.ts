@@ -16,11 +16,20 @@ export function splitQuery(q: string): QueryParts {
   return { words: words.join(" "), phrases, excluded };
 }
 
+const unq = (s: string) => squash(s.replaceAll('"', " "));
+
+/** Words, then phrases, then exclusions. Words holding a stray quote go last so they cannot re-pair with a phrase quote. */
 export function joinQuery(p: QueryParts): string {
   const ex = (e: string) => (/\s/.test(e) ? `-"${e}"` : `-${e}`);
-  return [
-    squash(p.words),
-    ...p.phrases.map(squash).filter(Boolean).map((s) => `"${s}"`),
-    ...p.excluded.map(squash).filter(Boolean).map(ex),
-  ].filter(Boolean).join(" ");
+  const toks = squash(p.words).split(" ").filter(Boolean);
+  const build = (words: string[], stray: string[]) =>
+    [
+      ...words,
+      ...p.phrases.map(unq).filter(Boolean).map((s) => `"${s}"`),
+      ...p.excluded.map(unq).filter(Boolean).map(ex),
+      ...stray,
+    ].join(" ");
+  const joined = build(toks.filter((t) => !t.includes('"')), toks.filter((t) => t.includes('"')));
+  // if quote-bearing words would still re-pair and change the query, drop their quotes instead
+  return splitQuery(joined).words === toks.join(" ") ? joined : build(toks.map((t) => t.replaceAll('"', "")).filter(Boolean), []);
 }

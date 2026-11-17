@@ -13,14 +13,14 @@ function Refine({ q, onApply }: { q: string; onApply: (q: string) => void }) {
   const init = splitQuery(q);
   const [words, setWords] = useState(init.words);
   const [phrases, setPhrases] = useState(init.phrases.join("\n"));
-  const [excluded, setExcluded] = useState(init.excluded.join(" "));
-  const built = joinQuery({ words, phrases: lines(phrases), excluded: excluded.split(/\s+/).filter(Boolean) });
+  const [excluded, setExcluded] = useState(init.excluded.join("\n"));
+  const built = joinQuery({ words, phrases: lines(phrases), excluded: lines(excluded) });
   const noPositive = !joinQuery({ words, phrases: lines(phrases), excluded: [] });
   return (
     <form className="refine" onSubmit={(e) => { e.preventDefault(); if (!noPositive) onApply(built); }}>
       <label>All of these words<input className="sel" value={words} onChange={(e) => setWords(e.target.value)} /></label>
       <label>This exact phrase<textarea className="sel" rows={2} value={phrases} onChange={(e) => setPhrases(e.target.value)} placeholder="One phrase per line" /></label>
-      <label>None of these words<input className="sel" value={excluded} onChange={(e) => setExcluded(e.target.value)} /></label>
+      <label>None of these words<textarea className="sel" rows={2} value={excluded} onChange={(e) => setExcluded(e.target.value)} placeholder="One word or phrase per line" /></label>
       {built && noPositive && <p className="refine-err" role="alert">Add at least one word to search for</p>}
       <Button type="submit" variant="primary" disabled={noPositive}>Apply</Button>
     </form>

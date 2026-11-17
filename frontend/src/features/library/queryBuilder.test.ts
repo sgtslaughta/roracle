@@ -24,3 +24,15 @@ describe("splitQuery (mirrors backend parse_query)", () => {
 describe("searchTerms", () => {
   it("ignores exclusions and quotes", () => expect(searchTerms('graph "neural network" -survey')).toEqual(["graph", "neural", "network"]));
 });
+
+describe("round trip", () => {
+  it.each([
+    'graph "neural network" -survey', '-"related work" transformers', 'state-of-the-art "unclosed', '"a" "b" "c', 'x"y "p q" z"w',
+    '"c d"e', 'a - b', '-foo"bar "baz" -"q r"', '--x y', '"" -"" z',
+  ])("keeps meaning of %s", (q) => {
+    const p = splitQuery(q);
+    expect(splitQuery(joinQuery(p))).toEqual(p);
+  });
+  it("strips quotes from phrase entries", () =>
+    expect(splitQuery(joinQuery({ words: "a", phrases: ['x "y" z'], excluded: [] }))).toEqual({ words: "a", phrases: ["x y z"], excluded: [] }));
+});

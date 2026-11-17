@@ -47,4 +47,11 @@ describe("QueryBar", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
     expect(screen.getByText("Add at least one word to search for")).toBeInTheDocument();
   });
+
+  it("Apply on an untouched Refine leaves q unchanged", async () => {
+    const router = await renderLibrary('/library?q=graph+-"related+work"');
+    await userEvent.click(screen.getByRole("button", { name: /Refine/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ q: 'graph -"related work"' }));
+  });
 });
