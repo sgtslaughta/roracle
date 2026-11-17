@@ -3,6 +3,7 @@
 Status: Accepted (2026-11-15)
 
 ## Decision
+
 - `blobs(sha256 PK, size, refcount)`; identical bytes stored once. A new upload whose hash matches a
   version the uploader **can see** returns 409 `duplicate` (client may retry with `force=true`).
   If the match is invisible to them, the upload proceeds normally and the response is
@@ -13,8 +14,13 @@ Status: Accepted (2026-11-15)
   Search defaults to the latest version.
 
 ## Consequences
+
 - "No leak" behaviour is a tested contract, not an implementation detail.
 
 ## Addendum (2026-11-15, P1 final review)
 
 Uploads always PUT the blob, even when the content-addressed object already exists. Skipping the PUT made duplicate uploads measurably faster, an oracle revealing that someone else holds identical bytes. Cost: upload bandwidth on duplicates.
+
+## Update (2026-11-17)
+
+Near-duplicate candidates are found through a MinHash LSH band table (`version_lsh`, 16 bands x 8 rows, `ingest/neardup.py`) instead of a scan; below a 0.8 threshold the code falls back to scanning. Visibility filtering still happens before any candidate is shown.

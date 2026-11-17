@@ -1,6 +1,6 @@
 # Performance harness
 
-Opt-in tooling (Task 10). It only touches a **scratch database** (name must contain `perf`) and `perf-*`
+Opt-in tooling (Task 10). It only touches a **scratch database** (name must fullmatch `roracle_perf[a-z0-9_]*`) and `perf-*`
 Elasticsearch indices; never the real DB, the test DBs or the `chunks` aliases.
 
 ```bash
@@ -21,13 +21,31 @@ uv run roracle perf explain claim --url "$ROR_DATABASE_URL"
 ```
 
 Scenarios: `search`, `search_filtered`, `browse`, `chat_retrieve` (the retrieval half of a chat turn,
-approximated by a wide `/search`), `mcp_search`, `doc_read`. Budgets live in `budgets.yaml`.
+approximated by a wide `/api/search`), `mcp_search`, `doc_read`. Budgets live in `budgets.yaml`.
 Documents/chunks share deterministic ids (`md5('<seed>:d:<i>')::uuid`) across Postgres and ES.
 Plan-shape tests (`tests/test_perf_plans.py`) run in the integration suite; timing gates run nightly only.
 Upgrading (migration 0014 builds queue indexes with `CREATE INDEX CONCURRENTLY`, which waits for every open
 transaction, and a claim shares one transaction with its handler): drain workers or let long jobs finish
 before `roracle migrate`. A failed build leaves an invalid index; re-running the migration drops and rebuilds it.
 `ROR_READ_ALIAS` and `ROR_MUTATE_ALIAS` must be set together (Settings validates it) on API and worker.
+
+## Budgets at a glance
+
+The binding limits are in [`budgets.yaml`](budgets.yaml) (milliseconds unless stated) and the latest measurements, with findings and what was extrapolated, are in the [performance report](report-2026-11-17.md). The CI profile loosens latency limits by 1.5x. Operators: see [capacity planning](../enterprise/capacity-planning.md) for how they translate into replicas and the [connection budget](connection-budget.md).
+
+| Budget | Limit |
+|---|---|
+| `search` | p95 400 |
+| `search_filtered` | p95 500 (about 5 requests per second per API process) |
+| `browse` | p95 100 at 10M documents (measured at 1M, extrapolated) |
+| `chat_retrieve` | p95 800 (1100 with RAPTOR); the retrieval half of a chat turn |
+| `mcp_search` | p95 450 |
+| `doc_read` | p95 80 |
+| `claim` | p99 5 at 100k queued jobs, one claimer |
+| `ingest_overhead_s` | p95 2 s per document, models excluded |
+| `near_dup` | p95 50 |
+| `rebuild_chunks_per_s` | at least 1000 |
+| `reconcile_es_writes` | 0 with no drift |
 
 ## One command: `roracle perf suite` (Task 10.13)
 
@@ -44,7 +62,7 @@ uv run roracle perf suite --profile full --url "$ROR_DATABASE_URL" --es-url http
   users with a throw-away key and serves its JWKS from a local port; the API is simply configured with that JWKS URL and
   issuer, so it validates them like Keycloak's. **There is no minting code path in the application**, nothing to enable
   or to leave on in production (a production deployment trusts only the keys its Keycloak publishes), and the CLI refuses
-  databases whose name lacks `perf`.
+  databases whose name does not fullmatch `roracle_perf[a-z0-9_]*`.
 - Models are `perf/fake_models.py` (OpenAI-style embeddings, TEI-style rerank, fixed latency: `--embed-ms 10`,
   `--rerank-ms 50`), so results mean "our code + a model answering in X ms".
 - In-process: claim (one claimer, warm-up discarded; a 4-claimer row is informational), near-dup (LSH over the seeded versions), ingest overhead

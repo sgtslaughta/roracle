@@ -31,8 +31,10 @@ class AliasConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="ROR_", hide_input_in_errors=True)
 
-    read_alias: str = "chunks"
-    mutate_alias: str = "chunks-all"
+    read_alias: str = Field("chunks", description="Elasticsearch alias used for reads")
+    mutate_alias: str = Field(
+        "chunks-all", description="Elasticsearch alias used for ACL update_by_query and writes"
+    )
 
     @model_validator(mode="after")
     def _aliases(self):
@@ -47,33 +49,41 @@ class AliasConfig(BaseSettings):
 
 
 class Settings(AliasConfig):
-    database_url: str
+    database_url: str = Field(
+        description="SQLAlchemy URL of the PostgreSQL database (postgresql:// is rewritten to postgresql+psycopg://)"
+    )
     database_password: str = ""  # injected into database_url when set (keeps the secret out of the URL)
-    s3_endpoint: str
-    s3_bucket: str = "roracle"
-    s3_access_key: str
-    s3_secret_key: str
-    oidc_issuer: str
-    oidc_audience: str = "roracle"
-    oidc_jwks_url: str
-    oidc_allowed_clients: Annotated[list[str], NoDecode] = ["roracle-web", "roracle-mcp"]
-    max_upload_bytes: int = 524288000
+    s3_endpoint: str = Field(description="S3-compatible object store endpoint URL")
+    s3_bucket: str = Field("roracle", description="Bucket for document blobs")
+    s3_access_key: str = Field(description="S3 access key (secret)")
+    s3_secret_key: str = Field(description="S3 secret key (secret)")
+    oidc_issuer: str = Field(description="OIDC issuer URL (token `iss` claim)")
+    oidc_audience: str = Field("roracle", description="Expected token audience (`aud`)")
+    oidc_jwks_url: str = Field(description="URL of the OIDC provider's JWKS used to verify tokens")
+    oidc_allowed_clients: Annotated[list[str], NoDecode] = Field(
+        ["roracle-web", "roracle-mcp"], description="Accepted OIDC client ids (JSON list or comma-separated)"
+    )
+    max_upload_bytes: int = Field(524288000, description="Maximum size of one uploaded file in bytes")
     evidence_max_bytes: int = 1073741824  # notes evidence file cap (1 GiB)
     draft_max_bytes: int = 2 * 1024 * 1024  # P9 draft Markdown cap (UTF-8)
     mcp_max_upload_bytes: int = 25 * 1024 * 1024  # MCP upload tool: decoded file cap (base64 body)
     public_base_url: str = ""  # externally visible origin, e.g. https://roracle.example.org
-    pats_enabled: bool = True
-    pat_max_identity_age_days: int = 30
-    elastic_url: str = "http://localhost:9200"
-    elastic_username: str = ""
-    elastic_password: str = ""
+    pats_enabled: bool = Field(True, description="Allow personal access tokens (agent/MCP access)")
+    pat_max_identity_age_days: int = Field(
+        30, description="Maximum age in days of the identity a PAT was minted from"
+    )
+    elastic_url: str = Field("http://localhost:9200", description="Elasticsearch base URL")
+    elastic_username: str = Field("", description="Elasticsearch basic-auth user; empty = none")
+    elastic_password: str = Field("", description="Elasticsearch basic-auth password (secret)")
     elastic_ca_certs: str = ""  # path to a PEM CA bundle for ES TLS
     s3_ca_bundle: str = ""  # path to a PEM CA bundle for S3 TLS
-    llm_base_url: str = "http://localhost:11434/v1"
-    llm_api_key: str = "unused"
-    llm_timeout_s: float = 120.0
-    embed_model: str = "embeddinggemma"
-    embed_dims: int = 768
+    llm_base_url: str = Field(
+        "http://localhost:11434/v1", description="OpenAI-compatible LLM endpoint (chat and embeddings)"
+    )
+    llm_api_key: str = Field("unused", description="API key sent to the LLM endpoint (secret)")
+    llm_timeout_s: float = Field(120.0, description="LLM request timeout in seconds")
+    embed_model: str = Field("embeddinggemma", description="Embedding model name")
+    embed_dims: int = Field(768, description="Embedding vector dimensions")
     embed_concurrency: int = Field(
         4, ge=1
     )  # embedding requests in flight during re-embed/rebuild (~replicas)
@@ -87,25 +97,32 @@ class Settings(AliasConfig):
         3.0, gt=1.0, lt=10.0
     )  # bbq_hnsw: candidates rescored with float vectors
     es_shards: int = Field(1, ge=1)  # ~30-50 GB per shard (docs/enterprise/capacity-planning.md)
-    es_replicas: int = Field(1, ge=0)
-    es_refresh_interval: str = "5s"
+    es_replicas: int = Field(1, ge=0, description="Replica count for newly created indices")
+    es_refresh_interval: str = Field("5s", description="Elasticsearch index refresh_interval")
     es_exclude_source_vectors: bool = True  # vectors stay out of _source (rehydrated for reindex); ES >= 9.2
     es_hnsw_filter_heuristic: Literal["acorn", "fan_out"] = (
         "acorn"  # filtered kNN: ACORN traverses matching nodes only
     )
-    embed_tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2"
-    summary_model: str = "qwen2.5:3b"
-    docling_url: str = "http://localhost:5001"
-    docling_timeout_s: float = 300.0
-    grobid_timeout_s: float = 120.0
-    grobid_url: str = ""
-    gotenberg_url: str = ""
-    gotenberg_timeout_s: float = 300.0
-    max_rendition_bytes: int = 524288000
-    clamav_host: str = ""
-    clamav_port: int = 3310
-    rerank_url: str = ""
-    rerank_model: str = ""
+    embed_tokenizer: str = Field(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        description="Tokenizer used to size chunks for the embedding model",
+    )
+    summary_model: str = Field("qwen2.5:3b", description="Model for document summaries")
+    docling_url: str = Field("http://localhost:5001", description="Docling (document conversion) service URL")
+    docling_timeout_s: float = Field(300.0, description="Docling request timeout in seconds")
+    grobid_timeout_s: float = Field(120.0, description="GROBID request timeout in seconds")
+    grobid_url: str = Field("", description="GROBID (bibliographic metadata) service URL; empty = disabled")
+    gotenberg_url: str = Field(
+        "", description="Gotenberg (office-to-PDF rendition) service URL; empty = disabled"
+    )
+    gotenberg_timeout_s: float = Field(300.0, description="Gotenberg request timeout in seconds")
+    max_rendition_bytes: int = Field(
+        524288000, description="Maximum size of a generated PDF rendition in bytes"
+    )
+    clamav_host: str = Field("", description="ClamAV host for upload scanning; empty = scanning off")
+    clamav_port: int = Field(3310, description="ClamAV port")
+    rerank_url: str = Field("", description="Reranker service URL; empty = reranking off")
+    rerank_model: str = Field("", description="Reranker model name")
     rerank_api: Literal["cohere", "tei"] = (
         "cohere"  # tei: HF text-embeddings-inference {query, texts} -> [{index, score}]
     )
@@ -114,8 +131,12 @@ class Settings(AliasConfig):
     rerank_max_chars: int = 2000  # per passage sent to the reranker
     rerank_max_batch: int = Field(256, ge=1)  # texts per rerank request (<= server --max-client-batch-size)
     chat_candidates: int = Field(200, ge=20, le=500)  # BM25 and kNN list size on the chat path
-    near_dup_threshold: float = 0.85
-    near_dup_summary_threshold: float = 0.97
+    near_dup_threshold: float = Field(
+        0.85, description="Similarity at or above which a new upload is flagged a near-duplicate"
+    )
+    near_dup_summary_threshold: float = Field(
+        0.97, description="Summary-similarity threshold for near-duplicate detection"
+    )
     chat_min_similarity: float = 0.35  # kNN floor for chat retrieval; 0 disables
     search_min_similarity: float = (
         0.35  # kNN cosine floor for library search; 0 disables (relevant ~0.4-0.75, unrelated <=0.3)
@@ -126,12 +147,16 @@ class Settings(AliasConfig):
     draft_gotenberg_url: str = ""  # separate Chromium-enabled Gotenberg for draft PDF builds; empty = 503
     build_timeout_s: float = 120.0  # per pandoc call and for the Gotenberg request
     build_concurrency: int = 2  # concurrent draft builds per api process; more = 503 busy
-    build_max_pdf_bytes: int = 100 * 1024 * 1024
+    build_max_pdf_bytes: int = Field(
+        100 * 1024 * 1024, description="Maximum size of a built draft PDF in bytes"
+    )
     latex_builder: Literal["disabled"] = "disabled"  # `disabled` -> format: latex builds return 501
     writing_model: str = ""  # P9 style check / citation judge; empty = first chat model
     chat_passages: int = 8  # clamped 4-12 at use
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
-    chat_note_min_ratio: float = 0.6
+    chat_note_min_ratio: float = Field(
+        0.6, description="Minimum upvote ratio for a community note to reach the LLM"
+    )
     rerank_depth: int = 200  # chat / LLM-bound callers
     search_rerank_depth: int = 50  # /search only: the page shows ~20 documents
     rerank_blend: float = Field(0.3, ge=0.0, le=1.0)  # weight of the min-max reranker score; 1.0 = replace
@@ -139,7 +164,7 @@ class Settings(AliasConfig):
         0, ge=0, le=6
     )  # 0 on the interactive path; the eval runner sets batch retries
     embed_cache_size: int = 10_000  # query embeddings memoized in process (0 = off)
-    embed_cache_ttl_s: float = 600.0
+    embed_cache_ttl_s: float = Field(600.0, description="Seconds a memoized query embedding stays valid")
     search_cache_s: float = 60.0  # /search first-stage result cache for paging (0 = off)
     eval_judge_model: str = ""  # P13 LLM judge; empty = first chat model
     eval_judge_sample: int = 100  # (query x principal) pairs judged per run
@@ -160,8 +185,8 @@ class Settings(AliasConfig):
         False  # ambiguous questions: one small-model call; off = heuristic only (no hot-path LLM)
     )
     router_model: str = ""  # empty = summary_model
-    router_timeout_s: float = 1.5
-    global_max_docs: int = 40
+    router_timeout_s: float = Field(1.5, description="Timeout in seconds of the query-router LLM call")
+    global_max_docs: int = Field(40, description="Maximum documents mapped for one global question")
     global_concurrency: int = 8  # parallel map calls of ONE global question
     global_max_concurrent: int = 16  # process-wide cap on in-flight map calls (all users); busy => fact path
     global_max_admitted: int = (
@@ -169,7 +194,7 @@ class Settings(AliasConfig):
     )
     global_call_timeout_s: float = 20.0  # per map call, also bounded by the question's remaining deadline
     global_mcp_budget_s: float = 45.0  # MCP `ask` global budget (clients time out near 60 s)
-    global_timeout_s: float = 90.0
+    global_timeout_s: float = Field(90.0, description="Overall deadline in seconds of one global question")
     global_doc_chars: int = 6000  # one document's own text sent per map call
     global_map_tokens: int = 200  # hard cap per map note
     global_reduce_tokens: int = 1200  # hard cap on the streamed reduce answer
@@ -196,9 +221,11 @@ class Settings(AliasConfig):
     )
     # Connection budget (docs/perf/connection-budget.md): max connections per process = pool + overflow.
     db_pool_size: int = Field(8, ge=1)  # api process
-    db_max_overflow: int = Field(4, ge=0)
+    db_max_overflow: int = Field(4, ge=0, description="Extra API-process connections beyond the pool")
     worker_db_pool_size: int = Field(3, ge=1)  # worker process: claim session + stage-update session
-    worker_db_max_overflow: int = Field(1, ge=0)
+    worker_db_max_overflow: int = Field(
+        1, ge=0, description="Extra worker-process connections beyond the pool"
+    )
     db_disable_prepared: bool = (
         False  # True behind PgBouncer transaction pooling (set by the chart with the pooler)
     )
@@ -215,8 +242,8 @@ class Settings(AliasConfig):
     rate_limit_per_minute: int = 0  # per-token, per replica; 0 = off (ratelimit.py)
     connector_fs_roots: Annotated[list[str], NoDecode] = []  # fs connectors may only read under these
     connector_max_items: int = 1000  # per run
-    connector_max_run_s: int = 3600
-    connector_tick_s: int = 60
+    connector_max_run_s: int = Field(3600, description="Maximum duration in seconds of one connector run")
+    connector_tick_s: int = Field(60, description="Seconds between connector scheduler ticks")
     connector_http_allow_cidrs: Annotated[
         list[str], NoDecode
     ] = []  # http crawl may reach these private ranges

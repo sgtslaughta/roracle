@@ -2,6 +2,7 @@
 name = "roracle"
 version = "0.2.0"
 description = "rOracle air-gapped research-paper RAG backend"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi",
@@ -36,7 +37,17 @@ otel = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "httpx"]
+dev = [
+    "pytest",
+    "ruff",
+    "httpx",
+    "pymarkdownlnt>=0.9.42",
+    {include-group = "docs"},
+]
+
+docs = [
+    "zensical==0.1.2",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -170,7 +170,7 @@ postgres:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  # postgresql.parameters; archive_timeout is forced to 5min (RPO <= 5 min on idle clusters). max_connections is checked
+  # postgresql.parameters; archive_timeout is forced to 5min; it bounds the RPO (about 5 min) only while WAL is being produced. max_connections is checked
   # against the replica budget at render time; shared_buffers ~ 25% of resources.limits.memory.
   # NB: a `parameters` override without max_connections leaves PostgreSQL's own default (100), which the guard then uses.
   parameters: {max_connections: "200", shared_buffers: 2GB, work_mem: 16MB, jit: "off"}  # jit off: see docs/perf/report-2026-11-17.md (F1)
@@ -181,7 +181,7 @@ postgres:
   # REQUIRED (cnpg): kubernetes.io/basic-auth Secret (username roracle, password) for the app owner.
   # ROR_DATABASE_URL (postgresql+psycopg://...) stays in secrets.existingSecret: CNPG's generated uri lacks +psycopg.
   appCredentialsSecret: ""
-  # PodMonitor + roracle_jobs queue metrics. Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated
+  # PodMonitor + CNPG custom queries (roracle_archiver; roracle_jobs is no longer used by the dashboard). Needs prometheus-operator CRDs. spec.monitoring.enablePodMonitor is deprecated
   # upstream (still works); if it is removed, create the PodMonitor from the observability values instead.
   monitoring: {enabled: true}
   backup:
@@ -196,7 +196,7 @@ postgres:
     retentionPolicy: 30d
     schedule: "0 0 2 * * *"   # 6-field cron (seconds first): daily base backup 02:00
     serverName: ""         # archive path name; "" = cluster name. MUST be new (differs from the source) after a recovery
-  # PITR: bootstrap the Helm-managed cluster from backups instead of initdb (runbook 3.1). Needs backup.enabled + a new backup.serverName.
+  # PITR: bootstrap the Helm-managed cluster from backups instead of initdb (docs/enterprise/backup-dr.md). Needs backup.enabled + a new backup.serverName.
   recovery: {enabled: false, targetTime: "", sourceServerName: ""}   # targetTime "" = latest; sourceServerName "" = cluster name
 
 elasticsearch:

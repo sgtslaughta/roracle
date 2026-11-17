@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { errorText } from "@/api/client";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
+import { BookOpen, Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { copyAction, RowMenu } from "@/components/RowMenu";
@@ -80,6 +80,10 @@ export function Sidebar() {
             <span>Admin</span>
           </Link>
         )}
+        <a href="/docs/" aria-label="Docs" title="Docs">
+          <BookOpen aria-hidden />
+          <span>Docs</span>
+        </a>
         <Popover open={railOpen} onOpenChange={setRailOpen}>
           <PopoverTrigger asChild>
             <button className="rail-only" aria-label="Chats and collections" title="Chats and collections"><History aria-hidden /></button>
