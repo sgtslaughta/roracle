@@ -33,9 +33,13 @@ class Slots:
             self.tokens[user] = self.seq
             return self.seq  # non-zero: pass it to `leave` so a stale release never frees a newer admission
 
-    def leave(self, user: str, token: int | None = None) -> None:
+    def active(self, user: str) -> bool:
         with self.cv:
-            if token is not None and self.tokens.get(user) != token:
+            return self.users.get(user, 0) > time.monotonic()
+
+    def leave(self, user: str, token: int) -> None:
+        with self.cv:
+            if self.tokens.get(user) != token:
                 return  # the slot now belongs to a later admission
             self.users.pop(user, None)
             self.tokens.pop(user, None)

@@ -3,6 +3,7 @@
 
 import dataclasses
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -78,13 +79,11 @@ def run(client, as_ana, app, settings):
         headers=None,
         ignored=(),
         selection=None,
+        cap=None,
     ):
         llm = LLM()
-        small = (
-            settings
-            if chars is None
-            else settings.model_copy(update={"summary_doc_chars": chars, "summary_window_chars": win})
-        )
+        upd = {} if chars is None else {"summary_doc_chars": chars, "summary_window_chars": win}
+        small = settings.model_copy(update={**upd, **({"summary_max_admitted": cap} if cap else {})})
         app.dependency_overrides[get_es] = lambda: es
         app.dependency_overrides[get_llm] = lambda: llm
         app.dependency_overrides[get_app_settings] = lambda: small
@@ -285,29 +284,73 @@ def test_all_map_outputs_empty_is_canned(run, db_session, ana, monkeypatch):
     assert llm.streams == [] and text(ev) == summarize.UNREADABLE and cites(ev) == []
 
 
-def test_busy_user_gets_canned_and_keeps_earlier_slot(run, db_session, ana):
-    import time
+def long_doc(db, ana, title="Long"):
+    a, av = seed(db, ana, title=title)
+    return a, [hit(a, av, i, "x" * 100, page=i + 1) for i in range(10)]
 
-    from roracle.chat import agentic
 
-    a, av = seed(db_session, ana, title="Busy")
-    es = SummES(chunks=[hit(a, av, 0, "text")])
-    agentic.SLOTS.users[str(ana)] = time.monotonic() + 60  # an earlier loop for this user is running
+def test_busy_user_gets_user_text_and_keeps_slot(run, db_session, ana):
+    a, chunks = long_doc(db_session, ana)
+    summarize.SLOTS.users[str(ana)] = time.monotonic() + 60  # this user's map-reduce is running
     try:
-        llm, ev = run(es, tabs=[a])
-        assert llm.calls == 0 and es.calls == [] and text(ev) == summarize.BUSY
-        assert str(ana) in agentic.SLOTS.users  # not released by the refused turn
+        llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=300)
+        assert llm.calls == 0 and text(ev) == summarize.BUSY_USER
+        assert str(ana) in summarize.SLOTS.users  # the refused turn did not release it
     finally:
-        agentic.SLOTS.users.clear()
+        summarize.SLOTS.users.clear()
 
 
-def test_summary_turn_releases_its_own_slot(run, db_session, ana):
-    from roracle.chat import agentic
+def test_process_cap_busy_text(run, db_session, ana):
+    a, chunks = long_doc(db_session, ana)
+    summarize.SLOTS.users["someone-else"] = time.monotonic() + 60
+    try:
+        llm, ev = run(SummES(chunks=chunks), tabs=[a], chars=300, cap=1)
+        assert llm.calls == 0 and text(ev) == summarize.BUSY_CAP
+    finally:
+        summarize.SLOTS.users.clear()
 
-    agentic.SLOTS.users.clear()
-    a, av = seed(db_session, ana, title="Slot")
-    run(SummES(chunks=[hit(a, av, 0, "text")]), tabs=[a])
-    assert agentic.SLOTS.users == {} and agentic.SLOTS.tokens == {}
+
+def test_map_reduce_releases_its_slot(run, db_session, ana):
+    a, chunks = long_doc(db_session, ana)
+    llm, _ev = run(SummES(chunks=chunks), tabs=[a], chars=300)
+    assert len(llm.maps) == 4 and summarize.SLOTS.users == {} and summarize.SLOTS.tokens == {}
+
+
+def test_single_pass_takes_no_slot(run, db_session, ana, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("single-pass summaries must not take a slot")
+
+    monkeypatch.setattr(summarize.SLOTS, "enter", boom)
+    a, av = seed(db_session, ana, title="Short")
+    llm, ev = run(SummES(chunks=[hit(a, av, 0, "text")]), tabs=[a])
+    assert len(llm.streams) == 1 and cites(ev)
+
+
+def test_five_users_at_once_under_cap_16_none_busy():
+    import threading
+
+    s = summarize.global_admit.Slots()
+    got, start = [], threading.Barrier(5)
+
+    def go(i):
+        start.wait()
+        got.append(s.enter(1 << 30, f"u{i}", 60, 16))
+
+    ts = [threading.Thread(target=go, args=(i,)) for i in range(5)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert all(got) and len(set(got)) == 5
+
+
+def test_slot_ttl_covers_worst_case(settings):
+    worst = summarize.MAX_WINDOWS * settings.summary_map_timeout_s
+    assert summarize.slot_ttl(settings) >= worst + 1
+
+
+def test_map_call_has_timeout(run, db_session, ana):
+    a, chunks = long_doc(db_session, ana)
+    llm, _ = run(SummES(chunks=chunks), tabs=[a], chars=300)
+    assert all(0 < m["timeout"] <= 60 for m in llm.maps)
 
 
 def test_stale_token_never_frees_a_newer_admission():

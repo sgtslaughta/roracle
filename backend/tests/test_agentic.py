@@ -160,11 +160,15 @@ def test_admission_is_one_per_user_and_capped():
     st = settings(agentic_max_admitted=1)
     a = PRINCIPAL
     b = Principal(user_id="v", sub="s2", username="n2", groups=(), is_admin=False)
-    assert agentic.admit(st, a) and not agentic.admit(st, a)  # one loop per user
-    assert not agentic.admit(st, b)  # process cap
-    agentic.leave(a)
-    assert agentic.admit(st, b)
-    agentic.leave(b)
+    ta = agentic.enter(st, a)
+    assert ta and not agentic.enter(st, a)  # one loop per user
+    assert not agentic.enter(st, b)  # process cap
+    agentic.leave(a, ta + 1000)  # a stale/foreign token frees nothing
+    assert not agentic.enter(st, b)
+    agentic.leave(a, ta)
+    tb = agentic.enter(st, b)
+    assert tb
+    agentic.leave(b, tb)
 
 
 # ---- wiring (real Postgres, fake ES/LLM)

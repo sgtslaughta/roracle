@@ -8,6 +8,7 @@ first source chunk, map-reduce windows to the window's first chunk).
 import dataclasses
 import hashlib
 import logging
+import time
 from collections import OrderedDict
 from collections.abc import Iterator
 from uuid import UUID
@@ -15,6 +16,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from roracle.auth import Principal
+from roracle.chat import global_admit
 from roracle.chat.answer import _quote, build_messages, frame
 from roracle.chat.intent import contentless, summary_intent
 from roracle.chat.retrieve import Viewer, _live, _uid, _uids
@@ -30,7 +32,11 @@ SYSTEM = (
     "limitations. Cite pages with [n] markers matching the numbered passages. Do not use outside knowledge. "
     "Use LaTeX ($…$) for math."
 )
-BUSY = "A summary is already running for you. Try again in a moment."
+BUSY_USER = "A summary is already running for you — wait for it to finish."
+BUSY_CAP = "The server is busy summarizing — try again in a moment."
+SLOTS = (
+    global_admit.Slots()
+)  # map-reduce summaries only: own pool, 1 per user, `summary_max_admitted` per process
 UNREADABLE = "I could not read this document well enough to summarize it. Try again in a moment."
 MAP_SYSTEM = (
     "Summarize this part of a paper in under 150 words, keeping concrete methods, numbers and results. "
@@ -169,7 +175,14 @@ def _windows(chunks: list[Passage], budget: int) -> list[list[Passage]]:
     return wins
 
 
-def _map(llm, settings: Settings, win: list[Passage], question: str, idx: int) -> str:
+def slot_ttl(settings: Settings) -> float:
+    """Worst case of one map-reduce: every window times out, plus the reduce (the slot must outlive it)."""
+    return MAX_WINDOWS * settings.summary_map_timeout_s + 120
+
+
+def _map(
+    llm, settings: Settings, win: list[Passage], question: str, idx: int, timeout: float | None = None
+) -> str:
     body = "\n\n".join(f"<passage>\n{_quote(c.text)}\n</passage>" for c in win)
     key = (
         win[0].version_id,
@@ -193,6 +206,7 @@ def _map(llm, settings: Settings, win: list[Passage], question: str, idx: int) -
         temperature=0.2,
         stream=False,
         max_tokens=settings.global_map_tokens,
+        timeout=timeout or settings.summary_map_timeout_s,
     )
     text = (r.choices[0].message.content or "").strip()
     if text:
@@ -233,12 +247,24 @@ def prepare(
                 pairs = [(chunks[0], chunks[0]), *rest]
             else:
                 wins = _windows(chunks, settings.summary_window_chars)
+                user = str(p.user_id)
+                token = SLOTS.enter(1 << 30, user, slot_ttl(settings), settings.summary_max_admitted)
+                if not token:
+                    busy = BUSY_USER if SLOTS.active(user) else BUSY_CAP
+                    return [], [], versions, busy, []
                 pairs = []
-                for i, w in enumerate(wins):
-                    yield frame("reading", {"part": i + 1, "of": len(wins)})
-                    text = _map(llm, settings, w, question, i)
-                    if text:
-                        pairs.append((_synth(w[0], text), w[0]))
+                deadline = time.monotonic() + MAX_WINDOWS * settings.summary_map_timeout_s
+                try:
+                    for i, w in enumerate(wins):
+                        left = deadline - time.monotonic()
+                        if left <= 0:
+                            break  # overall deadline: summarize what was read
+                        yield frame("reading", {"part": i + 1, "of": len(wins)})
+                        text = _map(llm, settings, w, question, i, min(left, settings.summary_map_timeout_s))
+                        if text:
+                            pairs.append((_synth(w[0], text), w[0]))
+                finally:
+                    SLOTS.leave(user, token)
         if not pairs:  # every map call came back empty
             return [], [], versions, UNREADABLE, []
         merged: dict[

@@ -176,6 +176,12 @@ class Settings(AliasConfig):
     summary_doc_chars: int = Field(
         32000, ge=200
     )  # single-pass budget (~8k tokens; chat model needs num_ctx >= 16k)
+    summary_max_admitted: int = Field(
+        16, ge=1
+    )  # map-reduce summaries running at once per process (1 per user)
+    summary_map_timeout_s: float = Field(
+        60.0, gt=0
+    )  # one map call; the slot TTL covers every window plus a reduce
     summary_window_chars: int = Field(6000, ge=200)  # text per map call when a document is map-reduced
     agentic_retrieval: bool = (
         False  # P13 T8: query decomposition loop on multihop questions (flips on a PASS)

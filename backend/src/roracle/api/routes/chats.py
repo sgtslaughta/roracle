@@ -141,7 +141,11 @@ def _release(prep, ss: Session, own: bool):
     return go
 
 
-def _leave(p: Principal, ss: Session, own: bool, token: int | None = None):
+def _close(ss: Session):
+    return ss.close
+
+
+def _leave(p: Principal, ss: Session, own: bool, token: int):
     def go() -> None:
         agentic.leave(p, token)
         if own:
@@ -257,7 +261,7 @@ def post_message(
     prep = None
     agent = False
     target = None
-    slot = 0  # admission token of a summary turn
+    token = 0  # agentic admission token
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
@@ -266,13 +270,11 @@ def post_message(
         False,
     ):
         tv, _guard = dec  # open-paper rule: no corpus search, no global routing
-        if tv is None:  # contentless and nothing usable open: canned guard, no LLM, no search
+        if tv is not None:
+            target = tv.document_id
+        else:  # contentless and nothing usable open: canned guard, no LLM, no search
             excluded = open_blocked(session, p, body.viewer)
             canned, model = summarize.GUARD, None
-        elif slot := agentic.enter(settings, p):  # one heavy turn per user at a time (the agentic limiter)
-            target = tv.document_id
-        else:
-            canned, model = summarize.BUSY, None
     else:
         try:
             if settings.router:
@@ -286,7 +288,8 @@ def post_message(
                 and settings.agentic_retrieval
                 and (meta is None or meta.get("route") == "multihop")
             ):
-                agent = agentic.admit(settings, p)  # busy / already running for this user: the plain path
+                token = agentic.enter(settings, p)  # busy / already running for this user: the plain path
+                agent = bool(token)
                 meta = {**(meta or {}), "agentic": agent}
             if prep is None and not agent:
                 passages = retrieve_for_chat(
@@ -325,13 +328,13 @@ def post_message(
             else summarize.prepare(ss, es, llm, settings, p, body.content, target, history, HISTORY)
             if target
             else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
-            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session, slot or None) if agent or slot else None),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session, token) if agent else (_close(ss) if ss is not session and target else None)),
         )  # fmt: skip
     except BaseException:
         if prep:
             prep.release()
-        if agent or slot:
-            agentic.leave(p, slot or None)
+        if agent:
+            agentic.leave(p, token)
         raise
     return ClosingStreamingResponse(
         _frames(gen),

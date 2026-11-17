@@ -204,15 +204,16 @@ def test_concurrent_admits_never_exceed_max_admitted():
 
     def go(i):
         start.wait()
-        got.append(s.admit(16, f"u{i}", 30, 4))
+        got.append((f"u{i}", s.enter(16, f"u{i}", 30, 4)))
 
     ts = [threading.Thread(target=go, args=(i,)) for i in range(20)]
     [t.start() for t in ts]
     [t.join() for t in ts]
-    assert sum(got) == 4 and s.admitted() == 4
-    s.leave("u0")
-    s.leave("u1")
-    assert s.admitted() >= 2
+    held = [(u, t) for u, t in got if t]
+    assert len(held) == 4 and s.admitted() == 4
+    for u, t in held[:2]:
+        s.leave(u, t)
+    assert s.admitted() == 2
     assert s.admit(16, "late", 30, 4) in (True, False)  # capacity frees as questions leave
 
 

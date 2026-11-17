@@ -68,12 +68,10 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
             if prep and plan is None:  # nothing citable in the global pass: answer from the fact path
                 meta = {"route": "fact"}
         ranked = None
-        if (
-            not plan
-            and s.agentic_retrieval
-            and meta.get("route") in (None, "multihop")
-            and agentic.admit(s, p)
-        ):
+        slot = 0
+        if not plan and s.agentic_retrieval and meta.get("route") in (None, "multihop"):
+            slot = agentic.enter(s, p)
+        if slot:
             try:  # blocking loop inside the MCP budget; every sub-query goes through rank_for_chat
                 ranked, subqueries = agentic.retrieve(
                     session, dep(app, library.get_es), llm, s, p, question, scope=scope,
@@ -83,7 +81,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
                 )  # fmt: skip
                 meta = {**meta, "subqueries": subqueries}
             finally:
-                agentic.leave(p)
+                agentic.leave(p, slot)
         passages = (
             plan[1]
             if plan

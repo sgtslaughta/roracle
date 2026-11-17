@@ -62,7 +62,7 @@ def admit(settings: Settings, p: Principal) -> bool:
     return bool(enter(settings, p))
 
 
-def leave(p: Principal, token: int | None = None) -> None:
+def leave(p: Principal, token: int) -> None:
     SLOTS.leave(str(p.user_id), token)
 
 
