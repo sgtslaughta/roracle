@@ -20,7 +20,7 @@ Terms are defined in the [glossary](glossary.md).
 - Install: [deployment guide](enterprise/deployment-guide.md)
 - First login: [Keycloak setup](enterprise/keycloak-setup.md) (operator side), [getting started](user/getting-started.md)
 - Upload a paper: [user guide](user/README.md)
-- Integrate an agent: [agent integration](enterprise/agent-integration.md), [MCP tools](reference/mcp-tools.md)
+- Integrate an agent: [agent integration](enterprise/agent-integration.md), [MCP tools](reference/mcp-tools.md), [HTTP API guide](reference/api.md)
 - Upgrade: [deployment guide](enterprise/deployment-guide.md)
 - Handle an incident: [operations runbook](enterprise/operations-runbook.md)
 
@@ -59,6 +59,8 @@ Later tasks append a link line under the matching heading when they add a page.
 ### Reference
 
 - [Reference index](reference/README.md)
+- [HTTP API guide](reference/api.md): auth, pagination, rate limits, SSE, uploads, curl examples
+- [Errors](reference/errors.md): error bodies and status codes
 - [openapi.json](reference/openapi.json), [settings.md](reference/settings.md), [cli.md](reference/cli.md), [mcp-tools.md](reference/mcp-tools.md) (generated)
 
 ### Architecture

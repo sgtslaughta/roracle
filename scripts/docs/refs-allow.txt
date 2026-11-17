@@ -1,3 +1,4 @@
 # Intentional mentions of things check_refs.py cannot find in code. `token` (any file) or `file.md|token`.
 # Keep a reason on each line; upgrade notes about removed settings belong here.
 docs/enterprise/deployment-guide.md|ROR_ELASTIC_API_KEY  # STALE: not in Settings; T17/T12 must fix the deployment guide, then delete this line
+docs/reference/api.md|ROR_VERSION  # env var read by roracle/__init__.py resolve_version, not a Settings field
