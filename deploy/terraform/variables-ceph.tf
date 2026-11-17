@@ -59,6 +59,7 @@ variable "ceph" {
       mgr = { requests = { cpu = "500m", memory = "512Mi" }, limits = { memory = "1Gi" } }
       osd = { requests = { cpu = "1", memory = "4Gi" }, limits = { memory = "6Gi" } }
     })
+    # object_lock.mode: GOVERNANCE (the admin can still bypass: break-glass) or COMPLIANCE (NOBODY can shorten or delete before expiry: a typo in retention_days becomes permanent storage)
     object_lock = optional(object({
       mode           = optional(string, "GOVERNANCE")
       retention_days = optional(number, 30) # keep >= postgres.backup.retentionPolicy / elasticsearch.snapshot.retention
@@ -66,6 +67,10 @@ variable "ceph" {
     obc_timeout = optional(string, "1800s") # kubectl wait for the ObjectBucketClaims to bind (RGW must be up)
   })
   default = {}
+  validation {
+    condition     = contains(["GOVERNANCE", "COMPLIANCE"], var.ceph.object_lock.mode)
+    error_message = "ceph.object_lock.mode: GOVERNANCE | COMPLIANCE (COMPLIANCE is irreversible for the whole retention period)"
+  }
   validation {
     condition     = contains(["erasure", "replicated"], var.ceph.data_pool.mode)
     error_message = "ceph.data_pool.mode: erasure | replicated"

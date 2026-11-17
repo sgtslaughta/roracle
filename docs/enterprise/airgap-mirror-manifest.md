@@ -91,7 +91,7 @@ when the optional inference module is enabled, a vLLM-style OpenAI-spec image (a
 |---|---|
 | pnpm (via corepack) | `COREPACK_NPM_REGISTRY`, derived from `NPM_CONFIG_REGISTRY` in the Dockerfile and CI; re-signing mirrors may also need `COREPACK_INTEGRITY_KEYS=0` |
 | `uv==0.10.4`, `pyyaml==6.0.3` (CI) | PyPI mirror via `UV_INDEX_URL` |
-| kubeconform schemas | set `KUBECONFORM_SCHEMA_LOCATION` to a mirror carrying the Kubernetes schemas and the CRD catalog (CNPG, ECK, MinIO, barman-cloud, Prometheus); empty = online GitHub schemas |
+| kubeconform schemas | set `KUBECONFORM_SCHEMA_LOCATION` to a mirror carrying the Kubernetes schemas and the CRD catalog (CNPG, ECK, Rook-Ceph `ceph.rook.io` + `objectbucket.io`, barman-cloud, cert-manager, Prometheus); empty = online GitHub schemas |
 | ClamAV signatures | private freshclam mirror (`parsers.clamav.mirrorUrl` + `mirrorCIDRs`); otherwise only the signatures baked in the image |
 | Docling models | baked into the docling-serve image (no cache volume: it would hide them) |
 

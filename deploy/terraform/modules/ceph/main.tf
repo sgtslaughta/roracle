@@ -172,8 +172,7 @@ resource "kubernetes_job_v1" "buckets" {
     create = "30m"
   }
   spec {
-    backoff_limit              = 20
-    ttl_seconds_after_finished = 86400
+    backoff_limit = 20
     template {
       metadata {
         labels = { app = "roracle-bucket-setup" }
@@ -198,6 +197,14 @@ resource "kubernetes_job_v1" "buckets" {
           name    = "setup"
           image   = var.image
           command = ["python", "-c", local.setup_script]
+          env {
+            name  = "AWS_REQUEST_CHECKSUM_CALCULATION"
+            value = "when_required" # boto3 >= 1.36 default CRC32 trailers can break some RGW releases
+          }
+          env {
+            name  = "AWS_RESPONSE_CHECKSUM_VALIDATION"
+            value = "when_required"
+          }
           env {
             name  = "S3_ENDPOINT"
             value = local.rgw_endpoint
