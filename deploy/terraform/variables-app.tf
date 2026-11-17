@@ -214,8 +214,8 @@ variable "inference" {
       run_as_user   = optional(number, 10001)
     }), {})
     rerank = optional(object({
-      engine          = optional(string, "vllm") # vllm (Cohere-style /v1/rerank, compatible) | tei (needs a backend adapter)
-      api_key_enabled = optional(bool, false)    # keep false until the backend sends ROR_RERANK_API_KEY (P13 Task 4, feat/retrieval-quality)
+      engine          = optional(string, "vllm") # vllm (Cohere-style /v1/rerank, the backend default) | tei (/rerank; also set chart rerank.api=tei via extra_values_file)
+      api_key_enabled = optional(bool, false)    # server-side key; the backend sends ROR_RERANK_API_KEY as a Bearer token (chart secrets.rerankApiKeyEnabled, not set by this stack)
       image           = optional(string, "MIRROR.example.com/vllm/vllm-openai:0.0.0-PLACEHOLDER")
       model_path      = optional(string, "/models/bge-reranker-v2-m3")
       served_name     = optional(string, "bge-reranker-v2-m3")

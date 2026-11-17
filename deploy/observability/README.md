@@ -9,7 +9,7 @@ helm upgrade -i otel open-telemetry/opentelemetry-collector -n observability -f 
 helm upgrade -i roracle ../helm/roracle ... --set observability.grafanaDashboard.enabled=true --set postgres.monitoring.enabled=true
 ```
 
-Loki points at an external S3 placeholder (`s3.example.com`, credentials from Secret `loki-s3`); create the buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) there first. Using the bundled MinIO tenant instead is not provided: it needs an extra MinIO NetworkPolicy ingress rule for the observability namespace and a dedicated Loki user/policy.
+Loki points at an external S3 placeholder (`s3.example.com`, credentials from Secret `loki-s3`); create the buckets (`loki-chunks`, `loki-ruler`, `loki-admin`) there first. The chart bundles no object store (the MinIO tenant was removed in 0.2.0), so Loki always needs an S3 endpoint you operate. For the Rook-Ceph RGW from the Terraform stack, create a dedicated user and the three buckets there and set the endpoint and CA in `loki.values.yaml`; the stack limits RGW ingress to the app namespace (`roracle-rgw-ingress`), so add your own policy for the observability namespace (see [network security](../../docs/enterprise/security/network.md)).
 
 CI: empty `KUBECONFORM_SCHEMA_LOCATION` validates against online GitHub schemas; air-gapped runners must set it to a mirror including CRDs.
 

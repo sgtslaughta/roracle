@@ -31,6 +31,11 @@ describe("shell accessibility", () => {
     }
   });
 
+  it("links to the static docs site with a plain anchor", async () => {
+    await renderAt("/library");
+    expect(await screen.findByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs/");
+  });
+
   it("reaches recent chats from the rail button", async () => {
     await renderAt("/library");
     await userEvent.click(await screen.findByRole("button", { name: "Chats and collections" }));

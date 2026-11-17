@@ -1,6 +1,15 @@
-# Used by `docker build -f frontend/Dockerfile .` (context = repo root); only frontend/ and nothing else is copied.
+# Used by `docker build -f frontend/Dockerfile .` (context = repo root); frontend/ plus the docs-site inputs below.
 **
 !frontend
 frontend/node_modules
 frontend/dist
 frontend/.env*
+# docs stage (Zensical site): sources, config, pinned deps, build scripts
+!docs
+docs/superpowers
+docs/prototype
+!zensical.toml
+!backend/pyproject.toml
+!backend/uv.lock
+!scripts/docs
+scripts/docs/__pycache__

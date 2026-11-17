@@ -2,7 +2,8 @@
 
 Adapter (retrieval.py): correct. TEI scores mapped by index (_rerank_scores), batches of rerank_max_batch merged in order, raw query (no embed prefix), passage text only (no title), cut at 2000 chars (chunks avg 1270, so no truncation), no prefixes. Chunk text does not start with the title (0.07%).
 
-### size=200 (chat-depth)
+## size=200 (chat-depth)
+
 | variant | nDCG@10 | d | R@10 | d |
 |---|---|---|---|---|
 | a fused baseline | 0.7673 | +0.0000 | 0.8834 | +0.0000 |

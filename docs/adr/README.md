@@ -1,11 +1,11 @@
 # Architecture Decision Records
 
-One file per decision. Format: Context → Decision → Consequences. Status `Accepted` unless superseded.
+One file per decision. Format: Context → Decision → Consequences. Status `Accepted` unless superseded. ADRs are not rewritten: later changes are `Update (date)` addenda at the end of the file.
 Spec: [`../spec.md`](../spec.md).
 
 | ADR | Decision |
 |---|---|
-| [0001](0001-system-of-record.md) | Postgres is the source of truth; MinIO holds bytes; Elastic is a rebuildable index |
+| [0001](0001-system-of-record.md) | Postgres is the source of truth; an S3 object store holds bytes (MinIO until 0.2.0, see 0016); Elastic is a rebuildable index |
 | [0002](0002-elastic-basic-app-acl.md) | Elastic Basic licence; ACL filters built by the API |
 | [0003](0003-postgres-job-queue.md) | Own job table in Postgres (SKIP LOCKED); no broker |
 | [0004](0004-identity.md) | mTLS proxy → Keycloak X.509 → JWT; scoped PATs |

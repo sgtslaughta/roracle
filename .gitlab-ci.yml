@@ -44,6 +44,18 @@ lint:
     - ruff check .
     - ruff format --check .
 
+# Doc checks (offline): generated reference drift, links/anchors, prose-vs-code refs, markdown lint, 500-line cap.
+docs:
+  extends: .backend
+  stage: lint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [docs/**/*, README.md, backend/README.md, frontend/README.md, backend/src/**/*, backend/pyproject.toml, backend/uv.lock, frontend/nginx/**/*, frontend/Dockerfile, zensical.toml, VERSION, deploy/**/*, scripts/docs/**/*, .pymarkdown.json, .gitlab-ci.yml]
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+  script:
+    - cd "$CI_PROJECT_DIR"
+    - scripts/docs/check.sh
+
 test:
   extends: .backend
   stage: test
@@ -126,7 +138,7 @@ perf:
   variables:
     POSTGRES_USER: roracle
     POSTGRES_PASSWORD: roracle
-    POSTGRES_DB: roracle_perf  # the perf tooling refuses any database whose name lacks "perf"
+    POSTGRES_DB: roracle_perf  # the perf tooling accepts only a database named roracle_perf[a-z0-9_]*
     ROR_DATABASE_URL: postgresql+psycopg://roracle:roracle@postgres:5432/roracle_perf
     ROR_ELASTIC_URL: http://elasticsearch:9200
     ROR_S3_ENDPOINT: http://minio.invalid:9000
@@ -288,5 +300,5 @@ build-web:
       mkdir -p /kaniko/.docker
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile frontend/Dockerfile \
-        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" \
+        --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" --build-arg UV_INDEX_URL="$UV_INDEX_URL" \
         --build-arg VERSION="$V" $DEST

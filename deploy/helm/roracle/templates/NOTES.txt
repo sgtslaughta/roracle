@@ -12,7 +12,7 @@ Bundled Elasticsearch: put (user roracle_app from secret {{ .Values.elasticsearc
 {{- end }}
 {{- if .Values.networkPolicy.enabled }}
 NetworkPolicy is ON (default-deny ingress+egress for the whole namespace). Until you set the CIDRs/selectors, these stay DENIED:
-external Postgres/Elasticsearch/S3 (networkPolicy.externalCIDRs.*, s3Cidrs), OIDC JWKS / LLM / OTel (networkPolicy.egressCIDRs.* cidrs or namespace/podSelector), external parsers (egressCIDRs.parsers), connector targets (connectors.egressCIDRs).
+external Postgres/Elasticsearch/S3 (networkPolicy.externalCIDRs.*, networkPolicy.s3), OIDC JWKS / LLM / OTel (networkPolicy.egressCIDRs.* cidrs or namespace/podSelector), external parsers (egressCIDRs.parsers), connector targets (connectors.egressCIDRs).
 {{- if .Values.ingress.enabled }}
 Ingress controllers on hostNetwork do not match networkPolicy.ingressNamespaceSelector (traffic arrives from the node IP): allow the node CIDR with your own policy.
 {{- end }}
