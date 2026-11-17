@@ -51,6 +51,10 @@ Later tasks append a link line under the matching heading when they add a page.
 - [Connectors](admin/connectors.md): S3, folder and website sources, schedules, credentials, runs
 - [Quotas and limits](admin/quotas-limits.md): upload size, per-user quota, rate limit, connector caps
 - [Audit log](admin/audit.md): viewer, recorded events, export, retention
+- [Evaluation](admin/eval.md): gold sets, runs, trend, compare gates, CI job
+- [Index maintenance](admin/index-maintenance.md): re-embed, rebuild, shadow indexes, reparse references, jobs
+- [Runtime settings](admin/runtime-settings.md): settings an admin can change at runtime, precedence, audit
+- [Writing profiles](admin/writing-profiles.md): YAML schema and validation
 
 ### Reference
 

@@ -21,7 +21,7 @@ The three limits are runtime settings. **Admin, Settings** lists them with their
 | `rate_limit_per_minute` | `ROR_RATE_LIMIT_PER_MINUTE` | 0 (off) | 0 or more |
 | `pats_enabled` | `ROR_PATS_ENABLED` | on | on or off |
 
-The other runtime settings (chat, retrieval and so on) are covered under runtime settings, written next. All settings are in the [settings reference](../reference/settings.md).
+The other runtime settings (chat, retrieval and so on) are covered in [runtime settings](runtime-settings.md). All settings are in the [settings reference](../reference/settings.md).
 
 ## Upload size
 

@@ -10,7 +10,10 @@ For rOracle administrators: the people, labels, sources and limits that shape wh
 - [Quotas and limits](quotas-limits.md): upload size, per-user quota, rate limit, connector caps
 - [Audit log](audit.md): the viewer, what is recorded, getting data out, retention
 
-Planned pages, written next: evaluation, index maintenance, runtime settings and writing profiles.
+- [Evaluation](eval.md): gold sets, runs, the trend, compare gates and the CI job
+- [Index maintenance](index-maintenance.md): re-embed, rebuild, shadow indexes, reference re-extraction, jobs and cleanup
+- [Runtime settings](runtime-settings.md): the fourteen settings an admin can change, precedence over the environment, audit
+- [Writing profiles](writing-profiles.md): the YAML schema, validation and how a draft gets its profile
 
 ## The admin area
 
@@ -24,10 +27,10 @@ Admins see an **Admin** entry in the web app. It opens `/admin` with one tab per
 | Jobs | The processing queue; retry failed jobs | Jobs and queue: see [architecture](../architecture/README.md) |
 | Review | Uploads and connector items that look like papers already in the library, oldest first; filter by All, Uploads or Connectors | [Uploads](../user/uploads.md#near-duplicates) (the researcher's side) |
 | Needs title | Versions waiting for a title | [Uploads](../user/uploads.md) |
-| Settings | Runtime overrides of selected settings | [Quotas and limits](quotas-limits.md) for the limit settings; the rest is written next |
+| Settings | Runtime overrides of selected settings | [Runtime settings](runtime-settings.md); the limit settings are also in [Quotas and limits](quotas-limits.md) |
 | Tags | Merge tags | [Labels](labels.md#tags-and-index-drift) |
 | Labels | Sensitivity labels | [Labels](labels.md) |
-| Eval | Retrieval-quality evaluation | Written next |
+| Eval | Retrieval-quality evaluation | [Evaluation](eval.md) |
 | Audit | The audit log | [Audit log](audit.md) |
 | Users | Users, groups, revoking tokens | [Users and groups](users-groups.md) |
 | Stats | Document, version, blob and user counts and the top uploaders | [Quotas and limits](quotas-limits.md#watching-usage) |

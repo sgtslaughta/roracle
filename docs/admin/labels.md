@@ -78,7 +78,7 @@ If you suspect the index and Postgres disagree, for example after a failed job, 
 - Only documents that differ get an `acl_sync` job, so an index that is in sync costs no writes. Repairs always re-read Postgres.
 - The periodic maintenance job runs the same step, every `ROR_MAINTENANCE_INTERVAL_S` seconds (default 86400).
 
-Follow the jobs in **Admin, Jobs** (kind `maintenance`, `reconcile_tags`, `acl_sync`). A failed `acl_sync` can be retried there. The other maintenance steps are covered under index maintenance (written next).
+Follow the jobs in **Admin, Jobs** (kind `maintenance`, `reconcile_tags`, `acl_sync`). A failed `acl_sync` can be retried there. The other maintenance steps are covered in [index maintenance](index-maintenance.md#purge-blob-gc-and-tag-reconcile).
 
 ## Related
 

@@ -34,7 +34,7 @@ Rows share one shape: when, who (user id), an action, a target (usually an id or
 | `admin.revoke_pats` | An admin revoked a user's tokens | The user id |
 | `admin.tags_merge` | Tags merged | The target tag; sources and number of documents |
 | `admin.job_retry`, `admin.jobs_retry_failed`, `admin.maintenance_<op>` | Job retries and maintenance runs | The job id or counts |
-| `admin.reindex_start`, `admin.reindex_drop_old`, `admin.writing_profile`, `retrieval.rebuild`, `eval.*` | Index, writing-profile and evaluation administration | Written next, under index maintenance and evaluation |
+| `admin.reindex_start`, `admin.reindex_drop_old`, `admin.writing_profile`, `retrieval.rebuild`, `eval.*` | Index, writing-profile and evaluation administration | See [index maintenance](index-maintenance.md), [evaluation](eval.md) and [writing profiles](writing-profiles.md) |
 | `label.create`, `label.update`, `label.delete`, `label.reorder` | Label set changes | The label id, with name and rank or the fields changed (old and new); for `label.reorder`, the ordered ids |
 | `document.label`, `annotation.label` | A paper's or note's label changed | `from` and `to` are label ids; `via` says how; the `reason` when given |
 | `label.export_blocked` | A download or export was refused by a label | The document id; the route |
