@@ -198,3 +198,21 @@ CI: manual job `iac-kind-e2e` (stage `terraform`, `when: manual`). It needs a **
 containers), the dind service sharing the job's network namespace (Kubernetes executor; the script uses `127.0.0.1`), ~8 GB RAM, internet on first run, and
 `KIND_E2E_IMAGE` (bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum; the job fails fast when unset). dockerd is started on loopback only
 (`--host=tcp://127.0.0.1:2375`), never on the pod IP. Run the job in a runner namespace with a default-deny ingress NetworkPolicy. Not part of the default pipeline.
+
+### Live Rook-Ceph rehearsal (local only)
+
+```sh
+deploy/terraform/test/kind-e2e.sh ceph      # = KIND_E2E_PROFILE=ceph ... all;  KIND_E2E_KEEP=1 keeps the cluster on failure
+```
+**Local only**: it needs a privileged kind node that can create loop devices (`losetup`, `mknod`), ~16 GB RAM and ~8 GB disk (sparse files). Do not run it on shared or Docker-in-Docker runners (loop devices are host-global).
+Three 8 GiB sparse files are created inside the kind node and attached as loop devices; each device and file is recorded in `test/.tools/loops.list`, and `down` (also the EXIT trap of `all`) detaches and deletes exactly those, never other loop devices.
+Profile: `environments/kind-ceph.tfvars` + the generated `test/.tools/ceph-osd.tfvars` (1 mon, 1 mgr, 1 RGW, failure domain `osd`, EC 2+1 on the three OSDs, cert-manager self-signed TLS, backups on, `allowLoopDevices` and a single-host CRUSH `configOverride` as test-only chart values).
+Timings (16 CPU host, warm Docker cache): up 70 s (incl. loop devices, mirroring ~1.5 GB of Ceph images), apply 305 s, verify 55 s, destroy 5 min (bounded, see below), whole run 745 s.
+
+Verified end to end: CephCluster Ready (HEALTH_WARN only for single-mon disk space), CephObjectStore Ready, users Ready, bucket-setup Job completed; app S3 put/get/delete over HTTPS with the copied CA; `tmp-expire` lifecycle on the app bucket; S3 object lock (GOVERNANCE 30 d) on both backup buckets;
+the app key gets `AccessDenied` on the backup buckets; the writers get `AccessDenied` on deleting a locked version and on `BypassGovernanceRetention` but may write and create delete markers; CNPG `Backup` (barman plugin) to RGW `completed`;
+ES `_snapshot/roracle-s3/_verify`, the repository analysis API (`blob_count=20`), and an SLM `_execute` create followed by a snapshot delete; delete markers/noncurrent versions present afterwards.
+Bugs found by it and fixed: RGW listens on 443/80 (the ingress policy and chart egress used 8443/8080); the `rook-ceph` default CRUSH rule needs `osd_crush_chooseleaf_type = 0` on a single host (test-only).
+Findings: the very first repository analysis once failed with a spurious RGW `BucketAlreadyExists` (409) and passed on all later runs (the script retries once); the backend/barman checksum environment (`AWS_REQUEST_CHECKSUM_CALCULATION=when_required`) was set on the setup Job and CNPG backups worked without further changes.
+Known gaps: `terraform destroy` does not finish (Rook blocks deleting the object store users/store while buckets exist: the script bounds it to 15 min and removes the cluster); single host and loop devices prove the logic, not durability or performance; a real multi-node Ceph install is still a first-install rehearsal for you.
+
