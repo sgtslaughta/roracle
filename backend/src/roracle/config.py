@@ -174,8 +174,9 @@ class Settings(AliasConfig):
     global_map_tokens: int = 200  # hard cap per map note
     global_reduce_tokens: int = 1200  # hard cap on the streamed reduce answer
     summary_doc_chars: int = Field(
-        48000, ge=200
-    )  # whole-document summary budget (~12k tokens); larger docs: units or map-reduce
+        32000, ge=200
+    )  # single-pass budget (~8k tokens; chat model needs num_ctx >= 16k)
+    summary_window_chars: int = Field(6000, ge=200)  # text per map call when a document is map-reduced
     agentic_retrieval: bool = (
         False  # P13 T8: query decomposition loop on multihop questions (flips on a PASS)
     )

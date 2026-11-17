@@ -141,9 +141,9 @@ def _release(prep, ss: Session, own: bool):
     return go
 
 
-def _leave(p: Principal, ss: Session, own: bool):
+def _leave(p: Principal, ss: Session, own: bool, token: int | None = None):
     def go() -> None:
-        agentic.leave(p)
+        agentic.leave(p, token)
         if own:
             ss.close()
 
@@ -257,17 +257,22 @@ def post_message(
     prep = None
     agent = False
     target = None
-    admitted = False
+    slot = 0  # admission token of a summary turn
     if chat.scope == "open" and not has_open_context(session, p, body.viewer):
         excluded = open_blocked(session, p, body.viewer)
         canned, model = (NO_READABLE if excluded else NO_OPEN_DOCS), None
-    elif (dec := summarize.decide(session, p, body.content, body.viewer, chat.scope, chat.excludes))[
-        0
-    ] or dec[1]:
-        target = dec[0] and dec[0].document_id  # open-paper rule: no corpus search, no global routing
-        if target is None:  # contentless and nothing usable open: canned guard, no LLM, no search
+    elif (dec := summarize.decide(session, p, body.content, body.viewer, chat.scope, chat.excludes)) != (
+        None,
+        False,
+    ):
+        tv, _guard = dec  # open-paper rule: no corpus search, no global routing
+        if tv is None:  # contentless and nothing usable open: canned guard, no LLM, no search
             excluded = open_blocked(session, p, body.viewer)
             canned, model = summarize.GUARD, None
+        elif slot := agentic.enter(settings, p):  # one heavy turn per user at a time (the agentic limiter)
+            target = tv.document_id
+        else:
+            canned, model = summarize.BUSY, None
     else:
         try:
             if settings.router:
@@ -320,13 +325,13 @@ def post_message(
             else summarize.prepare(ss, es, llm, settings, p, body.content, target, history, HISTORY)
             if target
             else (_agentic_prepare(ss, es, llm, settings, p, body, chat, history, request.app.state.session_factory if request else None) if agent else None),
-            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session) if agent or target else None),
+            _release(prep, ss, ss is not session) if prep else (_leave(p, ss, ss is not session, slot or None) if agent or slot else None),
         )  # fmt: skip
     except BaseException:
         if prep:
             prep.release()
-        if agent or admitted:
-            agentic.leave(p)
+        if agent or slot:
+            agentic.leave(p, slot or None)
         raise
     return ClosingStreamingResponse(
         _frames(gen),

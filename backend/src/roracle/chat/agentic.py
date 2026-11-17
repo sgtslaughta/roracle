@@ -50,15 +50,20 @@ class Plan:
     done: bool
 
 
-def admit(settings: Settings, p: Principal) -> bool:
-    """One loop per user, `agentic_max_admitted` per process; nothing queues (busy => the plain path)."""
-    return SLOTS.admit(
+def enter(settings: Settings, p: Principal) -> int:
+    """Like `admit`, returning the admission token (0 = refused) for `leave(p, token)`."""
+    return SLOTS.enter(
         1 << 30, str(p.user_id), settings.agentic_timeout_s + 30, settings.agentic_max_admitted
     )
 
 
-def leave(p: Principal) -> None:
-    SLOTS.leave(str(p.user_id))
+def admit(settings: Settings, p: Principal) -> bool:
+    """One loop per user, `agentic_max_admitted` per process; nothing queues (busy => the plain path)."""
+    return bool(enter(settings, p))
+
+
+def leave(p: Principal, token: int | None = None) -> None:
+    SLOTS.leave(str(p.user_id), token)
 
 
 def plan(
