@@ -129,7 +129,7 @@ def test_pats_disabled_override_blocks_rest_and_mcp(app, client, adm):
 def test_worker_dedupe_uses_override(db_session, session_factory, cfg, store, user, monkeypatch):
     seen = []
 
-    def spy(session, p, v, a, b):
+    def spy(session, p, v, a, b, **kw):
         seen.append((a, b))
 
     monkeypatch.setattr(pipeline, "find_near_duplicate", spy)

@@ -10,14 +10,14 @@ matching nodes) and `index.mapping.exclude_source_vectors` (vectors are not stor
 reindex and ACL `update_by_query`, and `fields`/`_source.includes` still return them).
 The kNN `index_options` are always explicit: ES 9.1+ silently defaults to `bbq_hnsw` for >= 384 dims otherwise.
 
-## RAM and disk (768 dims, HNSW m=16)
+## RAM and disk (768 dims, HNSW m=16): ESTIMATES from formulas, not measured
 Per copy of the index; with one replica double the numbers. Page cache must hold the quantized vectors plus the graph;
 `bbq_hnsw` additionally reads float vectors from disk to rescore `oversample x k` candidates.
-| chunks | int8_hnsw: vectors + graph | bbq_hnsw: vectors + graph | float32 on disk | disk with vectors in `_source` (~9 KB/chunk) |
+| chunks | int8_hnsw: vectors + graph | bbq_hnsw: vectors + graph | float32 on disk | disk with vectors in `_source` (estimate ~9 KB/chunk) |
 |---|---|---|---|---|
 | 1M | ~0.8 GB | ~0.17 GB | 3.1 GB | ~9 GB |
 | 10M | ~8.4 GB | ~1.7 GB | 31 GB | ~90 GB |
-| 50M | ~42 GB | ~8.7 GB | 154 GB | ~450 GB (about 40% less with `exclude_source_vectors`) |
+| 50M | ~42 GB | ~8.7 GB | 154 GB | ~450 GB (estimate; `exclude_source_vectors` removes the duplicate float copy, roughly a third to 40%: measure) |
 | 1B | ~836 GB | ~174 GB | 3.1 TB | ~9 TB |
 Formulas: int8 `n x (dims + 4)` + graph `n x 4 x m`; bbq `n x (dims / 8 + 14)` + graph.
 
@@ -32,7 +32,7 @@ production kNN `k=100, num_candidates=400`, recall against exact cosine, single 
 | type | recall@10 | recall@100 | p50 / p95 ms | store |
 |---|---|---|---|---|
 | int8_hnsw | 0.817 | 0.720 | 4.6 / 6.1 | 196 MB |
-| int4_hnsw | 0.696 | 0.682 | 3.7 / 4.8 | 351 MB |
+| int4_hnsw | 0.696 | 0.682 | 3.7 / 4.8 | 351 MB (more than int8: the store includes the raw float copy plus both quantized copies of the segment, not forcemerged to a steady state; not comparable, treat as unreliable) |
 | bbq_hnsw oversample 1.5 | 0.667 | 0.410 | 6.6 / 10.1 | 162 MB |
 | bbq_hnsw oversample 3 | 0.741 | 0.545 | 6.6 / 10.7 | 162 MB |
 | bbq_hnsw oversample 5 | 0.822 | 0.645 | 6.4 / 11.9 | 162 MB |
@@ -49,8 +49,14 @@ for everyone else. ACL changes keep their forced refresh (a revocation must be v
 writes nothing when there is no drift (10.4). `ensure_index` metadata calls are memoized for 30 s per process.
 
 ## Upgrade notes (8.x -> 9.x)
-Elasticsearch cannot open an 8.15 data directory: use a fresh 9.5.6 cluster/volume and rebuild or re-embed (the dev
-compose uses a new `esdata9` volume). The Python client is `elasticsearch` 9.x. The 9.0 breaking changes that touch
-this code: vectors absent from `_source` (fixed in `cached_vectors` and the tests), stricter bulk parsing, 429 instead
-of 5xx on timeouts. `bbq_disk`, native RRF/linear retrievers and searchable snapshots need an Enterprise license and
-are not used.
+Supported path for an existing cluster (ECK or not): 8.15 -> **8.19.x** (rolling, run the Upgrade Assistant) -> 9.5.x.
+A direct 8.15 -> 9 jump is refused (ECK's webhook / the node itself); bump `elasticsearch.version` to 8.19.x first, let ECK
+finish, then to 9.5.6. ECK must be a release whose support matrix lists 9.5 (3.x line). After the hop 9.x reads the
+indices created on 8.x unchanged; the new index settings (`exclude_source_vectors`, shard count, `index_options`)
+only apply to indices created afterwards (re-embed or rebuild into a new generation); `hnsw_filter_heuristic` is
+dynamic and is applied to the active index at the next `ensure_index`. A fresh 9.5.6 cluster + rebuild is the
+alternative (the dev compose uses a new `esdata9` volume because an 8.x data directory cannot be opened by 9 directly).
+External Elasticsearch must be 9.x: the client sends `compatible-with=9` and these settings are 9.x-only.
+The Python client is `elasticsearch` 9.x. The 9.0 breaking changes that touch this code: vectors absent from `_source`
+(fixed in `cached_vectors` and the tests) and stricter bulk parsing. `bbq_disk`, native RRF/linear retrievers and
+searchable snapshots need an Enterprise license and are not used.

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -169,6 +170,17 @@ def _point_read_alias(
             move()
 
 
+_ENSURED: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()  # transport -> {key: monotonic time}
+
+
+def _memo_for(es) -> dict | None:
+    """Per-connection memo (`es.options()` clones share the transport); None for objects that cannot be weak keys."""
+    try:
+        return _ENSURED.setdefault(getattr(es, "transport", es), {})
+    except TypeError:
+        return None
+
+
 ENSURE_TTL_S = 30.0  # the idempotent existence/mapping/alias checks (4-6 metadata calls) run once per window
 
 
@@ -187,18 +199,17 @@ def ensure_index(
     the metadata round trips for every document. Failures are never memoized; the unguarded mode (no
     `session_factory`: tools/tests, which repair the read alias) is never memoized."""
     name = name or index_name(model)
-    memo: dict = es.__dict__.setdefault("_roracle_ensured", {})
-    key = (name, dims, alias, create)
-    if (
-        session_factory is not None
-        and (at := memo.get(key)) is not None
-        and time.monotonic() - at < ENSURE_TTL_S
-    ):
-        return name
+    key = (name, dims, alias)
+    memo = (
+        _memo_for(es) if session_factory is not None and create else None
+    )  # `create=False` (shadow rebuild)
+    if memo is not None and (at := memo.get(key)) is not None and time.monotonic() - at < ENSURE_TTL_S:
+        return name  # ...must re-check that the shadow still exists: a bulk into a dropped one would auto-create it
     out = _ensure_index(
         es, model, dims, alias, name, session_factory=session_factory, settings=settings, create=create
     )
-    memo[key] = time.monotonic()
+    if memo is not None:
+        memo[key] = time.monotonic()
     return out
 
 
@@ -226,6 +237,24 @@ def _ensure_index(
         except BadRequestError as e:
             if e.error != "resource_already_exists_exception":
                 raise
+    if settings is not None:  # dynamic setting: existing (8.x-era) indices get ACORN without a re-embed
+        try:
+            es.indices.put_settings(
+                index=name,
+                settings={
+                    "index": {
+                        "dense_vector": {
+                            "hnsw_filter_heuristic": index_settings(settings)["index"]["dense_vector"][
+                                "hnsw_filter_heuristic"
+                            ]
+                        }
+                    }
+                },
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "could not set hnsw_filter_heuristic on %s", name, exc_info=True
+            )
     props = es.indices.get_mapping(index=name)[name]["mappings"].get("properties", {})
     if (
         props.get("embedding", {}).get("dims") != dims

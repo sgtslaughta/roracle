@@ -14,12 +14,12 @@ from roracle.ingest.chunking import Chunk
 from roracle.ingest.embed import doc_prompt, embed, prompt_sha
 from roracle.models import Blob, Document, DocumentShare, DocumentVersion, User
 from roracle.models_labels import Label
-from roracle.search_index import _mapping, acl_fields, index_chunks
+from roracle.search_index import _mapping, acl_fields, index_chunks, index_settings
 
 
 def create_index(es, name: str, dims: int) -> None:
     es.indices.delete(index=name, ignore_unavailable=True)
-    es.indices.create(index=name, mappings=_mapping(dims))
+    es.indices.create(index=name, mappings=_mapping(dims), settings=index_settings())
 
 
 def seed(session: Session, es, llm, settings: Settings, fx: FixtureSet) -> GoldSet:

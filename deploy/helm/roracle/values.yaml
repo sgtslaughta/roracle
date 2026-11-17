@@ -196,7 +196,8 @@ postgres:
 
 elasticsearch:
   mode: eck                # eck | external (external: ROR_ELASTIC_URL in existingSecret, nothing rendered)
-  version: 9.5.6
+  version: 9.5.6           # an EXISTING 8.x cluster must go 8.15 -> 8.19.x -> 9.5.x (never straight); needs an ECK 3.x release that lists 9.5
+  # mode: external requires Elasticsearch 9.x (the client sends compatible-with=9; hnsw_filter_heuristic / exclude_source_vectors are 9.x settings)
   image: {repository: docker.elastic.co/elasticsearch/elasticsearch, tag: "", digest: "", pullPolicy: IfNotPresent}  # tag "" = version
   nodeSets:                # default: one set of 3 master+data nodes
     - {name: default, count: 3, roles: [master, data, ingest]}

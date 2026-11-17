@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from roracle.ingest import pipeline
 from roracle.ingest.embed import from_bytes
-from roracle.ingest.neardup import minhash
+from roracle.ingest.neardup import minhash, write_bands
 from roracle.models import Document, DocumentShare, DocumentVersion, Job
 from roracle.queue import enqueue, run_once
 from roracle.search_index import index_name
@@ -204,6 +204,7 @@ def test_near_dup_goes_to_review_and_decision_does_not_recheck(
     db_session.query(DocumentVersion).filter_by(id=first.id).update(
         {"stage": "searchable", "minhash": minhash(text)}
     )
+    write_bands(db_session, first.id, minhash(text))  # what `_dedupe` wrote when `first` was ingested
     db_session.commit()
     monkeypatch.setattr(pipeline, "convert", lambda *a, **k: json.loads(json.dumps(doc)))
     second = make_version(db_session, store, user)

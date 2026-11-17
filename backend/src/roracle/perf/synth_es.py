@@ -11,7 +11,7 @@ import numpy as np
 from elasticsearch import Elasticsearch, helpers
 
 from roracle.perf.synth_pg import det_uuid, visibility
-from roracle.search_index import _mapping, acl_hash
+from roracle.search_index import _mapping, acl_hash, index_settings
 
 VOCAB = 5000
 WORDS_PER_CHUNK = 40
@@ -80,7 +80,9 @@ def seed(
         es.indices.create(
             index=index,
             mappings=_mapping(dims),
-            settings={"index": {"number_of_replicas": 0, "refresh_interval": "-1"}},
+            settings={
+                "index": {**index_settings()["index"], "number_of_replicas": 0, "refresh_interval": "-1"}
+            },
         )
     helpers.bulk(
         es.options(request_timeout=120),

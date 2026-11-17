@@ -150,7 +150,8 @@ def _index(
     chunks = chunk(doc, title, settings.embed_tokenizer)
     if not chunks:
         raise NonRetryable("no text extracted")
-    # first time this version reaches indexing: a crashed earlier run would have left "chunked"/"embedded"
+    # first time this version reaches indexing: a crashed earlier run would have left "chunked"/"embedded".
+    # (A future "reprocess" feature that resets a version to a pre-index stage must delete its stale chunks itself.)
     first_index = not rebuild and v.stage in ("summarized", "deduped")
     if not rebuild:
         set_stage(sf, v.id, "chunked")
@@ -201,11 +202,14 @@ def _index(
         keep_units = _index_units(
             session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, soft=not rebuild
         )
+    # The ONE refresh of this ingest, right after the bulk and BEFORE the ACL re-read: any ACL change, relabel or
+    # DELETE that commits after our read then runs its update_by_query/delete_by_query on a searcher that already
+    # contains these chunks (they act on the last refreshed state), and one that committed before is seen by the read.
+    es.indices.refresh(index=search_index.MUTATE_ALIAS)
     # The handler session may have read the ACL minutes ago: if a PATCH landed meanwhile its
     # update_by_query (ACL or tags) may have run before these chunks existed. Re-read, converge.
     fresh = read_acl(sf, d.id)
     if fresh is None:  # deleted while we indexed: DELETE's chunk purge may have run before our bulk
-        es.indices.refresh(index=search_index.MUTATE_ALIAS)  # the purge must see the unrefreshed new chunks
         es.delete_by_query(
             index=search_index.MUTATE_ALIAS,
             query={"term": {"doc_id": str(d.id)}},
@@ -214,16 +218,12 @@ def _index(
         )
         return
     if fresh[0] != {**acl, "tags": tags}:
-        es.indices.refresh(index=search_index.MUTATE_ALIAS)  # update_by_query only sees refreshed chunks
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     if not first_index:  # a first index of this version has no earlier chunks to prune
         search_index.delete_stale_chunks(es, v.id, len(chunks), keep_units=keep_units, refresh=False)
     if latest and v.version > 1 and not rebuild:  # version 1 has no older versions to demote
         search_index.mark_previous_versions(es, d.id, v.version, refresh=False)
         clear_outdated_reasons(sf, d.id, v.id)
-    es.indices.refresh(
-        index=search_index.MUTATE_ALIAS
-    )  # the ONE refresh per ingest, before it becomes searchable
     if rebuild:
         return
     # R6 + demotion: stage, citations job and the is_latest flip commit atomically
@@ -277,19 +277,17 @@ def index_units_only(
     keep = _index_units(
         session, v, d, chunks, settings, es, llm, store, acl, title, latest, tags, index, soft=False
     )
+    es.indices.refresh(index=search_index.MUTATE_ALIAS)  # before the ACL re-read, as in `_index`
     fresh = read_acl(sf, d.id)
     if fresh is None:
-        es.indices.refresh(index=search_index.MUTATE_ALIAS)
         es.delete_by_query(
             index=search_index.MUTATE_ALIAS, query={"term": {"doc_id": str(d.id)}}, refresh=True,
             conflicts="proceed",
         )  # fmt: skip
         return
     if fresh[0] != {**acl, "tags": tags}:
-        es.indices.refresh(index=search_index.MUTATE_ALIAS)
         search_index.sync_acl(es, d.id, lambda: read_acl(sf, d.id))
     search_index.delete_stale_units(es, v.id, keep or [], refresh=False)
-    es.indices.refresh(index=search_index.MUTATE_ALIAS)
 
 
 def _is_latest(session: Session, v: DocumentVersion, d: Document) -> bool:
