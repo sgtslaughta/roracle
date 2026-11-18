@@ -10,7 +10,7 @@ import { notesUi, useNotes } from "@/features/notes/api";
 import { KIND_ICON, KIND_LABEL } from "@/features/notes/labels";
 import { useDocling } from "./api";
 import { loadPdf } from "./pdfjs";
-import { TextFallback } from "./TextFallback";
+import { NO_PDF, TextFallback } from "./TextFallback";
 import { PdfPage, type PageMark } from "./PdfPage";
 import { setView, type ReaderTab } from "./useReaderStore";
 
@@ -22,8 +22,10 @@ export default function PdfView({ tab, version, filename, onDownload, blocked }:
   const [zoom, setZoom] = useState(2); // index into ZOOMS: 1.0 = fit width
   const [current, setCurrent] = useState(1);
 
+  const noPdf = NO_PDF.test(filename);
   const pdf = useQuery({
     queryKey: ["pdf", tab.docId, version],
+    enabled: !noPdf,
     staleTime: Infinity,
     gcTime: 60_000, // documents are destroyed when the query is garbage collected (see pdfCleanup)
     queryFn: async () => loadPdf(await (await apiFetch<Blob>(`/documents/${seg(tab.docId)}/versions/${seg(version)}/pdf`)).arrayBuffer()),
@@ -113,7 +115,7 @@ export default function PdfView({ tab, version, filename, onDownload, blocked }:
     setView("notes");
   };
 
-  if (pdf.error instanceof ApiError && pdf.error.status === 404) return <TextFallback docId={tab.docId} version={version} filename={filename} onDownload={onDownload} blocked={blocked} />;
+  if (noPdf || (pdf.error instanceof ApiError && pdf.error.status === 404)) return <TextFallback docId={tab.docId} version={version} filename={filename} onDownload={onDownload} blocked={blocked} />;
   if (pdf.isError) return <div className="pages"><div className="empty" role="alert"><p>This version can't be previewed. Use the download button to open the original.</p></div></div>;
   if (!pdf.data) return <div className="pages"><p className="sub" role="status">Loading document…</p></div>;
 

@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 
 const MD = /\.(md|markdown)$/i;
 const MAX_TEXT = 2 * 1024 * 1024;
-const TXT = /\.(txt|text)$/i;
+const TXT = /\.(txt|text|csv|tsv|json|xml|nxml|tex|bib)$/i; // shown as plain text, never as HTML
 const IMG = /\.(png|jpe?g|webp|gif|bmp)$/i; // tiff is not shown by browsers
+/** Types that never have a PDF to show (only PDFs and converted office files do): skip the /pdf request and its 404. */
+export const NO_PDF = /\.(md|markdown|txt|text|csv|tsv|json|xml|nxml|tex|bib|png|jpe?g|webp|gif|bmp|tiff?|epub|html?)$/i;
 
 /** The original image, fetched with the session (an <img src> cannot send the token). */
 function ImageView({ docId, version, filename, onDownload, blocked }: Props) {
@@ -42,7 +44,7 @@ function Unavailable({ onDownload, blocked }: Pick<Props, "onDownload" | "blocke
 
 type Props = { docId: string; version: number; filename: string; onDownload: () => void; blocked?: string };
 
-/** No PDF rendition (404): Markdown and plain text render from the original file, anything else offers a download. */
+/** No PDF rendition: Markdown and text-like files render from the original file, images show as pictures, anything else offers a download. */
 export function TextFallback(props: Props) {
   if (IMG.test(props.filename)) return <ImageView {...props} />;
   return <TextView {...props} />;

@@ -51,6 +51,17 @@ describe("reader rendition", () => {
     expect(document.querySelector(".doctext img")).toBeNull();
   });
 
+  it("a text or image file never asks for a PDF (no 404 on every open)", async () => {
+    named("table.csv");
+    const hits: string[] = [];
+    server.use(http.get(`${API_BASE}/documents/:id/versions/:n/pdf`, () => { hits.push("pdf"); return HttpResponse.json({ detail: "not found" }, { status: 404 }); }),
+      http.get(`${API_BASE}/documents/:id/versions/:n/file`, () => new HttpResponse("a,b\n1,2", { headers: { "Content-Type": "text/csv" } })));
+    await open();
+    const pre = await waitFor(() => { const p = document.querySelector(".doctext pre"); expect(p).not.toBeNull(); return p!; });
+    expect(pre.textContent).toBe("a,b\n1,2"); // CSV, TSV, JSON, XML and LaTeX show as plain text
+    expect(hits).toEqual([]);
+  });
+
   it("404 on a .txt doc renders a <pre>, never HTML", async () => {
     noPdf(); named("a.txt");
     server.use(http.get(`${API_BASE}/documents/:id/versions/:n/file`, () => new HttpResponse("<b>plain</b>", { headers: { "Content-Type": "text/plain" } })));
