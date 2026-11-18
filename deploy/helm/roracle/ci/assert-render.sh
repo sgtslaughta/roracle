@@ -60,9 +60,14 @@ need(set(dns["values"]) == ({"gotenberg", "draftgotenberg", "docling", "grobid"}
      "allow-dns NotIn must cover all parsers (clamav excepted only with a mirror): %s" % dns["values"])
 pm = [d for d in docs if d["kind"] == "PodMonitor"]
 need(pm, "PodMonitor missing")
-need([e["port"] for e in pm[0]["spec"]["podMetricsEndpoints"]] == ["http", "metrics"], "PodMonitor ports must be http, metrics")
+need([e["port"] for e in pm[0]["spec"]["podMetricsEndpoints"]] == ["http", "health"], "PodMonitor ports must be http (api), health (worker)")
 wk = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-worker")][0]["spec"]["template"]["spec"]["containers"][0]
-need({p["name"]: p["containerPort"] for p in wk["ports"]}.get("metrics") == 8001, "worker needs a port named metrics = worker.healthPort")
+need({p["name"]: p["containerPort"] for p in wk["ports"]}.get("health") == 8001, "worker needs a port named health = worker.healthPort")
+for d in docs:
+    if d["kind"] == "Deployment":
+        for c in d["spec"]["template"]["spec"]["containers"]:
+            cp = [p["containerPort"] for p in c.get("ports", [])]
+            need(len(cp) == len(set(cp)), "duplicate containerPort in " + d["metadata"]["name"])
 pr = [d for d in docs if d["kind"] == "PrometheusRule"]
 need(pr, "PrometheusRule missing")
 alerts = [r["alert"] for g in pr[0]["spec"]["groups"] for r in g["rules"]]

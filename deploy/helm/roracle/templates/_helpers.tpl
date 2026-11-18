@@ -205,7 +205,7 @@ spec:
             - configMapRef: {name: {{ include "roracle.fullname" $root }}-env}
           {{- end }}
           {{- if or .port .healthPort }}
-          {{- $extra := and .metricsPort (ne (int .metricsPort) (int (default 0 .port))) }}
+          {{- $extra := and .metricsPort (ne (int .metricsPort) (int (default 0 .port))) (ne (int .metricsPort) (int (default 0 .healthPort))) }}
           ports:
             {{- with .port }}
             - {name: http, containerPort: {{ . }}}

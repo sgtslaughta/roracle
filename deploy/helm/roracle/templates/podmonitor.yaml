@@ -14,5 +14,5 @@ spec:
       - {key: app.kubernetes.io/component, operator: In, values: [api, worker]}
   podMetricsEndpoints:
     - {port: http, path: /metrics, interval: {{ .Values.observability.podMonitor.interval }}}
-    - {port: metrics, path: /metrics, interval: {{ .Values.observability.podMonitor.interval }}}
+    - {port: health, path: /metrics, interval: {{ .Values.observability.podMonitor.interval }}}
 {{- end }}
