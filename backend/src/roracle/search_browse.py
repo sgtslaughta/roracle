@@ -78,16 +78,15 @@ def decorate(session: Session, p: Principal, policy: Policy, results: list[dict]
     """Viewer-relative extras of a result page: visible cited-by counts, label JSON, agent gate, notes."""
     ids = [UUID(h["doc_id"]) for h in results]
     counts = cited_by_counts(session, p, ids)
-    extra = card_extras(session, ids)
+    gated = gated_docs(session, p, [h["doc_id"] for h in results])
+    # fail closed: text fields are only ever fetched for ungated docs
+    extra = card_extras(session, [i for i in ids if str(i) not in gated])
     for h in results:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
         h["summary"], h["abstract"], h["ref_count"] = extra.get(h["doc_id"], (None, None, 0))
         h["label"] = label_json(policy.get(h["label"]))
-    gated = gated_docs(session, p, [h["doc_id"] for h in results])
-    for h in results:  # agents: metadata and label, no passage text of exclude_llm docs
-        if h["doc_id"] in gated:
+        if h["doc_id"] in gated:  # agents: metadata and label, no text of exclude_llm docs
             h["passages"], h["withheld"] = [], gated[h["doc_id"]]
-            h["summary"] = h["abstract"] = None
     attach_notes(session, p, results, notes)
 
 
