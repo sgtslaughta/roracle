@@ -113,6 +113,21 @@ services:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/health"]
       interval: 10s
       retries: 10
+  latex-builder:
+    # opt-in (~2.3 GB small / ~5 GB full TeX Live): docker compose --profile latex up -d --build latex-builder, then
+    # ROR_LATEX_BUILDER=http://localhost:3302. Untrusted TeX runs here: no egress (masquerade off), read-only, no caps.
+    profiles: [latex]
+    build:
+      context: ../latex-builder
+      args: { BASE: "${LATEX_BASE:-texlive/texlive:latest-small@sha256:c572bf2d14631545769e5a8f8d315e7b8f8896b14720b1c7a063917d503fd46a}" }
+    image: roracle-latex-builder:dev
+    read_only: true
+    tmpfs: ["/tmp:size=1g"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 3g
+    networks: [latex]
+    ports: ["127.0.0.1:${ROR_LATEX_BUILDER_PORT:-3302}:8080"]
   clamav:
     profiles: [full]
     image: ${REGISTRY_MIRROR:-}clamav/clamav:1.4
@@ -126,6 +141,9 @@ services:
 networks:
   # dedicated (not `internal`: Docker would not publish its port to the host); prod uses NetworkPolicy
   gotenberg: {}
+  # no outbound NAT: the host can reach the published port, the container cannot reach the internet
+  latex:
+    driver_opts: { com.docker.network.bridge.enable_ip_masquerade: "false" }
 
 volumes:
   esdata9:

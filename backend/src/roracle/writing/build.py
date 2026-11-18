@@ -208,7 +208,11 @@ class PandocBuilder:
 
 def get_builder(settings: Settings, fmt: str) -> Builder:
     if fmt == "latex":
-        return DisabledLatexBuilder()  # only `disabled` exists (docs/enterprise/latex-builder.md)
+        if settings.latex_builder in ("", "disabled"):
+            return DisabledLatexBuilder()
+        from roracle.writing.latex import LatexBuilder  # circular: latex imports BuildError from here
+
+        return LatexBuilder(settings, _transport)
     return PandocBuilder(settings, _transport)
 
 

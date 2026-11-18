@@ -157,7 +157,9 @@ class Settings(AliasConfig):
     build_max_pdf_bytes: int = Field(
         100 * 1024 * 1024, description="Maximum size of a built draft PDF in bytes"
     )
-    latex_builder: Literal["disabled"] = "disabled"  # `disabled` -> format: latex builds return 501
+    latex_builder: str = (
+        "disabled"  # `disabled` -> format: latex builds return 501; else the latex-builder service URL
+    )
     writing_model: str = ""  # P9 style check / citation judge; empty = first chat model
     chat_passages: int = 8  # clamped 4-12 at use
     chat_chunks_per_doc: int = Field(
