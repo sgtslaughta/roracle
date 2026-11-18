@@ -133,7 +133,7 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
 - A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
   job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak to the caller).
 - **Handoff transcripts of chats carry text verbatim, with limited redaction.** Assistant message text derived from
-  `block_agents` sources is withheld (`[withheld: <label>]`) for **every** loader, humans included; text derived
+  `block_agents` sources is withheld (`[withheld: unavailable]`, the label name is not revealed) for **every** loader, humans included; text derived
   from `exclude_llm` sources is withheld for PAT loaders. Assistant replies that drew on (cited or retrieved) papers the loader cannot see (ACL, not label) are
   withheld as `[withheld: unavailable]`, and those citations are reduced to `{n, available: false}`
   (`handoff.py` `get_part`); the creator sees them only if they can still see every paper. Passages that came from notes are always dropped from
