@@ -40,3 +40,4 @@
   --radius-lg: var(--radius);
   --font-sans: var(--f-ui); --font-serif: var(--f-read);
 }
+@import "./onboarding.css";

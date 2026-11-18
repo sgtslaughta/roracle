@@ -19,6 +19,7 @@ import { ResultTable } from "./ResultTable";
 import { ViewSwitch } from "./ViewSwitch";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
+import { GetStarted } from "@/features/onboarding/GetStarted";
 import { Upgrading } from "./upgrading";
 
 /** Server limits (search_limits.py): the query path and the cited window keep MAX_DOCS, browse pages through BROWSE_WINDOW. */
@@ -92,6 +93,7 @@ export function SearchPage() {
       <div className="sbody">
         <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>
         <div>
+          <GetStarted />
           {upgrading && <p className="upgrade-note" role="status"><Info aria-hidden />Some filters will be available when the search index upgrade finishes.</p>}
           {isError && !blocked && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           {view === "table" && data && !!data.results.length && (

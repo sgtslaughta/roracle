@@ -1,0 +1,16 @@
+.get-started { max-width: 760px; margin-bottom: 14px; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.get-started header { display: flex; align-items: baseline; gap: 10px; }
+.get-started h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.get-started .prog { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.get-started .x { margin-left: auto; border: 0; background: none; cursor: pointer; color: var(--muted); line-height: 1; }
+.get-started .bar { height: 4px; border-radius: 4px; background: var(--muted-bg); margin: 10px 0 6px; overflow: hidden; }
+.get-started .bar i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+.get-started .steps { list-style: none; margin: 0; padding: 0; display: grid; }
+.get-started .steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--border); }
+.get-started .steps li:first-child { border-top: 0; }
+.get-started .tick { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); display: grid; place-items: center; }
+.get-started .done .tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.get-started .done .lbl { color: var(--muted); }
+.get-started .lbl small { display: block; color: var(--muted); font-size: 12px; }
+.get-started .link { border: 0; background: none; color: var(--primary); cursor: pointer; padding: 2px 4px; font-weight: 600; font-size: 13px; }
+.get-started .next-group { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
