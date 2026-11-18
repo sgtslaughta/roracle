@@ -35,6 +35,18 @@ The expand button at the right of the tab row cycles the reader through three wi
 
 ![The reader in three-quarter width with the workspace dimmed behind it](../assets/screens/reader-focus.png)
 
+## Tabs in the side panel
+
+The reader has six tabs: **Document**, **Summary**, **Details**, **References**, **Cited by** and **Notes**.
+
+### Summary tab
+
+Shows the **AI summary** (written when ingest finishes; before that it says no summary yet) and the **Abstract** extracted from the document, or a note that none was found.
+
+### Details tab
+
+A list of what is known about the paper: title, authors, year, venue, org unit, file type, pages, references, owner, visibility, sensitivity, status, added date and tags (empty fields are left out), then its **Identifiers** and a **Versions** list with file names and upload dates.
+
 ## Identifiers
 
 Under the title the reader lists the paper's persistent identifiers, when known: DOI, arXiv, PMID, PMCID, ISBN, ACL Anthology, OpenReview, ISSN and eISSN. Each one is plain text with a copy button. They are never links, because rOracle does not reach the internet.
@@ -47,11 +59,11 @@ DOI, arXiv, PMID, PMCID, ACL and OpenReview ids are also used to link citations 
 
 **References** lists the paper's bibliography in order, with a count. Each entry is marked either **In the library** with an **Open** button, or **Not in the library**.
 
-rOracle links a reference to a library paper by matching identifiers first, then by a very close title match plus the same year. Only papers you are allowed to see are linked, so a reference may show as not in the library for you while it is for a colleague. The list shows 25 at a time; use **Show more**. A paper with no parsed references says "This document lists no references".
+rOracle links a reference to a library paper by matching identifiers first, then by a very close title match plus the same year. Only papers you are allowed to see are linked, so a reference may show as not in the library for you while it is for a colleague. The list shows 25 at a time; use the **Show N more (M left)** button. A paper with no parsed references says "This document lists no references".
 
 ## Cited by tab
 
-**Cited by** lists the papers in the library that cite this one (again, only those you can see), with an **Open** button for each. If none do, it says "Nothing in the library cites this yet". The "Cited by N here" figure on result cards is the same count.
+**Cited by** lists the papers in the library that cite this one (again, only those you can see), with an **Open** button for each. Like References, it shows 25 at a time. If none do, it says "Nothing in the library cites this yet". The "Cited by N here" figure on result cards is the same count.
 
 ![The References tab with in-library and not-in-library entries](../assets/screens/reader-references.png)
 

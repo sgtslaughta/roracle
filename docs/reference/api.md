@@ -50,13 +50,15 @@ A `503` with `Retry-After: 2` means the embedding service is throttled or down. 
 
 ## Pagination
 
-Four styles exist. Check the route in [openapi.json](openapi.json).
+Five styles exist. Check the route in [openapi.json](openapi.json).
 
 | Style | Parameters | Used by |
 |---|---|---|
 | Page and size | `page` (from 1), `size` (1 to 50) | `GET /api/search` |
 | Opaque cursor | `after`, response field `next` | `GET /api/search` browse list, `GET /api/me/uploads` |
-| Limit and offset | `limit`, `offset` | Handoffs, annotations, references and cited-by, uploads |
+| Limit and offset | `limit`, `offset` | Handoffs, annotations, `GET /api/documents/{doc_id}/cited-by` (the references list takes no paging parameters), uploads, `GET /api/me/proposals` |
+| Chat cursor | `before` (opaque), `limit` (1 to 100) | `GET /api/chats`: pass the last chat's cursor to get older chats; a bad cursor is `422 invalid cursor` |
+| Notification keyset | `before_id`, `since_id`, `limit` (up to 200), `unread_only`; response `next_before_id` | `GET /api/me/notifications`: newest first; `since_id` polls for newer rows |
 | Admin pages | `page` and `limit` (up to 200), or `before_id` and `next_before_id` | Admin lists |
 
 **Cursors are opaque.** A cursor encodes the sort position of the last item. Do not parse or build one. Pass `next` back unchanged as `after`. `next` is `null` on the last page.
@@ -78,8 +80,9 @@ Each frame is `event: <name>` then `data: <JSON>` then a blank line. Events in t
 
 | Event | Data | When |
 |---|---|---|
-| `meta` | Routing and context details: `excluded_by_label` (context withheld by label), `route`, `agentic`, `subqueries`, `global` | First, but only when there is something to report. Can appear again after `progress` |
+| `meta` | Routing and context details: `excluded_by_label` (context withheld by label), `route`, `agentic`, `subqueries`, `global` (a global fallback carries `global: {"fallback": ...}`), `summarize` (`{doc_id, title, version, partial?}`, for whole-document summary questions) | First, but only when there is something to report. Can appear again after `progress` |
 | `progress` | `{"step", "of", "done"}` for agentic retrieval, or `{"mapped", "total"}` for a global question | Zero or more, before the first `token` |
+| `reading` | `{"part", "of"}`, once per window when the question asks for a summary of one document | Before the first `token` |
 | `token` | `{"text": "<delta>"}` | One per generated piece of the answer |
 | `citations` | `{"items": [...]}` the sources cited in the answer, numbered as in the text | After the last `token` |
 | `done` | `{"message_id": "<uuid>"}` | Last frame on success |
@@ -103,7 +106,7 @@ The chat body takes `content` (1 to 4000 characters), optional `model` (must be 
 
 A `201` returns `document_id`, `version_id` and `sha256`. Ingestion then runs in the background: poll `GET /api/me/uploads` for `stage` and `status`. A version in the `needs_title` stage waits for `PUT /api/documents/{doc_id}/versions/{version_id}/title`.
 
-**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"code": "duplicate", "document_id": "..."}`, which usually makes a retry after a timeout harmless. The check is best effort: it cannot see a concurrent request that has not committed yet, so two simultaneous uploads of the same file can both succeed. A committed upload that is still ingesting is matched. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
+**Idempotency.** There is no idempotency key. Duplicates are found by content hash: re-sending a file that already exists returns `409` with `{"detail": {"code": "duplicate", "document_id": "..."}}`, which usually makes a retry after a timeout harmless. The check is best effort: it cannot see a concurrent request that has not committed yet, so two simultaneous uploads of the same file can both succeed. A committed upload that is still ingesting is matched. Only versions you may know about are matched. Send `force=true` to store it anyway. With a per-user quota (`ROR_UPLOAD_QUOTA_BYTES`, default `0` meaning unlimited), going over gives `413 upload quota exceeded`.
 
 An `org_unit` visibility needs the uploader to belong to an organisational unit, else `422`.
 
@@ -152,7 +155,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 |---|---|
 | `GET` and `POST /api/documents/{doc_id}/annotations` | List and create notes (writes are human only) |
 | `GET`, `PATCH`, `DELETE /api/annotations/{note_id}`, `POST .../replies`, `PUT .../vote`, `POST .../report`, `POST .../hide`, `PUT /api/annotations/{note_id}/label` | Work with one note |
-| `GET /api/annotations/{note_id}/evidence`, `GET /api/evidence/{evidence_id}`, `GET /api/evidence/{evidence_id}/file`, `PUT .../reproduction`, `DELETE /api/evidence/{evidence_id}` | Evidence attached to notes |
+| `GET /api/annotations/{note_id}/evidence`, `POST /api/annotations/{note_id}/evidence` (multipart `meta` and `file`, human only), `GET /api/evidence/{evidence_id}`, `GET /api/evidence/{evidence_id}/file`, `PUT .../reproduction`, `DELETE /api/evidence/{evidence_id}` | Evidence attached to notes |
 | `GET /api/me/proposals`, `GET /api/me/proposals/count`, `POST /api/proposals/{proposal_id}/approve`, `POST /api/proposals/{proposal_id}/reject`, `POST /api/proposals/bulk-approve` | Review changes an agent proposed |
 
 ### Drafts and writing
@@ -163,6 +166,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 | `PUT /api/drafts/{doc_id}/content`, `PUT /api/drafts/{doc_id}/coauthors`, `DELETE /api/drafts/{doc_id}` | Edit, co-authors, delete |
 | `POST /api/drafts/{doc_id}/validate`, `/check-citations`, `/build`, `/submit` | Checks, LaTeX build, submit for review |
 | `GET /api/drafts/{doc_id}/checks`, `GET /api/drafts/{doc_id}/versions/{n}` | Check results, version |
+| `POST` and `DELETE /api/drafts/{doc_id}/citations/ack` | Acknowledge, or take back the acknowledgement of, a flagged citation (human only) |
 | `GET /api/skills/roracle-writer.zip` | Writing skill bundle for agents |
 
 ### Handoffs, inbox and account
@@ -171,6 +175,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 |---|---|
 | `POST /api/handoffs`, `GET /api/handoffs`, `GET`, `PATCH`, `DELETE /api/handoffs/{code}`, `GET /api/handoffs/{code}/parts/{part}`, `POST /api/handoffs/{code}/notes` | Frozen context packages. Contents are fixed at creation, and each load re-checks who may see what. See [handoffs](../user/handoffs-inbox.md) |
 | `GET /api/me`, `GET /api/me/uploads` | Who you are; your uploads |
+| `GET`, `PUT /api/me/onboarding` | Get-started checklist state (PUT sets `dismissed`); GET also returns `pats_enabled` |
 | `GET /api/me/notifications`, `POST /api/me/notifications/read` | Inbox |
 | `GET`, `POST /api/me/tokens`, `DELETE /api/me/tokens/{token_id}` | Personal access tokens (JWT only) |
 | `GET /api/directory/users`, `GET /api/directory/groups` | Look up people and groups for sharing |

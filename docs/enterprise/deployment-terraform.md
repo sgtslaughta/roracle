@@ -1,6 +1,6 @@
 # Deploying with Terraform
 
-Audience: operators and SRE. Terraform in `deploy/terraform` wraps the Helm chart described in the [deployment guide](deployment-guide.md) (chart 0.2.0): namespaces, pull secret, operator charts, Secrets, optional Rook-Ceph object storage, optional GPU inference and the `roracle` release. Design reasons are in [ADR-0016](../adr/0016-terraform-iac.md). Terms are in the [glossary](../glossary.md).
+Audience: operators and SRE. Terraform in `deploy/terraform` wraps the Helm chart described in the [deployment guide](deployment-guide.md) (chart 0.3.0): namespaces, pull secret, operator charts, Secrets, optional Rook-Ceph object storage, optional GPU inference and the `roracle` release. Design reasons are in [ADR-0016](../adr/0016-terraform-iac.md). Terms are in the [glossary](../glossary.md).
 
 It targets a **pre-existing cluster** through a kubeconfig (`kubeconfig_path`, `kubeconfig_context`) and manages no cloud resources. Providers: `hashicorp/kubernetes ~> 3.0`, `hashicorp/helm ~> 3.0`; Terraform `>= 1.6`. The module layout is in `deploy/terraform/README.md`.
 

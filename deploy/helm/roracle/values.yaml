@@ -214,7 +214,7 @@ elasticsearch:
   resources:
     requests: {cpu: "2", memory: 8Gi}
     limits: {memory: 8Gi}
-  tls: true                # ECK self-signed HTTP TLS; CA reaches the app via caBundle (interim, see below)
+  tls: true                # ECK self-signed HTTP TLS; CA reaches the app via caBundle (see below)
   # REQUIRED (eck): basic-auth Secret (username roracle_app, password, roles: roracle_app) for the app's fileRealm user.
   # ROR_ELASTIC_URL must use this user, never `elastic`. The role (chunks* only) is rendered by the chart.
   appUserSecret: ""
@@ -342,9 +342,9 @@ connectors:
   egressCIDRs: []
   ports: [443]
 
-# Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes
-# certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport
-# ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it.
+# Merged CA bundle for api/worker/migrate: an init container writes certifi's bundle + the CAs below into an
+# emptyDir that is mounted over certifi's cacert.pem (elastic_transport ignores SSL_CERT_FILE when certifi is
+# installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE and ROR_ELASTIC_CA_CERTS/ROR_S3_CA_BUNDLE point at it.
 # Active only when ES TLS (eck) or extraSecrets (e.g. the S3 CA) are in play.
 caBundle:
   certifiPath: /app/backend/.venv/lib/python3.12/site-packages/certifi/cacert.pem   # coupled to the backend image layout

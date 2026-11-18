@@ -77,7 +77,7 @@ endpoint IPs: with the default empty list, ports 443 and 6443 are allowed to any
 ### Headers sent by the web pod
 
 The web pod's nginx includes `frontend/nginx/security-headers.conf` at server level and in every location that sets
-headers. `ROR_OIDC_ORIGIN` is derived from `ROR_OIDC_AUTHORITY` at pod start.
+headers. Exception: `/docs/` (the bundled documentation site, same origin) includes `docs-security-headers.conf` instead, whose CSP allows `script-src 'self' 'unsafe-inline'` for the site's inline bootstrap scripts and has no OIDC origins; docs must never contain user-supplied HTML. `ROR_OIDC_ORIGIN` is derived from `ROR_OIDC_AUTHORITY` at pod start.
 
 Upload size: nginx `client_max_body_size` is 1100m (>= `ROR_EVIDENCE_MAX_BYTES`, 1 GiB); any proxy or ingress in front must be at least that large.
 
@@ -92,7 +92,7 @@ Cross-Origin-Opener-Policy: same-origin
 
 - `frame-ancestors 'self'` / `SAMEORIGIN` / `frame-src` OIDC origin exist for the oidc-client-ts silent-renew iframe (`/auth/silent`).
   The Keycloak realm CSP `frame-ancestors` must allow the app origin.
-- `style-src 'unsafe-inline'` is required by the UI toolkit's inline styles; scripts stay `'self'` only.
+- `style-src 'unsafe-inline'` is required by the UI toolkit's inline styles; scripts stay `'self'` only (except under `/docs/`, above).
 - HSTS is not sent by the web pod: set `Strict-Transport-Security` at the ingress or org proxy.
 - Runtime OIDC config is substituted into the JS bundle by nginx; substituted JS is cached 1 h (not immutable).
 - The web proxy answers 404 for `/api/metrics` and `/api/readyz`; the API's own `/healthz`, `/readyz` and `/metrics`

@@ -20,7 +20,7 @@ Definitions are taken from the code under `backend/src/roracle`.
 ## Collaboration
 
 - **Handoff**: a shareable context bundle with an 8-character code and an expiry. Kinds: `chat`, `collection`, `search`, `document`, `agent`. Contents are frozen at creation; who may load it and what is redacted are re-evaluated on every load. Notes can be appended. Chat and collection source handles are shown to the creator only.
-- **Proposal**: an agent-submitted item (`note`, `relation`, `evidence`, `label`) with status `pending`, `approved` or `rejected`, decided by a human.
+- **Proposal**: an agent-submitted item (`note`, `relation` or `label`; `evidence` is reserved in the schema but not yet accepted) with status `pending`, `approved` or `rejected`, decided by a human.
 - **Annotation kinds**: `comment`, `finding`, `correction`, `question`, `relation`. Status is `visible`, `hidden` or `removed`. A `relation` needs a relation type and a target document.
 - **Evidence / RO-Crate**: provenance records of how a result was produced, shaped as an RO-Crate. The context identifier is never fetched (air-gap).
 

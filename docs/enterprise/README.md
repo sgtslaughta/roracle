@@ -4,7 +4,7 @@ Operations and security documentation. Back to the [documentation index](../READ
 
 | Document | For | Covers |
 |---|---|---|
-| [Deployment guide](deployment-guide.md) | Platform engineers | Helm chart 0.2.0: topology, prerequisites, sizing, install, NetworkPolicy, configuration notes, HA, TLS |
+| [Deployment guide](deployment-guide.md) | Platform engineers | Helm chart 0.3.0: topology, prerequisites, sizing, install, NetworkPolicy, configuration notes, HA, TLS |
 | [Deploying with Terraform](deployment-terraform.md) | Platform engineers | Modules, tfvars profiles, placeholder gate, secrets modes, `protect_data`, Rook-Ceph or external S3 |
 | [Kind rehearsal](deployment-kind-rehearsal.md) | Platform engineers | `kind-e2e.sh` rehearsal with a local mirror, live Ceph rehearsal, decommissioning the object store |
 | [Upgrades](upgrades.md) | Platform engineers, on-call | Upgrade order, chart 0.1 to 0.2.0, Elasticsearch 8 to 9, Alembic migrations with risks, re-embed |

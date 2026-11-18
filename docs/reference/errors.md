@@ -26,13 +26,19 @@ Match on the status code first. Treat the `detail` text as a hint for humans: on
 | 403 | Not an admin, or an admin route called with a PAT (admins included) | `admin only` |
 | 403 | Label blocks export | `export blocked by label` |
 | 403 | Posting to a chat that was shared with you read-only | `read-only` |
+| 403 | A PAT reads or builds text whose label is Exclude from AI (a draft, its versions or reports, or a document's file or evidence) | `withheld by label: <label name>` |
+| 403 | You are not the owner or author of this object | for example `only the document owner can change this document`, `only the draft owner can do this`, `only the creator or an admin can delete evidence` |
 | 404 | Unknown, deleted or not visible to you. Hidden and absent look the same. Path ids above 2^63 - 1 also give 404 | `not found` |
 | 405 | `GET /mcp` (only POST is served) | plain text `method not allowed`, `Allow: POST` |
 | 409 | Duplicate upload (see above), or the action conflicts with current state: not awaiting a title or a near-duplicate decision, a reindex, rebuild, run or job already active, only failed jobs can be retried, a name or key that already exists, draft documents that must use the `/api/drafts` endpoints | for example `not awaiting a title`, `reindex running` |
+| 410 | Handoff revoked or expired | `handoff revoked`, `handoff expired` |
 | 413 | Upload larger than `ROR_MAX_UPLOAD_BYTES`; upload quota exceeded; JSON body over the cap | `file exceeds <n> MB limit`, `upload quota exceeded`, `request body too large` |
 | 422 | Invalid parameter or body, NUL character, unknown model or scope | see [Input rejections](#input-rejections) |
 | 429 | Rate limit hit. Carries `Retry-After` (whole seconds, at least 1) | `rate limited` |
-| 503 | Embedding or search backend unavailable | `inference unavailable` (with `Retry-After: 2`), `search unavailable` |
+| 429 | An agent already has 50 pending proposals for this user and client. No `Retry-After` | `too many pending proposals` |
+| 500 | Creating a handoff could not find a free code (very rare) | `could not allocate handoff code` |
+| 501 | LaTeX builds are not enabled | `LaTeX builds are not enabled` |
+| 503 | A backend is unavailable, busy or in a transient conflict; retry | `inference unavailable` (with `Retry-After: 2`), `search unavailable`, `search index upgrade in progress`, `update failed, please retry`, `transfer failed, please retry`, `saved, but search index update is pending`, and for draft builds `build service busy`, `unavailable`, `not configured` or `timed out` |
 
 `ROR_*` names are listed in [settings.md](settings.md).
 

@@ -17,14 +17,14 @@ Postgres is the queue (ADR-0003). One row per job in `jobs`:
 | `lease_until`, `claim_token` | the running worker's lease and the fencing token of that claim |
 | `last_error` | the last failure message, cut to 2000 characters |
 
-`GET /api/admin/jobs` shows `id`, `kind`, `status`, `attempts`, `last_error`, `payload`, `created_at` and `updated_at`.
+`GET /api/admin/jobs` shows `id`, `kind`, `status`, `attempts`, `last_error`, `payload`, `created_at` and `updated_at`, plus `document_id` and `filename` for jobs that carry a `version_id`. Filter with `?status=` and `?kind=`; it pages with a keyset. `GET /api/admin/jobs/summary` returns counts per kind and status and versions per stage.
 
 ## Claiming and priority
 
 - A worker claims one due job at a time with `FOR UPDATE SKIP LOCKED`, ordered by `run_after`, then `id`. More workers never conflict.
-- **User kinds** (everything except the three below) are claimed first.
-- **Bulk kinds** `reconcile_tags`, `rebuild_units` and `reparse_refs` are claimed only when no user job is due, `reconcile_tags` first, then `rebuild_units` and `reparse_refs` together in one FIFO step (by `run_after`, then `id`). A backfill therefore never delays an upload.
-- A worker only claims kinds it has a handler for; the worker registers all 15 kinds below.
+- **User kinds** (everything except the four below) are claimed first.
+- **Bulk kinds** `reconcile_tags`, `rebuild_units`, `reparse_refs` and `auto_tags` are claimed only when no user job is due, `reconcile_tags` first, then the other three together in one FIFO step (by `run_after`, then `id`). A backfill therefore never delays an upload.
+- A worker only claims kinds it has a handler for; the worker registers all 17 kinds below.
 
 ## Leases and retries (all kinds unless noted)
 
@@ -62,6 +62,8 @@ Delivery is at least once: a handler may run again after a crash, so every handl
 | `reembed` | user | `{phase, source, target, cursor, ...}` | `POST /api/admin/reindex`, itself |
 | `eval_run` | user | `{set_id, trigger, path, judge}` | `POST /api/admin/eval/runs`, re-embed, rebuild watch |
 | `eval_generate` | user | `{set_id, principal, n}` | `POST /api/admin/eval/sets/{set_id}/generate` |
+| `search_signals` | user | `{doc_ids}` | a vote, the `citations` job, `reparse_refs` |
+| `auto_tags` | bulk | `{version_id}` | `roracle auto-tags [--limit N]` |
 
 ## Per kind
 
@@ -149,3 +151,15 @@ Delivery is at least once: a handler may run again after a crash, so every handl
 - **Payload:** `set_id`, `principal` (a non-admin user id) and `n` (1 to 200).
 - **Does:** samples visible documents the principal may send to the model, asks the LLM for draft questions and stores them as drafts for an admin to review. Documents with the `exclude_llm` label gate never reach the model; the gate is re-read from Postgres just before each passage is sent.
 - **Retries:** invalid input is `NonRetryable`; other errors retry generically. **Idempotent:** it only adds drafts, so a re-run adds more.
+
+### `search_signals`
+
+- **Payload:** `doc_ids`.
+- **Does:** recomputes `votes_net`, `cited_by_global` and `searchable` from Postgres and pushes them to the head chunk of each version with `update_by_query`, so a vote rewrites one index document per version, not every chunk. Unchanged head chunks are a no-op.
+- **Idempotent:** yes; it always recomputes from Postgres.
+
+### `auto_tags` (bulk)
+
+- **Payload:** `version_id`.
+- **Does:** the LLM suggests up to 5 short tags from the version's AI summary. Only the document's previous `llm` tags are replaced; user tags are never removed. A document whose label has `exclude_llm` is never sent (the label is re-read before the call), and the tag vocabulary comes only from documents visible to everyone and allowed near an LLM. Then it enqueues `acl_sync`. Ingest also tags new versions (best effort); this job is the backfill added by `roracle auto-tags [--limit N]`.
+- **Retries:** generic. **Idempotent:** yes; it replaces its own earlier suggestions.

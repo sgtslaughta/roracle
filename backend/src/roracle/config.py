@@ -145,7 +145,7 @@ class Settings(AliasConfig):
     search_min_similarity: float = (
         0.35  # kNN cosine floor for library search; 0 disables (relevant ~0.4-0.75, unrelated <=0.3)
     )
-    chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default
+    chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default unless an admin sets the runtime-only chat_default_model
     writing_max_citations: int = 200  # distinct citation keys a draft may use
     writing_validate_budget_s: float = 10  # deterministic checks wall-clock budget (fail closed)
     draft_gotenberg_url: str = ""  # separate Chromium-enabled Gotenberg for draft PDF builds; empty = 503

@@ -165,10 +165,10 @@ def _psg_chunk(es, settings: Settings, p: Principal, policy: Policy, ver: str, n
     return hits[0]["_source"] if hits else None
 
 
-def _passage(
+def _passages(
     session, es, llm, settings, p, policy: Policy, key: str, res: dict, sentence: str
-) -> dict | None:
-    """Best readable passage {chunk_id, doc_id, text, title} for a resolved key, else None."""
+) -> list[dict]:
+    """Readable passages {chunk_id, doc_id, text, title} for a resolved key, best first (up to 3 for @doc)."""
     if res["kind"] == "psg":
         s = _psg_chunk(es, settings, p, policy, res["version_id"], res["n"])
         cands = [s] if s else []
@@ -182,12 +182,12 @@ def _passage(
         cands = [x.__dict__ for x in ps]
     cands = [c for c in cands if c.get("doc_id") == res["doc_id"]]
     seen = visible_versions(session, p, cands)  # R19: PG is the authority, ES hits are only candidates
-    for c in cands:
-        if (c["doc_id"], c["version_id"]) in seen and (
-            res["kind"] == "doc" or c["version_id"] == res["version_id"]
-        ):
-            return c
-    return None
+    return [
+        c
+        for c in cands
+        if (c["doc_id"], c["version_id"]) in seen
+        and (res["kind"] == "doc" or c["version_id"] == res["version_id"])
+    ]
 
 
 def apply_acks(report: dict, acks: list) -> dict:
@@ -231,7 +231,8 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
                           doc_id=res["doc_id"])
                 )  # fmt: skip
                 continue
-            psg = _passage(session, es, llm, settings, p, policy, key, res, s) if res else None
+            cands = _passages(session, es, llm, settings, p, policy, key, res, s) if res else []
+            psg = cands[0] if cands else None
             if res is None or (psg is None and res["kind"] == "psg"):
                 items.append(_item(key, s))
             elif psg is None:
@@ -240,7 +241,13 @@ def check(session, es, llm, settings: Settings, p: Principal, doc_id: UUID) -> d
                           doc_id=res["doc_id"])
                 )  # fmt: skip
             else:
+                # @doc: the top hit is often the title block; try the next passages before calling it unsupported
                 verdict, reason = judge(llm, model, s, psg["text"])
+                for c in cands[1:] if verdict != "supported" else []:
+                    v2, r2 = judge(llm, model, s, c["text"])
+                    if v2 == "supported":
+                        psg, verdict, reason = c, v2, r2
+                        break
                 items.append(
                     _item(key, s, status="resolved", verdict=verdict, reason=reason,
                           chunk_id=psg["chunk_id"], doc_id=psg["doc_id"], title=psg.get("title") or "")

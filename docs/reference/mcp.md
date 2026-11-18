@@ -150,7 +150,7 @@ A tool error is a normal MCP result with `isError: true` and one text block. The
 | `handoff revoked`, `handoff expired`, `note limit reached` | Handoff state |
 | `withheld by label: <name>` | Draft tool on an `exclude_llm` draft |
 | `inference unavailable`, `search unavailable` | `ask` with the model or the search index down |
-| `bad chunk id: ...`, `chunk_ids must hold 1..50 ids`, `query too long (max 1000)` | Input outside the documented limits |
+| `bad chunk id: ...`, `chunk id too long`, `context must be 0..2`, `chunk_ids must hold 1..50 ids` | Input outside the documented limits |
 
 Problems at HTTP level are plain statuses and never become tool results: `401` (credential), `405` (`GET /mcp`), `413` (body), `429` (rate limit, with `Retry-After`).
 

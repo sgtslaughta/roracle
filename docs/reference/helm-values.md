@@ -241,7 +241,7 @@ Data services: operator CRs (CNPG, ECK must be installed by the platform) Each c
 | `elasticsearch.storage` | `{"size": "200Gi", "storageClass": ""}` |  |
 | `elasticsearch.resources.requests` | `{"cpu": "2", "memory": "8Gi"}` |  |
 | `elasticsearch.resources.limits` | `{"memory": "8Gi"}` |  |
-| `elasticsearch.tls` | `true` | ECK self-signed HTTP TLS; CA reaches the app via caBundle (interim, see below) |
+| `elasticsearch.tls` | `true` | ECK self-signed HTTP TLS; CA reaches the app via caBundle (see below) |
 | `elasticsearch.appUserSecret` | `""` | REQUIRED (eck): basic-auth Secret (username roracle_app, password, roles: roracle_app) for the app's fileRealm user. ROR_ELASTIC_URL must use this user, never `elastic`. The role (chunks* only) is rendered by the chart. |
 | `elasticsearch.extraConfig` | `{"node.store.allow_mmap": false}` | elasticsearch.yml for every nodeSet. allow_mmap=false avoids ECK's privileged sysctl init container; drop it if a node-tuning DaemonSet sets vm.max_map_count>=262144 (mmap is faster). |
 | `elasticsearch.snapshot.enabled` | `true` | hook Job registers S3 repository roracle-s3 + SLM policy roracle-daily |
@@ -344,7 +344,7 @@ Connector egress (worker only; backend also enforces connector_http_allow_cidrs)
 
 ## caBundle
 
-Interim TLS trust for api/worker/migrate: the backend has no CA setting (P11b). An init container writes certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE point at it. Active only when ES TLS (eck) or extraSecrets (e.g. the S3 CA) are in play.
+Merged CA bundle for api/worker/migrate: an init container writes certifi's bundle + the CAs below into an emptyDir that is mounted over certifi's cacert.pem (elastic_transport ignores SSL_CERT_FILE when certifi is installed); SSL_CERT_FILE/REQUESTS_CA_BUNDLE/AWS_CA_BUNDLE and ROR_ELASTIC_CA_CERTS/ROR_S3_CA_BUNDLE point at it. Active only when ES TLS (eck) or extraSecrets (e.g. the S3 CA) are in play.
 
 | Key | Default | Description |
 |---|---|---|

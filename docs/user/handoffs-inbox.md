@@ -93,7 +93,7 @@ If it cannot be opened you see one of:
 - "This handoff has expired. Ask whoever shared it for a new one."
 - "This handoff was revoked by the person who made it."
 
-Agents can add short notes to a handoff they can load (up to 200 per handoff) if their token has write access. People cannot add notes in the app.
+Agents can add short notes to a handoff they can load (up to 200 per handoff) if their token has write access. People cannot add notes in the app. The page marks handoffs made by an agent "(via an agent)" and notes written by agents "(agent)".
 
 ![The handoff page showing goal, brief, documents with labels and a withheld count](../assets/screens/handoff-landing.png)
 
@@ -111,14 +111,14 @@ Open **Settings** from the avatar menu and choose the **Handoffs** tab. It lists
 
 Agents with a write token cannot change your library directly. They can only **propose** notes, replies to notes and sensitivity-label changes, and nothing is published until you decide. Proposals are in **Agent proposals** in the sidebar, where a number badge counts those waiting. The pending list refreshes every minute and when you return to the tab.
 
-- Tabs: **Pending**, **Approved** and **Rejected**. Proposals are grouped by agent: the heading shows the name of the access token the agent used (with a `pat:` prefix). An agent can have at most 50 proposals waiting at once.
-- Each card shows the kind (comment, finding, correction, question, relation, **Reply**, **Label change** or **Note label change**), the paper and page it is about, the quote it is anchored to, the proposed visibility and the text. The text is the agent's, shown as plain text and not to be trusted.
+- Tabs: **Pending**, **Approved** and **Rejected**. Proposals are grouped by agent: the heading reads **From your token “name”**, using the name of the access token the agent used. An agent can have at most 50 proposals waiting at once.
+- Each card is a sentence ending in the paper's title: "Add a *kind* to" (comment, finding, correction, question or relation), "Reply to a note on", "Change the label of" or "Change a note's label on". It also shows the page it is about and page it is about, the quote it is anchored to, "Visible to: …" and "Agent-assisted, from …" lines, and the text. The text is the agent's, shown as plain text and not to be trusted.
 - **Approve** publishes it as it is. A note becomes yours, marked **Agent-assisted**, with the visibility the agent proposed (private if it proposed none). **Open note** then jumps to it.
 - **Edit** lets you change the text, and for a new note its visibility (and, for **Named people or groups**, the people and groups), before **Approve with edits**. A reply follows the visibility of the note it answers.
 - **Reject** discards it. It moves to the Rejected tab.
-- **Approve selected** and **Approve all** (in the page header) approve several at once without edits, in batches of 100. A message says how many were approved and why any failed; the failed ones stay selected so you can retry.
+- Each agent group has a **Select all** checkbox, and **Approve selected** shows how many are selected. **Approve selected** and **Approve all…** (in the page header, after a confirmation "Approve all N proposals?") approve several at once without edits, in batches of 100. A message says how many were approved and why any failed; the failed ones stay selected so you can retry.
 
-Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner or an admin; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "Document no longer available". Agents never choose a label for a new note; it inherits the paper's (they can only propose a **Note label change** for an existing one).
+Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner or an admin; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "a document that is no longer available". Agents never choose a label for a new note; it inherits the paper's (they can only propose a label change for an existing note).
 
 For what happens to approved notes, see [notes and annotations](notes-annotations.md).
 

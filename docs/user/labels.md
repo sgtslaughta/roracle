@@ -1,6 +1,6 @@
 # Sensitivity labels
 
-Every paper carries a sensitivity label set up by your admins: a name, a colour and a rank (how sensitive it is). The label appears as a coloured badge, never as colour alone. Hover over it to read the admin's description. You see it in the reader header, on result cards, in My uploads and on notes, and you can filter the Library by it (**Sensitivity**, least sensitive first). The terms are defined in the [glossary](../glossary.md#labels).
+Every paper carries a sensitivity label set up by your admins: a name, a colour and a rank (how sensitive it is). The label appears as a coloured badge, never as colour alone. Hover over it to read the admin's description. You see it in the reader header, on result cards (except for the default label), in My uploads and on notes, and you can filter the Library by it (**Sensitivity**, least sensitive first). The terms are defined in the [glossary](../glossary.md#labels).
 
 A label can switch on rules, called gates. Which gates a label has is decided by your admins, so two labels can behave very differently. The sections below say what each gate means to you as a reader.
 
@@ -28,14 +28,14 @@ A note can have its own label too. The label that applies to a note is the highe
 
 The owner of a paper and admins see a pencil button next to the badge in the reader. It opens **Change label**.
 
-- **Raising** (a more sensitive label) or keeping the current one: allowed for the owner and for admins.
+- **Raising** (a more sensitive label): allowed for the owner and for admins.
 - **Lowering** (a less sensitive label): only admins can do it. For anyone else the lower options are greyed out with "only admins can lower a label".
 - When the current label has the reason-on-lower rule, an admin must give a reason of at least 3 characters; without the rule the reason is optional. Reasons are limited to 500 characters.
 - After you choose **Apply label** you see "Label updated". Search results and chat follow the new label.
 
 For a note, the author and admins see the same pencil on the note. The same rules apply, and a note can never be labelled below its paper.
 
-If someone else changes the label of your paper, you get a notification.
+If someone else changes the label of your paper, you get a notification, which currently reads only "Something changed." and has no link.
 
 ![The Change label dialog for a non-admin, noting that lower labels can't be chosen](../assets/screens/labels-change-dialog.png)
 
@@ -47,13 +47,13 @@ When you upload a paper that near-duplicates an existing one and you add it as a
 
 ## Labels proposed by agents
 
-An agent working for you can propose a label change. It appears on **Agent proposals** as "Label change" (or "Note label change") with the current and proposed labels. Nothing changes until you press **Approve**.
+An agent working for you can propose a label change. It appears on **Agent proposals** as "Change the label of *title*" (or "Change a note's label on *title*") with the current and proposed labels. If the proposal would change nothing, it says "Already has this label: approving changes nothing" and **Approve** is disabled. Nothing changes until you press **Approve**.
 
 - Raising: you can approve it if you own the paper.
 - Lowering is marked "Lowers the label: admins only". Only an admin can approve it, and an admin is asked for a reason when the label requires one. Anyone else gets an error.
 - **Reject** discards it.
 
-The agent's own stated reason is shown as untrusted text.
+Any reason the agent gives is not kept; an admin who lowers the label gives their own.
 
 ## Related
 

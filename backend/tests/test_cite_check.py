@@ -185,6 +185,32 @@ def test_doc_key_uses_search_chunks_and_post_filters(client, as_ana, ana, bob, d
     assert it["verdict"] == "unsupported" and it["reason"] == "no matching passage" and it["chunk_id"] is None
 
 
+def test_doc_key_tries_next_passages_when_top_hit_unsupported(client, as_ana, ana, db_session, es, llm):
+    d, v = seed(db_session, ana, title="Mine", visibility="everyone")
+    es.hits = [hit(d, v, 0, "Title block only"), hit(d, v, 3, "the evidence"), hit(d, v, 5, "more evidence")]
+    i = mk(client, as_ana, cite(f"doc:{d.id}"))
+    llm.text = '{"verdict": "unsupported", "reason": "title only"}'
+    orig = llm._create
+
+    def per_passage(**kw):
+        llm.text = (
+            '{"verdict": "supported", "reason": "ok"}'
+            if "the evidence" in kw["messages"][1]["content"]
+            else '{"verdict": "unsupported", "reason": "title only"}'
+        )
+        return orig(**kw)
+
+    llm.chat.completions.create = per_passage
+    it = check(client, as_ana, i).json()["items"][0]
+    assert it["verdict"] == "supported" and it["chunk_id"] == f"{v.id}:3"
+    assert len(llm.calls) == 2  # stops at the first supported passage
+    llm.calls.clear()
+    es.hits = [hit(d, v, 0, "Title block only"), hit(d, v, 5, "nothing")]
+    it = check(client, as_ana, i).json()["items"][0]
+    assert it["verdict"] == "unsupported" and it["chunk_id"] == f"{v.id}:0" and it["reason"] == "title only"
+    assert len(llm.calls) == 2
+
+
 def test_dedupe_and_cap(client, as_ana, ana, db_session, es, llm, settings):
     d, v = seed(db_session, ana, title="Mine", visibility="everyone")
     es.hits = [hit(d, v)]
