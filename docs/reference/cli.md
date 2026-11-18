@@ -7,7 +7,9 @@
 ## `roracle`
 
 ```text
-usage: roracle [-h] {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf} ...
+usage: roracle [-h]
+               {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
+               ...
 
 positional arguments:
   {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
@@ -36,6 +38,16 @@ options:
   -h, --help   show this help message and exit
   --host HOST
   --port PORT
+```
+
+### `roracle auto-tags`
+
+```text
+usage: roracle auto-tags [-h] [--limit N]
+
+options:
+  -h, --help  show this help message and exit
+  --limit N   enqueue at most N versions (0 = all)
 ```
 
 ### `roracle eval`
@@ -324,16 +336,6 @@ options:
 
 ```text
 usage: roracle reparse-refs [-h] [--limit N]
-
-options:
-  -h, --help  show this help message and exit
-  --limit N   enqueue at most N versions (0 = all)
-```
-
-### `roracle auto-tags`
-
-```text
-usage: roracle auto-tags [-h] [--limit N]
 
 options:
   -h, --help  show this help message and exit
