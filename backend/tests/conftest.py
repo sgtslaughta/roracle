@@ -54,6 +54,13 @@ def _alembic_config() -> Config:
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def _reset_onboarding_cache():
+    from roracle.onboarding import reset_cache
+
+    reset_cache()  # tables are truncated per test; the in-process "known" cache must follow
+
+
 @pytest.fixture
 def db_session(session_factory):
     with session_factory() as session:
