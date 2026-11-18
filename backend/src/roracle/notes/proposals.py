@@ -135,7 +135,7 @@ def _approve_label(session: Session, p: Principal, row: Proposal, reason: str | 
         raise service.NOT_FOUND
     old = doc.label_id
     label_service.set_document_label(session, p, doc, pl["label_id"], reason, via="proposal")
-    if doc.label_id != old:  # ES converges through the acl_sync job; Postgres gates are already live
+    if doc.label_id != old:  # the approve routes write ES before commit (commit_with_acl); this is the retry
         enqueue(session, "acl_sync", {"doc_id": str(doc.id)})
     return None
 
