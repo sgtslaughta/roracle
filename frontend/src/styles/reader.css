@@ -44,3 +44,9 @@
 .docinfo .details > div { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 12px; font-size: 13.5px; }
 .docinfo .details dt { color: var(--muted); }
 .docinfo .details dd { margin: 0; overflow-wrap: anywhere; }
+/* Tabs fit the drawer: one line, scroll sideways if needed; narrow drawers show icon + count, the active tab keeps its label. */
+.rhead { container-type: inline-size; }
+.rhead [role="tablist"] { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -6px; }
+.rhead [role="tablist"]::-webkit-scrollbar { display: none; }
+.rhead [role="tablist"] [role="tab"] { flex: none; white-space: nowrap; padding-inline: 9px; }
+@container (max-width: 600px) { .rhead [role="tab"]:not([data-state="active"]) .tl { display: none; } }
