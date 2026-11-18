@@ -42,3 +42,8 @@
 .dpdf { max-height: 640px; overflow: auto; }
 .spin { animation: dspin 1s linear infinite; }
 @keyframes dspin { to { transform: rotate(360deg); } }
+.dtools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.citelist { max-height: 320px; }
+.citelist button { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 7px 8px; }
+.citelist button svg { width: 14px; height: 14px; flex: none; align-self: center; color: var(--muted); }
+.citelist .citet { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
