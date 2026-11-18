@@ -13,7 +13,9 @@ is the output of `roracle eval compare` for ONE feature; a default flips on only
 - **SciFact baseline** (offline): download BEIR SciFact once, then `roracle eval import-beir <dir> --set scifact --owner <non-admin
   user> --principals a,b,c` (ingests each abstract as a document; idempotent). LLM-generated own-corpus questions come from the
   Eval page (`POST /api/admin/eval/sets/{id}/generate`, drafts that an admin reviews).
-- **Reference set**: the one set with `is_reference` (set it with `PATCH /api/admin/eval/sets/{id}`); the gate needs >= 200 active
+- **Own-corpus generation**: `roracle eval generate --kind fact|multihop|global` (the Eval page job) drafts questions and
+  `roracle eval curate` LLM-verifies, dedupes and activates them; [`own-corpus-v1`](own-corpus-v1.md) is built this way.
+- **Reference set**: the one set with `is_reference` (today [`own-corpus-v1`](own-corpus-v1.md)) (set it with `PATCH /api/admin/eval/sets/{id}`); the gate needs >= 200 active
   queries and >= 3 distinct principals (>= 1 non-admin), otherwise the verdict is INSUFFICIENT. Automatic runs (after a re-embed
   cutover or a rebuild, `ROR_EVAL_ON_REINDEX`) use it.
 
