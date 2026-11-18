@@ -45,6 +45,16 @@ def test_users_and_groups(client, adm, as_ana, db_session, user, store):
     assert groups["/Mathematics/Spectral Theory"] == 1
 
 
+def test_groups_normalised_and_deduped(client, adm, db_session):
+    for i, g in enumerate((["/A", "b/", " "], ["A"], ["/A/"])):
+        db_session.add(User(sub=f"g{i}", username=f"g{i}", groups=g))
+    db_session.commit()
+    r = client.get("/admin/groups?q=a", headers=adm).json()
+    assert r["items"] == [{"group": "/A", "members": 3}] and r["total"] == 1
+    r = client.get("/admin/groups?limit=1&offset=1", headers=adm).json()
+    assert [g["group"] for g in r["items"]] == ["/b"] and r["total"] >= 2
+
+
 def test_jobs_list_filter_page_and_retry(client, adm, db_session, user, store):
     v = make_version(db_session, store, user)
     v.ingest_attempts = 5
@@ -172,6 +182,11 @@ def test_health_ok_and_degraded(client, adm, app, store, db_session):
     assert r["status"] == "ok" and r["checks"] == {"db": "ok", "elastic": "ok", "storage": "ok"}
     assert r["queue"]["queued"] == 1 and r["queue"]["failed"] == 0
     assert r["queue"]["oldest_queued_s"] >= 0 and r["scheduler"] == {"tick_queued": True}
+    future = job(db_session, kind="maintenance", status="queued")
+    future.run_after, future.created_at = datetime(2999, 1, 1, tzinfo=UTC), datetime(2020, 1, 1, tzinfo=UTC)
+    db_session.commit()
+    r = client.get("/admin/health", headers=adm).json()
+    assert r["queue"]["queued"] == 2 and r["queue"]["oldest_queued_s"] < 3600  # future job ignored
     app.dependency_overrides[get_es] = lambda: BadES()
     app.dependency_overrides[get_blob_store] = lambda: BadStore()
     r = client.get("/admin/health", headers=adm).json()

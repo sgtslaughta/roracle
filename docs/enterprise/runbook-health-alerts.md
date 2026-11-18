@@ -61,7 +61,7 @@ All `/api/admin/*` routes need an admin JWT (PATs get 403) and each successful c
 
 | Endpoint | Operator use |
 |---|---|
-| `GET /api/admin/health` | Dependency probe (db, elastic, storage), queue depth and age, connector scheduler tick. `queue.oldest_queued_s` counts from creation and includes future-scheduled jobs such as the periodic `maintenance` job, so it can climb toward a day on a healthy system; alert on `roracle_jobs_oldest_queued_seconds` instead (it counts from `run_after`). `degraded` = at least one check failed. |
+| `GET /api/admin/health` | Dependency probe (db, elastic, storage), queue depth and age, connector scheduler tick. `queue.oldest_queued_s` is the age of the oldest queued job that is due to run; jobs scheduled for later, such as the periodic `maintenance` job, are not counted. It counts from creation, so for alerting prefer `roracle_jobs_oldest_queued_seconds` (it counts from `run_after`). `degraded` = at least one check failed. |
 | `GET /api/admin/jobs?status=failed&kind=` | Inspect failed jobs and their `last_error`. |
 | `GET /api/admin/jobs/summary` | Jobs per kind and status, and versions per pipeline stage. |
 | `POST /api/admin/jobs/{job_id}/retry` | Retry one failed job (409 otherwise); ingest jobs get a fresh attempt budget. |
