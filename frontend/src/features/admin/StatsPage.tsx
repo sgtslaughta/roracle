@@ -6,7 +6,7 @@ export function StatsPage() {
   const { data: s, isError } = useStats();
   if (isError) return <p role="alert">Stats couldn't be loaded. Reload to try again.</p>;
   if (!s) return <div aria-busy="true" />;
-  const card = (label: string, value: string | number) => <div className="card stat" key={label}><span>{label}</span><b>{value}</b></div>;
+  const card = (label: string, value: string | number) => <div className="card stat" key={label}><span>{label}</span><b>{typeof value === "number" ? value.toLocaleString("en") : value}</b></div>;
   return (
     <div className="admin-page">
       <h2>Stats</h2>

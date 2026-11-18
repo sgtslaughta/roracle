@@ -1,4 +1,5 @@
 import { isDocId, isUuid } from "@/lib/ids";
+import { failureText } from "@/features/uploads/status";
 
 /** P10 notification kinds and their payloads (untrusted: read defensively, render as plain text). */
 export interface AppNotification { id: number; kind: string; payload: Record<string, unknown>; created_at: string; read_at: string | null }
@@ -27,15 +28,19 @@ export function describe(kind: string, payload: Record<string, unknown> | null |
     case "upload.near_dup":
       return { text: `${q(p.filename, "Your upload")} looks like ${q(p.match_title, "a document already in the library")}. Choose whether it's a new version.`, to: "/uploads" };
     case "upload.failed":
-      return { text: `${q(p.filename, "Your upload")} couldn't be processed${str(p.error) ? `: ${str(p.error)}` : ""}.`, to: "/uploads" };
+      return { text: `${q(p.filename, "Your upload")} couldn't be processed.${str(p.error) ? ` ${failureText(str(p.error))}` : ""}`, to: "/uploads" };
     case "ops.job_failed":
       return { text: `A ${str(p.kind) || "background"} job failed${str(p.error) ? `: ${str(p.error)}` : ""}.`, to: "/admin/jobs" };
     case "ops.connector_run": {
       const s = str(p.status);
       return { text: `${str(p.name) ? `Connector ${q(p.name, "")}` : "A connector run"} finished${s ? `: ${s}` : ""}.`, to: isUuid(p.connector_id) ? `/admin/connectors/${p.connector_id}` : "/admin/connectors" };
     }
-    case "proposal.new":
-      return { text: `${str(p.client) || "An agent"} proposed a note.`, to: "/proposals" };
+    case "proposal.new": {
+      const c = str(p.client);
+      const who = c.startsWith("pat:") ? `Your token “${c.slice(4)}”` : c || "An agent";
+      const what = p.kind === "label" ? "a label change" : p.kind === "relation" ? "a link between papers" : "a note";
+      return { text: `${who} proposed ${what}.`, to: "/proposals" };
+    }
     case "note.reply":
       return { text: "Someone replied to your note.", ...noteLink(p.document_id, p.reply_id) };
     case "note.on_document":

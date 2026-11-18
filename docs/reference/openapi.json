@@ -8010,6 +8010,69 @@
         "summary": "Users"
       }
     },
+    "/directory/users/lookup": {
+      "get": {
+        "description": "Usernames for ids already on a share or co-author list, so pickers never show raw ids.\nUnknown ids are left out.",
+        "operationId": "users_by_id_directory_users_lookup_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Users By Id Directory Users Lookup Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Users By Id"
+      }
+    },
     "/documents": {
       "post": {
         "description": "Streams the multipart body to object storage; fields may come before or after `file`.",

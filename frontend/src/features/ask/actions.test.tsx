@@ -102,10 +102,12 @@ describe("answer actions", () => {
     expect(await within(dlg).findByRole("alert")).toHaveTextContent(/start with/);
     await user.clear(within(dlg).getByLabelText("Groups"));
     await user.type(within(dlg).getByLabelText("Groups"), "/Mathematics/Spectral Theory{Enter}");
-    await user.type(within(dlg).getByLabelText("People (user IDs)"), "u-42{Enter}");
+    await user.type(within(dlg).getByLabelText("People"), "ana");
+    await user.click(await within(dlg).findByRole("button", { name: "ana" }));
+    expect(within(dlg).getByText("ana")).toBeInTheDocument(); // a name, never the raw id
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent("PUT", /\/chats\/c1\/shares$/)).toHaveLength(1));
-    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["u-42"], groups: ["/Mathematics/Spectral Theory"] });
+    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["11111111-1111-4111-8111-111111111111"], groups: ["/Mathematics/Spectral Theory"] });
   });
 
   it("exports the chat and renames it", async () => {
@@ -177,10 +179,9 @@ describe("answer actions", () => {
     expect(sent("PUT", /shares$/)).toHaveLength(0);
     await user.clear(within(dlg).getByLabelText("Groups"));
     await user.type(within(dlg).getByLabelText("Groups"), "/Math");
-    await user.type(within(dlg).getByLabelText("People (user IDs)"), "u-7");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent("PUT", /shares$/)).toHaveLength(1));
-    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["u-7"], groups: ["/Math"] });
+    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: [], groups: ["/Math"] });
   });
 
   it("rolls back a failed pin and shows a toast", async () => {

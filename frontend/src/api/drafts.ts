@@ -23,5 +23,7 @@ export interface Citations { version: number; checked_by: string; ok: boolean; i
 export interface SubmitBody { visibility: Visibility; share_users: string[]; share_groups: string[]; label_id?: string }
 export interface SubmitResult { status: "submitted" | "in_review"; version: number; document_version?: number }
 
+/** "journal-article" -> "Journal article"; null is the org default. */
+export const profileLabel = (p: string | null | undefined) => (p ? (p.charAt(0).toUpperCase() + p.slice(1)).replaceAll("-", " ") : "Default profile");
 export const BUILTIN_PROFILES = ["dissertation", "journal-article", "conference-paper", "technical-report", "grant-proposal", "literature-review", "preregistration"];
 export const TITLE_MAX = 500;

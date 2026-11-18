@@ -1,6 +1,7 @@
 import type { DocumentDetail } from "@/api/types";
 import { SensitivityBadge } from "@/components/SensitivityBadge";
 import { Identifiers } from "./Identifiers";
+import { fmtDateTime } from "@/lib/dates";
 
 const VISIBILITY: Record<DocumentDetail["visibility"], string> = {
   everyone: "Everyone", org_unit: "Your org unit", private: "Only the owner", shared: "Shared with people and groups",
@@ -24,20 +25,20 @@ export function SummaryTab({ d }: { d: DocumentDetail }) {
 
 /** Everything known about the document, as one definition list. Empty fields are left out. */
 export function DetailsTab({ d }: { d: DocumentDetail }) {
-  const date = (s?: string | null) => (s ? new Date(s).toLocaleString() : null);
+  const date = (s?: string | null) => (s ? fmtDateTime(s) : null);
   const rows: [string, React.ReactNode][] = [
     ["Title", d.title || null],
     ["Authors", d.authors.length ? d.authors.join(", ") : null],
     ["Year", d.year],
     ["Venue", d.venue],
     ["Org unit", d.org_unit],
-    ["File type", d.file_type],
+    ["File type", d.file_type?.toUpperCase()],
     ["Pages", d.page_count || null],
     ["References", d.references_count ?? null],
     ["Owner", d.owner.username || null],
     ["Visibility", VISIBILITY[d.visibility]],
     ["Sensitivity", d.label ? <SensitivityBadge label={d.label} /> : null],
-    ["Status", d.stage],
+    ["Status", d.stage ? (d.stage.charAt(0).toUpperCase() + d.stage.slice(1)).replaceAll("_", " ") : null],
     ["Added", date(d.added_at)],
     ["Tags", d.tags.length ? d.tags.map((t) => `#${t}`).join(" ") : null],
   ];

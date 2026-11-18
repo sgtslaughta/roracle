@@ -8,6 +8,7 @@ import {
 } from "@/api/notes";
 import { Button } from "@/components/ui/button";
 import { invalidText } from "@/features/agents/api";
+import { PeopleInput } from "@/components/PeopleInput";
 import { ChipInput } from "@/features/ask/ChipInput";
 import { anchorBbox } from "./anchor";
 import { notesUi, useCreateNote, usePatchNote, type NoteDraft } from "./api";
@@ -47,7 +48,7 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
   const [labelId, setLabelId] = useState("");
   const labels = useLabels().data ?? [];
   const docLabel = useDoc(docId).data?.label;
-  const gRef = useRef<() => string[] | null>(null), uRef = useRef<() => string[] | null>(null);
+  const gRef = useRef<() => string[] | null>(null);
   const reply = !!note?.parent_id;
   const total = groups.length + users.length;
   const full = () => (total >= NOTE_SHARES_MAX ? `At most ${NOTE_SHARES_MAX} people and groups in all.` : null);
@@ -58,7 +59,7 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
 
   const shares = (): NoteShare[] | null => {
     if (vis !== "shared") return [];
-    const g = gRef.current ? gRef.current() : groups, u = uRef.current ? uRef.current() : users;
+    const g = gRef.current ? gRef.current() : groups, u = users;
     if (!g || !u || !(g.length + u.length) || g.length + u.length > NOTE_SHARES_MAX) return null;
     return [...g.map((p) => ({ kind: "group" as const, principal: p })), ...u.map((p) => ({ kind: "user" as const, principal: p }))];
   };
@@ -130,7 +131,7 @@ export function NoteComposer({ docId, note, draft, latest, onDone }: Props) {
       {!reply && vis === "shared" && (
         <>
           <ChipInput label="Groups" values={groups} onChange={setGroups} validate={(v) => groupError(v) ?? full()} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
-          <ChipInput label="People (user IDs)" values={users} onChange={setUsers} validate={(v) => tooLong(v) ?? full()} commitRef={uRef} />
+          <PeopleInput label="People" values={users} onChange={setUsers} full={full()} />
           <p className="chipin-help">Press Enter to add. Add at least one person or group.</p>
         </>
       )}

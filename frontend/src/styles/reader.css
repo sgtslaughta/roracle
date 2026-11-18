@@ -35,8 +35,8 @@
 .tagbar { border-top: 1px solid var(--border); padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--surface); }
 .tagbar .ovl { flex: 0 1 auto; }
 .tagbar input { height: 24px; border: 1px dashed var(--border); background: none; border-radius: 6px; padding: 0 8px; font-size: 12px; width: 120px; }
-.doctext { padding: 18px 20px; max-width: 760px; margin: 0 auto; overflow-wrap: anywhere; }
-.doctext pre { white-space: pre-wrap; font: inherit; margin: 0; }
+.doctext { padding: 18px 20px; max-width: 760px; width: 100%; margin: 0 auto; overflow-wrap: anywhere; }
+.doctext pre { white-space: pre-wrap; font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; }
 .docinfo h3 { font: 600 13px/1.3 var(--f-ui); color: var(--muted); margin: 18px 0 6px; }
 .docinfo section:first-child h3, .docinfo > h3:first-child { margin-top: 0; }
 .docinfo p { margin: 0; max-width: 72ch; font: 15px/1.6 var(--f-read); }
@@ -50,6 +50,7 @@
 .rhead [role="tablist"]::-webkit-scrollbar { display: none; }
 .rhead [role="tablist"] [role="tab"] { flex: none; white-space: nowrap; padding-inline: 9px; }
 @container (max-width: 480px) { .rhead [role="tab"]:not([data-state="active"]) .tl { display: none; } }
+@container (max-width: 700px) { .rhead [role="tab"]:not([data-state="active"]) .n { display: none; } } /* counts go first so the six tabs fit a split reader */
 /* Narrow drawers: secondary tools go icon-only (titles and screen-reader labels stay) so the row fits. */
 @container (max-width: 640px) { .rtools .tlbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 @media (max-width: 640px) { .rhead .citeline { white-space: normal; } }

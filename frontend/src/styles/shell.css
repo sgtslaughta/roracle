@@ -64,8 +64,9 @@ main::before {
   .nav a, .nav button { justify-content: center; padding: 9px 0; }
   .nav .rail-only { display: flex !important; }
   .app.reading main { display: none; }
-  .app.reading, .app[data-focus] { grid-template-columns: var(--side) 0 minmax(0, 1fr); }
-  .app[data-focus="full"] { grid-template-columns: 0 0 minmax(0, 1fr); }
+  /* focus modes only matter while reading: with the reader closed `data-focus` is still set and main keeps the space */
+  .app.reading { grid-template-columns: var(--side) 0 minmax(0, 1fr); }
+  .app.reading[data-focus="full"] { grid-template-columns: 0 0 minmax(0, 1fr); }
   .grip { display: none; }
   .app[data-focus="three-quarter"] .reader { grid-area: reader; width: auto; justify-self: stretch; box-shadow: none; }
 }

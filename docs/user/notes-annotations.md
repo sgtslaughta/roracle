@@ -22,7 +22,7 @@ A relation needs the target paper; you cannot post one without it. Replies are a
 
 1. Open the paper. Choose **Add note**, then click the passage you want to note. Esc cancels, and **Write without picking** skips the click. Alternatively, open the Notes tab and choose **New note**.
 2. Pick the kind, optionally paste a quote and a page number, and write the note (up to 10,000 characters; Markdown links and lists work).
-3. Choose who sees it with **Visible to**: **Everyone** (the default), **Named people or groups**, or **Only me**. For named people or groups, add user IDs or group paths (a group path starts with `/`, for example `/Mathematics/Spectral Theory`); at most 50 in total, and at least one is required.
+3. Choose who sees it with **Visible to**: **Everyone** (the default), **Named people or groups**, or **Only me**. For named people or groups, pick people by name (type at least two letters) or add group paths (a group path starts with `/`, for example `/Mathematics/Spectral Theory`); at most 50 in total, and at least one is required.
 4. Optionally raise its sensitivity label. A note can be more sensitive than its paper, never less ([labels](labels.md)).
 5. Choose **Post note**. Visibility and label are set in the same form, before you post.
 

@@ -62,7 +62,7 @@ export function JobsPage() {
         </label>
         <label>Kind
           <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="">All</option>{kinds.map((k) => <option key={k}>{k}</option>)}
+            <option value="">All</option>{kinds.map((k) => <option key={k} value={k}>{humanize(k)}</option>)}
           </select>
         </label>
         <Button onClick={() => setConfirm(true)}><RotateCcw aria-hidden />Retry all failed</Button>
@@ -76,7 +76,7 @@ export function JobsPage() {
             <tbody>
               {rows.map((j) => (
                 <tr key={j.id}>
-                  <td>{j.id}</td><td>{j.kind}</td><td><StatusPill status={j.status} /></td><td>{j.attempts}</td>
+                  <td>{j.id}</td><td>{humanize(j.kind)}</td><td><StatusPill status={j.status} /></td><td>{j.attempts}</td>
                   <td className="trunc" title={j.filename}>{j.filename ?? "–"}</td>
                   <td className="wrap" title={oneLine(j.last_error)}>{oneLine(j.last_error).slice(0, ERR_MAX) || "–"}</td>
                   <td>{fmtTime(j.updated_at)}</td>
@@ -95,7 +95,7 @@ export function JobsPage() {
         </div>
       )}
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Retry all failed jobs?" confirm="Retry all" onConfirm={doRetryAll} busy={retryAll.isPending}>
-        Every failed {kind ? `“${kind}” ` : ""}job goes back in the queue with a fresh attempt budget.
+        Every failed {kind ? `“${humanize(kind)}” ` : ""}job goes back in the queue with a fresh attempt budget.
       </ConfirmDialog>
     </div>
   );

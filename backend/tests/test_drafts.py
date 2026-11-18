@@ -45,8 +45,10 @@ def test_create_and_read(client, as_ana, ana):
 
 
 def test_create_template_profile_validation(client, as_ana, db_session):
-    i = mk(client, as_ana, profile="dissertation")
-    assert client.get(f"/drafts/{i}", headers=as_ana).json()["content"].startswith("---")
+    i = mk(client, as_ana, title='Spectral "gaps": a note', profile="dissertation")
+    body = client.get(f"/drafts/{i}", headers=as_ana).json()["content"]
+    assert body.startswith("---")
+    assert '\ntitle: "Spectral \\"gaps\\": a note"\n' in body  # the title is filled in, YAML-quoted
     assert client.post("/drafts", headers=as_ana, json={"title": "x", "profile": "nope"}).status_code == 422
     for bad in ("", "x" * 501):
         assert client.post("/drafts", headers=as_ana, json={"title": bad}).status_code == 422

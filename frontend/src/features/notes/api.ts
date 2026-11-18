@@ -7,8 +7,9 @@ import { openDoc, setView } from "@/features/reader/useReaderStore";
 
 const key = (docId: string) => ["notes", docId];
 
+/** An empty id (nothing to look up yet) sends no request. */
 export const useNotes = (docId: string) =>
-  useQuery({ queryKey: key(docId), queryFn: async () => (await apiFetch<{ items: Note[] }>(`/documents/${seg(docId)}/annotations`)).items });
+  useQuery({ queryKey: key(docId), enabled: !!docId, queryFn: async () => (await apiFetch<{ items: Note[] }>(`/documents/${seg(docId)}/annotations`)).items });
 
 /** Every note write refreshes the document's list and search results (note hits) (re-anchoring, reply visibility and votes all come from the server). */
 function useNoteMutation<V, R>(docId: string, fn: (v: V) => Promise<R>) {

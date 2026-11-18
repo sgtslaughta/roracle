@@ -15,7 +15,8 @@
 .lrows{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .lrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--elev,var(--surface))}
 .lrow.drag-over{outline:2px solid var(--primary)}
-.lrow .gates{display:flex;flex-wrap:wrap;gap:4px}
+.lrow .gates{display:flex;flex-wrap:wrap;gap:4px 14px}
+.lrow .gates .ck{display:inline-flex;align-items:center;gap:6px}
 .lrow .acts{display:flex;gap:4px;align-items:center}
 .lform{display:grid;gap:8px}
 .lform fieldset{border:1px solid var(--border);border-radius:8px;padding:6px 10px;display:grid;gap:4px}

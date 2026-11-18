@@ -2,7 +2,7 @@ import { FileUp } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-export function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
+export function DropZone({ onFiles, visibleTo }: { onFiles: (files: File[]) => void; visibleTo: string }) {
   const [over, setOver] = useState(false);
   return (
     <label
@@ -15,7 +15,7 @@ export function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
       <span className="ic"><FileUp aria-hidden /></span>
       <span>
         <strong>Drop files here or choose files</strong>
-        <span>PDF, Word, PowerPoint, HTML, Markdown, images, ZIP archives and more. Up to 500 MB each. Visible to everyone unless you change it above.</span>
+        <span>PDF, Office, Markdown, LaTeX, JATS XML, EPUB, CSV, images (read with OCR) and ZIP or tar archives. Up to 500 MB each. Visible to: {visibleTo}.</span>
       </span>
       <input id="file-input" type="file" multiple className="sr-only" aria-label="Drop files here or choose files" onChange={(e) => { onFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
     </label>

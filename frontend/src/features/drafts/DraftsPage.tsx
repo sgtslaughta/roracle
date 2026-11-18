@@ -2,7 +2,7 @@ import { useNavigate, Link } from "@tanstack/react-router";
 import { PenLine, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { BUILTIN_PROFILES, TITLE_MAX, type DraftSummary } from "@/api/drafts";
+import { BUILTIN_PROFILES, profileLabel, TITLE_MAX, type DraftSummary } from "@/api/drafts";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ function NewDraft({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boo
           <label>Writing profile
             <select className="inp" value={profile} onChange={(e) => setProfile(e.target.value)}>
               <option value="">Default</option>
-              {BUILTIN_PROFILES.map((p) => <option key={p} value={p}>{p}</option>)}
+              {BUILTIN_PROFILES.map((p) => <option key={p} value={p}>{profileLabel(p)}</option>)}
             </select>
           </label>
           {create.isError && <p role="alert" className="derr">{draftError(create.error)}</p>}
@@ -64,7 +64,7 @@ export function DraftsPage() {
     <div className="drow" data-row key={d.id}>
       <div className="dmain">
         <Link to="/drafts/$id" params={{ id: d.id }}><b>{d.title}</b></Link>
-        <small>{d.profile ?? "default profile"} · v{d.latest_version} · {d.owner.id === me?.id ? "you" : d.owner.username} · {fmtDate(d.updated_at)}</small>
+        <small>{profileLabel(d.profile)} · v{d.latest_version} · {d.owner.id === me?.id ? "you" : d.owner.username} · {fmtDate(d.updated_at)}</small>
         <SensitivityBadge label={d.label} />
       </div>
       <StatusBadge status={d.status} />

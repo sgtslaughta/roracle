@@ -16,7 +16,7 @@ Open a paper, then choose **Ask about this** in the reader. See [Asking question
 
 ### Upload a paper
 
-Add a PDF or Word file in **My uploads**. Duplicates are caught. See [Uploading papers](uploads.md).
+Add a paper in **My uploads**: a PDF, an Office file, LaTeX, JATS XML, an EPUB, a table, an image (read with OCR) or a ZIP or tar archive of them. Duplicates are caught. See [Uploading papers](uploads.md).
 
 ### Save a collection
 

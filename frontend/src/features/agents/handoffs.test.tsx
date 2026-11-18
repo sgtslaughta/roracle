@@ -86,16 +86,17 @@ describe("continue in agent", () => {
     expect(await posted()).toMatchObject({ audience: "shared", shares: [{ kind: "group", principal: "/Mathematics" }], expires_in_days: 30 });
   });
 
-  it("caps shares at 100 in all and each entry at 200 characters", async () => {
+  it("library: Continue in agent waits for the results (no \"0 matching documents\" brief)", async () => {
+    server.use(http.get(`${API_BASE}/search`, () => new Promise<never>(() => {})));
+    await renderApp("/library");
+    expect(await screen.findByRole("button", { name: "Continue in agent" })).toBeDisabled();
+  });
+
+  it("caps shares at 100 in all", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
     const dlg = await openDialog(user);
     await user.selectOptions(within(dlg).getByLabelText("Who can load it"), "shared");
-    const people = within(dlg).getByLabelText("People (user IDs)");
-    fireEvent.change(people, { target: { value: "u".repeat(201) } });
-    fireEvent.keyDown(people, { key: "Enter" });
-    expect(within(dlg).getByRole("alert")).toHaveTextContent(/200 characters/);
-    fireEvent.change(people, { target: { value: "" } });
     const groups = within(dlg).getByLabelText("Groups");
     for (let i = 0; i < 100; i++) {
       fireEvent.change(groups, { target: { value: `/g${i}` } });

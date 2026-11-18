@@ -29,7 +29,7 @@ export const SHOTS = [
     await btn(p, "Share").click(); await p.waitForTimeout(600);
     const d = p.getByRole("dialog");
     await d.getByPlaceholder("/Mathematics/Spectral Theory").fill("/Mathematics/Spectral Theory"); await d.getByRole("button", { name: "Add" }).first().click();
-    await d.locator("input").nth(1).fill("u-owner"); await d.getByRole("button", { name: "Add" }).nth(1).click();
+    await d.getByLabel("People").fill("ana"); await d.getByRole("button", { name: "ana" }).click();
     await p.waitForTimeout(400);
   } },
   { id: "ask-context-chips", path: "/library", run: async (p) => {

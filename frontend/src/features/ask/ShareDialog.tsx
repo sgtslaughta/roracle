@@ -7,6 +7,7 @@ import { ApiError } from "@/api/client";
 import type { Shares } from "@/api/chat";
 import { useShareChat, useShares } from "./api";
 import { ChipInput } from "./ChipInput";
+import { PeopleInput } from "@/components/PeopleInput";
 
 const groupError = (v: string) => (v.startsWith("/") ? null : "Group paths start with “/”, for example /Mathematics/Spectral Theory.");
 
@@ -31,7 +32,6 @@ function ShareForm({ chatId, initial, onDone }: { chatId: string; initial: Share
   const [groups, setGroups] = useState(initial.groups);
   const [users, setUsers] = useState(initial.users);
   const gRef = useRef<() => string[] | null>(null);
-  const uRef = useRef<() => string[] | null>(null);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(location.origin + router.buildLocation({ to: "/ask/$chatId", params: { chatId } }).href);
@@ -39,7 +39,7 @@ function ShareForm({ chatId, initial, onDone }: { chatId: string; initial: Share
     } catch { toast("Copying isn't available here."); }
   };
   const save = () => {
-    const g = gRef.current ? gRef.current() : groups, u = uRef.current ? uRef.current() : users;
+    const g = gRef.current ? gRef.current() : groups, u = users;
     if (!g || !u) return;
     share.mutate({ users: u, groups: g }, {
       onSuccess: () => { toast("Sharing updated."); onDone(); },
@@ -49,7 +49,7 @@ function ShareForm({ chatId, initial, onDone }: { chatId: string; initial: Share
   return (
     <>
       <ChipInput label="Groups" values={groups} onChange={setGroups} validate={groupError} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
-      <ChipInput label="People (user IDs)" help="Paste a user ID. A people picker comes with the admin section." values={users} onChange={setUsers} commitRef={uRef} />
+      <PeopleInput label="People" values={users} onChange={setUsers} />
       <p className="chipin-help">Saving replaces the current list.</p>
       <div className="foot">
         <Button variant="ghost" onClick={() => void copy()}>Copy link</Button>

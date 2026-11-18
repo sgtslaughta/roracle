@@ -7,6 +7,7 @@ import { NOTE_BODY_MAX, NOTE_SHARES_MAX, PRINCIPAL_MAX, type NoteShare, type Not
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { invalidText } from "@/features/agents/api";
+import { PeopleInput } from "@/components/PeopleInput";
 import { ChipInput } from "@/features/ask/ChipInput";
 import { showNote } from "@/features/notes/api";
 import { KIND_LABEL, VIS_LABEL } from "@/features/notes/labels";
@@ -47,7 +48,7 @@ function EditForm({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const [groups, setGroups] = useState(sh.filter((s) => s.kind === "group").map((s) => s.principal));
   const [users, setUsers] = useState(sh.filter((s) => s.kind === "user").map((s) => s.principal));
   const [error, setError] = useState<string | null>(null);
-  const gRef = useRef<() => string[] | null>(null), uRef = useRef<() => string[] | null>(null);
+  const gRef = useRef<() => string[] | null>(null);
   const total = groups.length + users.length;
   const full = () => (total >= NOTE_SHARES_MAX ? `At most ${NOTE_SHARES_MAX} people and groups in all.` : null);
 
@@ -57,7 +58,7 @@ function EditForm({ p, onDone }: { p: Proposal; onDone: () => void }) {
     if (!reply) {
       b.visibility = vis;
       if (vis === "shared") {
-        const g = gRef.current ? gRef.current() : groups, u = uRef.current ? uRef.current() : users;
+        const g = gRef.current ? gRef.current() : groups, u = users;
         if (!g || !u || !(g.length + u.length) || g.length + u.length > NOTE_SHARES_MAX) return;
         b.shares = [...g.map((x): NoteShare => ({ kind: "group", principal: x })), ...u.map((x): NoteShare => ({ kind: "user", principal: x }))];
       }
@@ -83,7 +84,7 @@ function EditForm({ p, onDone }: { p: Proposal; onDone: () => void }) {
       {!reply && vis === "shared" && (
         <>
           <ChipInput label="Groups" values={groups} onChange={setGroups} validate={(v) => groupError(v) ?? full()} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
-          <ChipInput label="People (user IDs)" values={users} onChange={setUsers} validate={(v) => tooLong(v) ?? full()} commitRef={uRef} />
+          <PeopleInput label="People" values={users} onChange={setUsers} full={full()} />
         </>
       )}
       {error && <p className="chipin-err" role="alert">{error}</p>}
