@@ -148,6 +148,9 @@ class Settings(AliasConfig):
     chat_models: str = "qwen2.5:14b"  # comma-separated; first is the default unless an admin sets the runtime-only chat_default_model
     writing_max_citations: int = 200  # distinct citation keys a draft may use
     writing_validate_budget_s: float = 10  # deterministic checks wall-clock budget (fail closed)
+    writing_style_timeout_s: float = Field(
+        30.0, description="Timeout in seconds of the style check LLM call in draft validation"
+    )
     draft_gotenberg_url: str = ""  # separate Chromium-enabled Gotenberg for draft PDF builds; empty = 503
     build_timeout_s: float = 120.0  # per pandoc call and for the Gotenberg request
     build_concurrency: int = 2  # concurrent draft builds per api process; more = 503 busy

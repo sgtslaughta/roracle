@@ -40,6 +40,7 @@ export function ChecksPanel({ draft, author }: { draft: DraftDetail; author: boo
     <div className="dpanel">
       <h3>Validation</h3>
       <Button onClick={() => validate.mutate()} disabled={validate.isPending}>{validate.isPending && <Loader2 className="spin" aria-hidden />}Run validation</Button>
+      {validate.isPending && <p className="sub" role="status">Checking the draft. The style review asks the language model and can take up to 30 seconds; you can keep editing.</p>}
       {validate.isError && <p role="alert" className="derr">{draftError(validate.error)}</p>}
       {v && (
         <div role="region" aria-label="Validation results">
@@ -52,6 +53,7 @@ export function ChecksPanel({ draft, author }: { draft: DraftDetail; author: boo
       )}
       <h3>Citation check</h3>
       <Button onClick={() => check.mutate()} disabled={check.isPending}>{check.isPending && <Loader2 className="spin" aria-hidden />}Check citations</Button>
+      {check.isPending && <p className="sub" role="status">Asking the language model about each citation. This can take a minute for a long draft; you can keep editing.</p>}
       {check.isError && <p role="alert" className="derr">{draftError(check.error)}</p>}
       {c && (
         <div role="region" aria-label="Citation results">

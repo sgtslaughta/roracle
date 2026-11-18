@@ -191,3 +191,18 @@ def test_time_budget_fails_closed(client, as_ana, db_session, fake, monkeypatch)
         {"rule": "limits", "message": "validation exceeded time budget", "line": None}
     ]
     assert fake.calls == []
+
+
+def test_style_check_has_its_own_timeout(client, as_ana, fake):
+    import openai
+
+    from roracle.writing import validate as v
+
+    seen = []
+    fake.with_options = lambda **kw: (seen.append(kw), fake)[1]
+    did = mk(client, as_ana)
+    client.post(f"/drafts/{did}/validate", headers=as_ana)
+    assert seen == [{"timeout": 30.0}]  # writing_style_timeout_s, not the 120 s LLM timeout
+    slow = Llm(exc=openai.APITimeoutError(request=httpx.Request("POST", "http://llm")))
+    prof = profiles.Profile(name="p", title="P", rules={"style": "warning"})
+    assert [f.message for f in v.check_style(slow, "m", "x", prof, 1.0)] == [v.UNAVAILABLE]
