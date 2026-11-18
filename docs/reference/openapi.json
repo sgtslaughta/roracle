@@ -636,6 +636,16 @@
       "GenerateIn": {
         "additionalProperties": false,
         "properties": {
+          "kind": {
+            "default": "fact",
+            "enum": [
+              "fact",
+              "multihop",
+              "global"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "n": {
             "maximum": 200.0,
             "minimum": 1.0,

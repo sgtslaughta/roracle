@@ -53,15 +53,19 @@ options:
 ### `roracle eval`
 
 ```text
-usage: roracle eval [-h] {run,compare,import-beir,ci} ...
+usage: roracle eval [-h] {run,compare,import-beir,generate,curate,ci} ...
 
 positional arguments:
-  {run,compare,import-beir,ci}
+  {run,compare,import-beir,generate,curate,ci}
     run                 score a gold set per principal
     compare             A/B two configurations on one set and write a gate
                         report
     import-beir         seed a BEIR dataset (SciFact) from a local directory,
                         offline
+    generate            draft LLM questions into a set (same job as the Eval
+                        page)
+    curate              LLM-verify drafts, drop near-duplicates, activate the
+                        rest
     ci                  seed the synthetic fixture and fail on ACL violations
                         or low metrics
 
@@ -103,6 +107,32 @@ options:
   --latency-budget-ms LATENCY_BUDGET_MS
   --judge
   --out docs/eval/FILE.md
+```
+
+#### `roracle eval curate`
+
+```text
+usage: roracle eval curate [-h] --set SET_NAME [--principals A,B,C]
+
+options:
+  -h, --help          show this help message and exit
+  --set SET_NAME
+  --principals A,B,C  non-admin users to add where they see the gold
+```
+
+#### `roracle eval generate`
+
+```text
+usage: roracle eval generate [-h] --set SET_NAME --principal PRINCIPAL
+                             [--kind {fact,multihop,global}] [-n N]
+
+options:
+  -h, --help            show this help message and exit
+  --set SET_NAME
+  --principal PRINCIPAL
+                        non-admin user whose visible documents are sampled
+  --kind {fact,multihop,global}
+  -n N                  seed documents (1-200)
 ```
 
 #### `roracle eval import-beir`

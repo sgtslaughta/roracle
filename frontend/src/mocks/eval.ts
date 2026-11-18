@@ -9,7 +9,7 @@ const err = (status: number, detail: string) => HttpResponse.json({ detail }, { 
 export const R5 = "evaluate as at least one non-admin principal";
 export const LONG = "What is the relationship between the spectral gap of the Laplacian on a compact Riemannian manifold and its Cheeger constant, and how does that change for graphs?";
 
-export interface EvalMock { sets: EvalSet[]; queries: EvalQuery[]; runs: EvalRunItem[]; started: { set_id: string; path: string; judge: boolean }[]; generated: { id: string; n: number; principal: string }[] }
+export interface EvalMock { sets: EvalSet[]; queries: EvalQuery[]; runs: EvalRunItem[]; started: { set_id: string; path: string; judge: boolean }[]; generated: { id: string; n: number; principal: string; kind?: string }[] }
 const q = (id: string, set_id: string, text: string, status: "draft" | "active", principal_names: string[]): EvalQuery => ({ id, set_id, key: id, text, kind: "fact", principals: principal_names.map((p) => `u-${p}`), principal_names, as_pat: false, relevant: [{ doc: "d1" }], status });
 const run = (n: number, ndcg: number, rec: number): EvalRunItem => ({ id: `r${n}`, set_id: "s1", set_name: "scifact", started_at: `2026-11-0${n}T10:00:00Z`, trigger: "admin", label: "", path: "chat", status: "done", metrics: { overall: { "p_ndcg@10": ndcg, "p_recall@10": rec, "p_recall@100": 0.9, p_mrr: 0.5, pairs: 10 } } });
 const seed = (): EvalMock => ({
@@ -42,7 +42,7 @@ export const evalHandlers = [
   http.get(url("/admin/eval/sets/:id/queries"), ({ params }) => admin() ?? HttpResponse.json({ items: evalOf().queries.filter((x) => x.set_id === params.id) })),
   http.post(url("/admin/eval/sets/:id/generate"), async ({ params, request }) => {
     const d = admin(); if (d) return d;
-    const b = (await request.json()) as { n: number; principal: string };
+    const b = (await request.json()) as { n: number; principal: string; kind?: string };
     evalOf().generated.push({ id: String(params.id), ...b });
     return HttpResponse.json({ job_id: 1 }, { status: 202 });
   }),

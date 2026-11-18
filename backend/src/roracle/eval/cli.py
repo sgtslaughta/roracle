@@ -49,6 +49,16 @@ def add_parser(sub) -> None:
     )
     b.add_argument("--share-group", action="append", default=[], metavar="GROUP")
     b.add_argument("--visibility", choices=["private", "shared", "everyone"], default="private")
+    gn = ev.add_parser("generate", help="draft LLM questions into a set (same job as the Eval page)")
+    gn.add_argument("--set", dest="set_name", required=True)
+    gn.add_argument("--principal", required=True, help="non-admin user whose visible documents are sampled")
+    gn.add_argument("--kind", choices=["fact", "multihop", "global"], default="fact")
+    gn.add_argument("-n", type=int, default=50, help="seed documents (1-200)")
+    cu = ev.add_parser("curate", help="LLM-verify drafts, drop near-duplicates, activate the rest")
+    cu.add_argument("--set", dest="set_name", required=True)
+    cu.add_argument(
+        "--principals", default="", metavar="A,B,C", help="non-admin users to add where they see the gold"
+    )
     ci = ev.add_parser("ci", help="seed the synthetic fixture and fail on ACL violations or low metrics")
     ci.add_argument("--fixture", required=True)
     ci.add_argument("--floors", required=True)
@@ -148,6 +158,32 @@ def import_beir_cmd(args) -> int:
     return 0
 
 
+def generate_cmd(args) -> int:
+    from sqlalchemy import select
+
+    from roracle.eval.generate import handle_eval_generate
+    from roracle.models import User
+    from roracle.queue import NonRetryable
+
+    settings = get_settings()
+    with make_session_factory(settings.database_url)() as session:
+        db_set = store.set_by_name(session, args.set_name)
+        u = session.scalar(select(User).where(User.username == args.principal))
+        if db_set is None or u is None:
+            print(f"error: unknown set {args.set_name!r} or user {args.principal!r}", file=sys.stderr)
+            return 2
+        eff = runtime.effective(session, settings)
+        payload = {"set_id": str(db_set.id), "principal": str(u.id), "n": args.n, "kind": args.kind}
+        try:
+            handle_eval_generate(
+                session, payload, settings=settings, es=clients.es(eff), llm=clients.llm(eff)
+            )
+        except NonRetryable as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+    return 0
+
+
 def run(args) -> int:
     """0 ok; 1 ACL violation or run error; 2 bad input / unusable set (R5)."""
     if args.eval_cmd == "ci":
@@ -156,6 +192,12 @@ def run(args) -> int:
         return ci.run(args)
     if args.eval_cmd == "import-beir":
         return import_beir_cmd(args)
+    if args.eval_cmd == "generate":
+        return generate_cmd(args)
+    if args.eval_cmd == "curate":
+        from roracle.eval import curate
+
+        return curate.run(args)
     if args.eval_cmd == "compare":
         from roracle.eval import compare
 

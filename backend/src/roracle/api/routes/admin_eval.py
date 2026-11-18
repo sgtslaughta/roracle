@@ -87,6 +87,7 @@ class QueryPatch(_NoNulls):
 class GenerateIn(_In):
     n: int = Field(ge=1, le=200)
     principal: uuid.UUID
+    kind: Kind = "fact"
 
 
 class RunIn(_In):
@@ -305,9 +306,17 @@ def generate(set_id: uuid.UUID, body: GenerateIn, p: Admin, session: Db) -> dict
     if u.is_admin:
         raise HTTPException(422, gold.R5_ERROR)  # admins see everything: drafts could not be evaluated
     job = queue.enqueue(
-        session, "eval_generate", {"set_id": str(set_id), "principal": str(body.principal), "n": body.n}
+        session,
+        "eval_generate",
+        {"set_id": str(set_id), "principal": str(body.principal), "n": body.n, "kind": body.kind},
     )
-    audit(session, p, "eval.generate", str(set_id), {"n": body.n, "principal": str(body.principal)})
+    audit(
+        session,
+        p,
+        "eval.generate",
+        str(set_id),
+        {"n": body.n, "principal": str(body.principal), "kind": body.kind},
+    )
     return {"job_id": job}
 
 
