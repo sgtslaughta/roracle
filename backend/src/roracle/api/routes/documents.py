@@ -40,6 +40,14 @@ class UploadForm(BaseModel):
     label_id: UUID | None = None
 
 
+def _manage_guard(session: Session, p: Principal):
+    def guard(fields: dict[str, str]) -> None:
+        if fields.get("visibility") not in (None, "", "private"):
+            require_scope(session, p, MANAGE)  # same refusal as `accept`, before the file is staged
+
+    return guard
+
+
 async def _received(
     request: Request,
     p: Annotated[Principal, Depends(current_principal)],
@@ -49,7 +57,7 @@ async def _received(
 ) -> Received:
     session.commit()  # release the user-upsert row lock / pooled tx before the (long) body stream
     try:
-        return await receive(request, store, settings.max_upload_bytes)
+        return await receive(request, store, settings.max_upload_bytes, guard=_manage_guard(session, p))
     except TooLarge:
         raise HTTPException(
             413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
