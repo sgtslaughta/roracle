@@ -12,6 +12,7 @@ import { AUDIENCE_LABEL } from "./HandoffForm";
 import { fmtDate, fmtDateTime } from "@/lib/dates";
 import { SensitivityBadge } from "@/components/SensitivityBadge";
 import type { HandoffManifest } from "@/api/agents";
+import { RowSkeleton } from "@/components/RowSkeleton";
 
 const PAGE = 10;
 
@@ -25,8 +26,8 @@ function LabelledDoc({ d }: { d: NonNullable<HandoffManifest["documents"]>[numbe
     <li>
       <button className="hdoc" onClick={() => openDoc(d.id)} title={d.title}>
         <FileText aria-hidden /><span className="trunc">{d.title || "Untitled document"}</span>
+        <SensitivityBadge label={d.label} className="hdoc-lbl" />
       </button>
-      <SensitivityBadge label={d.label} />
       {d.text_withheld && <small className="sub"> Text withheld by its label</small>}
     </li>
   );
@@ -56,7 +57,7 @@ export function HandoffLanding({ code }: { code: string }) {
   const { data: m, error } = useHandoff(code);
   const [shown, setShown] = useState(PAGE);
   if (error) return <div className="empty" role="alert"><Link2Off aria-hidden /><p>{failure(error)}</p></div>;
-  if (!m) return <p className="sub" role="status">Loading handoff…</p>;
+  if (!m) return <RowSkeleton label="Loading handoff…" />;
   const n = m.documents?.length ?? m.doc_ids.length;
   return (
     <article className="hland">

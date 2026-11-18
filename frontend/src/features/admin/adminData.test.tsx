@@ -78,7 +78,7 @@ describe("settings drafts", () => {
     await user.click(screen.getByRole("button", { name: "Save pats_enabled" }));
     await waitFor(() => expect(rowOf("pats_enabled")).toHaveTextContent("override"));
     expect(screen.getByLabelText("rerank_depth")).toHaveValue(77);
-    expect(screen.getByLabelText("chat_models models")).toBeInTheDocument();
+    expect(screen.getByLabelText("Models")).toBeInTheDocument();
   });
 });
 
@@ -150,8 +150,8 @@ describe("users", () => {
 describe("stats", () => {
   it("shows counts and human byte sizes", async () => {
     await renderAdmin("/admin/stats", "Top uploaders");
-    expect(screen.getByText("Documents live:").parentElement).toHaveTextContent("41");
-    expect(screen.getByText("Blob storage:").parentElement).toHaveTextContent("912 MB");
+    expect(screen.getByText("Documents live").parentElement).toHaveTextContent("41");
+    expect(screen.getByText("Blob storage").parentElement).toHaveTextContent("912 MB");
     expect(within(screen.getByText("researcher").closest("tr")!).getByText("40 MB")).toBeInTheDocument();
   });
 });
@@ -159,15 +159,15 @@ describe("stats", () => {
 describe("health", () => {
   it("shows ok and a degraded state with failing checks", async () => {
     await renderAdmin("/admin/health", "Health");
-    expect(await screen.findByText("Scheduler tick:")).toBeInTheDocument();
-    expect(screen.getAllByText("ok").length).toBeGreaterThanOrEqual(4);
+    expect(await screen.findByText("Scheduler tick")).toBeInTheDocument();
+    expect(screen.getAllByText("OK").length).toBeGreaterThanOrEqual(4);
   });
 
   it("degraded body shows a bad status; a failed request shows the error state", async () => {
     server.use(http.get(`${API_BASE}/admin/health`, () => HttpResponse.json({ status: "degraded", checks: { db: "ok", elastic: "error: ConnectionError", storage: "ok" }, queue: null, scheduler: null })));
-    await renderAdmin("/admin/health", "degraded");
-    expect(screen.getByText("error: ConnectionError")).toHaveClass("failed");
-    expect(screen.getByText("Queue unavailable")).toBeInTheDocument();
+    await renderAdmin("/admin/health", "Degraded");
+    expect(screen.getByText("Error: ConnectionError")).toHaveClass("failed");
+    expect(screen.getByText("Queue").parentElement).toHaveTextContent("Unavailable");
   });
 
   it("503 with a body still shows it; without one shows an error", async () => {

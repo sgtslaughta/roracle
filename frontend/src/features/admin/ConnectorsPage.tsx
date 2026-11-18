@@ -13,6 +13,8 @@ import { ConnectorDialog } from "./ConnectorForm";
 import { StatusPill } from "./StatusPill";
 import { RowMenu } from "@/components/RowMenu";
 
+const KIND_LABEL: Record<string, string> = { s3: "S3 bucket", fs: "Folder on the server", http: "Website" };
+
 const SHOWN = 50;
 export const scheduleText = (m: number | null) => (m ? `Every ${m} min` : "Manual");
 
@@ -65,10 +67,10 @@ export function ConnectorsPage() {
               {data.slice(0, shown).map((c) => (
                 <tr key={c.id} className={c.enabled ? undefined : "dim"}>
                   <td className="trunc" title={c.name}>{isUuid(c.id) ? <Link to="/admin/connectors/$id" params={{ id: c.id }}>{c.name}</Link> : c.name}</td>
-                  <td>{c.kind}</td>
+                  <td>{KIND_LABEL[c.kind] ?? c.kind}</td>
                   <td><input type="checkbox" aria-label={`Enabled: ${c.name}`} checked={c.enabled} disabled={save.isPending} onChange={(e) => setEnabled(c, e.target.checked)} /></td>
                   <td>{scheduleText(c.schedule_minutes)}</td>
-                  <td>{c.last_run ? <><StatusPill status={c.last_run.status} /> <small>{fmtTime(c.last_run.started_at)}</small></> : "Never run"}</td>
+                  <td>{c.last_run ? <><StatusPill status={c.last_run.status} /> <small className="when">{fmtTime(c.last_run.started_at)}</small></> : "Never run"}</td>
                   <td>
                     <RowMenu kebab={false} label={`Actions for ${c.name}`} actions={[
                       { label: "Run now", onSelect: () => runNow(c) },

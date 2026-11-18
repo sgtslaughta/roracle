@@ -7,7 +7,9 @@ import { TOPICS } from "./manifest";
 import { parseTopic, slugify, type Segment, type TrySeg } from "./parse";
 import { Snippet, Tabs } from "./Snippet";
 
-const MarkdownBody = lazy(() => import("@/components/MarkdownBody"));
+const loadMd = () => import("@/components/MarkdownBody");
+const MarkdownBody = lazy(loadMd);
+void loadMd(); // start fetching as soon as help opens, so raw markdown never flashes
 const PLACEHOLDER = "https://roracle.example.internal";
 
 interface Hast { type: string; tagName?: string; value?: string; children?: Hast[]; data?: { meta?: string } }
@@ -63,7 +65,7 @@ function buildComponents(file: string, onGo: (topic: string, section?: string) =
 
 function Md({ text, components }: { text: string; components: Components }) {
   return (
-    <Suspense fallback={<p data-md-fallback style={{ whiteSpace: "pre-wrap" }}>{text}</p>}>
+    <Suspense fallback={<div data-md-fallback className="prose-skel" aria-busy="true"><i /><i /><i /></div>}>
       <MarkdownBody text={text} components={components} />
     </Suspense>
   );

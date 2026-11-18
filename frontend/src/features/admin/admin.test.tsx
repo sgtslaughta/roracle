@@ -60,9 +60,9 @@ describe("connectors", () => {
   it("lists connectors with kind, schedule and last run status", async () => {
     await renderAdmin("/admin/connectors", "Group share");
     const row = screen.getByText("Group share").closest("tr")!;
-    expect(within(row).getByText("s3")).toBeInTheDocument();
+    expect(within(row).getByText("S3 bucket")).toBeInTheDocument();
     expect(within(row).getByText("Every 60 min")).toBeInTheDocument();
-    expect(within(row).getByText("running")).toBeInTheDocument();
+    expect(within(row).getByText("Running")).toBeInTheDocument();
     expect(within(screen.getByText("Server folder").closest("tr")!).getByText("Manual")).toBeInTheDocument();
   });
 
@@ -253,8 +253,8 @@ describe("connector detail", () => {
       return HttpResponse.json({ items: [{ id: 31, status: n > 1 ? "ok" : "running", started_at: "2026-11-15T01:00:00Z", finished_at: null, stats: {} }], next_before_id: null });
     }));
     await renderAdmin(`/admin/connectors/${C1}`, "Runs");
-    expect(await screen.findByText("running")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("row", { name: /ok/ })).toBeInTheDocument(), { timeout: 6000 });
+    expect(await screen.findByText("Running")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("row", { name: /OK/ })).toBeInTheDocument(), { timeout: 6000 });
   }, 10_000);
 });
 

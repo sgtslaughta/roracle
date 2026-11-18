@@ -50,7 +50,7 @@ export function TagsPage() {
       {data && !matches.length && <p className="sub">No tags match.</p>}
       {matches.length > 0 && (
         <div className="tok-wrap">
-          <table className="agent-table admin-table">
+          <table className="agent-table admin-table tags-table">
             <thead><tr><th>Merge</th><th>Tag</th><th>Documents</th></tr></thead>
             <tbody>
               {matches.map((x) => (

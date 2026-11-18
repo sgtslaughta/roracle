@@ -50,10 +50,10 @@ export function TokensPanel() {
                     <td>{t.scopes.includes("manage") ? "Read, write and manage" : t.scopes.includes("write") ? "Read and write" : "Read"}</td>
                     <td>{fmtDate(t.expires_at)}</td>
                     <td>{fmtDate(t.last_used_at)}</td>
-                    <td>{st}</td>
+                    <td><span className={`pill ${st === "Active" ? "done" : st === "Revoked" ? "failed" : "neutral"}`}>{st}</span></td>
                     <td>
-                      {!t.revoked_at && <Button variant="ghost" aria-label={`Revoke ${t.name}`} onClick={() => setTarget(t)}>Revoke</Button>}
-                      <RowMenu kebab={false} label={`Actions for token ${t.name}`} actions={[copyAction("Copy prefix", t.prefix), ...(t.revoked_at ? [] : [{ label: "Revoke", danger: true, onSelect: () => setTarget(t) }])]} />
+                      {st === "Active" && <Button variant="ghost" aria-label={`Revoke ${t.name}`} onClick={() => setTarget(t)}>Revoke</Button>}
+                      <RowMenu kebab={false} label={`Actions for token ${t.name}`} actions={[copyAction("Copy prefix", t.prefix), ...(st !== "Active" ? [] : [{ label: "Revoke", danger: true, onSelect: () => setTarget(t) }])]} />
                     </td>
                   </tr>
                 );

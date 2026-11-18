@@ -60,7 +60,8 @@ function AccountMenu() {
           {initials(me?.username)}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="chipmenu">
+      <PopoverContent align="end" sideOffset={8} className="chipmenu">
+        {me && <p className="menu-who">Signed in as <b>{me.username}</b></p>}
         <nav aria-label="Account">
           <ul className="menu-list">
             <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>
