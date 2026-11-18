@@ -21,6 +21,8 @@ import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
 import { GetStarted } from "@/features/onboarding/GetStarted";
 import { Upgrading } from "./upgrading";
+import { useMedia } from "@/lib/useMedia";
+import { Button } from "@/components/ui/button";
 
 /** Server limits (search_limits.py): the query path and the cited window keep MAX_DOCS, browse pages through BROWSE_WINDOW. */
 const MAX_DOCS = 200, BROWSE_WINDOW = 10_000;
@@ -61,7 +63,8 @@ export function SearchPage() {
   const first = (page - 1) * PAGE_SIZE + 1;
   const others = (data?.results ?? []).map((r) => ({ id: r.doc_id, title: r.title }));
   const collName = useCollectionName();
-  const view = search.view ?? "list";
+  const phone = useMedia("(max-width: 640px)");
+  const view = phone && search.view === "table" ? "list" : search.view ?? "list"; // tables don't fit a phone
   const names = useSentenceNames(search.cites, data?.facets);
   const upgrading = blocked || !!data?.upgrading;
   const windowed = !!search.q || search.sort === "cited" || search.cited_min != null;
@@ -93,7 +96,7 @@ export function SearchPage() {
       <div className="sbody">
         <div className="facet-rail"><FacetRail facets={data?.facets} search={search} nav={nav} /></div>
         <div>
-          <GetStarted />
+          {!(data && !data.results.length) && <GetStarted />}
           {upgrading && <p className="upgrade-note" role="status"><Info aria-hidden />Some filters will be available when the search index upgrade finishes.</p>}
           {isError && !blocked && <div className="empty" role="alert"><p>Search failed: {error instanceof Error ? error.message : "unknown error"}.</p></div>}
           {view === "table" && data && !!data.results.length && (
@@ -108,6 +111,7 @@ export function SearchPage() {
               <li className="empty">
                 <SearchX aria-hidden />
                 <p>Nothing you can see matches “{search.q ?? ""}”. Try fewer words, or clear the filters.</p>
+                <Button className="empty-act" onClick={nav.reset}>Clear search and filters</Button>
               </li>
             )}
           </ol>

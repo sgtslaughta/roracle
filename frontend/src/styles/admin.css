@@ -1,26 +1,34 @@
 /* admin section: sub-nav, connectors, runs, jobs, review */
-.subnav { display: flex; flex-wrap: wrap; gap: 2px; margin: 12px 0 16px; border-bottom: 1px solid var(--border); }
-.subnav a, .subnav span { padding: 7px 12px; font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.subnav { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 2px; margin: 12px 0 16px; border-bottom: 1px solid var(--border); }
+.subnav a, .subnav span { white-space: nowrap; padding: 7px 12px; font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .subnav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--primary); }
 .subnav a:hover { color: var(--ink); }
 .admin-page { display: flex; flex-direction: column; gap: 14px; }
 .admin-page h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .admin-table td.wrap { white-space: normal; max-width: 360px; overflow-wrap: anywhere; }
-.admin-table .acts { display: flex; gap: 4px; justify-content: flex-end; }
-.admin-form { display: flex; flex-direction: column; gap: 10px; max-height: min(80vh, 640px); overflow-y: auto; padding: 2px; }
-.admin-form select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; }
+.admin-table span.acts { display: flex; gap: 4px; justify-content: flex-end; }
+.admin-table td.acts { text-align: right; white-space: nowrap; }
+.admin-table td.acts > * + * { margin-left: 4px; }
+.admin-table td, .admin-table th { vertical-align: middle; }
+.admin-form { display: flex; flex-direction: column; gap: 10px; max-height: calc(86vh - 120px); overflow-y: auto; padding: 2px; }
+.admin-form .foot { position: sticky; bottom: -2px; background: var(--surface); padding: 10px 0 2px; margin-top: auto; }
+.admin-form .agent-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.admin-form select { border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 0 9px; font-size: 13.5px; }
 .admin-form .err { color: var(--terra); font-size: 13px; margin: 0; }
 .admin-form .help { color: var(--muted); font-size: 12px; margin: 0; font-weight: 400; }
 .cfg { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13px; }
 .cfg dt { color: var(--muted); }
 .cfg dd { margin: 0; overflow-wrap: anywhere; }
 .runlog { max-height: 420px; overflow: auto; background: var(--muted-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
-.sumgrid { display: flex; flex-wrap: wrap; gap: 8px; }
-.sumgrid .card { background: var(--surface); border-radius: 10px; box-shadow: var(--elev); padding: 8px 12px; font-size: 13px; }
-.sumgrid .card b { font-weight: 600; }
+.sumgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.sumgrid .card { border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+.sumgrid .stat { display: flex; flex-direction: column-reverse; align-items: flex-start; justify-content: flex-end; gap: 4px; }
+.sumgrid .stat > span:first-child { font-size: 12px; color: var(--muted); }
+.sumgrid .stat > b { font: 600 22px/1.15 var(--f-ui); font-variant-numeric: tabular-nums; }
+.admin-page h3 { font-size: 13.5px; font-weight: 600; margin: 4px 0 0; color: var(--muted); }
 .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .filters label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
-.filters select { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 5px 8px; font-size: 13px; font-weight: 400; }
+.filters select { border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 0 8px; font-size: 13px; font-weight: 400; }
 .pager { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
 .admin-form > label.ck { flex-direction: row; font-weight: 400; }
 .admin-form input[type="checkbox"] { border: 0; padding: 0; }
@@ -35,3 +43,6 @@
 .evlegend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
 .admin-table td.trunc { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evchips { display: flex; gap: 4px; align-items: center; }
+.admin-table td > input:not([type="checkbox"]), .admin-table td > select { width: min(100%, 240px); }
+.admin-table small.when { font-size: 12px; color: var(--muted); }
+.tags-table th:first-child { width: 64px; }

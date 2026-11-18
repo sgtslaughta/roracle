@@ -19,8 +19,14 @@
 .dpanel { padding: 14px 4px; display: flex; flex-direction: column; gap: 8px; }
 .dpanel h3 { margin: 10px 0 0; font-size: 14px; }
 .vlist { display: flex; flex-direction: column; gap: 6px; }
+.flist, .vlist { align-items: stretch; overflow: visible; }
+.flist .ovl-more, .vlist .ovl-more { align-self: flex-start; }
+.dmain > .slabel { align-self: flex-start; }
+.dpanel > button { align-self: flex-start; }
+@media (max-width: 640px) { .view h1 { font-size: 20px; } }
 .vrow, .cite { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
 .cite { flex-direction: column; align-items: stretch; }
+.cite > button { align-self: flex-start; }
 .vview { padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); max-height: 360px; overflow: auto; }
 .flist { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; font-size: 13.5px; }
 .fitem { margin: 0; }

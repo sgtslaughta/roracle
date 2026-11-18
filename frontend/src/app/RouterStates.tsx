@@ -6,10 +6,10 @@ const CHUNK_ERR = /dynamically imported module|Importing a module script failed|
 export function NotFound() {
   return (
     <section className="view">
-      <div className="empty">
+      <div className="empty bare notfound">
         <h1>Page not found</h1>
         <p>That page does not exist or was moved.</p>
-        <p><Link to="/library">Back to Library</Link></p>
+        <Button asChild variant="primary"><Link to="/library">Back to Library</Link></Button>
       </div>
     </section>
   );

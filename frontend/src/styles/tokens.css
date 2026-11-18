@@ -14,6 +14,7 @@
   --f-math: "STIX Two Text", "Cambria Math", Georgia, serif;
   --f-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --warn-bg: #fff3e3; --code-bg: #f3f6fa; --guide: #c6d3e0;
+  --ring: #c4661f; --field-border: #9fb0c1;
   --side: 232px; --reader: 620px; --top: 56px; --r: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -23,9 +24,9 @@
     --well: inset 0 1px 3px rgba(0,0,0,.3); --sh-c: rgba(0,0,0,.45); --glow: rgba(253,184,19,.07); --glow2: rgba(130,200,229,.06);
     --chrome: #2a2f36; --t-type: #3b5e70; --t-cite: #3f5a2a; --t-tag: #6b5a27; --t-tag-ink: #ffe6a3; --contour: rgba(130,200,229,.14);
     --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5; --on-apricot: #1f2e3d;
-    --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
+    --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #8fd19e;
     --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
-    --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470;
+    --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470; --ring: var(--sky); --field-border: #7a8493;
   }
 }
 :root[data-theme="dark"] {
@@ -34,7 +35,7 @@
   --well: inset 0 1px 3px rgba(0,0,0,.3); --sh-c: rgba(0,0,0,.45); --glow: rgba(253,184,19,.07); --glow2: rgba(130,200,229,.06);
   --chrome: #2a2f36; --t-type: #3b5e70; --t-cite: #3f5a2a; --t-tag: #6b5a27; --t-tag-ink: #ffe6a3; --contour: rgba(130,200,229,.14);
   --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5; --on-apricot: #1f2e3d;
-  --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
+  --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #8fd19e;
   --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
-  --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470;
+  --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470; --ring: var(--sky); --field-border: #7a8493;
 }

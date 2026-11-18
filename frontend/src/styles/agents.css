@@ -20,12 +20,12 @@ button.avatar { border: 0; padding: 0; cursor: pointer; }
 
 .agent-form { display: flex; flex-direction: column; gap: 10px; }
 .agent-form > label, .agent-row > label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; }
-.agent-form input:not([type="radio"]), .tok-secret input { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; font-weight: 400; }
+.agent-form input:not([type="radio"]), .tok-secret input { border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; font-weight: 400; }
 .agent-form fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .agent-form legend { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
 .agent-form .ck { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
 .agent-row { display: flex; flex-wrap: wrap; gap: 12px; }
-.ta { width: 100%; min-height: 120px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 8px 10px; font: 14px/1.5 var(--f-read); font-weight: 400; resize: vertical; }
+.ta { width: 100%; min-height: 120px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--bg); padding: 8px 10px; font: 14px/1.5 var(--f-read); font-weight: 400; resize: vertical; }
 .tok-secret { display: flex; gap: 6px; }
 .tok-secret input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; }
 
@@ -53,3 +53,15 @@ button.avatar { border: 0; padding: 0; cursor: pointer; }
 .hchip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); background: var(--muted-bg); border-radius: 999px; padding: 2px 10px; }
 .hchip svg.lucide { width: 13px; height: 13px; }
 .menu-list { list-style: none; margin: 0; padding: 0; }
+/* Wide tables scroll sideways in their tray; an edge fade shows there's more (scroll-driven, so it clears at the end). */
+@property --xfade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --xfade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes xfade { from { --xfade-l: 0px; --xfade-r: 36px; } 10% { --xfade-l: 24px; } 90% { --xfade-r: 36px; } to { --xfade-l: 24px; --xfade-r: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .tok-wrap { animation: xfade linear both; animation-timeline: scroll(self inline);
+    mask-image: linear-gradient(to right, transparent, #000 var(--xfade-l), #000 calc(100% - var(--xfade-r)), transparent); }
+}
+.hdoc .hdoc-lbl { margin-left: auto; flex: none; }
+.hdoc .slabel svg.lucide { width: 12px; height: 12px; color: inherit; }
+.menu-who { margin: 0 0 4px; padding: 6px 8px 8px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-who b { color: var(--ink); font-weight: 600; }

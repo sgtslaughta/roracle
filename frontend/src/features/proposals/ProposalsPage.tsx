@@ -48,7 +48,7 @@ export function ProposalsPage() {
         </div>
         {pending && items.length > 0 && (
           <div className="row2">
-            <Button variant={selected.length ? "primary" : undefined} disabled={!selected.length || bulk.isPending} onClick={() => approveMany(selected)}>Approve selected{selected.length > 0 && ` (${selected.length})`}</Button>
+            {selected.length > 0 && <Button variant="primary" disabled={bulk.isPending} onClick={() => approveMany(selected)}>Approve selected ({selected.length})</Button>}
             <Button variant="ghost" disabled={bulk.isPending} onClick={() => setConfirmAll(true)}><CheckCheck aria-hidden />Approve all…</Button>
           </div>
         )}

@@ -12,6 +12,7 @@ import { useMe } from "@/features/library/useMe";
 import { draftError, useCreateDraft, useDeleteDraft, useDrafts } from "./api";
 import { StatusBadge } from "./StatusBadge";
 import { SensitivityBadge } from "@/components/SensitivityBadge";
+import { RowSkeleton } from "@/components/RowSkeleton";
 
 const PAGE = 12;
 
@@ -83,7 +84,7 @@ export function DraftsPage() {
         </div>
         <Button variant="primary" onClick={() => setCreating(true)}><Plus aria-hidden />New draft</Button>
       </div>
-      {isPending && <p className="sub" role="status">Loading drafts…</p>}
+      {isPending && <RowSkeleton label="Loading drafts…" />}
       {isError && <div className="empty" role="alert"><p>Couldn't load your drafts.</p></div>}
       {data && !items.length && (
         <div className="empty"><PenLine /><p>No drafts yet. Start one here, or ask an agent to begin a draft for you.</p></div>
