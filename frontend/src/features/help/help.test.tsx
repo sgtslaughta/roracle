@@ -65,6 +65,17 @@ describe("help dialog", () => {
     expect(await within(await dlg()).findByRole("heading", { level: 1, name: "Finding papers" })).toBeInTheDocument();
   });
 
+  it("opens on the topic and scrolls to the section from #help-<topic>--<section>", async () => {
+    const spy = vi.spyOn(Element.prototype, "scrollIntoView");
+    history.replaceState(null, "", "/library#help-chat--asking-a-question");
+    await renderAt("/library");
+    const d = await dlg();
+    expect(await within(d).findByRole("heading", { level: 1, name: "Asking questions" })).toBeInTheDocument();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(location.hash).toBe("#help-chat");
+    expect(within(d).getByRole("button", { name: "Asking questions" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("Esc closes and clears the hash, keeping history state", async () => {
     const router = await renderAt("/library");
     await router.navigate({ to: "/library" });

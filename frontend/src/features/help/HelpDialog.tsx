@@ -55,7 +55,7 @@ function Sheet({ onPending }: { onPending(p: Pending): void }) {
   useEffect(() => { let live = true; void loadAll().then((a) => live && setAll(a)); return () => { live = false; }; }, []);
   useEffect(() => { setHash(`#help-${id}`); }, [id]);
   useEffect(() => { if (body.current && !section) body.current.scrollTop = 0; }, [id, section]);
-  useEffect(() => { if (md && section) body.current?.querySelector(`[id="${section}"]`)?.scrollIntoView({ block: "start" }); }, [md, section]);
+  useEffect(() => { if (md && section) document.getElementById(section)?.scrollIntoView({ block: "start" }); }, [md, section]);
 
   const needle = q.trim().toLowerCase();
   const shown = useMemo(
@@ -65,9 +65,9 @@ function Sheet({ onPending }: { onPending(p: Pending): void }) {
 
   const onGo = useCallback((t: string, s?: string) => openHelp(t, s), []);
   const onTry = (seg: TrySeg) => runTry(seg, { navigate, qc, activeDoc, setPending: onPending });
-  const scrollTo = (sid: string) => body.current?.querySelector(`[id="${sid}"]`)?.scrollIntoView({ block: "start" });
+  const scrollTo = (sid: string) => document.getElementById(sid)?.scrollIntoView({ block: "start" });
   const copyLink = async () => {
-    const link = `${location.origin}${pathname}#help-${id}`;
+    const link = `${location.origin}/library#help-${id}`;
     try { await navigator.clipboard.writeText(link); toast("Link copied. Anyone who opens it lands on this topic."); } catch { toast(link); }
   };
 

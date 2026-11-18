@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { helpStore, openHelp } from "./helpStore";
 
 const PREFIX = "#help-";
@@ -28,7 +28,9 @@ export function useHelpHash() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+  const was = useRef(open);
   useEffect(() => {
-    if (!open && parseHelpHash(location.hash)) setHash("");
+    if (was.current && !open && parseHelpHash(location.hash)) setHash("");
+    was.current = open;
   }, [open]);
 }

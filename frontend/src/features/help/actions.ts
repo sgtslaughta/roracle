@@ -4,6 +4,8 @@ import type { DocumentDetail } from "@/api/types";
 import type { HandoffSource } from "@/features/agents/HandoffDialog";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { setDismissed } from "@/features/onboarding/api";
+import { toast } from "sonner";
+import { errorText } from "@/api/client";
 import { docTitle } from "@/lib/docTitle";
 import { closeHelp } from "./helpStore";
 import type { TrySeg } from "./parse";
@@ -49,7 +51,7 @@ export function runTry(seg: TrySeg, ctx: TryCtx) {
       ctx.setPending({ kind: "handoff", source: docSource(activeDoc, qc) });
       break;
     case "token": closeHelp(); ctx.setPending({ kind: "token" }); break;
-    case "card": closeHelp(); void setDismissed(false, qc).then(() => navigate({ to: "/library" })); break;
+    case "card": closeHelp(); void setDismissed(false, qc).then(() => navigate({ to: "/library" })).catch((e) => toast(errorText(e))); break;
     case "docs": window.open("/docs/", "_blank", "noopener"); break;
   }
 }

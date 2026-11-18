@@ -1,6 +1,7 @@
 import { Check, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { errorText } from "@/api/client";
 import { openHelp } from "@/features/help/helpStore";
 import { setDismissed, useOnboarding } from "./api";
 import { AGENTS, BASICS, type Step } from "./steps";
@@ -16,8 +17,9 @@ export function GetStarted() {
   const n = shown.filter((s) => done.has(s.id)).length;
   if (n === shown.length) return null;
   const hide = async () => {
-    await setDismissed(true, qc);
-    toast("Hidden. Reopen it from Help, Your first hour.");
+    await setDismissed(true, qc)
+      .then(() => toast("Hidden. Reopen it from Help, Your first hour."))
+      .catch((e) => toast(errorText(e)));
   };
   return (
     <section className="card get-started" aria-labelledby="gs-h">

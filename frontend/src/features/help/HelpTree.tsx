@@ -18,8 +18,8 @@ export function HelpTree({ topics, titles, current, here, sections, onPick, onSe
   const nav = useRef<HTMLElement>(null);
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    const bs = [...(nav.current?.querySelectorAll<HTMLButtonElement>(".tree button") ?? [])];
-    const i = bs.indexOf(document.activeElement as HTMLButtonElement);
+    const bs = [...(nav.current?.querySelectorAll<HTMLElement>(".grp > summary, .tree button") ?? [])];
+    const i = bs.indexOf(document.activeElement as HTMLElement);
     if (!bs.length || i < 0) return;
     e.preventDefault();
     bs[Math.max(0, Math.min(bs.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))].focus();
@@ -35,7 +35,7 @@ export function HelpTree({ topics, titles, current, here, sections, onPick, onSe
             <ul className="tree">
               {ts.map((t) => (
                 <li key={t.id}>
-                  <button type="button" aria-current={t.id === current} onClick={() => onPick(t.id)}>
+                  <button type="button" aria-current={t.id === current ? "page" : undefined} onClick={() => onPick(t.id)}>
                     {titles[t.id] || t.id}{t.id === here && <span className="here">this page</span>}
                   </button>
                   {t.id === current && sections.length > 0 && (
