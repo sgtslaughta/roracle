@@ -3,6 +3,7 @@
 `durable=True` rows also survive a rollback: `get_session` calls `replay_durable` after rolling a failed
 request back, and `audit_detached` writes from its own session (no request transaction to lose)."""
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -58,7 +59,8 @@ def replay_durable(session: Session, status: int) -> None:
             session.add(AuditLog(**{**r, "user_id": None, "detail": detail}))
         session.commit()
     except Exception:
-        session.rollback()
+        with contextlib.suppress(Exception):
+            session.rollback()
         log.exception("durable audit replay failed")
         AUDIT_WRITE_FAILURES.labels("replay").inc()
 

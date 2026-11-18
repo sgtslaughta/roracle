@@ -39,7 +39,7 @@ def test_every_admin_call_audited(client, adm, db_session):
         by
     )
     assert by["admin.get_settings"].target == "/admin/settings"
-    assert by["admin.get_settings"].detail == {"query": {"x": "1"}}
+    assert by["admin.get_settings"].detail == {"params": ["x"]}
     assert by["admin.settings_update"].detail == {"changes": {"rerank_depth": {"old": 200, "new": 20}}}
 
 

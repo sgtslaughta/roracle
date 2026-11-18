@@ -18,10 +18,11 @@ Every action rOracle writes to the `audit_log` table, taken from the `audit()` c
 **Where visible.** Every row is shown in **Admin, Audit** (`GET /api/admin/audit`, admin JWT only) and is in the
 `audit_log` table for operators. "Viewer" below means that page. There is no per-user view of one's own audit rows.
 
-**Success only.** Rows share the request transaction. A request that fails after its row was added rolls the row
-back, so the log records completed actions. Exceptions are called out: `admin.denied`, `label.export_blocked` and
-`mcp.<tool>` rows with `error` are written outside the failed transaction. Rate-limited (429) and read-only-token
-(403 `insufficient scope`) REST requests write nothing.
+**Follows the transaction, except durable rows.** Rows share the request transaction, so a request that fails after
+its row was added rolls the row back. Durable rows (`pat.use`, `auth.rate_limited`, `auth.scope_denied`,
+`admin.denied`, `admin.<handler>`) are replayed after the rollback with `user_id` null, the user in `detail.user_id`
+and the HTTP status in `detail.failed`. `label.export_blocked` and `mcp.<tool>` rows with `error` are written outside
+the failed transaction.
 
 ## Access tokens and agents
 
@@ -48,7 +49,7 @@ Tool list: [MCP tools](mcp-tools.md). MCP audit rules: [MCP](mcp.md#audit).
 
 | Action | Actor | Target | Detail | Written when |
 |---|---|---|---|---|
-| `admin.<handler>` | Admin (JWT) | The request path | `query`: the query parameters | **Every** successful admin request, reads included. `<handler>` is the route function name, for example `admin.list_users`, `admin.list_audit`. Mutating admin routes also write the specific row below |
+| `admin.<handler>` | Admin (JWT) | The request path | `params`: the sorted query parameter names, never the values | **Every** admin request, reads included; when the handler fails the row is replayed with `detail.failed`. `<handler>` is the route function name, for example `admin.list_users`, `admin.list_audit`. Mutating admin routes also write the specific row below |
 | `admin.denied` | none (the user is in `detail`) | The request path | `user_id`, `username` | A non-admin, or any PAT, calls an admin route (403). Replayed after the rollback, so `user_id` is null and `detail.failed` is 403 |
 | `admin.connector_create` | Admin | Connector id | `connector`: the connector as returned by the API (secrets masked `***`) | Connector created |
 | `admin.connector_update` | Admin | Connector id | `before`, `after` (same shape) | Connector changed |

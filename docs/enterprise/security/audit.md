@@ -23,7 +23,7 @@ helper, `audit()` in `backend/src/roracle/audit.py`, which adds a row to the cal
 
 ### What is and is not audited
 
-Audit rows share the request's database transaction, so they follow its fate:
+Audit rows share the request's database transaction, so they follow its fate. Durable rows (listed below) are replayed after a rollback:
 
 | Case | Audited? |
 |---|---|
@@ -32,7 +32,7 @@ Audit rows share the request's database transaction, so they follow its fate:
 | REST request rejected for rate limit (429) | Yes: `auth.rate_limited`, at most one per principal per minute, so a flood cannot fill the log |
 | REST request denied for scope (403 `insufficient scope`, `insufficient scope: manage`) | Yes: `auth.scope_denied` with `detail.need` (`write` or `manage`) and `detail.via` |
 | Admin route, handler succeeds | Yes: `admin.<handler>` (reads included) plus the action's own row where there is one |
-| Admin route, handler raises | **No** (rolled back) |
+| Admin route, handler raises | Yes: `admin.<handler>` replayed with `detail.failed`; the query string is never stored, only parameter names |
 | Non-admin or PAT calling an admin route (403) | `admin.denied`, replayed after the rollback like the rows above. If the replay itself fails it is logged, counted in `roracle_audit_write_failures_total` and the original status is still returned |
 | MCP tool call that passes authentication and validation | Yes: `mcp.<tool>`; on an HTTP-style error a fresh `mcp.<tool>` row with `error: true`; on an unexpected exception best effort with `error: "internal"` |
 | MCP request rejected at HTTP level (401, 429, 413) or failing schema validation | **No** |

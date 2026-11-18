@@ -85,8 +85,6 @@ def test_rate_limited_audited_once_per_minute(real, client, db_session, settings
 
 def test_scope_denied_audited(real, client, db_session, ana, as_ana):
     doc = seed(db_session, ana, visibility="private")[0]
-    r = client.post("/me/tokens", json={"name": "c"}, headers=as_ana)
-    assert r.status_code == 201
     read = bearer(new_pat(db_session, ana, ["read"]))
     assert client.post("/handoffs", json={"kind": "agent"}, headers=read).status_code == 403
     d = rows(db_session, "auth.scope_denied")[0]
@@ -119,6 +117,7 @@ def test_replay_failure_does_not_change_status(real, client, db_session, ana, mo
         r = client.post("/handoffs", json={"kind": "bogus"}, headers=h)
     assert r.status_code == 422
     assert AUDIT_WRITE_FAILURES.labels("replay")._value.get() == before + 1
+    assert any("durable audit replay failed" in r.getMessage() for r in caplog.records)
 
 
 def test_no_token_in_audit(real, client, db_session, ana):
@@ -129,6 +128,42 @@ def test_no_token_in_audit(real, client, db_session, ana):
     assert all_rows
     for row in db_session.scalars(select(AuditLog)):
         assert tok not in f"{row.target}{row.detail}" and "q=secret" not in f"{row.target}{row.detail}"
+
+
+def test_audit_due_expires():
+    assert ratelimit.audit_due("k", now=1000.0) is True
+    assert ratelimit.audit_due("k", now=1030.0) is False
+    assert ratelimit.audit_due("k", now=1060.0) is True
+
+
+def test_admin_row_has_param_names_only(real, client, db_session, as_ana, make_token):
+    admin = bearer(make_token(sub="adm", username="adm", roles=("roracle-admin",)))
+    assert client.get("/admin/audit?q=secret", headers=admin).status_code == 200
+    row = rows(db_session, "admin.list_audit")[0]
+    assert row.detail == {"params": ["q"]} and "secret" not in str(row.detail)
+
+
+def test_failure_status_map():
+    from sqlalchemy.exc import DataError
+
+    from roracle.db import failure_status
+    from roracle.ingest.embed import EmbedUnavailable
+    from roracle.labels.policy import ExportBlocked
+
+    assert failure_status(DataError("s", {}, Exception())) == 422
+    assert failure_status(EmbedUnavailable("x")) == 503
+    assert failure_status(ExportBlocked("L")) == 403
+    assert failure_status(RuntimeError()) == 500
+
+
+def test_mcp_scope_denied_replayed(app, db_session, ana, as_ana):
+    from mcp_helpers import call
+
+    with TestClient(app) as mc:
+        err, _ = call(mc, as_ana, "create_handoff", title="t", brief="b", audience="authenticated")
+    assert err
+    (row,) = rows(db_session, "auth.scope_denied")
+    assert row.detail["need"] == "manage" and row.detail["via"] == "mcp" and row.detail["failed"] == 403
 
 
 def test_mcp_429_audited(app, db_session, settings, ana):

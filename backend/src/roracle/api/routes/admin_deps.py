@@ -26,7 +26,9 @@ def require_admin(
         )
         raise HTTPException(403, "admin only")
     name = getattr(request.scope.get("endpoint"), "__name__", "unknown")
-    audit(session, p, f"admin.{name}", request.url.path, {"query": dict(request.query_params)}, durable=True)
+    audit(
+        session, p, f"admin.{name}", request.url.path, {"params": sorted(request.query_params)}, durable=True
+    )
     return p
 
 
