@@ -1,6 +1,8 @@
-# Chat (Ask)
+# Asking questions
 
 **Ask** answers a question from the papers you are allowed to see and cites every claim. Open it from the sidebar, with **Ask about this** in the reader, or with **New chat** in the command menu. Answers only use passages from the library. If the passages do not contain the answer, the answer says so.
+
+<!-- try:ask label="Ask about the open paper" -->
 
 ![An answer with numbered markers in the text and the source margin beside it](../assets/screens/ask-answer.png)
 
@@ -15,6 +17,9 @@ Under the box you can set:
 | **Search in** | **All documents you can see**, **Open documents only** (the papers open in the reader; disabled while none are open), or **Collection: name** for one of your collections. The 20 first collections are listed; the rest are behind **More collections…** with a filter. The choice is saved with the chat |
 | **Model** | The language model that writes the answer. Your admins decide which models are listed; the first one is the default |
 | **Ask** / **Stop** | **Stop** appears while an answer is being written. It keeps what was written so far and marks it "Stopped before the answer finished." |
+
+!!! tip "Check the sources"
+    Every claim carries a numbered marker. Open the marker to see the passage it came from.
 
 Keys in the question box are in [Keyboard shortcuts](#keyboard-shortcuts).
 
@@ -108,7 +113,7 @@ Under a finished answer:
 
 ## Keyboard shortcuts
 
-Global shortcuts are in [getting started](getting-started.md#keyboard-shortcuts). These work only in chat:
+Global shortcuts are in [Keyboard shortcuts](keyboard-shortcuts.md). These work only in chat:
 
 | Key | Where | What it does |
 |---|---|---|

@@ -28,6 +28,7 @@ from roracle.config import Settings
 from roracle.db import get_session, get_stream_session
 from roracle.labels.textgate import replay_history
 from roracle.models import Chat, ChatMessage, DocumentVersion
+from roracle.onboarding import mark
 
 router = APIRouter(prefix="/chats")
 Who = Annotated[Principal, Depends(current_principal)]
@@ -310,6 +311,7 @@ def post_message(
         if not chat.title:
             chat.title = body.content[:80]
         chat.hidden_at = None  # in use again
+        mark(session, p.user_id, "ask")
         session.commit()  # no transaction (and no pooled connection) stays open into the stream
         passages, notes = split_notes(passages)
         hist = [{"role": m.role, "content": m.content} for m in history if m.content][-HISTORY:]

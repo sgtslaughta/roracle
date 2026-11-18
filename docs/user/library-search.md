@@ -1,6 +1,8 @@
-# Library and search
+# Finding papers
 
 The Library is the start page. With nothing typed it lists the newest papers you can see. Type in the search box to search the text of papers.
+
+<!-- try:search label="Try a search" hint="Quotes match a phrase; a minus sign leaves a word out." q='"multi-agent" -survey' -->
 
 ![Library search results with passages, tags, votes and the filter rail](../assets/screens/library-results.png)
 

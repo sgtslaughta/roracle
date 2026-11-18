@@ -18,6 +18,7 @@ import { draftDocument, draftHandlers } from "./drafts";
 import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
 import { savedSearchHandlers } from "./savedSearches";
 import { evalHandlers } from "./eval";
+import { onboardingHandlers } from "./onboarding";
 import { DIR_USERS, directoryHandlers } from "./directory";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -214,4 +215,5 @@ export const handlers = [
   ...notificationHandlers,
   ...draftHandlers,
   ...savedSearchHandlers,
+  ...onboardingHandlers,
 ];
