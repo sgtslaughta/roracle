@@ -299,25 +299,22 @@ describe("submit", () => {
     await user.click(screen.getByRole("button", { name: "Submit…" }));
     const dlg = await screen.findByRole("dialog");
     await user.selectOptions(within(dlg).getByLabelText("Visible to"), "shared");
-    expect(within(dlg).getByLabelText(/User ids/)).toBeInTheDocument();
+    expect(within(dlg).getByLabelText("People")).toBeInTheDocument(); // picked by name, not typed ids
+    expect(within(dlg).getByLabelText("Org units")).toBeInTheDocument();
   });
 });
 
 describe("co-authors", () => {
-  it("adds and removes a co-author by id; unknown ids show the server error", async () => {
+  it("adds a co-author by name, lists them by name and removes them", async () => {
     const user = userEvent.setup();
     await open(`/drafts/${D1}`);
     await editor();
     await tab("Co-authors");
-    await user.type(screen.getByLabelText("Co-author id"), "nobody");
-    await user.click(screen.getByRole("button", { name: "Add" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("unknown user");
-    const input = screen.getByLabelText("Co-author id");
-    await user.clear(input);
-    await user.type(input, "11111111-1111-4111-8111-111111111111");
-    await user.click(screen.getByRole("button", { name: "Add" }));
-    expect(await screen.findByText("11111111-1111-4111-8111-111111111111")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Remove 11111111/ }));
-    await waitFor(() => expect(screen.queryByText("11111111-1111-4111-8111-111111111111")).not.toBeInTheDocument());
+    await user.type(screen.getByLabelText("Add a person"), "ana");
+    await user.click(await screen.findByRole("button", { name: "ana" }));
+    expect(await screen.findByRole("button", { name: "Remove ana" })).toBeInTheDocument();
+    expect(screen.queryByText(/11111111-1111/)).toBeNull(); // never the raw id
+    await user.click(screen.getByRole("button", { name: "Remove ana" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove ana" })).not.toBeInTheDocument());
   });
 });

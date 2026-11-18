@@ -16,6 +16,10 @@ export const directoryHandlers = [
     if (q.length < 2) return HttpResponse.json({ detail: [{ msg: "String should have at least 2 characters", loc: ["query", "q"] }] }, { status: 422 });
     return HttpResponse.json({ items: DIR_USERS.filter((u) => u.username.includes(q)) });
   }),
+  http.get(url("/directory/users/lookup"), ({ request }) => {
+    const ids = new URL(request.url).searchParams.getAll("ids");
+    return HttpResponse.json({ items: DIR_USERS.filter((u) => ids.includes(u.id)) });
+  }),
   http.get(url("/directory/groups"), ({ request }) => {
     const q = (new URL(request.url).searchParams.get("q") ?? "").trim().toLowerCase();
     if (q.length < 2) return HttpResponse.json({ detail: [{ msg: "String should have at least 2 characters", loc: ["query", "q"] }] }, { status: 422 });

@@ -145,16 +145,16 @@ describe("citations and passages", () => {
 describe("shares", () => {
   it("pre-fills from GET and saves with PUT; shows the 422 detail", async () => {
     const user = userEvent.setup();
-    server.use(http.get(`${API_BASE}/chats/c1/shares`, () => HttpResponse.json({ users: ["u-9"], groups: ["/Math"] })));
+    server.use(http.get(`${API_BASE}/chats/c1/shares`, () => HttpResponse.json({ users: ["11111111-1111-4111-8111-111111111111"], groups: ["/Math"] })));
     await renderApp("/ask/c1");
     await user.click(await screen.findByRole("button", { name: "Share" }));
     const dlg = await screen.findByRole("dialog", { name: "Share this chat" });
     expect(await within(dlg).findByText("/Math")).toBeInTheDocument();
-    expect(within(dlg).getByText("u-9")).toBeInTheDocument();
+    expect(await within(dlg).findByText("ana")).toBeInTheDocument(); // existing ids are shown by name
     server.use(http.put(`${API_BASE}/chats/c1/shares`, () => HttpResponse.json({ detail: "unknown user u-9" }, { status: 422 })));
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
     expect(await screen.findByText("unknown user u-9")).toBeInTheDocument();
-    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["u-9"], groups: ["/Math"] });
+    expect(await sent("PUT", /shares$/)[0].json()).toEqual({ users: ["11111111-1111-4111-8111-111111111111"], groups: ["/Math"] });
   });
   it("mock stores shares per chat", async () => {
     await fetch(`${API_BASE}/chats/c1/shares`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ users: ["u1"], groups: [] }) });

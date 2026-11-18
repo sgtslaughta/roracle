@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { Audience, HandoffShare } from "@/api/agents";
 import { Button } from "@/components/ui/button";
+import { PeopleInput } from "@/components/PeopleInput";
 import { ChipInput } from "@/features/ask/ChipInput";
 
 export interface HandoffValues { title: string; goal: string; brief: string; audience: Audience; shares: HandoffShare[] | null; days: number | null }
@@ -31,7 +32,6 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
   const [users, setUsers] = useState<string[]>([]);
   const [days, setDays] = useState(mode === "create" ? "7" : "");
   const gRef = useRef<() => string[] | null>(null);
-  const uRef = useRef<() => string[] | null>(null);
   // editing an already-shared handoff: the API doesn't list current shares, and omitting them keeps them
   const keepShares = mode === "edit" && initial.audience === "shared";
   const needShares = audience === "shared" && !keepShares && !groups.length && !users.length;
@@ -42,7 +42,7 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
   const submit = () => {
     let shares: HandoffShare[] | null = null;
     if (audience === "shared") {
-      const g = gRef.current ? gRef.current() : groups, u = uRef.current ? uRef.current() : users;
+      const g = gRef.current ? gRef.current() : groups, u = users;
       if (!g || !u || g.length + u.length > MAX_SHARES) return;
       if (g.length || u.length) shares = [...g.map((p) => ({ kind: "group" as const, principal: p })), ...u.map((p) => ({ kind: "user" as const, principal: p }))];
       else if (!keepShares) return;
@@ -73,7 +73,7 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
       {audience === "shared" && (
         <>
           <ChipInput label="Groups" values={groups} onChange={setGroups} validate={(v) => groupError(v) ?? full()} commitRef={gRef} placeholder="/Mathematics/Spectral Theory" />
-          <ChipInput label="People (user IDs)" values={users} onChange={setUsers} validate={(v) => tooLong(v) ?? full()} commitRef={uRef} />
+          <PeopleInput label="People" values={users} onChange={setUsers} full={full()} />
           {tooMany && <p className="chipin-err" role="alert">At most {MAX_SHARES} people and groups in all. Remove {total - MAX_SHARES}.</p>}
           <p className="chipin-help">{keepShares ? "Leave both empty to keep the current list; adding anyone replaces it." : "Press Enter to add. Add at least one person or group."}</p>
         </>

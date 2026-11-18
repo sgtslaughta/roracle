@@ -167,11 +167,12 @@ describe("proposals inbox", () => {
     await user.click(within(c).getByRole("button", { name: "Edit" }));
     await user.selectOptions(within(c).getByRole("combobox", { name: "Visible to" }), "shared");
     await user.type(within(c).getByRole("textbox", { name: "Groups" }), "/Mathematics{Enter}");
-    await user.type(within(c).getByRole("textbox", { name: "People (user IDs)" }), "u-ruiz");
+    await user.type(within(c).getByRole("textbox", { name: "People" }), "ana");
+    await user.click(await within(c).findByRole("button", { name: "ana" })); // picked by name, sent as the id
     await user.click(within(c).getByRole("button", { name: "Approve with edits" }));
     expect(await bodyOf("/p-comment/approve")).toEqual({
       body: "Section 4 restates Lemma 2 without the polylog factor.", visibility: "shared",
-      shares: [{ kind: "group", principal: "/Mathematics" }, { kind: "user", principal: "u-ruiz" }],
+      shares: [{ kind: "group", principal: "/Mathematics" }, { kind: "user", principal: "11111111-1111-4111-8111-111111111111" }],
     });
   });
 

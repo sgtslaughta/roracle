@@ -99,6 +99,15 @@ def test_directory_users(client, as_ana, ana, as_bob, bob, make_token):
     assert client.get("/directory/users", params={"q": "bo"}).status_code == 401
 
 
+def test_directory_users_lookup(client, as_ana, ana, bob):
+    r = client.get("/directory/users/lookup", params={"ids": [str(bob), str(uuid.uuid4())]}, headers=as_ana)
+    assert r.json() == {"items": [{"id": str(bob), "username": "bob"}]}
+    assert client.get("/directory/users/lookup", params={"ids": "nope"}, headers=as_ana).status_code == 422
+    too_many = [str(uuid.uuid4()) for _ in range(101)]
+    assert client.get("/directory/users/lookup", params={"ids": too_many}, headers=as_ana).status_code == 422
+    assert client.get("/directory/users/lookup", params={"ids": [str(bob)]}).status_code == 401
+
+
 def test_directory_groups(client, as_ana, ana, as_bob, bob):
     r = client.get("/directory/groups", params={"q": "phy"}, headers=as_ana)
     assert r.json() == {"items": ["/Physics"]}

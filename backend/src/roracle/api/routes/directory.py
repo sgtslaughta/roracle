@@ -1,6 +1,7 @@
 """User/group lookup for sharing and co-author pickers (any authenticated caller; id + username only)."""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -28,6 +29,14 @@ def users(q: Q, p: Who, session: Db) -> dict:
         .limit(LIMIT)
     ).all()
     return {"items": [{"id": str(i), "username": n} for i, n in rows]}
+
+
+@router.get("/directory/users/lookup")
+def users_by_id(ids: Annotated[list[UUID], Query(max_length=100)], p: Who, session: Db) -> dict:
+    """Usernames for ids already on a share or co-author list, so pickers never show raw ids.
+    Unknown ids are left out."""
+    rows = session.execute(select(User.id, User.username).where(User.id.in_(set(ids)))).all()
+    return {"items": [{"id": str(i), "username": n} for i, n in sorted(rows, key=lambda r: (r[1], r[0]))]}
 
 
 @router.get("/directory/groups")

@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { DraftDetail } from "@/api/drafts";
 import type { Visibility } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { ChipList, DirectoryPicker } from "@/components/DirectoryPicker";
+import { PeopleInput } from "@/components/PeopleInput";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { VIS_LABEL, VIS_ORDER } from "@/features/uploads/status";
 import { useLabels } from "@/features/labels/api";
@@ -18,8 +20,8 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
   const [tools, setTools] = useState(ai0?.tools.join(", ") ?? "");
   const [description, setDescription] = useState(ai0?.description ?? "");
   const [visibility, setVisibility] = useState<Visibility>("everyone");
-  const [users, setUsers] = useState("");
-  const [groups, setGroups] = useState("");
+  const [users, setUsers] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
   const [labelId, setLabelId] = useState("");
   const labels = useLabels().data ?? [];
   const current = useDoc(draft.id).data?.label;
@@ -40,7 +42,7 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
         const r = await save.mutateAsync({ content, base_version: base.version });
         onSaved(content, r.version);
       }
-      const r = await submit.mutateAsync({ visibility, share_users: visibility === "shared" ? list(users) : [], share_groups: visibility === "shared" ? list(groups) : [], ...(labelId && { label_id: labelId }) });
+      const r = await submit.mutateAsync({ visibility, share_users: visibility === "shared" ? users : [], share_groups: visibility === "shared" ? groups : [], ...(labelId && { label_id: labelId }) });
       setResult(r.status === "in_review" ? "Submitted for review. An admin will approve it before it is published." : "Submitted and published.");
     } catch (err) {
       setError(draftError(err));
@@ -75,8 +77,9 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
             </label>
             {visibility === "shared" && (
               <>
-                <label>User ids (comma separated)<input className="inp" value={users} onChange={(e) => setUsers(e.target.value)} /></label>
-                <label>Org units (comma separated)<input className="inp" value={groups} onChange={(e) => setGroups(e.target.value)} /></label>
+                <PeopleInput label="People" values={users} onChange={setUsers} />
+                <DirectoryPicker<string> kind="groups" label="Org units" exclude={groups} onPick={(g) => setGroups([...groups, g])} />
+                <ChipList items={groups} label="Org units" onRemove={(g) => setGroups(groups.filter((x) => x !== g))} />
               </>
             )}
             {labels.length > 0 && (
