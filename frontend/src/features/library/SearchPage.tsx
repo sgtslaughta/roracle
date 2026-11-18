@@ -20,6 +20,7 @@ import { ViewSwitch } from "./ViewSwitch";
 import { ResultCard } from "./ResultCard";
 import { useLibraryNav } from "./useLibraryNav";
 import { Upgrading } from "./upgrading";
+import { resultsHeading } from "./heading";
 
 /** Server limits (search_limits.py): the query path and the cited window keep MAX_DOCS, browse pages through BROWSE_WINDOW. */
 const MAX_DOCS = 200, BROWSE_WINDOW = 10_000;
@@ -35,7 +36,7 @@ function searchHandoff(search: LibrarySearch, docIds: string[], total: number, c
       kind: "collection", sourceId: coll, docIds: [], title: name.slice(0, 200),
       goal: `Work through the “${name}” collection and summarise what's settled and what's open.`,
       brief: `Goal: work through the “${name}” collection and summarise what's settled and what's open.${q ? `\nFocus: “${q}”.` : ""}`,
-      summary: "Hands this collection to an agent: its documents as of now, and the notes on them.",
+      summary: "Hands this collection to an agent: its documents as of now.",
     };
   }
   const filters = ARRAY_KEYS.flatMap((k) => (search[k] ?? []).map((v) => (k === "collection" ? collName(v) : v))).join(", ");
@@ -73,7 +74,7 @@ export function SearchPage() {
     <section className="view" aria-label="Library search">
       <div className="shead">
         <div>
-          <h1>{search.q ? `Results for “${search.q}”` : "Library"}</h1>
+          <h1>{resultsHeading(search.q ?? "")}</h1>
           <p className="sub" aria-live="polite">
             {count}
           </p>

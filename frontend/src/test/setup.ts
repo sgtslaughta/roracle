@@ -3,6 +3,10 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import { server } from "@/mocks/server";
 import { resetMockState } from "@/mocks/state";
 import { cleanup, configure } from "@testing-library/react";
+import { notifyManager } from "@tanstack/react-query";
+import { guardedScheduler } from "./scheduler";
+
+notifyManager.setScheduler(guardedScheduler);
 
 // findBy*/waitFor default to 1 s, which cold lazy imports (pdf view, markdown) exceed when workers are busy: the source of a flaky reader test
 configure({ asyncUtilTimeout: 5000 });

@@ -308,6 +308,7 @@ describe("document management", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => expect(sent("DELETE", /\/documents\/[^/]+$/)).toHaveLength(1));
     expect(state.deletedDocs).toContain(DOC_MINE);
+    expect(await screen.findByText("Document deleted.")).toBeInTheDocument();
   });
   it("transfer picks a user from the directory", async () => {
     await renderApp(`/d/${DOC_MINE}`);

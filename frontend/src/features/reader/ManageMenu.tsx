@@ -20,7 +20,7 @@ export function ManageMenu({ doc }: { doc: DocumentDetail }) {
   const done = () => Promise.all(["search", "uploads", "collections"].map((k) => qc.invalidateQueries({ queryKey: [k] })).concat(qc.invalidateQueries({ queryKey: ["doc", doc.id] })));
   const del = useMutation({
     mutationFn: () => apiFetch<void>(`/documents/${seg(doc.id)}`, { method: "DELETE" }),
-    onSuccess: () => { setMode(null); closeTab(doc.id); toast("Document deleted. Admins can restore it until it is purged."); return done(); },
+    onSuccess: () => { setMode(null); closeTab(doc.id); toast("Document deleted."); return done(); },
     onError: (e) => toast(errorText(e)),
   });
   const move = useMutation({
