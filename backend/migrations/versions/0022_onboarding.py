@@ -20,7 +20,7 @@ def upgrade() -> None:
         sa.Column(
             "user_id", UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
         ),
-        sa.Column("steps", ARRAY(sa.String), server_default="{}", nullable=False),
+        sa.Column("steps", ARRAY(sa.Text), server_default="{}", nullable=False),
         sa.Column("dismissed", sa.Boolean, server_default=sa.false(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )

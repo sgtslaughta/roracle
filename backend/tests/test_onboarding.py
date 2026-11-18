@@ -35,8 +35,9 @@ def test_rollback_not_cached(db_session, uid):
 
 
 def test_known_cache_skips_db(db_session, uid):
-    onboarding.mark(db_session, uid, "ask")  # insert: not cached
-    onboarding.mark(db_session, uid, "ask")  # found present: cached
+    onboarding.mark(db_session, uid, "ask")
+    onboarding.mark(db_session, uid, "ask")
+    db_session.commit()  # cached only after commit
     n = []
     engine = db_session.get_bind()
     listener = lambda *a: n.append(1)
@@ -46,6 +47,17 @@ def test_known_cache_skips_db(db_session, uid):
     finally:
         event.remove(engine, "before_cursor_execute", listener)
     assert n == []
+
+
+def test_mark_rollback_mark_commit_is_cached(db_session, uid):
+    db_session.commit()
+    onboarding.mark(db_session, uid, "search")
+    onboarding.mark(db_session, uid, "search")
+    db_session.rollback()
+    onboarding.mark(db_session, uid, "search")
+    db_session.commit()
+    assert onboarding.state(db_session, uid)["steps"] == ["search"]
+    assert (uid, "search") in onboarding._known
 
 
 def test_unknown_step_raises(db_session, uid):

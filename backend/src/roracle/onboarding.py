@@ -1,10 +1,11 @@
 """Server-tracked "Get started" checklist. mark() is called from real event paths (hot), so once a
-step is known present for a user it is a no-op in-process. Only rows *confirmed already present* are
-cached: an insert/append is not, so a rolled-back transaction cannot poison the cache."""
+step is known present for a user it is a no-op in-process. Keys are held in session.info until the
+transaction commits (after_commit promotes them to the cache; after_rollback drops them), so a
+rolled-back transaction cannot poison the cache."""
 
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 STEPS: tuple[str, ...] = ("search", "ask", "upload", "collect", "token", "mcp", "handoff")
@@ -27,8 +28,8 @@ def mark(session: Session, user_id: UUID, step: str) -> None:
     key = (user_id, step)
     if key in _known:
         return
-    if session.execute(_MARK, {"u": user_id, "s": step}).rowcount == 0:
-        _known.add(key)
+    session.execute(_MARK, {"u": user_id, "s": step})  # inserted/appended, or already present
+    session.info.setdefault("onb_pending", set()).add(key)
 
 
 def state(session: Session, user_id: UUID) -> dict:
@@ -45,3 +46,13 @@ def set_dismissed(session: Session, user_id: UUID, dismissed: bool) -> None:
 
 def reset_cache() -> None:
     _known.clear()
+
+
+@event.listens_for(Session, "after_commit")
+def _promote(session: Session) -> None:
+    _known.update(session.info.pop("onb_pending", ()))
+
+
+@event.listens_for(Session, "after_rollback")
+def _drop(session: Session) -> None:
+    session.info.pop("onb_pending", None)

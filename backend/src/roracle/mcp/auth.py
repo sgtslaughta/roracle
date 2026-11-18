@@ -61,10 +61,10 @@ def _resolve(app: FastAPI, authorization: str | None) -> Principal:
             p = resolve_principal(
                 session, dep(app, get_jwks), settings, authorization, app.state.session_factory
             )
+            ratelimit.check(p, settings.rate_limit_per_minute)
             if p.via == "pat":
                 mark(session, p.user_id, "mcp")
             session.commit()
-            ratelimit.check(p, settings.rate_limit_per_minute)
             return p
         except Exception:
             session.rollback()
