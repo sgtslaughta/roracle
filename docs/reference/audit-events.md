@@ -30,7 +30,10 @@ back, so the log records completed actions. Exceptions are called out: `admin.de
 | `pat.create` | The token's owner (JWT) | Token id | `scopes` | `POST /api/me/tokens` |
 | `pat.revoke` | The token's owner (JWT) | Token id | none | `DELETE /api/me/tokens/{id}`, only when it was not already revoked |
 | `admin.revoke_pats` | Admin | The user id whose tokens were revoked | none | `DELETE /api/admin/users/{id}/pats` |
-| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A **successful** REST request authenticated with a PAT. Not written for 429, 403 `insufficient scope`, handler errors, or MCP calls. Exception: when a handler commits before failing (the `block_export` 403 commits its audit row), the `pat.use` row is kept too |
+| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A REST request authenticated with a PAT. Not written for MCP calls. When the request fails, the row is replayed after the rollback with `user_id` null and `detail`: `user_id`, `failed` (the HTTP status) |
+| `auth.rate_limited` | The caller (replayed: none) | `METHOD /path` | `via`, `failed` | 429 on a REST request; at most one per principal per minute |
+| `auth.scope_denied` | The caller (replayed: none) | `METHOD /path` for the write check, empty for `manage` | `need` (`write` or `manage`), `via`, `failed` | 403 `insufficient scope` or `insufficient scope: manage` |
+| `mcp.rate_limited` | The caller | `/mcp` | `via` | 429 on `/mcp`; at most one per principal per minute, written from its own session |
 | `mcp.<tool>` | The token's user (PAT or OAuth access token) | Tool-specific, cut at 200 characters (below) | `{"error": true}` on an HTTP-style error, `{"error": "internal"}` on an unexpected exception (best effort) | Every MCP tool call, resource read and prompt that passes authentication and argument validation |
 | `proposal.approve` | The human who approved | Proposal id | `annotation_id`, `client` (the agent's client name) | A person approves an agent's note proposal |
 | `proposal.reject` | The human who rejected | Proposal id | `client` | A person rejects it |
@@ -46,7 +49,7 @@ Tool list: [MCP tools](mcp-tools.md). MCP audit rules: [MCP](mcp.md#audit).
 | Action | Actor | Target | Detail | Written when |
 |---|---|---|---|---|
 | `admin.<handler>` | Admin (JWT) | The request path | `query`: the query parameters | **Every** successful admin request, reads included. `<handler>` is the route function name, for example `admin.list_users`, `admin.list_audit`. Mutating admin routes also write the specific row below |
-| `admin.denied` | none (the user is in `detail`) | The request path | `user_id`, `username` | A non-admin, or any PAT, calls an admin route (403). Written from its own session, best effort |
+| `admin.denied` | none (the user is in `detail`) | The request path | `user_id`, `username` | A non-admin, or any PAT, calls an admin route (403). Replayed after the rollback, so `user_id` is null and `detail.failed` is 403 |
 | `admin.connector_create` | Admin | Connector id | `connector`: the connector as returned by the API (secrets masked `***`) | Connector created |
 | `admin.connector_update` | Admin | Connector id | `before`, `after` (same shape) | Connector changed |
 | `admin.connector_delete` | Admin | Connector id | `connector` | Connector deleted |

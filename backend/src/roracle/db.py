@@ -1,7 +1,8 @@
 import time
 from collections.abc import Callable, Iterator
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -93,8 +94,18 @@ def get_session(request: Request) -> Iterator[Session]:
         try:
             yield session
             session.commit()
-        except Exception:
+        except Exception as e:
             session.rollback()
+            from roracle.audit import replay_durable  # lazy: audit -> models, auth -> db
+
+            status = (
+                422
+                if isinstance(e, RequestValidationError)
+                else e.status_code
+                if isinstance(e, HTTPException)
+                else 500
+            )
+            replay_durable(session, status)
             raise
 
 

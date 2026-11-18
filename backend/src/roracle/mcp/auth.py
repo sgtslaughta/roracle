@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from roracle import ratelimit
+from roracle.audit import audit_detached
 from roracle.auth import Principal, as_agent, get_app_settings, get_jwks, resolve_principal
 from roracle.db import get_session
 
@@ -62,7 +63,12 @@ def _resolve(app: FastAPI, authorization: str | None) -> Principal:
             )
             session.commit()
             p = as_agent(p)
-            ratelimit.check(p, settings.rate_limit_per_minute)
+            try:
+                ratelimit.check(p, settings.rate_limit_per_minute)
+            except HTTPException:
+                if ratelimit.audit_due("mcp:" + ratelimit.principal_key(p)):
+                    audit_detached(app.state.session_factory, p, "mcp.rate_limited", "/mcp", {"via": p.via})
+                raise
             return p
         except Exception:
             session.rollback()

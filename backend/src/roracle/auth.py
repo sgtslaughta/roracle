@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import ratelimit, runtime
+from roracle.audit import audit
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import AuditLog, User
+from roracle.models import User
 
 ADMIN_ROLE = "roracle-admin"
 LEEWAY_S = 30
@@ -51,6 +52,7 @@ MANAGE = "manage"
 def require_scope(session: Session, p: Principal, scope: str) -> None:
     """403 unless the principal holds `scope`. Call before any lookup so nothing leaks."""
     if scope not in p.scopes:
+        audit(session, p, "auth.scope_denied", detail={"need": scope, "via": p.via}, durable=True)
         raise HTTPException(403, f"insufficient scope: {scope}")
 
 
@@ -208,18 +210,18 @@ def current_principal(
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
     p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
-    ratelimit.check(p, settings.rate_limit_per_minute)
+    target = f"{request.method} {request.url.path}"[:200]
+    try:
+        ratelimit.check(p, settings.rate_limit_per_minute)
+    except HTTPException:
+        if ratelimit.audit_due(ratelimit.principal_key(p)):
+            audit(session, p, "auth.rate_limited", target, {"via": p.via}, durable=True)
+        raise
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
+        audit(session, p, "auth.scope_denied", target, {"need": "write", "via": p.via}, durable=True)
         raise HTTPException(403, "insufficient scope")
     if p.is_agent:
-        session.add(
-            AuditLog(
-                user_id=p.user_id,
-                action="pat.use",
-                target=f"{request.method} {request.url.path}"[:200],
-                client=p.client,
-            )
-        )
+        audit(session, p, "pat.use", target, durable=True)
     return p
 
 
