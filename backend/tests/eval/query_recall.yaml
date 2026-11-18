@@ -1,0 +1,212 @@
+# Query-handling recall set (docs/research/2026-11-17-query-handling.md): the same need asked bare, wrapped in
+# request filler, and as a follow-up. Query keys are `<topic>.<variant>`, variant in {bare, filler*, follow, tag}.
+# Seeds the live failure: "find things on robots" missed s01 (robotics only in title + tag) while "robots" found it.
+name: query-recall
+principals:
+  alice: {groups: [/eng]}
+documents:
+- key: s01
+  title: Scalability in Computing and Robotics
+  tags: [robotics, distributed-systems]
+  abstract: We survey how scaling limits of distributed computing carry over to large fleets of autonomous machines.
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Horizontal scaling adds nodes instead of faster hardware. Amdahl's law bounds the speed-up by the serial fraction of the workload, and coordination overhead grows with the number of nodes in the cluster.
+  - text: Load balancing spreads requests across replicas. Consistent hashing keeps most keys in place when a replica joins or leaves, which matters for caches that must stay warm during scaling events.
+  - text: Consensus protocols such as Raft serialise writes through an elected leader. Throughput is capped by the leader, so sharding the state machine is the usual way to scale beyond a single group.
+  - text: Cluster schedulers pack jobs onto machines by bin packing over CPU, memory and accelerators. Preemption and priority classes trade utilisation against tail latency for interactive services.
+  - text: Warehouse fleets coordinate hundreds of mobile units through the same primitives. A central planner becomes the bottleneck, and partitioned planning with leases scales the fleet the way sharding scales a database.
+  - text: Benchmarks show near-linear throughput up to sixty-four nodes, after which network contention dominates and the gains flatten.
+- key: t01
+  title: Toddlers and social robots
+  abstract: Toddlers treat social robots as playmates.
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: We find that toddlers treat social robots as playmates. Things like eye contact and a friendly voice made the robots seem alive, and children looked for the robots when they left the room.
+- key: t02
+  title: Do toddlers learn words from robots?
+  abstract: Two-year-olds learn new words from robots.
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Two-year-olds find it easy to learn names for new things when robots point at them. We are looking at whether the robots need a face; info from gaze helped more than the voice.
+- key: f01
+  title: Finding things in archives
+  tags: [information-seeking]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: How do researchers find things in archives? We were looking for patterns in how people search for information, and most of them want to find papers on a topic quickly.
+  - text: Participants said they need info about anything related to their topic, and they show colleagues the things they find. Searching for stuff is mostly browsing.
+  - text: Looking for information in papers and documents takes hours each week; people find some things by chance and tell others about them.
+- key: f02
+  title: Note-taking habits of graduate students
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Students keep info on papers in notebooks and find it hard to search for things later. Most want a list of papers they can look at again.
+  - text: We asked what material they need; they mostly want to know where stuff is and to get information on papers about their thesis topic.
+- key: f03
+  title: Why students cannot find papers
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Students looking for papers type a whole request, find things that only share the request words, and give up. Things they want to know get lost in the info they find.
+  - text: We show that anything typed as a question returns stuff about searching itself; people need to look at the list of papers again and again to find the right things.
+- key: f04
+  title: Library help desk questions
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Most help desk questions are of the form "I am looking for info on a topic"; staff show visitors how to find things and get information on papers.
+  - text: Visitors want to know about anything new; we tell them where to look for material and how to search the list of documents.
+- key: f05
+  title: Information foraging on the web
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: People looking for information follow scent; they find things through links and give up when the info they need is not on the page.
+  - text: Searching for stuff is cheap, so users look at many documents and find some things worth reading; papers about foraging show the same.
+- key: f06
+  title: What users type into a library search box
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Logged queries read like requests. "Find things on" and "papers about" open most of them; users looking for info type what they want to find, then the things they need.
+  - text: People write "I am looking for information on" before the topic; we show that the info they get back is about finding things, not about the topic.
+  - text: Asking for papers about anything returns papers about papers; we tell users to drop words like find, things, info and looking.
+- key: p01
+  title: Stability of perovskite solar cells
+  tags: [photovoltaics]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Perovskite absorbers degrade under humidity and heat. Encapsulation and mixed-cation compositions extend the operating lifetime of the cells to thousands of hours.
+  - text: Ion migration causes hysteresis in current-voltage sweeps; passivating grain boundaries reduces it and improves stability under illumination.
+- key: pf
+  title: Predicting protein structure with deep learning
+  tags: [structural-biology]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Attention over multiple sequence alignments predicts residue contacts, and a structure module turns them into atomic coordinates for the protein fold.
+  - text: Predicted structures reach experimental accuracy for most single-domain proteins, but conformational changes and complexes remain hard.
+- key: cr
+  title: Coral bleaching under marine heatwaves
+  tags: [oceanography]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Marine heatwaves expel symbiotic algae from coral tissue. Degree heating weeks above eight predict mass bleaching and mortality on shallow reefs.
+- key: gn
+  title: Graph neural networks for molecular property prediction
+  tags: [drug-discovery]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Message passing over atoms and bonds learns molecular representations; graph neural networks rival fingerprints for toxicity and solubility prediction.
+  - text: Pretraining on unlabelled molecules helps when few assay labels exist, a common case early in drug discovery.
+- key: qe
+  title: Surface codes for quantum error correction
+  tags: [quantum-computing]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: The surface code encodes a logical qubit in a lattice of physical qubits and tolerates error rates near one percent per operation.
+  - text: Decoders such as minimum-weight perfect matching run in real time; lattice surgery performs logical gates between patches.
+- key: uh
+  title: Mitigating urban heat islands with green roofs
+  tags: [urban-climate]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Green roofs cool buildings through evapotranspiration and lower nearby air temperatures by up to two degrees on summer afternoons in dense city districts.
+- key: sl
+  title: Sleep spindles and memory consolidation
+  tags: [neuroscience]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Spindle density during non-REM sleep correlates with overnight retention of word pairs; targeted memory reactivation boosts the effect.
+- key: ba
+  title: Solid electrolytes for lithium batteries
+  tags: [energy-storage]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Sulfide solid electrolytes conduct lithium ions almost as well as liquids but react with the cathode; coatings stabilise the interface.
+  - text: Dendrites still penetrate ceramic separators at high current density, limiting fast charging of solid-state cells.
+- key: wf
+  title: Health effects of wildfire smoke exposure
+  tags: [public-health]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Fine particulate matter from wildfire smoke raises emergency visits for asthma; filtration indoors reduces exposure for vulnerable groups.
+- key: mt
+  title: Low-resource machine translation with multilingual models
+  tags: [nlp]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Multilingual pretraining transfers to language pairs with little parallel text; back-translation adds synthetic data for translation into the low-resource side.
+- key: so
+  title: Soil microbiome responses to drought
+  tags: [ecology]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Drought shifts soil bacterial communities toward spore formers; fungal networks recover faster after rewetting than bacterial ones.
+- key: gl
+  title: Glacier retreat in the Alps
+  tags: [glaciology]
+  owner: alice
+  visibility: everyone
+  chunks:
+  - text: Alpine glaciers lost more than a third of their volume since 2000; debris cover slows melt locally but not the overall retreat.
+queries:
+- {key: robots.bare, text: "robots", kind: fact, principals: [alice], relevant: [{doc: s01}, {doc: t01}, {doc: t02}]}
+- {key: robots.filler1, text: "find things on robots", kind: fact, principals: [alice], relevant: [{doc: s01}, {doc: t01}, {doc: t02}]}
+- {key: robots.filler2, text: "I am looking for info on robots", kind: fact, principals: [alice], relevant: [{doc: s01}, {doc: t01}, {doc: t02}]}
+- {key: robots.filler3, text: "papers about robots", kind: fact, principals: [alice], relevant: [{doc: s01}, {doc: t01}, {doc: t02}]}
+- {key: robots.follow, text: "and what about robots?", kind: fact, principals: [alice], relevant: [{doc: s01}, {doc: t01}, {doc: t02}]}
+- {key: perovskite.bare, text: "perovskite stability", kind: fact, principals: [alice], relevant: [{doc: p01}]}
+- {key: perovskite.filler, text: "can you find me papers on perovskite stability?", kind: fact, principals: [alice], relevant: [{doc: p01}]}
+- {key: perovskite.follow, text: "anything else on perovskite stability too?", kind: fact, principals: [alice], relevant: [{doc: p01}]}
+- {key: perovskite.tag, text: "photovoltaics", kind: fact, principals: [alice], relevant: [{doc: p01}]}
+- {key: protein.bare, text: "protein structure prediction", kind: fact, principals: [alice], relevant: [{doc: pf}]}
+- {key: protein.filler, text: "show me some stuff about protein structure prediction", kind: fact, principals: [alice], relevant: [{doc: pf}]}
+- {key: protein.follow, text: "what about protein structure prediction?", kind: fact, principals: [alice], relevant: [{doc: pf}]}
+- {key: coral.bare, text: "coral bleaching", kind: fact, principals: [alice], relevant: [{doc: cr}]}
+- {key: coral.filler, text: "I need information on coral bleaching please", kind: fact, principals: [alice], relevant: [{doc: cr}]}
+- {key: coral.follow, text: "and coral bleaching?", kind: fact, principals: [alice], relevant: [{doc: cr}]}
+- {key: gnn.bare, text: "graph neural networks molecules", kind: fact, principals: [alice], relevant: [{doc: gn}]}
+- {key: gnn.filler, text: "find papers on graph neural networks for molecules", kind: fact, principals: [alice], relevant: [{doc: gn}]}
+- {key: gnn.follow, text: "what do we have on graph neural networks for molecules?", kind: fact, principals: [alice], relevant: [{doc: gn}]}
+- {key: quantum.bare, text: "quantum error correction", kind: fact, principals: [alice], relevant: [{doc: qe}]}
+- {key: quantum.filler, text: "I am looking for things on quantum error correction", kind: fact, principals: [alice], relevant: [{doc: qe}]}
+- {key: quantum.follow, text: "more on quantum error correction?", kind: fact, principals: [alice], relevant: [{doc: qe}]}
+- {key: quantum.tag, text: "quantum-computing", kind: fact, principals: [alice], relevant: [{doc: qe}]}
+- {key: heat.bare, text: "urban heat islands", kind: fact, principals: [alice], relevant: [{doc: uh}]}
+- {key: heat.filler, text: "give me info about urban heat islands", kind: fact, principals: [alice], relevant: [{doc: uh}]}
+- {key: heat.follow, text: "what about urban heat islands too?", kind: fact, principals: [alice], relevant: [{doc: uh}]}
+- {key: sleep.bare, text: "sleep memory consolidation", kind: fact, principals: [alice], relevant: [{doc: sl}]}
+- {key: sleep.filler, text: "tell me about papers on sleep and memory consolidation", kind: fact, principals: [alice], relevant: [{doc: sl}]}
+- {key: sleep.follow, text: "and sleep memory consolidation?", kind: fact, principals: [alice], relevant: [{doc: sl}]}
+- {key: battery.bare, text: "solid electrolytes", kind: fact, principals: [alice], relevant: [{doc: ba}]}
+- {key: battery.filler, text: "search for anything on solid electrolytes", kind: fact, principals: [alice], relevant: [{doc: ba}]}
+- {key: battery.follow, text: "any other things on solid electrolytes?", kind: fact, principals: [alice], relevant: [{doc: ba}]}
+- {key: smoke.bare, text: "wildfire smoke health", kind: fact, principals: [alice], relevant: [{doc: wf}]}
+- {key: smoke.filler, text: "could you find information on wildfire smoke and health", kind: fact, principals: [alice], relevant: [{doc: wf}]}
+- {key: smoke.follow, text: "what about wildfire smoke health effects?", kind: fact, principals: [alice], relevant: [{doc: wf}]}
+- {key: mt.bare, text: "low-resource machine translation", kind: fact, principals: [alice], relevant: [{doc: mt}]}
+- {key: mt.filler, text: "show me papers about low-resource machine translation", kind: fact, principals: [alice], relevant: [{doc: mt}]}
+- {key: mt.follow, text: "anything on low-resource machine translation too?", kind: fact, principals: [alice], relevant: [{doc: mt}]}
+- {key: soil.bare, text: "soil microbiome drought", kind: fact, principals: [alice], relevant: [{doc: so}]}
+- {key: soil.filler, text: "I want papers about the soil microbiome under drought", kind: fact, principals: [alice], relevant: [{doc: so}]}
+- {key: soil.follow, text: "and the soil microbiome in drought?", kind: fact, principals: [alice], relevant: [{doc: so}]}
+- {key: glacier.bare, text: "glacier retreat", kind: fact, principals: [alice], relevant: [{doc: gl}]}
+- {key: glacier.filler, text: "find me stuff on glacier retreat", kind: fact, principals: [alice], relevant: [{doc: gl}]}
+- {key: glacier.follow, text: "what about glacier retreat?", kind: fact, principals: [alice], relevant: [{doc: gl}]}

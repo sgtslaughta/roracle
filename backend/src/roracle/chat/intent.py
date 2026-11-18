@@ -1,4 +1,4 @@
-"""Summary intent and contentless-query detection (pure regex, no I/O)."""
+"""Summary intent, contentless-query detection and the lexical (BM25) query (pure regex, no I/O)."""
 
 import re
 
@@ -73,3 +73,19 @@ def contentless(q: str) -> bool:
     rest = _STRIP.sub(" ", q)
     toks = [t for t in re.findall(r"\w+", rest.lower()) if t not in _STOP]
     return not toks
+
+
+# Request scaffolding that only dilutes BM25 ("find things on robots" -> "robots"). A closed list of English words:
+# anything not listed (every non-English word included) is kept, so stripping can never drop foreign content.
+_FILLER_WORDS = """am any anything articles docs documents else find get give have has info information know let like list
+    look looking material more need now our papers please regarding related search searching see show some
+    something stuff tell there thing things too want we'd i'd i'm what's would could should also other"""
+_FILLER = _STOP | frozenset(_FILLER_WORDS.split())
+_EDGE = "\"'`.,;:!?()[]{}<>«»¿¡“”‘’"
+
+
+def lexical_query(q: str) -> str:
+    """`q` without English request filler, for the BM25 leg only (dense and rerank keep `q`). Words keep their
+    order and spelling; if nothing is left, `q` itself."""
+    kept = [w.strip(_EDGE) for w in q.split() if w.strip(_EDGE).casefold() not in _FILLER]
+    return " ".join(w for w in kept if w) or q
