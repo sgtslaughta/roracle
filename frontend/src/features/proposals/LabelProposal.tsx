@@ -22,7 +22,7 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
   const labels = useLabels().data ?? [];
   const doc = p.document;
   const noteId = p.payload.annotation_id; // a note label change: compare with the note's effective label, not the document's
-  const docLabel = useDoc(doc?.id ?? "").data?.label;
+  const docLabel = useDoc(doc?.id ?? "", !!doc?.id).data?.label;
   const noteLabel = useNotes(noteId ? doc?.id ?? "" : "").data?.find((n) => n.id === noteId)?.effective_label;
   const current = noteId ? noteLabel : docLabel;
   const target = labels.find((l) => l.id === p.payload.label_id);

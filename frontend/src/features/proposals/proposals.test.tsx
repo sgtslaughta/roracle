@@ -56,6 +56,8 @@ describe("proposals inbox", () => {
     expect(await screen.findByRole("region", { name: "From your token “test”" })).toBeInTheDocument();
     expect(await screen.findByText(/approving changes nothing/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    // a document label change has no note to look up: no request for an empty document id
+    expect(seen.some((r) => new URL(r.url).pathname.includes("/documents//"))).toBe(false);
   });
 
   it("groups pending proposals by client, marks them agent-assisted and shows payload text as plain text", async () => {
