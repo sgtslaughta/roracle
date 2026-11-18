@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlalchemy import delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
+from roracle.access import org_units
 from roracle.api.routes.admin_deps import Admin, keyset_page, keyset_params, page_params
 from roracle.api.routes.library import normalize_tag
 from roracle.audit import audit
@@ -133,17 +135,15 @@ def list_groups(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
-    grp = select(func.jsonb_array_elements_text(User.groups).label("grp")).select_from(User).subquery()
-    where = [grp.c.grp.ilike(_like(q), escape="\\")] if q else []
-    total = session.scalar(select(func.count(func.distinct(grp.c.grp))).where(*where)) or 0
-    rows = session.execute(
-        select(grp.c.grp, func.count())
-        .where(*where)
-        .group_by(grp.c.grp)
-        .order_by(grp.c.grp)
-        .limit(limit)
-        .offset(offset)
-    ).all()
+    needle = q.strip().lower()
+    counts = Counter(
+        u
+        for gs in session.scalars(select(User.groups))
+        for u in org_units([g for g in gs if isinstance(g, str)])
+    )
+    found = sorted(g for g in counts if needle in g.lower())
+    rows = [(g, counts[g]) for g in found[offset : offset + limit]]
+    total = len(found)
     return {"items": [{"group": g, "members": n} for g, n in rows], "total": total}
 
 
