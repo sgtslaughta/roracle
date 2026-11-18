@@ -15,6 +15,10 @@ variables:
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
   TERRAFORM_IMAGE: "${REGISTRY_MIRROR}hashicorp/terraform:1.15.8"
   KIND_E2E_IMAGE: ""   # REQUIRED for iac-kind-e2e (the job fails fast when empty): bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum
+  # Supply chain (all optional; placeholders, set as CI/CD variables): SYFT_IMAGE (mirrored anchore/syft, pinned tag) enables the
+  # sbom job; COSIGN_IMAGE (mirrored sigstore/cosign, pinned) + COSIGN_KEY (file variable) + COSIGN_PASSWORD (masked) enable signing on tags.
+  SYFT_IMAGE: ""
+  COSIGN_IMAGE: ""
   ELASTICSEARCH_IMAGE: "${REGISTRY_MIRROR}docker.elastic.co/elasticsearch/elasticsearch:9.5.6"
 
 workflow:
@@ -167,7 +171,9 @@ build:
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile backend/Dockerfile \
         --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg UV_INDEX_URL="$UV_INDEX_URL" \
-        --build-arg VERSION="$(cat VERSION)" $DEST
+        --build-arg VERSION="$(cat VERSION)" --digest-file "$CI_PROJECT_DIR/backend.digest" $DEST
+  artifacts:
+    paths: [backend.digest]
 
 .frontend-rules:
   rules:
@@ -301,4 +307,36 @@ build-web:
       echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
       /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile frontend/Dockerfile \
         --build-arg REGISTRY_MIRROR="$REGISTRY_MIRROR" --build-arg NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" --build-arg UV_INDEX_URL="$UV_INDEX_URL" \
-        --build-arg VERSION="$V" $DEST
+        --build-arg VERSION="$V" --digest-file "$CI_PROJECT_DIR/web.digest" $DEST
+  artifacts:
+    paths: [web.digest]
+
+# CycloneDX SBOMs of the source trees (lockfiles). Runs only when SYFT_IMAGE is set.
+sbom:
+  stage: build
+  rules:
+    - if: $SYFT_IMAGE
+  image:
+    name: $SYFT_IMAGE
+    entrypoint: [""]
+  script:
+    - syft scan dir:backend -o cyclonedx-json=sbom-backend.cdx.json
+    - syft scan dir:frontend -o cyclonedx-json=sbom-frontend.cdx.json
+  artifacts:
+    paths: [sbom-backend.cdx.json, sbom-frontend.cdx.json]
+    expire_in: 1 year
+
+# Key-based cosign signature of the pushed image digests, tags only. COSIGN_KEY is a file variable, COSIGN_PASSWORD masked.
+# --tlog-upload=false: no public transparency log (air-gap).
+sign:
+  stage: build
+  needs: [build, build-web]
+  rules:
+    - if: $COSIGN_IMAGE && $COSIGN_KEY && $CI_COMMIT_TAG
+  image:
+    name: $COSIGN_IMAGE
+    entrypoint: [""]
+  script:
+    - cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - cosign sign --yes --key "$COSIGN_KEY" --tlog-upload=false "$CI_REGISTRY_IMAGE/backend@$(cat backend.digest)"
+    - cosign sign --yes --key "$COSIGN_KEY" --tlog-upload=false "$CI_REGISTRY_IMAGE/web@$(cat web.digest)"

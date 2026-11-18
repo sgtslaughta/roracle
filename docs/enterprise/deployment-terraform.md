@@ -42,6 +42,8 @@ There are no named small, medium or large presets. Size comes from two levers:
 - `ha`: `false` renders the dev profile (single api, worker, web, Postgres and ES node, no HPA or PDB, no topology spread, reduced parser replicas and requests); `true` keeps the chart defaults (3 Postgres instances, 3 ES nodes, HPA, PDB, topology spread). Override replicas with `replicas.{api,worker,web}`, volumes with `storage.{postgres,elasticsearch,class}`.
 - `quota`: optional ResourceQuota for the app namespace. The examples use `requests_cpu = "24"`, `requests_memory = "64Gi"`, `limits_memory = "96Gi"` for dev and `"120"`, `"400Gi"`, `"480Gi"` (60 PVCs, 6Ti) for production. Size it above the whole bundled data tier.
 
+- `pod_security`: Pod Security Admission labels on the app namespace, `{ enforce = "", warn = "restricted", audit = "restricted" }` by default. Each level is `""` (no label), `privileged`, `baseline` or `restricted`. The default enforces nothing, so no workload can break; `warn` and `audit` report violations. Set `enforce = "restricted"` once the audit log is clean.
+
 For the capacity targets behind the production numbers see the sizing table in the [deployment guide](deployment-guide.md) (section 3) and [capacity planning](capacity-planning.md). Anything not exposed as a variable goes in `extra_values_file = "my-values.yaml"`; the full key list is the [Helm values reference](../reference/helm-values.md).
 
 ## 4. Placeholders and the gate

@@ -45,6 +45,20 @@ variable "pull_secret" {
   sensitive = true
 }
 
+variable "pod_security" {
+  description = "Pod Security Admission levels on the app namespace. \"\" = label not set. Default enforces nothing; warn/audit surface violations."
+  type = object({
+    enforce = optional(string, "")
+    warn    = optional(string, "restricted")
+    audit   = optional(string, "restricted")
+  })
+  default = {}
+  validation {
+    condition     = alltrue([for v in values(var.pod_security) : contains(["", "privileged", "baseline", "restricted"], v)])
+    error_message = "pod_security levels must each be one of: \"\", privileged, baseline, restricted."
+  }
+}
+
 locals {
   namespaces = toset(concat([var.app_namespace], var.extra_namespaces))
 }
@@ -52,8 +66,11 @@ locals {
 resource "kubernetes_namespace_v1" "this" {
   for_each = local.namespaces
   metadata {
-    name   = each.key
-    labels = { "app.kubernetes.io/part-of" = "roracle", "app.kubernetes.io/managed-by" = "terraform" }
+    name = each.key
+    labels = merge(
+      { "app.kubernetes.io/part-of" = "roracle", "app.kubernetes.io/managed-by" = "terraform" },
+      each.key == var.app_namespace ? { for m, l in var.pod_security : "pod-security.kubernetes.io/${m}" => l if l != "" } : {},
+    )
   }
 }
 

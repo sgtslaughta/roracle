@@ -12,11 +12,18 @@ filesystem (exceptions below), no service-account token automount on the service
 snapshot job, the ES pods and the parser pods, and the NetworkPolicies in this page. Dependencies come only from internal mirrors
 (see [air-gap mirror manifest](../airgap-mirror-manifest.md)); lock files are committed (`uv.lock`, `pnpm-lock.yaml`).
 
-What the repository does **not** do, so a security review should not assume it: `.gitlab-ci.yml` has no SBOM
-(CycloneDX), vulnerability-scan or image-signing (cosign) stage, the chart does not label the namespace for Pod
-Security Admission (the pod specs follow the controls the `restricted` profile asks for, but enforcing the profile
-is the operator's), and no STIG baseline is applied. Earlier drafts of this page claimed signed images, SBOMs and
-STIG alignment; none of that is in the repository. See [known limits](known-limits.md).
+What CI does for the supply chain (all optional, enabled by CI/CD variables): the `sbom` job (set `SYFT_IMAGE`) writes
+CycloneDX SBOMs of `backend/` and `frontend/` (`sbom-backend.cdx.json`, `sbom-frontend.cdx.json`, kept one year). The
+kaniko builds write image digests (`backend.digest`, `web.digest`). The `sign` job (tags only; needs `COSIGN_IMAGE`,
+the file variable `COSIGN_KEY` and the masked `COSIGN_PASSWORD`) signs those digests with a key, without a transparency
+log. The Terraform `pod_security` variable labels the app namespace for Pod Security Admission: by default it enforces
+nothing and sets `warn` and `audit` to `restricted`, so violations are reported without breaking a workload.
+
+What the repository does **not** do, so a security review should not assume it: `.gitlab-ci.yml` has no
+vulnerability-scan stage, nothing verifies signatures at admission (verify with `cosign verify` or a policy
+controller), enforcing a Pod Security level is the operator's choice (`pod_security.enforce`), and no STIG baseline is
+applied. Earlier drafts of this page claimed signed images, SBOMs and STIG alignment before they existed. See
+[known limits](known-limits.md).
 
 ## 11. NetworkPolicies
 

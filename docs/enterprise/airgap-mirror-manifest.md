@@ -52,6 +52,8 @@ CSI (including the ceph-csi-operator subchart: `csi.rookUseCsiOperator=false`), 
 | `alpine/helm` | `3.17.3` | CI `helm` job (`HELM_IMAGE`) | not pinned in repo |
 | `ghcr.io/yannh/kubeconform` | `v0.6.7-alpine` | CI `kubeconform` job (`KUBECONFORM_IMAGE`) | not pinned in repo |
 | `hashicorp/terraform` | `1.15.8` | CI `terraform` job (`TERRAFORM_IMAGE`) and the operator workstation | not pinned in repo |
+| `anchore/syft` | pin a tag | CI `sbom` job (`SYFT_IMAGE`, optional) | not pinned in repo |
+| `sigstore/cosign` | pin a tag | CI `sign` job (`COSIGN_IMAGE`, optional; tags only) | not pinned in repo |
 | `quay.io/keycloak/keycloak` | `26.0` | dev compose only | not pinned in repo |
 | `docker` (service `docker:27-dind`) | `27-dind` | CI `iac-kind-e2e` job (manual) | not pinned in repo |
 
