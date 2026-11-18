@@ -23,7 +23,7 @@ export function HealthPage() {
       <h2>Health <Pill good={h.status === "ok"} text={h.status} /></h2>
       {q.isError && <p role="alert">The latest check failed; showing the last response.</p>}
       <div className="sumgrid" aria-label="Checks">
-        {Object.entries(h.checks).map(([k, v]) => <div className="card stat" key={k}><span>{humanize(k)}</span><Pill good={ok(v)} text={v} /></div>)}
+        {Object.entries(h.checks).map(([k, v]) => <div className="card stat" key={k}><span>{k === "db" ? "Database" : humanize(k)}</span><Pill good={ok(v)} text={v} /></div>)}
       </div>
       <div className="sumgrid" aria-label="Queue">
         {h.queue ? (
