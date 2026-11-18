@@ -95,6 +95,24 @@ def recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
             log.exception("could not queue acl_sync for document %s", doc_id)
 
 
+def commit_with_acl(session: Session, es: Elasticsearch, sf, docs: list[Document]) -> None:
+    """Push the documents' ACL fields (label included) to ES from this transaction, then commit: the index is never
+    behind a committed change. A delayed durable acl_sync covers a crash in between; on failure: roll back,
+    re-sync ES from committed Postgres, 503."""
+    for d in docs:
+        _durable_job(sf, d.id, ACL_JOB_DELAY_S)
+    try:
+        for d in docs:
+            search_index.sync_acl(es, d.id, lambda d=d: (search_index.acl_fields(session, d), None))
+        session.commit()
+    except Exception:
+        log.exception("ACL update of documents %s failed; rolling back", [str(d.id) for d in docs])
+        session.rollback()
+        for d in docs:
+            recover(es, sf, d.id)
+        raise HTTPException(503, "update failed, please retry") from None
+
+
 def audit_acl(session: Session, p, doc: Document, fields: list[str]) -> None:
     """`document.acl` row: what kind of sharing changed and how many principals hold it (counts, no ids)."""
     n = dict(

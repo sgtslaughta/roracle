@@ -23,3 +23,5 @@ Document-level security and native RRF need paid Elastic tiers. Clients never qu
 ## Update (2026-11-17)
 
 Elasticsearch is now 9.5.6 on a fresh cluster (chart default `elasticsearch.version`; see the Outcomes section of [ADR-0015](0015-retrieval-quality.md)); the Basic licence choice and the app-side filter and RRF are unchanged. The filter is built by `search_acl.acl_filter` and also admits published-paper co-authors (`coauthor_users`). For PAT principals it adds `must_not label_id in block_agents`, admins included ([ADR-0014](0014-sensitivity-labels.md) R7). Postgres re-checks every hit (R19): the index narrows, it does not authorise.
+
+Update (2026-11-18): "PAT principals" above means every agent principal: PATs, every `/mcp` caller and OAuth clients in `ROR_OIDC_AGENT_CLIENTS` (`Principal.is_agent`). Browse totals and facet counts come from this filtered query without the Postgres re-check ([known limits](../enterprise/security/known-limits.md#retrieval-and-label-timing)).

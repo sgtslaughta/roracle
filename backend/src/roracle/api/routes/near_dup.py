@@ -87,15 +87,16 @@ def _has_live_version(session: Session, doc_id: UUID) -> bool:
 def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: Document) -> None:
     match = session.get(DocumentVersion, v.near_dup_of) if v.near_dup_of else None
     target = session.get(Document, match.document_id, with_for_update=True) if match else None
+    if (  # first: a 403 below would tell an agent whose the hidden match is
+        p.is_agent
+        and target is not None
+        and session.scalar(select(Document.id).where(Document.id == target.id, agent_visible())) is None
+    ):
+        raise HTTPException(409, "matched document no longer exists")  # hidden from agents: say nothing more
     if target is not None and not (target.owner_id == p.user_id or p.is_admin):
         raise HTTPException(403, "only the document owner can add versions")
     if target is None or target.deleted_at is not None:
         raise HTTPException(409, "matched document no longer exists")
-    if (
-        p.is_agent
-        and session.scalar(select(Document.id).where(Document.id == target.id, agent_visible())) is None
-    ):
-        raise HTTPException(409, "matched document no longer exists")  # hidden from agents: say nothing more
     if session.get(Draft, doc.id) is not None:
         raise HTTPException(409, "a published draft cannot be merged into another document")
     top = session.scalar(

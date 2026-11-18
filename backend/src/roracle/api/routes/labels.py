@@ -10,10 +10,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from roracle import search_index
-from roracle.acl_sync import durable_job as _durable_job
 from roracle.api.routes.documents_read import Session_, privileged, visible_doc
-from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, recover
+from roracle.api.routes.documents_write import commit_with_acl
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
@@ -61,16 +59,8 @@ def set_label(
     new = service.set_document_label(session, p, doc, body.label_id, body.reason)
     if doc.label_id == old:
         return {"label": label_json(new)}
-    _durable_job(sf, doc_id, ACL_JOB_DELAY_S)
-    try:
-        search_index.sync_acl(es, doc_id, lambda: (search_index.acl_fields(session, doc), None))
-        enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
-        session.commit()
-    except Exception:
-        log.exception("document %s label update failed; rolling back", doc_id)
-        session.rollback()
-        recover(es, sf, doc_id)
-        raise HTTPException(503, "update failed, please retry") from None
+    enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
+    commit_with_acl(session, es, sf, [doc])
     return {"label": label_json(new)}
 
 

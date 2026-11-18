@@ -39,7 +39,7 @@ never Service ClusterIPs. An empty CIDR list in `networkPolicy.*` produces no ru
 | `<fn>-default-deny` | every pod in the namespace | Nothing: `Ingress` and `Egress` both denied |
 | `<fn>-allow-dns` | all pods except gotenberg, draftgotenberg, docling, grobid (and clamav unless `parsers.clamav.mirrorUrl` is set) | Egress to DNS (`networkPolicy.dns`, default `kube-system` pods `k8s-app=kube-dns`) on 53/UDP and 53/TCP |
 | `<fn>-ingress-to-web` | web | Ingress on 8080 from the ingress controller namespace (`networkPolicy.ingressNamespaceSelector`, default `kubernetes.io/metadata.name: ingress-nginx`). Rendered only when `ingress.enabled` |
-| `<fn>-ingress-to-api` | api | Ingress on 8000 from the same namespace. The chart's ingress routes only `/mcp` and `/.well-known/oauth-protected-resource` to the api; everything else goes to web. Rendered only when `ingress.enabled` |
+| `<fn>-ingress-to-api` | api | Ingress on 8000 from the ingress-controller namespace (`networkPolicy.ingressNamespaceSelector`, default `ingress-nginx`). The chart's ingress routes only `/mcp` and `/.well-known/oauth-protected-resource` to the api; everything else goes to web. Rendered only when `ingress.enabled` |
 | `<fn>-api-from-web` | api | Ingress on 8000 from web pods |
 | `<fn>-web-to-api` | web | Egress to api on 8000 |
 | `<fn>-app-egress-data` | api, worker, migrate | Egress to Postgres (bundled CNPG pods on 5432, plus the pooler pods when enabled; otherwise `networkPolicy.externalCIDRs.postgres`), Elasticsearch (bundled ECK pods on 9200, otherwise `externalCIDRs.elasticsearch`) and object storage (`networkPolicy.s3`: CIDRs and/or an in-cluster peer, ports 443 and 9000 by default). Rendered when at least one rule is non-empty |
@@ -96,7 +96,10 @@ Cross-Origin-Opener-Policy: same-origin
 - HSTS is not sent by the web pod: set `Strict-Transport-Security` at the ingress or org proxy.
 - Runtime OIDC config is substituted into the JS bundle by nginx; substituted JS is cached 1 h (not immutable).
 - The web proxy answers 404 for `/api/metrics` and `/api/readyz`; the API's own `/healthz`, `/readyz` and `/metrics`
-  are for the kubelet and Prometheus inside the cluster.
+  are for the kubelet and Prometheus inside the cluster. `/metrics` shares the api port, so the web pods and the
+  ingress-controller namespace can reach it too (it is not authenticated).
+- FastAPI's schema and docs pages are not blocked: `/api/openapi.json`, `/api/docs` and `/api/redoc` are public
+  (the full route list, admin routes included; the schema is also in the repository).
 
 ### Pod security baseline and exceptions
 

@@ -62,17 +62,10 @@ describe("AnswerText", () => {
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("x");
   });
-  it("rejects a backslash host trick and keeps external hrefs normalised", () => {
+  it("rejects a backslash host trick; external URLs show in full, never as a link", () => {
     const { container } = r("[a](/\\evil.com) [b](https://example.org/p?q=1#h)");
-    const links = [...container.querySelectorAll("a")];
-    const evil = links.find((a) => a.textContent === "a");
-    if (evil) { // never the raw backslash form: either encoded same-site, or external with noopener
-      const href = evil.getAttribute("href")!;
-      expect(href).not.toContain("\\");
-      const external = new URL(href, location.origin).origin !== location.origin;
-      expect(external ? evil.getAttribute("rel") : "noopener noreferrer").toBe("noopener noreferrer");
-    }
-    expect(links.find((a) => a.textContent === "b")!.getAttribute("href")).toBe("https://example.org/p?q=1#h");
+    for (const a of container.querySelectorAll("a")) expect(new URL(a.getAttribute("href")!).host).toBe(location.host);
+    expect(container.textContent).toContain("b (https://example.org/p?q=1#h)");
   });
   it("never links a relative or same-origin URL to another host", () => {
     for (const h of ["//evil.com", "/\\evil.com", `${location.origin}//evil.com`, "/\t/evil.com"]) {
@@ -90,13 +83,16 @@ describe("AnswerText", () => {
     const b = r("$\\href{https://evil}{x}$");
     expect(b.container.querySelector("a,img")).toBeNull();
   });
-  it("external links are noopener, same-origin plain", () => {
-    const { container } = r("[x](https://example.org) [y](/d/abc)");
-    const [a, b] = [...container.querySelectorAll("a")];
-    expect(a.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(a.getAttribute("target")).toBe("_blank");
-    expect(b.getAttribute("href")).toBe(`${location.origin}/d/abc`);
-    expect(b.getAttribute("target")).toBeNull();
+  it("external links are inert text with the full URL; same-origin links stay links", () => {
+    const { container } = r("[full details](https://attacker.example/c?d=secret) [y](/d/abc) <https://example.org/x>");
+    const links = [...container.querySelectorAll("a")];
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe(`${location.origin}/d/abc`);
+    expect(links[0].getAttribute("target")).toBeNull();
+    const ext = container.querySelector("[data-ext-url]")!;
+    expect(ext.textContent).toBe("full details (https://attacker.example/c?d=secret)");
+    expect(container.textContent).toContain("https://example.org/x");
+    expect(container.textContent).not.toContain("https://example.org/x (https://example.org/x)");
   });
   it("preserves surrounding text; markers in links and math stay literal", () => {
     const { container } = r("a [1] b [t [2]](/x) $[3]$");

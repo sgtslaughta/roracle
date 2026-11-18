@@ -3,12 +3,15 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
+from elasticsearch import Elasticsearch
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
+from roracle.api.routes.documents_write import commit_with_acl
+from roracle.api.routes.library import get_es, get_session_factory
 from roracle.auth import Principal, current_principal, require_human
 from roracle.db import get_session
 from roracle.models import Document, Proposal
@@ -19,6 +22,8 @@ router = APIRouter()
 Session_ = Annotated[Session, Depends(get_session)]
 Who = Annotated[Principal, Depends(current_principal)]
 Human = Annotated[Principal, Depends(require_human)]
+Es = Annotated[Elasticsearch, Depends(get_es)]
+Sf = Annotated[object, Depends(get_session_factory)]
 LIST_MAX = 200
 
 
@@ -89,21 +94,32 @@ def my_proposals_count(p: Who, session: Session_) -> dict:
     return {"pending": n}
 
 
+def _label_docs(session: Session, ids: list[UUID]) -> list[Document]:
+    """Documents labelled by these approved proposals: their ES ACL is written before the response."""
+    rows = session.scalars(
+        select(Proposal).where(Proposal.id.in_(ids), Proposal.kind == "label", Proposal.status == "approved")
+    )
+    doc_ids = {UUID(r.payload["document_id"]) for r in rows if not r.payload.get("annotation_id")}
+    return [d for i in sorted(doc_ids) if (d := session.get(Document, i)) is not None]
+
+
 @router.post("/proposals/bulk-approve")
-def bulk_approve(body: BulkIn, session: Session_, p: Human) -> dict:
+def bulk_approve(body: BulkIn, session: Session_, p: Human, es: Es, sf: Sf) -> dict:
     out = proposals.bulk_approve(session, p, body.ids)
-    session.commit()
+    commit_with_acl(session, es, sf, _label_docs(session, [UUID(x["proposal_id"]) for x in out["approved"]]))
     return out
 
 
 @router.post("/proposals/{proposal_id}/approve")
-def approve(proposal_id: UUID, session: Session_, p: Human, body: proposals.ApproveIn | None = None) -> dict:
+def approve(
+    proposal_id: UUID, session: Session_, p: Human, es: Es, sf: Sf, body: proposals.ApproveIn | None = None
+) -> dict:
     n = proposals.approve(session, p, proposal_id, body)
     if n is None:  # label proposal on a document
         out = {"status": "approved", "kind": "label"}
     else:
         out = service.to_json(session, p, [n])[0]
-    session.commit()
+    commit_with_acl(session, es, sf, _label_docs(session, [proposal_id]))  # F4: no facet/count window
     return out
 
 

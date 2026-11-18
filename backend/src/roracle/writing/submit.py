@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from roracle import notify
 from roracle.access import org_unit_error, org_units
 from roracle.audit import audit
-from roracle.auth import Principal
+from roracle.auth import Principal, agent_marker
 from roracle.config import Settings
 from roracle.ingest import intake
 from roracle.labels import service
@@ -136,7 +136,13 @@ def publish(
     staged = stage(io.BytesIO(pdf), len(pdf) + 1)  # non-empty: the builder checked %PDF-
     try:
         ver = intake.add_version(
-            session, store, staged, doc, filename=f"{_slug(doc.title)}.pdf", content_type="application/pdf"
+            session,
+            store,
+            staged,
+            doc,
+            filename=f"{_slug(doc.title)}.pdf",
+            content_type="application/pdf",
+            agent=agent_marker(p),
         )
     finally:
         Path(staged.path).unlink(missing_ok=True)

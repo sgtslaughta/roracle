@@ -66,3 +66,5 @@ without introducing a second access-control system. Visibility and shares stay t
 - Operations and operator-facing limits: [security](../enterprise/security.md#13-sensitivity-labels),
   [agent integration](../enterprise/agent-integration.md#sensitivity-labels),
   [runbook](../enterprise/runbook-routine.md#sensitivity-labels).
+
+Update (2026-11-18): R6 "never a leak" holds for rows only. Totals and facet counts come from Elasticsearch without the Postgres row re-check, so they can include a just-hidden document while ES lags. Direct label changes and proposal approvals now write ES before they return (`commit_with_acl`), with `acl_sync` as the retry; the remaining async paths are listed in the [known limits](../enterprise/security/known-limits.md#retrieval-and-label-timing). R7 applies to every agent principal, not only PATs: PATs, every `/mcp` caller and OAuth clients in `ROR_OIDC_AGENT_CLIENTS` on REST. R9 as implemented: `block_export` exempts the document owner (JWT or PAT) and admins on an interactive JWT; an admin's PAT is not exempt (`export_exempt` uses `is_admin`, which a PAT never has).

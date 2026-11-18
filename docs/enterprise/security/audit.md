@@ -19,7 +19,8 @@ helper, `audit()` in `backend/src/roracle/audit.py`, which adds a row to the cal
   [data retention](data-retention.md#audit-log).
 - If a user row is removed, that user's audit rows are kept with the user cleared (`ON DELETE SET NULL`).
 - Rows carry ids, names, titles (for example `document.delete`), counts and short reasons, not document or note body text. Free text in a target is a
-  SHA-256 prefix (MCP `search`, `ask` and note bodies). Connector secrets are redacted (`***`).
+  SHA-256 prefix (MCP `search`, `ask` and note bodies), except MCP `upload` (the file name), `create_handoff` (the
+  title, at most 200 characters) and handoff loads (the handoff code), which are stored as given. Connector secrets are redacted (`***`).
 
 ### What is and is not audited
 
@@ -27,8 +28,8 @@ Audit rows share the request's database transaction, so they follow its fate. Du
 
 | Case | Audited? |
 |---|---|
-| REST request with a PAT, handler succeeds | Yes: `pat.use` with `METHOD /path` (cut at 200 characters) and the client `pat:<token name>` |
-| REST request with a PAT, handler raises (404, 403, 409, 422, 5xx) | Yes: `pat.use` is replayed after the rollback with `user_id` null, the user in `detail.user_id` and the status in `detail.failed` |
+| REST request by an agent (PAT or OAuth agent client), handler succeeds | Yes: `pat.use` with `METHOD /path` (cut at 200 characters) and the client `pat:<token name>` (an OAuth agent token: its `azp`) |
+| REST request by an agent (PAT or OAuth agent client), handler raises (404, 403, 409, 422, 5xx) | Yes: `pat.use` is replayed after the rollback with the status in `detail.failed`; `user_id` is kept while the user row exists, otherwise it moves to `detail.user_id` |
 | REST request rejected for rate limit (429) | Yes: `auth.rate_limited`, at most one per principal per minute, so a flood cannot fill the log |
 | REST or MCP request denied for scope (403 `insufficient scope`, `insufficient scope: manage`) | Yes: `auth.scope_denied` with `detail.need` (`write` or `manage`) and `detail.via` (`pat` or `mcp`); MCP tool errors replay the durable row the same way |
 | Admin route, handler succeeds | Yes: `admin.<handler>` (reads included) plus the action's own row where there is one |
@@ -39,7 +40,8 @@ Audit rows share the request's database transaction, so they follow its fate. Du
 | Sharing, visibility, upload and chat-share changes | Yes: `document.acl` (fields changed plus visibility, org unit and share counts, no ids), `document.upload` (version id and size, no file name), `chat.share` (counts). Not durable: a change that rolls back leaves no row |
 | Export refusals (`label.export_blocked`) | Yes, committed before the 403 so the refusal does not erase it |
 
-MCP never writes `pat.use`; REST never writes `mcp.*`. An MCP request rejected for rate limit (429) writes `mcp.rate_limited` (at most one per principal per minute) from its own session. No row holds a token, query string or request body.
+MCP never writes `pat.use`; REST never writes `mcp.*`. An OAuth agent token (`azp` in `ROR_OIDC_AGENT_CLIENTS`) on REST
+writes `pat.use` with `client` = its `azp`. An MCP request rejected for rate limit (429) writes `mcp.rate_limited` (at most one per principal per minute) from its own session. No row holds a token, query string or request body.
 
 Events that are **not** audited, because no code writes them: sign-in (the user row is upserted, no audit row),
 search queries (REST or MCP `search` beyond the `mcp.search` row), document view or download (apart from

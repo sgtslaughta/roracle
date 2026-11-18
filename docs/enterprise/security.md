@@ -16,6 +16,7 @@ Terms are in the [glossary](../glossary.md). This page is the index: the detail 
 | [Network](security/network.md) | Every NetworkPolicy, web headers, pod baseline |
 | [Data retention](security/data-retention.md) | Document deletion cascade, blob GC, tmp lifecycle, handoff expiry, audit retention |
 | [Known limits](security/known-limits.md) | Behaviours reviewers should know about |
+| [Security review 2026-11](security/review-2026-11.md) | Scope, method, findings and their status, coverage checklist of the 0.4.0 review |
 
 Related: [access control data flow](../architecture/access-control.md), [MCP reference](../reference/mcp.md),
 [API reference](../reference/api.md), [admin audit viewer](../admin/audit.md), [observability](observability.md),
@@ -43,7 +44,7 @@ creation and re-checked on every load. [Details](security/access-control.md#3-au
 
 ## 4. Untrusted content handling
 
-ClamAV before parsing (fail closed), parsers in no-egress sandboxes, sanitised drafts, evidence served as sandboxed
+ClamAV before parsing (fail closed when configured; no scan when `ROR_CLAMAV_HOST` is empty), parsers in no-egress sandboxes, sanitised drafts, evidence served as sandboxed
 downloads, quoted-context prompts with delimiter escaping. [Details](security/threat-model.md#3-untrusted-content-handling).
 
 ## 5. Data protection
@@ -70,11 +71,11 @@ Per-token token bucket (off by default, per replica), input guard, upload caps. 
 ## 9. Connectors
 
 Filesystem allow-list, connect-time IP vetting and `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` for the HTTP crawler.
-[Details](security/threat-model.md#9-connectors).
+[Details](security/threat-model.md#5-connectors).
 
 ## 10. Residual risks and review items
 
-[Threat model](security/threat-model.md#10-residual-risks-and-review-items) and [known limits](security/known-limits.md).
+[Threat model](security/threat-model.md#6-residual-risks-and-review-items) and [known limits](security/known-limits.md).
 
 ## 11. Data-tier network and credential controls (Helm chart)
 

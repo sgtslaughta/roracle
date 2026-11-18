@@ -16,13 +16,19 @@ export function safeHref(href: string | undefined): { href: string; external: bo
   } catch { return null; }
 }
 
-/** Element overrides for untrusted Markdown: images never load (alt text only), links only via `safeHref`, tables scroll. */
-export function safeComponents(rel = "noopener noreferrer nofollow"): Components {
+/** Element overrides for untrusted Markdown: images never load (alt text only), links only via `safeHref`, tables scroll.
+ *  `inertExternal` (model output): external links become plain text showing the full URL, so a prompt-injected link
+ *  can never exfiltrate data in one click; the user has to copy it deliberately. */
+export function safeComponents(rel = "noopener noreferrer nofollow", inertExternal = false): Components {
   return {
     img: ({ alt }) => <>{alt ?? ""}</>,
     a: ({ node: _node, href, children }) => {
       const s = safeHref(href);
       if (!s) return <span>{children}</span>;
+      if (s.external && inertExternal) {
+        const same = typeof children === "string" && (children === href || children === s.href);
+        return <span className="ext-url" data-ext-url>{same ? s.href : <>{children} ({s.href})</>}</span>;
+      }
       return s.external
         ? <a href={s.href} target="_blank" rel={rel}>{children}</a>
         : <a href={s.href}>{children}</a>;
