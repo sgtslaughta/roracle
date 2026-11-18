@@ -72,7 +72,7 @@ Tags are the ones the example tfvars and `deploy/terraform/test/kind-e2e.sh` pin
 | `ghcr.io/cloudnative-pg/plugin-barman-cloud` | `v0.16.0` | barman-cloud plugin (chart 0.9.0) |
 | `ghcr.io/cloudnative-pg/plugin-barman-cloud-sidecar` | `v0.16.0` | plugin sidecar |
 | `jetstack/cert-manager` (Terraform prefix, suffixes appended) = `quay.io/jetstack/cert-manager-controller`, `quay.io/jetstack/cert-manager-webhook`, `quay.io/jetstack/cert-manager-cainjector`, `quay.io/jetstack/cert-manager-startupapicheck` | `v1.17.0` | cert-manager |
-| `docker.elastic.co/eck/eck-operator` | `2.16.0` | **Wrong for Elasticsearch 9.5.6.** The tfvars pin ECK 2.16.0, but the chart default Elasticsearch 9.5.6 needs an ECK 3.x release whose support matrix lists 9.5. Raise `charts.eck` and `operator_images.eck` before mirroring ([upgrades](upgrades.md)) |
+| `docker.elastic.co/eck/eck-operator` | `3.3.2` | ECK operator (tfvars `operator_images.eck`; its support matrix lists Elasticsearch 9.5) |
 | `docker.io/rook/ceph` | `v1.18.0` | only for `object_store = "rook-ceph"`; see the Rook-Ceph table above |
 
 ### Observability, inference and rehearsal images
@@ -82,7 +82,7 @@ Tags are the ones the example tfvars and `deploy/terraform/test/kind-e2e.sh` pin
 | `otel/opentelemetry-collector-contrib` | chart default (set `image.repository` to `<mirror>/otel/opentelemetry-collector-contrib` in `deploy/observability/otel-collector.values.yaml`) | optional OpenTelemetry collector | not pinned in repo |
 | `vllm/vllm-openai` | `0.0.0-PLACEHOLDER` (gated: apply fails until you set it) | optional Terraform `inference` module: LLM and reranker (`rerank.engine = "vllm"`) | not pinned in repo |
 | `registry` | `2.8.3` | kind rehearsal: local mirror registry (`deploy/terraform/test/kind-e2e.sh`) | `sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` (the only digest the repo pins) |
-| `docker.elastic.co/elasticsearch/elasticsearch` | `8.15.3` | kind rehearsal only (what `kind-e2e.sh` mirrors; the chart default is 9.5.6) | not pinned in repo |
+| `docker.elastic.co/elasticsearch/elasticsearch` | `9.5.6` | kind rehearsal (what `kind-e2e.sh` mirrors; same as the chart default) | not pinned in repo |
 
 Grafana, Prometheus, Loki and their sidecars come with the `kube-prometheus-stack` and `loki` charts (see below); their images are the chart defaults, re-registried by `global.imageRegistry` / `global.image.registry` (`MIRROR.example.com` placeholder in `deploy/observability/*.values.yaml`).
 
@@ -93,7 +93,7 @@ Grafana, Prometheus, Loki and their sidecars come with the `kube-prometheus-stac
 | `cloudnative-pg` operator | >= 1.26 (barman-cloud plugin method) | platform |
 | `plugin-barman-cloud` | version compatible with the CNPG release; pin in mirror | platform |
 | `cert-manager` | any supported release (required by the plugin); pin in mirror | platform |
-| `eck-operator` | release whose support matrix lists Elasticsearch 9.5.x (ECK 3.x line; verify against the operator's docs before mirroring); **not 2.16.0, which the example tfvars pin**; pin in mirror | platform |
+| `eck-operator` | `3.3.2` (the tfvars pin; its support matrix lists Elasticsearch 9.5.x); pin in mirror | platform |
 | `rook-ceph`, `rook-ceph-cluster` | v1.18.0 (Ceph v19.2.3); only for `object_store = "rook-ceph"`; pin in mirror | platform |
 | `kube-prometheus-stack`, `loki`, `opentelemetry-collector` | the example prod tfvars use 70.0.0, 6.30.0 and 0.120.0; pin in mirror; images follow each chart's defaults, registry set via `MIRROR.example.com` in `deploy/observability/*.values.yaml` | optional |
 

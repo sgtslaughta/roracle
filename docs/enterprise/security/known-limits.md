@@ -82,9 +82,6 @@ from document metadata or uploaders. The global map and answer prompts do quote 
 
 ## Platform and supply chain
 
-- **ECK 2.16.0 example pins versus Elasticsearch 9.5.6.** The example tfvars profiles pin ECK 2.16.0 while the chart's
-  default Elasticsearch is 9.5.6, which needs an ECK 3.x release that lists 9.5. Raise `charts.eck` and
-  `operator_images.eck` before installing ([upgrades](../upgrades.md), [mirror manifest](../airgap-mirror-manifest.md)).
 - **Images are not stated to be minimal or shell-free.** The backend image is `python:3.12-slim` (a Debian base with a shell) running as UID 10001.
 - **No SBOM, vulnerability-scan or image-signing stage in CI, no Pod Security Admission labels, no STIG baseline.** See
   [network and platform hardening](network.md#7-platform-hardening).

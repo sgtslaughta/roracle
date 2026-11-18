@@ -26,8 +26,6 @@ It targets a **pre-existing cluster** through a kubeconfig (`kubeconfig_path`, `
 
 ## 3. tfvars profiles and sizing
 
-**ECK pin warning.** All four profiles below pin ECK 2.16.0 (chart and image), but the chart's default Elasticsearch 9.5.6 needs an ECK 3.x release that lists 9.5. Raise the `charts.eck` and `operator_images.eck` pins to such a release before mirroring and installing (see [upgrades](upgrades.md)).
-
 Copy an example to a git-ignored file (`*.tfvars` is ignored except `environments/*example*`). Secrets go in through `TF_VAR_secret_data` and `TF_VAR_pull_secret`, never into the file.
 
 | File | Purpose | Key settings |

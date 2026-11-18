@@ -4,8 +4,6 @@ Audience: operators and SRE. Before a first real install, rehearse the [Terrafor
 
 ## 1. What the script does
 
-> **Warning (Elasticsearch version mismatch):** `kind-e2e.sh` mirrors ECK 2.16.0 and Elasticsearch 8.15.3 (`kind-e2e.sh` `CHARTS` and `IMAGES`), while the chart now renders Elasticsearch 9.5.6 (`values.yaml:204`) and `kind-values.yaml` does not override it. Until the script's pins are raised to an ECK 3.x release and 9.5.6 is mirrored (or `elasticsearch.version` is set in `kind-values.yaml`, a decision for you), the rehearsal Elasticsearch will not start. The recorded timings below predate the 9.5.6 default.
-
 `deploy/terraform/test/kind-e2e.sh` applies the Terraform stack for real on a kind cluster. A local `registry:2` is the mirror (`localhost:5055`, with containerd mirror hosts on the node). The script is idempotent, every step skips what already exists, and it never touches `~/.kube/config`.
 
 | Subcommand | Does |
@@ -31,7 +29,6 @@ Proven by `verify`: operator charts and images come from the mirror; the placeho
 
 Known gaps:
 
-- **Pins are stale.** The script mirrors ECK 2.16.0 and Elasticsearch 8.15.3, not the chart's ES 9.5.6 (see the warning in section 1); `verify` cannot pass until that is resolved.
 - **Object storage is external.** Kind has no raw disks, so the default profile uses a MinIO stand-in (`test/s3-stub.yaml`, a dev and CI image never shipped) with the pod CIDR as `network.s3_cidrs`. Postgres and ES backups and snapshots are off, so the barman plugin and cert-manager are installed but unused.
 - Docling, GROBID, ClamAV and the draft Gotenberg are off (memory); only the ingest Gotenberg runs. There is no ingress controller, no Keycloak and no LLM, so sign-in and chat are not exercised.
 - The node still has internet. Image origin is proven by the pod specs (all `localhost:5055/...`), not by network isolation.

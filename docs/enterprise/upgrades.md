@@ -56,7 +56,7 @@ The chart default is `elasticsearch.version: 9.5.6` with ECK; external Elasticse
 
 Plan for double vector storage during a re-embed. Details: [search index lifecycle](../architecture/search-index-lifecycle.md).
 
-**ECK pin warning.** All four tfvars profiles pin ECK 2.16.0 (chart and image): `environments/example.tfvars:15,23`, `prod.example.tfvars:12,32`, `kind.tfvars:14,21` and `kind-ceph.tfvars:14,27`. The chart's default Elasticsearch 9.5.6 needs an ECK 3.x release whose support matrix lists 9.5 (`values.yaml:204`, [mirror manifest](airgap-mirror-manifest.md)). Raise the ECK chart and image pins to such a release before mirroring and installing.
+**ECK 3.x and older clusters.** ECK refuses a 9.x version on a cluster below 8.18.0; upgrade the cluster to ≥ 8.18 first or create a new one.
 
 ## 4. Alembic migrations
 
