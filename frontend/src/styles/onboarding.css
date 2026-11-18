@@ -1,4 +1,4 @@
-.get-started { max-width: 760px; margin-bottom: 14px; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.get-started { margin-bottom: 14px; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 .get-started header { display: flex; align-items: baseline; gap: 10px; }
 .get-started h2 { margin: 0; font-size: 17px; font-weight: 600; }
 .get-started .prog { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
