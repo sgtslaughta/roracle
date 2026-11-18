@@ -157,6 +157,7 @@ def accept(
             .where(
                 Document.owner_id == p.user_id,
                 Document.connector_id.is_(None),  # connector documents are exempt
+                Document.deleted_at.is_(None),  # deleted papers free their quota
                 DocumentVersion.stage.not_in(("rejected", "cancelled")),
             )
         )
