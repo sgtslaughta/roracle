@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from roracle.access import agent_visible, group_path, org_units
+from roracle.api.routes.documents_write import audit_acl
 from roracle.api.routes.search import get_llm
 from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
@@ -159,6 +160,7 @@ def save_content(doc_id: UUID, body: SaveIn, p: Who, session: Db, cfg: Cfg) -> d
 def put_coauthors(doc_id: UUID, body: CoauthorsIn, p: Who, session: Db) -> dict:
     require_scope(session, p, MANAGE)
     d = svc.set_coauthors(session, p, doc_id, body.users, body.groups)
+    audit_acl(session, p, session.get(Document, doc_id), ["coauthors"])
     return {"coauthors": d.coauthors}
 
 

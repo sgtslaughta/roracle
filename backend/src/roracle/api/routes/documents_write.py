@@ -7,7 +7,7 @@ from uuid import UUID
 from elasticsearch import Elasticsearch
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AfterValidator, BaseModel, Field, model_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from roracle import search_index
@@ -16,6 +16,7 @@ from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, detail, privileged, visible_doc
 from roracle.api.routes.library import get_es, get_session_factory
+from roracle.audit import audit
 from roracle.auth import MANAGE, require_scope
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
@@ -94,6 +95,25 @@ def recover(es: Elasticsearch, sf, doc_id: UUID) -> None:
             log.exception("could not queue acl_sync for document %s", doc_id)
 
 
+def audit_acl(session: Session, p, doc: Document, fields: list[str]) -> None:
+    """`document.acl` row: what kind of sharing changed and how many principals hold it (counts, no ids)."""
+    n = dict(
+        session.execute(
+            select(DocumentShare.principal_kind, func.count())
+            .where(DocumentShare.document_id == doc.id)
+            .group_by(DocumentShare.principal_kind)
+        ).all()
+    )
+    detail = {
+        "fields": sorted(fields),
+        "visibility": doc.visibility,
+        "org_unit": doc.org_unit,
+        "share_users": n.get("user", 0),
+        "share_groups": n.get("group", 0),
+    }
+    audit(session, p, "document.acl", str(doc.id), detail)
+
+
 @router.patch("/documents/{doc_id}")
 def patch_document(
     doc_id: UUID,
@@ -148,6 +168,8 @@ def patch_document(
         _set_shares(session, doc, "group", body.share_groups)
     if doc.visibility != "shared":  # shares are inert unless shared; drop them so re-sharing starts clean
         session.execute(delete(DocumentShare).where(DocumentShare.document_id == doc.id))
+    if changed := [f for f in MANAGE_FIELDS if getattr(body, f) is not None]:
+        audit_acl(session, p, doc, changed)
     session.flush()
     # Ordering: ES first, then commit. The acl_sync job is enqueued in the same transaction, so even
     # a crash after commit converges. If ES or the commit fails we roll back and re-sync ES from the

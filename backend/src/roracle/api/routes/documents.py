@@ -8,6 +8,7 @@ from sqlalchemy import false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
 from roracle.access import org_unit_error, org_units, readable_documents
+from roracle.audit import audit
 from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
 from roracle.db import get_session
@@ -193,6 +194,7 @@ def accept(
         title=form.title or None,
         label_id=label_id,
     )
+    audit(session, p, "document.upload", str(doc.id), {"version_id": str(version.id), "size": staged.size})
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
 

@@ -228,6 +228,7 @@ def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
     session.execute(delete(ChatShare).where(ChatShare.chat_id == chat.id))
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="user", principal=str(u)) for u in users)
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="group", principal=g) for g in groups)
+    audit(session, p, "chat.share", str(chat.id), {"users": len(users), "groups": len(groups)})
     session.commit()
     return _shares(session, chat.id)
 

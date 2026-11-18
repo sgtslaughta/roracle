@@ -36,6 +36,7 @@ Audit rows share the request's database transaction, so they follow its fate. Du
 | Non-admin or PAT calling an admin route (403) | `admin.denied`, replayed after the rollback like the rows above. If the replay itself fails it is logged, counted in `roracle_audit_write_failures_total` and the original status is still returned |
 | MCP tool call that passes authentication and validation | Yes: `mcp.<tool>`; on an HTTP-style error a fresh `mcp.<tool>` row with `error: true`; on an unexpected exception best effort with `error: "internal"` |
 | MCP request rejected at HTTP level (401, 429, 413) or failing schema validation | **No** |
+| Sharing, visibility, upload and chat-share changes | Yes: `document.acl` (fields changed plus visibility, org unit and share counts, no ids), `document.upload` (version id and size, no file name), `chat.share` (counts). Not durable: a change that rolls back leaves no row |
 | Export refusals (`label.export_blocked`) | Yes, committed before the 403 so the refusal does not erase it |
 
 MCP never writes `pat.use`; REST never writes `mcp.*`. An MCP request rejected for rate limit (429) writes `mcp.rate_limited` (at most one per principal per minute) from its own session. No row holds a token, query string or request body.

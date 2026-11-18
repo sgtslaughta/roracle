@@ -97,6 +97,9 @@ Details never contain document or note text. Query: `GET /api/admin/audit?action
 
 | Action | Actor | Target | Detail | Written when |
 |---|---|---|---|---|
+| `document.upload` | The uploader | Document id | `version_id`, `size` (bytes; never the file name) | `POST /api/documents` and the MCP `upload` tool, in the request transaction |
+| `document.acl` | Owner or admin | Document id | `fields` (sorted names changed: `visibility`, `org_unit`, `share_users`, `share_groups`, `coauthors`), `visibility`, `org_unit`, `share_users`, `share_groups` (counts, never ids) | `PATCH /api/documents/{id}` setting any of those fields, and `PUT /api/drafts/{id}/coauthors` (`fields: ["coauthors"]`). A title-only change writes nothing. Rolled back with the request, so a failed (503) change leaves no row |
+| `chat.share` | Chat owner | Chat id | `users`, `groups` (counts) | `PUT /api/chats/{id}/shares` |
 | `document.delete` | Owner or admin | Document id | `title`, `owner_id` | Soft delete |
 | `document.transfer` | Owner or admin | Document id | `from`, `to` (user ids) | Ownership transferred |
 | `annotation.hide`, `annotation.unhide` | Admin or the document owner | Note id | none | Note hidden or restored |
