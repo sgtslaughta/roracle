@@ -159,3 +159,47 @@ def test_skipped_reasons_capped_with_summary(tmp_path):
     a = Archive(p, "x.zip", 10_000, warn=warns.append)
     assert len(a.skipped) == 51 and a.skipped[-1] == ("…", "and 70 more skipped")
     assert len(warns) == 51 and warns[-1] == "… and 70 more skipped"
+
+
+def _eocd_at(data: bytes) -> int:
+    return data.rindex(b"PK\x05\x06")
+
+
+def test_zip_entry_count_checked_before_zipfile_parses_directory(tmp_path, monkeypatch):
+    import zipfile
+
+    monkeypatch.setattr("roracle.ingest.archive.MAX_ENTRIES", 10)
+    data = make_zip({f"f{i}.txt": b"x" for i in range(11)})
+
+    def boom(*a, **k):
+        raise AssertionError("ZipFile constructed")
+
+    monkeypatch.setattr(zipfile, "ZipFile", boom)
+    with pytest.raises(ArchiveError, match="too many entries"):
+        open_archive(tmp_path, data, "x.zip")
+
+
+def test_zip64_entry_count_read_from_zip64_record(tmp_path, monkeypatch):
+    import struct
+    import zipfile
+
+    monkeypatch.setattr("roracle.ingest.archive.MAX_ENTRIES", 10)
+    data = make_zip({"a.txt": b"x"})
+    i = _eocd_at(data)
+    cd_size, cd_off = struct.unpack("<II", data[i + 12 : i + 20])
+    rec = b"PK\x06\x06" + struct.pack("<QHHIIQQQQ", 44, 45, 45, 0, 0, 11, 11, cd_size, cd_off)
+    loc = b"PK\x06\x07" + struct.pack("<IQI", 0, i, 1)
+    eocd = data[i : i + 8] + struct.pack("<HH", 0xFFFF, 0xFFFF) + data[i + 12 :]
+    crafted = data[:i] + rec + loc + eocd
+    monkeypatch.setattr(zipfile, "ZipFile", lambda *a, **k: (_ for _ in ()).throw(AssertionError("parsed")))
+    with pytest.raises(ArchiveError, match="too many entries"):
+        open_archive(tmp_path, crafted, "x.zip")
+
+
+def test_zip_without_eocd_is_unreadable(tmp_path):
+    with pytest.raises(ArchiveError, match="unreadable"):
+        open_archive(tmp_path, b"PK\x03\x04" + b"0" * 100, "x.zip")
+
+
+def test_normal_zip_still_opens_after_precheck(tmp_path):
+    assert names(open_archive(tmp_path, make_zip({"a.txt": b"x"}), "x.zip")) == ["a.txt"]

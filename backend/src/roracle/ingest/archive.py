@@ -5,6 +5,7 @@ import gzip
 import os
 import re
 import stat
+import struct
 import tarfile
 import zipfile
 import zlib
@@ -124,6 +125,32 @@ def _junk(path: str) -> bool:
     return any(p.startswith(".") or p == "__MACOSX" for p in path.split("/"))
 
 
+def _zip_entry_count(path: Path) -> int:
+    """Total entries from the end-of-central-directory record (zip64 aware), read without parsing the
+    directory, so a huge entry list is refused before zipfile allocates anything for it."""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        start = max(0, size - 65557)
+        f.seek(start)
+        tail = f.read()
+        i = tail.rfind(b"PK\x05\x06")
+        if i < 0 or len(tail) < i + 22:
+            raise ArchiveError("unreadable archive")
+        count = struct.unpack("<H", tail[i + 10 : i + 12])[0]
+        if count == 0xFFFF or tail[max(0, i - 20) : max(0, i - 20) + 4] == b"PK\x06\x07":
+            loc = tail[i - 20 : i] if i >= 20 else b""
+            if loc[:4] != b"PK\x06\x07":
+                return count
+            off = struct.unpack("<Q", loc[8:16])[0]
+            f.seek(off)
+            rec = f.read(40)
+            if len(rec) < 40 or rec[:4] != b"PK\x06\x06":
+                raise ArchiveError("unreadable archive")
+            count = struct.unpack("<Q", rec[32:40])[0]
+        return count
+
+
 class Archive:
     """Open `path` as `filename`'s kind. `.members` are the safe regular files (at most 500), `.skipped` the
     (name, reason) pairs refused; `warn` receives each reason too."""
@@ -162,6 +189,8 @@ class Archive:
 
     def _open(self, path: Path) -> None:
         if self.kind == "zip":
+            if _zip_entry_count(path) > MAX_ENTRIES:
+                raise ArchiveError("archive has too many entries")
             self._zip = zipfile.ZipFile(path)
             return
         raw: BinaryIO = open(path, "rb")  # noqa: SIM115 - closed in close()

@@ -93,3 +93,37 @@ def test_corrupt_archive_is_422(client, as_ana, db_session):
     r = up(client, as_ana, b"not a zip", name="p.zip")
     assert r.status_code == 422 and "archive" in r.json()["detail"]
     assert count(db_session, Document) == 0
+
+
+def test_error_after_earlier_members_stored_is_reported_not_raised():
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from roracle.api.routes import upload_archive as ua
+    from roracle.ingest.archive import Archive
+
+    p = Path(tempfile.mkdtemp()) / "z"
+    p.write_bytes(make_zip({"a.txt": b"1", "b.txt": b"2"}))
+    calls = []
+
+    def accept_one(**kw):
+        calls.append(kw["filename"])
+        if len(calls) == 2:
+            raise HTTPException(422, "label refused")
+        return {"document_id": "d", "version_id": "v", "sha256": "s"}
+
+    a = Archive(p, "z.zip", 10_000)
+    out = ua._add_all(accept_one, a, SimpleNamespace(), 10_000)
+    assert [d["filename"] for d in out["documents"]] == ["a.txt"]
+    assert out["skipped"] == [{"name": "b.txt", "reason": "label refused"}]
+    # nothing stored yet: the error is raised as before
+    calls.clear()
+    calls.append(0)  # next call is the 2nd
+    a2 = Archive(p, "z.zip", 10_000)
+    with pytest.raises(HTTPException):
+        ua._add_all(
+            lambda **kw: (_ for _ in ()).throw(HTTPException(422, "no")), a2, SimpleNamespace(), 10_000
+        )

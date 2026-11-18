@@ -75,8 +75,10 @@ def _add_all(accept_one: Accept, a: Archive, form, cap: int) -> dict:
                 skipped.append({"name": m.name, "reason": "already in the library"})
             elif e.status_code == 413:
                 skipped.append({"name": m.name, "reason": str(e.detail)})
-            else:
-                raise
+            elif not docs:
+                raise  # nothing stored yet: a plain error
+            else:  # earlier files are committed; report this one instead of hiding them behind an error
+                skipped.append({"name": m.name, "reason": str(e.detail)})
         finally:
             Path(s.path).unlink(missing_ok=True)
     return {"archive": True, "documents": docs, "skipped": skipped}
