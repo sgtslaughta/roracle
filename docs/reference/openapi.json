@@ -8089,7 +8089,7 @@
     },
     "/documents/{doc_id}": {
       "delete": {
-        "description": "Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now (best effort), and\nthe retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`.",
+        "description": "Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now, or via the retried acl_sync job, and\nthe retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`.",
         "operationId": "delete_document_documents__doc_id__delete",
         "parameters": [
           {

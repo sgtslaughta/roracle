@@ -61,8 +61,6 @@ are limits of the design, not a list of open defects. For what the controls do g
   they reach the caller, so nothing is returned, but the text did reach the reranker endpoint.
 - **The reranker may score `exclude_llm` text.** A user ruling: the cross-encoder is not generative and returns scores only. Keep
   `ROR_RERANK_URL` on a trusted network. (`retrieval.py`, [access control](access-control.md#gates).)
-- **Chunks of a soft-deleted document stay in Elasticsearch if the immediate delete fails** and purge is off (the default):
-  `acl_sync` skips deleted documents. Postgres hides them (R19), but the reranker can still score their text.
 - Near-duplicate checks compare only against documents the caller can see, which can leave invisible duplicates in the corpus.
 
 ## Prompt injection residual

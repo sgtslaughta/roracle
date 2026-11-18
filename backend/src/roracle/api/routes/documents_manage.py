@@ -58,7 +58,7 @@ def delete_document(
     session: Session_,
     es: Annotated[Elasticsearch, Depends(get_es)],
 ) -> Response:
-    """Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now (best effort), and
+    """Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now, or via the retried acl_sync job, and
     the retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`."""
     require_scope(session, p, MANAGE)
     doc = _owned(session, p, doc_id)
@@ -69,14 +69,9 @@ def delete_document(
     enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
     session.commit()
     try:
-        es.delete_by_query(
-            index=search_index.MUTATE_ALIAS,
-            query={"term": {"doc_id": str(doc_id)}},
-            refresh=True,
-            conflicts="proceed",
-        )
+        search_index.delete_doc_chunks(es, doc_id)
     except Exception:
-        log.exception("ES chunk delete failed for %s; the retention purge will remove them", doc_id)
+        log.exception("ES chunk delete failed for %s; the queued acl_sync job retries it", doc_id)
     return Response(status_code=204)
 
 

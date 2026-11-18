@@ -144,3 +144,13 @@ def sync_acl(
 
     _ensure_acl_mapping(es)
     run_update_by_query(es, build)
+
+
+def delete_doc_chunks(es: Elasticsearch, doc_id) -> None:
+    """Remove every chunk and summary unit of the document from the index; raises on failure."""
+    try:
+        es.delete_by_query(
+            index=MUTATE_ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
+        )
+    except NotFoundError:
+        pass  # nothing indexed yet

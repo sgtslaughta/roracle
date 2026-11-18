@@ -100,10 +100,20 @@ def drifted(
     return found
 
 
+def is_deleted(sf: sessionmaker[Session], doc_id: UUID) -> bool:
+    """Fresh short session: True only when the row exists with `deleted_at` set."""
+    with sf() as s:
+        d = s.get(Document, doc_id)
+        return d is not None and d.deleted_at is not None
+
+
 def handle_acl_sync(
     session: Session, payload: dict, *, es: Elasticsearch, session_factory: sessionmaker[Session]
 ) -> None:
     doc_id = payload_uuid(payload, "doc_id")
+    if is_deleted(session_factory, doc_id):  # an ES error propagates: the queue retries with backoff
+        search_index.delete_doc_chunks(es, doc_id)
+        return
     search_index.sync_acl(es, doc_id, lambda: read_acl(session_factory, doc_id))
 
 
