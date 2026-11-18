@@ -69,7 +69,7 @@ export function UsersPage() {
                     <OverflowList items={u.groups} max={2} menuLabel={`More groups for ${u.username}`} getLabel={(g) => g}
                       renderItem={(g) => <span key={g} className="cchip" title={g}><span className="cchip-t">{g}</span></span>} />
                   </td>
-                  <td>{u.is_admin ? "Yes" : "No"}</td>
+                  <td>{u.is_admin ? <span className="pill review">Admin</span> : <span className="sr-only">No</span>}</td>
                   <td>{u.last_login_at ? fmtTime(u.last_login_at) : "–"}</td>
                   <td>
                     <Button variant="ghost" aria-label={`Revoke tokens for ${u.username}`} onClick={() => ask(u)}>Revoke tokens</Button>

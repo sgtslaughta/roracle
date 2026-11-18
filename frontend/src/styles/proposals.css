@@ -1,7 +1,7 @@
 /* proposals: sunken tray (client) > raised cards (header, each proposal) > inset well (actions); notifications bell + list */
 .plist { margin-top: 14px; }
 .pgroup { background: var(--tray); border-radius: 16px; padding: 10px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--well); }
-.pghead { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }
+.pghead { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 8px; background: none; border: 0; box-shadow: none; }
 .pghead b { display: inline-flex; gap: 6px; align-items: center; }
 .pghead svg.lucide { width: 15px; height: 15px; }
 .prop { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 18px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }

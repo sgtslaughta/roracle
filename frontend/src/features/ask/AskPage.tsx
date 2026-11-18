@@ -17,6 +17,7 @@ import { initials } from "@/lib/initials";
 import { buildTurns } from "./turns";
 import { focusComposer, getAskContext, setDraft, setQuote } from "./useAskContext";
 import { useViewer } from "./viewer";
+import { RowSkeleton } from "@/components/RowSkeleton";
 
 /** First 80 characters of the question, cut at a word boundary. */
 export function titleOf(q: string) {
@@ -114,7 +115,7 @@ export function AskPage({ chatId }: { chatId?: string }) {
         <h1 title={title}>{title}</h1>
         <div className="ask-actions">{chat && <ChatMenu chat={chat} />}</div>
       </header>
-      {chatId && chatQ.isPending && !pending ? <p className="sub ask-load" role="status">Loading…</p> : (
+      {chatId && chatQ.isPending && !pending ? <div className="ask-load"><RowSkeleton n={2} label="Loading chat…" /></div> : (
         <Thread turns={turns} who={initials(me?.username)} chat={chatCtx} onRetry={onRetry} scrollKey={chatId} />
       )}
       {chat && !chat.is_owner ? <p className="ask-ro" role="status">Shared with you. Read-only.</p> : (

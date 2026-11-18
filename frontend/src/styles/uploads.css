@@ -51,6 +51,8 @@
 .uopts label { display: grid; gap: 4px; font-size: 13px; }
 .uopts .sub { flex-basis: 100%; margin: 0; }
 @media (max-width: 640px) {
+  .seg { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .seg button { flex: none; }
   .trow { min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .trow.h { display: none; }
   .uopts { display: grid; grid-template-columns: minmax(0, 1fr); }

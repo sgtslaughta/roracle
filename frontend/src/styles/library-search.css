@@ -59,7 +59,8 @@
 .qchip { display: inline-flex; align-items: baseline; max-width: 100%; border-radius: 7px; }
 .qchip:hover, .qchip:has([aria-expanded="true"]) { background: var(--primary-soft); }
 .qchip-t { min-width: 0; padding: 0 2px 0 4px; border: 0; border-radius: 6px; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer;
-  text-decoration: underline dotted var(--apricot); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+  text-decoration: none; font-family: var(--f-ui); }
+.qchip-t:hover { text-decoration: underline dotted var(--apricot); text-underline-offset: 4px; }
 .qchip-x { flex: none; display: inline-grid; place-items: center; align-self: center; width: 22px; height: 22px; margin-right: 1px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; opacity: .55; }
 .qchip-x svg { width: 13px; height: 13px; }
 .qchip:hover .qchip-x, .qchip-x:focus-visible { opacity: 1; }

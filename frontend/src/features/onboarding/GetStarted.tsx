@@ -18,7 +18,7 @@ export function GetStarted() {
   if (n === shown.length) return null;
   const hide = async () => {
     await setDismissed(true, qc)
-      .then(() => toast("Hidden. Reopen it from Help, Your first hour."))
+      .then(() => toast("Get started hidden. Reopen it from Help → Your first hour."))
       .catch((e) => toast(errorText(e)));
   };
   return (

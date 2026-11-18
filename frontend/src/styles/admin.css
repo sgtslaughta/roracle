@@ -45,3 +45,4 @@
 .evchips { display: flex; gap: 4px; align-items: center; }
 .admin-table td > input:not([type="checkbox"]), .admin-table td > select { width: min(100%, 240px); }
 .admin-table small.when { font-size: 12px; color: var(--muted); }
+.tags-table th:first-child { width: 64px; }

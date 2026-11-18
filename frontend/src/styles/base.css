@@ -86,3 +86,6 @@ input.add-tag { height: 22px; width: 110px; border: 1px dashed var(--border); bo
   height: 32px; padding: 0 9px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13.5px; font-weight: 400;
 }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--elev); }
+.notfound { margin-top: 12vh; display: grid; justify-items: center; gap: 10px; }
+.rowskel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: var(--tray); box-shadow: var(--well); }
+.rowskel i { display: block; height: 64px; border-radius: 12px; background: var(--surface); opacity: .7; }
