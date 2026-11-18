@@ -31,9 +31,12 @@ describe("shell accessibility", () => {
     }
   });
 
-  it("links to the static docs site with a plain anchor", async () => {
+  it("opens help from the sidebar", async () => {
     await renderAt("/library");
-    expect(await screen.findByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs/");
+    await userEvent.click(within(await screen.findByRole("navigation", { name: "Main" })).getByRole("button", { name: "Help" }));
+    expect(await screen.findByRole("heading", { name: "Help" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Help" })).toBeNull());
   });
 
   it("reaches recent chats from the rail button", async () => {

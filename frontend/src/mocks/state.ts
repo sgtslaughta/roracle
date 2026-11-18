@@ -1,4 +1,5 @@
 import { DOCS } from "./docs";
+import { freshOnboarding } from "./onboarding";
 import type { ChatDetail } from "@/api/chat";
 import { seedUploads, type MockUpload } from "./uploads";
 import type { AccessToken } from "@/api/agents";
@@ -61,6 +62,8 @@ export interface MockState {
   collDeleted: string[];
   /** mocks/savedSearches.ts; seeded lazily there */
   savedSearches: SavedSearch[] | null;
+  /** mocks/onboarding.ts: GET/PUT /me/onboarding */
+  onboarding: { steps: string[]; dismissed: boolean; pats_enabled: boolean };
 }
 
 const storedAdmin = () => { try { return localStorage.getItem("roracle-mock-admin") === "1"; } catch { return false; } };
@@ -98,6 +101,7 @@ const fresh = (): MockState => ({
   collRenamed: {},
   collDeleted: [],
   savedSearches: null,
+  onboarding: freshOnboarding(),
 });
 
 export const state: MockState = { ...fresh(), admin: storedAdmin() };

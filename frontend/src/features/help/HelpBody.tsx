@@ -77,9 +77,11 @@ export interface HelpBodyProps {
   file?: string;
   onGo(topic: string, section?: string): void;
   onTry(seg: TrySeg): void;
+  /** Try-it buttons that cannot run right now (rendered disabled, hint still shown). */
+  tryDisabled?(seg: TrySeg): boolean;
 }
 
-export function HelpBody({ md, file = "user/_.md", onGo, onTry }: HelpBodyProps) {
+export function HelpBody({ md, file = "user/_.md", onGo, onTry, tryDisabled }: HelpBodyProps) {
   const doc = useMemo(() => parseTopic(md.replaceAll(PLACEHOLDER, location.origin)), [md]);
   const components = useMemo(() => buildComponents(file, onGo), [file, onGo]);
   const M = (text: string) => <Md text={text} components={components} />;
@@ -106,7 +108,7 @@ export function HelpBody({ md, file = "user/_.md", onGo, onTry }: HelpBodyProps)
       case "try":
         return (
           <div key={k} className="try">
-            <button type="button" className="prim" onClick={() => onTry(s)}>{s.label}</button>
+            <button type="button" className="prim" disabled={tryDisabled?.(s)} onClick={() => onTry(s)}>{s.label}</button>
             {s.hint && <span>{s.hint}</span>}
           </div>
         );

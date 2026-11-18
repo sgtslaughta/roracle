@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { openDoc } from "@/features/reader/useReaderStore";
+import { openHelp } from "@/features/help/helpStore";
 import { togglePalette } from "@/features/palette/usePalette";
 
 /** True when the key press belongs to a text field and must not trigger shortcuts. */
@@ -11,7 +12,7 @@ export function isTyping(el: EventTarget | null): boolean {
 
 const resultEls = () => [...document.querySelectorAll<HTMLElement>("li.result")];
 
-/** Global shortcuts: Ctrl/Cmd+K palette, `/` search, j/k move through results, Enter opens. Esc lives with the reader and dialogs. */
+/** Global shortcuts: Ctrl/Cmd+K palette, `/` search, `?` help, j/k move through results, Enter opens. Esc lives with the reader and dialogs. */
 export function useGlobalKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -25,6 +26,9 @@ export function useGlobalKeys() {
       if (e.key === "/") {
         e.preventDefault();
         document.getElementById("global-search")?.focus();
+      } else if (e.key === "?") {
+        e.preventDefault();
+        openHelp();
       } else if (e.key === "j" || e.key === "k") {
         const rs = resultEls();
         if (!rs.length) return;
