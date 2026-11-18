@@ -65,7 +65,7 @@ The dialog is **Continue in an agent**:
 | **Who can load it** | **Only me**, **Named people or groups** or **Everyone signed in** |
 | **Expires** | In 1, 7, 30 or 90 days. Seven is the default |
 
-For **Named people or groups**, add groups (org-unit paths starting with `/`) and people (by user ID). You need at least one, and at most 100 in all. You can always load your own handoff. Nothing in the audience setting widens access: an agent still signs in as a user and sees only what that user can see.
+For **Named people or groups**, add groups (org-unit paths starting with `/`) and people (type at least two letters of a name and pick them). You need at least one, and at most 100 in all. You can always load your own handoff. Nothing in the audience setting widens access: an agent still signs in as a user and sees only what that user can see.
 
 After **Create handoff link** you get the code and two buttons: **Copy link** and **Copy agent prompt** ("Using the rOracle MCP server, load handoff K7MX-4PQ2 and continue: your goal"). Paste the prompt into your agent. The link is relative to your rOracle address unless your site has a public address configured.
 

@@ -106,11 +106,11 @@ Under a finished answer:
 ## Managing chats
 
 - **Recent chats** are in the sidebar (the newest five, with a menu for more). The row menu has **Open**, **Copy link** and **Remove from my chats**. Removing hides the chat from your list only; people it is shared with keep their access, and it returns to your list if you ask in it again.
-- **Share** (chat header, owners only) lets named people (by user ID) and groups (org-unit paths starting with `/`) read the chat. Saving replaces the current list. The link opens read-only: people see the answers, but each citation only if they can see its source. Pins, excludes and your quotes are not shown to them.
+- **Share** (chat header, owners only) lets named people (type at least two letters of a name and pick them) and groups (org-unit paths starting with `/`) read the chat. Saving replaces the current list. The link opens read-only: people see the answers, but each citation only if they can see its source. Pins, excludes and your quotes are not shown to them.
 - **Export** downloads the chat as Markdown. If a cited paper's label blocks export, its reference and the answer text derived from it are replaced by a "withheld" line for anyone but the owner or an admin ([labels](labels.md#what-each-gate-means-to-you)).
 - A chat that was deleted or never shared with you shows "This chat isn't available".
 
-![The Share this chat dialog with a group chip and a user ID chip](../assets/screens/ask-share-dialog.png)
+![The Share this chat dialog with a group chip and a person chip](../assets/screens/ask-share-dialog.png)
 
 ## Keyboard shortcuts
 

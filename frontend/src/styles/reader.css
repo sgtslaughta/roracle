@@ -50,6 +50,7 @@
 .rhead [role="tablist"]::-webkit-scrollbar { display: none; }
 .rhead [role="tablist"] [role="tab"] { flex: none; white-space: nowrap; padding-inline: 9px; }
 @container (max-width: 480px) { .rhead [role="tab"]:not([data-state="active"]) .tl { display: none; } }
+@container (max-width: 700px) { .rhead [role="tab"]:not([data-state="active"]) .n { display: none; } } /* counts go first so the six tabs fit a split reader */
 /* Narrow drawers: secondary tools go icon-only (titles and screen-reader labels stay) so the row fits. */
 @container (max-width: 640px) { .rtools .tlbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 @media (max-width: 640px) { .rhead .citeline { white-space: normal; } }

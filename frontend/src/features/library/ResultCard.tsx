@@ -1,3 +1,4 @@
+import { fmtDate, fmtDateTime } from "@/lib/dates";
 import { useState } from "react";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { BookOpen, CalendarPlus, Clock, FileText, FileType2, History, ListTree, MessageSquareQuote, Quote, Sparkles, TextQuote } from "lucide-react";
@@ -33,7 +34,7 @@ export function ResultCard({ hit, terms, onOpen, onTag, collectionId }: ResultCa
   const canRemove = useOwnerOrAdmin(hit.owner_id);
   const [adding, setAdding] = useState(false);
   const title = docTitle(hit);
-  const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
+  const TypeIcon = hit.file_type.toLowerCase() === "pdf" ? FileText : FileType2;
   const isDefaultLabel = useLabelById(hit.label?.id)?.is_default;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
@@ -64,11 +65,11 @@ export function ResultCard({ hit, terms, onOpen, onTag, collectionId }: ResultCa
         </div>
         <div className="rmeta">
           {hit.label && !isDefaultLabel && <SensitivityBadge label={hit.label} />}
-          <Badge kind="type"><TypeIcon aria-hidden />{hit.file_type}</Badge>
+          <Badge kind="type"><TypeIcon aria-hidden />{hit.file_type.toUpperCase()}</Badge>
           <Badge><History aria-hidden />v{hit.version}</Badge>
           {hit.page_count != null && <Badge><BookOpen aria-hidden />{hit.page_count} pages</Badge>}
           {!!hit.ref_count && <Badge><ListTree aria-hidden />{hit.ref_count} references</Badge>}
-          <Badge title={new Date(hit.added_at).toLocaleString()}><CalendarPlus aria-hidden />Added {new Date(hit.added_at).toLocaleDateString()}</Badge>
+          <Badge title={fmtDateTime(hit.added_at)}><CalendarPlus aria-hidden />Added {fmtDate(hit.added_at)}</Badge>
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}
           <OverflowList
             items={hit.tags} max={4} menuLabel="More tags" getLabel={(t) => t} className="ovl-tags"

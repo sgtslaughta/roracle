@@ -17,7 +17,7 @@
 
 Each file can be up to 500 MB: the app refuses larger files before sending them ("Split it, or ask an admin to raise the limit"), and the server may enforce its own limit and say so. If your admin set a per-user storage quota, an upload over it fails with "upload quota exceeded".
 
-You see "uploaded. Processing has started" when a file is accepted.
+You see "uploaded. Processing has started" when a file is accepted. A file whose type is not in the table below is refused before it is sent ("isn't a file type rOracle can read"). An archive shows "*n* papers added", plus how many were skipped if any.
 
 ## Supported file types
 
@@ -31,7 +31,7 @@ You see "uploaded. Processing has started" when a file is accepted.
 | LaTeX | `.tex` | Source file; `\input` is not followed for a single file |
 | Ebooks | `.epub` | |
 | Tables | `.csv` `.tsv` | Rows become a table; TSV is converted to CSV first |
-| JSON | `.json` | Shown as formatted JSON text. A file that is not valid JSON fails with "invalid JSON" |
+| JSON | `.json` | Shown as formatted JSON text. A file that is not valid JSON fails with "This file isn't valid JSON." |
 | Archives | `.zip` `.tar` `.tar.gz` `.tgz` `.gz` | See below |
 
 A ZIP or tar archive is unpacked when you upload it and every file inside becomes its own paper, with the options you set above (the single-file title is not used). The archive itself is not kept. Files that cannot be added are listed on the page under the archive with the reason: an unsafe path, a symbolic link, an archive inside the archive, a file over the size limit, one you already have, or going over your quota. Limits: 500 files per archive (the rest are skipped), each file within the upload limit, and everything together no more than 10 times the upload limit once unpacked. Hidden files and `__MACOSX` entries are ignored.
@@ -47,7 +47,7 @@ Each row shows the file name, size and time, five steps (**Scanned**, **Parsed**
 | Processing | Moving through the steps |
 | Needs your decision | A near-duplicate was found ([below](#near-duplicates)) |
 | Needs a title | No title could be found ([below](#needs-a-title)) |
-| Failed | Rejected or failed; the row shows the reason, for example a scanner rejection |
+| Failed | Rejected or failed; the row shows the reason in plain words, for example "No text could be read from this file" |
 | Searchable | Done. Search, the reader and chat can use it |
 
 Filter the list with **All**, **Processing**, **Needs you** (decisions and titles together), **Failed** and **Searchable**; each shows a count. The sidebar badge on **My uploads** counts uploads that need you or have failed. You also get notifications when an upload is ready, looks like a duplicate, or fails.

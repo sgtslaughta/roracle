@@ -84,7 +84,7 @@ export function SearchPage() {
           </p>
         </div>
         <div className="sortrow">
-          <ContinueInAgent source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
+          <ContinueInAgent disabled={!data} source={() => searchHandoff(search, others.map((o) => o.id), total, collName)} />
           <FiltersButton facets={data?.facets} search={search} nav={nav} />
           <ViewSwitch value={view} onChange={(v) => nav.patch({ view: v }, true)} />
           {view === "table" && <ColumnPicker columns={search.cols ?? DEFAULT_COLUMNS} onChange={(cols) => nav.patch({ cols })} />}

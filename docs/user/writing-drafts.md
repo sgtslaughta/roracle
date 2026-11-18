@@ -102,14 +102,14 @@ The **PDF** tab has **Build PDF**, which makes a preview you can read and **Down
 
 ## Co-authors
 
-The **Co-authors** tab lists them. The owner adds a person by user ID or a group by org-unit path (starting with `/`, for example `/Mathematics/Spectral Theory`) and can remove them. Co-authors can edit, save, run checks and build. Only the owner can submit, change co-authors or delete. Named co-author people (not groups) keep read access to the paper after it is published, whatever its visibility.
+The **Co-authors** tab lists them. The owner adds a person or an org unit by typing at least two letters of the name and picking it, and can remove them. Co-authors can edit, save, run checks and build. Only the owner can submit, change co-authors or delete. Named co-author people (not groups) keep read access to the paper after it is published, whatever its visibility.
 
 ## Submitting
 
 The owner chooses **Submit…** once the latest saved version has passed validation and the citation check. The dialog asks for:
 
 - **AI assistance**, described above.
-- **Visible to**: **Everyone** (the default), **My org unit**, **Only me** or **Shared** (add user IDs and org units). Co-authors are included automatically. **My org unit** needs a usable org unit on your account.
+- **Visible to**: **Everyone** (the default), **My org unit**, **Only me** or **Shared** (pick people and org units by name). Co-authors are included automatically. **My org unit** needs a usable org unit on your account.
 - **Sensitivity label**: keep the draft's label or pick a higher one. Only labels at or above the current one are listed, for admins too, because submitting never lowers it. The profile may also set a minimum.
 
 If something is missing you see a plain message: "Run validation and the citation check on the latest saved version first.", "Fix the blocking findings first.", "Some citations are unresolved. Fix them first.", "Complete the AI-assistance disclosure." or "This version was already submitted. Save a change first."

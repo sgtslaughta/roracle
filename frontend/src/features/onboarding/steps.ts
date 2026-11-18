@@ -3,7 +3,7 @@ export interface Step { id: string; title: string; hint: string; topic: string; 
 export const BASICS: Step[] = [
   { id: "search", title: "Search the library", hint: "Try a phrase in quotes.", topic: "library-search" },
   { id: "ask", title: "Open a paper and ask about it", hint: "Ask about this, in the reader.", topic: "chat" },
-  { id: "upload", title: "Upload a paper", hint: "PDF or Word. Duplicates are caught.", topic: "uploads" },
+  { id: "upload", title: "Upload a paper", hint: "PDF, Office, LaTeX, images and more. Duplicates are caught.", topic: "uploads" },
   { id: "collect", title: "Save a collection", hint: "Group papers for a project.", topic: "collections-sharing" },
 ];
 

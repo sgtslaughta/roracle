@@ -86,6 +86,12 @@ describe("continue in agent", () => {
     expect(await posted()).toMatchObject({ audience: "shared", shares: [{ kind: "group", principal: "/Mathematics" }], expires_in_days: 30 });
   });
 
+  it("library: Continue in agent waits for the results (no \"0 matching documents\" brief)", async () => {
+    server.use(http.get(`${API_BASE}/search`, () => new Promise<never>(() => {})));
+    await renderApp("/library");
+    expect(await screen.findByRole("button", { name: "Continue in agent" })).toBeDisabled();
+  });
+
   it("caps shares at 100 in all", async () => {
     const user = userEvent.setup();
     await renderApp("/ask/c1");
