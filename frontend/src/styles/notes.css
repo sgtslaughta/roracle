@@ -33,7 +33,7 @@
 .ncompose .nquote-row input { width: 80px; }
 .ntarget { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .ntarget .lbl { font-weight: 600; }
-.ntarget input { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; }
+.ntarget input { border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; }
 .ntarget .cchip { align-self: flex-start; max-width: 100%; }
 .ntarget-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
 .menu-cap { margin: 4px 8px 6px; font-size: 12px; color: var(--muted); }
@@ -60,7 +60,7 @@
 .ev .mono, .evform .mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
 .evparams pre { margin: 6px 0 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.45 ui-monospace, monospace; background: var(--surface); border-radius: 6px; padding: 8px; }
 .evparams summary, .evmore summary { cursor: pointer; font-weight: 600; }
-.evrepro input { flex: 1; min-width: 140px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 5px 8px; font-size: 12.5px; }
+.evrepro input { flex: 1; min-width: 140px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 5px 8px; font-size: 12.5px; }
 .evrepro button[aria-pressed="true"] { color: var(--primary); background: var(--primary-soft); }
 .evfields { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .evfields label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; }

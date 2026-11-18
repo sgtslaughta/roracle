@@ -7,8 +7,9 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-:focus-visible { outline: 2px solid var(--apricot); outline-offset: 2px; }
-svg.lucide { width: 16px; height: 16px; stroke-width: 1.9; flex: none; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+svg.lucide { width: 16px; height: 16px; stroke-width: 1.9; flex: none; display: inline-block; vertical-align: -0.2em; }
+:root { accent-color: var(--primary); }
 mark { background: var(--hl); color: var(--hl-ink); border-radius: 3px; padding: 0 .12em; }
 .math { font-family: var(--f-math); font-size: 1.06em; white-space: nowrap; }
 kbd { font: 500 11px var(--f-ui); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; color: var(--muted); background: var(--surface); }
@@ -18,7 +19,7 @@ h1 { font: 600 22px/1.25 var(--f-read); margin: 0; text-wrap: balance; }
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 12px; }
 .empty svg.lucide { display: block; width: 28px; height: 28px; margin: 0 auto 6px; }
 .empty p { margin: 0 auto; max-width: 52ch; }
-.sel { height: 32px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 0 8px; font-size: 13px; }
+.sel { height: 32px; border: 1px solid var(--field-border); background: var(--surface); border-radius: 8px; padding: 0 8px; font-size: 13px; }
 .icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; border: 0; background: none; color: var(--muted); position: relative; }
 .icon-btn:hover { background: var(--muted-bg); color: var(--ink); }
 .badge-o { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; color: var(--muted); background: var(--surface); white-space: nowrap; }
@@ -29,10 +30,10 @@ button.badge-o:hover { border-color: var(--apricot); color: var(--primary); }
 .badge-o.auto { background: none; border: 1px dashed var(--t-tag-ink); color: var(--t-tag-ink); } /* suggested by AI */
 .badge-o.add-tag { border-style: dashed; cursor: pointer; }
 input.add-tag { height: 22px; width: 110px; border: 1px dashed var(--border); border-radius: 6px; padding: 0 7px; font-size: 12px; background: none; }
-.flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px; color: var(--terra); background: color-mix(in srgb, var(--terra) 12%, transparent); }
+.flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px; color: color-mix(in srgb, var(--terra) 75%, var(--ink)); background: color-mix(in srgb, var(--terra) 10%, transparent); }
 .citeline { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
 .citeline i { font-family: var(--f-read); }
-.uhead-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 14px; margin-bottom: 16px; }
+.uhead-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 16px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 /* capped lists (OverflowList): one line, never overflow the container */
 .ovl { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; }
@@ -75,8 +76,13 @@ input.add-tag { height: 22px; width: 110px; border: 1px dashed var(--border); bo
 .rid dd { margin: 0; font-family: ui-monospace, monospace; user-select: all; }
 .rid-copy { background: none; border: 0; padding: 2px; color: inherit; cursor: pointer; }
 /* Text input: one look everywhere (dialogs, forms). */
-.inp { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
-.inp:focus-visible { outline: none; border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+.inp { height: 34px; padding: 0 10px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.inp:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring), 0 0 0 4px var(--primary-soft); }
 /* Inline yes/no confirmation next to the row it acts on. */
 .confirm-pop { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; font-size: 13px; width: auto; }
-.confirm-pop .ok { color: var(--danger, #e5484d); }
+.confirm-pop .ok { color: var(--terra); }
+/* Bare fields inside admin/agent forms and filter rows get the .inp look. */
+:where(.admin-page, .admin-form, .agent-form, .filters) :where(input:not([type="checkbox"], [type="radio"], [type="color"], [type="file"], [type="range"]), select):not(.inp, .sel, .add-tag) {
+  height: 32px; padding: 0 9px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13.5px; font-weight: 400;
+}
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--elev); }
