@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { BookOpen, FileSearch, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { docTitle } from "@/lib/docTitle";
@@ -24,6 +24,7 @@ import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
 import { CitedByTab, ReferencesTab } from "./ReferencesTab";
 import { TagBar } from "./TagBar";
+import { DetailsTab, SummaryTab } from "./DocInfo";
 import { setVersion, setView, type ReaderTab, type ReaderView } from "./useReaderStore";
 
 export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) {
@@ -91,6 +92,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>
           <TabsList aria-label="Document sections">
             <TabsTrigger value="doc"><BookOpen aria-hidden />Document</TabsTrigger>
+            <TabsTrigger value="summary"><Sparkles aria-hidden />Summary</TabsTrigger>
+            <TabsTrigger value="details"><FileSearch aria-hidden />Details</TabsTrigger>
             <TabsTrigger value="refs"><ListOrdered aria-hidden />References{refs && <span className="n">{refs.length}</span>}</TabsTrigger>
             <TabsTrigger value="cited"><Quote aria-hidden />Cited by{cited && <span className="n">{cited.length}</span>}</TabsTrigger>
             <TabsTrigger value="notes"><MessageSquareQuote aria-hidden />Notes{notes && <span className="n">{notes.filter((n) => !n.parent_id).length}</span>}</TabsTrigger>
@@ -104,6 +107,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} blocked={blocked} />
         </Suspense>
       )}
+      {view === "summary" && <SummaryTab d={d} />}
+      {view === "details" && <DetailsTab d={d} />}
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} latest={latest} />}

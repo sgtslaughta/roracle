@@ -35,7 +35,7 @@ function detail(id: string): DocumentDetail | null {
     id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: (state.docPatch[id]?.visibility as DocumentDetail["visibility"]) ?? "everyone",
     label: docLabel(id),
     ...(ownerOf(d) === "u-me" || state.admin ? { share_users: (state.docPatch[id]?.share_users ?? []).map((u) => DIR_USERS.find((x) => x.id === u) ?? { id: u, username: "" }), share_groups: state.docPatch[id]?.share_groups ?? [], coauthors: [] } : {}),
-    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : ownerOf(d) === "u-owner" ? "k.ito" : "ana" }, summary: d.pages[0][0], stage: "searchable", tags: tagsOf(d),
+    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : ownerOf(d) === "u-owner" ? "k.ito" : "ana" }, summary: d.pages[0][0], abstract: null, added_at: "2026-01-01T00:00:00Z", references_count: 0, stage: "searchable", tags: tagsOf(d),
     votes: votesOf(d), ...(d.ids ? { ids: d.ids } : {}), file_type: d.type, page_count: d.pages.length, flag: d.flag ?? null,
     versions: Array.from({ length: ver }, (_, i) => ({ id: `${id}-v${ver - i}`, version: ver - i, filename: `${id}-v${ver - i}.pdf`, uploaded_at: "2026-10-01T10:00:00Z", is_latest: i === 0 })),
   };

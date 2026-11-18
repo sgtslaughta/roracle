@@ -170,8 +170,9 @@ def test_pat_rest_search_and_detail_hide_text(client, as_ana, ana, db_session, f
     assert human["passages"] and human["summary"] == "sum" and human["abstract"] == "SECRET-ABSTRACT"
     assert human["ref_count"] == 0
     det = client.get(f"/documents/{d.id}", headers=tok).json()
-    assert det["summary"] is None and det["title"] == "Locked"
-    assert client.get(f"/documents/{d.id}", headers=as_ana).json()["summary"] == "sum"
+    assert det["summary"] is None and det["abstract"] is None and det["title"] == "Locked"
+    hdet = client.get(f"/documents/{d.id}", headers=as_ana).json()
+    assert hdet["summary"] == "sum" and hdet["abstract"] == "SECRET-ABSTRACT" and hdet["added_at"]
 
 
 def test_pat_raw_bytes_403_human_ok(client, as_ana, ana, db_session, locked):

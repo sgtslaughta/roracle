@@ -79,6 +79,10 @@ export interface DocumentDetail {
   label?: Label;
   owner: { id: string; username: string };
   summary: string | null;
+  /** extracted abstract; null for agents on exclude_llm docs */
+  abstract?: string | null;
+  added_at?: string | null;
+  references_count?: number;
   stage: string;
   tags: string[];
   votes: Votes;
