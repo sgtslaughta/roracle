@@ -4,6 +4,9 @@ Opening a paper from search results, a citation, a note or the command menu open
 
 ![The reader open beside the Library in split view](../assets/screens/reader-split.png)
 
+!!! tip "Press Esc to step back"
+    `Esc` steps the reader back from full to three-quarter to split, then closes it.
+
 ## Tabs, versions and the toolbar
 
 - Up to three papers stay open as tabs across the top of the reader. Opening a fourth closes the oldest. The **x** on a tab closes it; the panel-close button closes the reader.

@@ -15,6 +15,7 @@ from roracle.auth import Principal, get_app_settings, require_jwt
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import PersonalAccessToken
+from roracle.onboarding import mark
 
 router = APIRouter()
 Who = Annotated[Principal, Depends(require_jwt)]
@@ -65,6 +66,7 @@ def create_token(body: TokenBody, p: Who, session: Session_, cfg: Cfg) -> dict:
     )
     row, token = pats.create(session, p.user_id, body.name, scopes, body.expires_in_days)
     audit(session, p, "pat.create", str(row.id), {"scopes": scopes})
+    mark(session, p.user_id, "token")
     session.commit()
     session.refresh(row)
     return {**_view(row), "token": token}

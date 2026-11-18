@@ -198,16 +198,16 @@ describe("proposals", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(state.docLabels[DOC_MINE]).toBe(CONF.id));
   });
-  it("a note label change is compared with the note's own label and shows the agent's reason", async () => {
+  it("a note label change is compared with the note's own label", async () => {
     state.admin = true;
     state.noteLabels["n-finding"] = CONF.id; // the note is Confidential; its document is Internal
     state.proposals = [{ ...label(INTERNAL), payload: { document_id: DOC_MINE, label_id: INTERNAL.id, body: "", annotation_id: "n-finding", reason: "looks public" } }];
     await renderApp("/proposals");
     const card = await screen.findByRole("article", { name: /Label change proposed by claude-code/ });
-    expect(await within(card).findByText("Note label change")).toBeInTheDocument();
+    expect(await within(card).findByText("Change a note's label on")).toBeInTheDocument();
     expect(await within(card).findByText(/Lowers the label/)).toBeInTheDocument();
     expect(within(card).getByLabelText(/Reason for lowering \(required\)/)).toBeInTheDocument();
-    expect(within(card).getByText(/looks public/)).toBeInTheDocument();
+    expect(within(card).queryByText(/looks public/)).not.toBeInTheDocument(); // agent reasons are never shown
     expect(within(card).getByRole("button", { name: "Approve" })).toBeDisabled();
   });
   it("a lowering by a non-admin is refused and the API error shown", async () => {

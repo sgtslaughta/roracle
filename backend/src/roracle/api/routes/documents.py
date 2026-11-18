@@ -15,6 +15,7 @@ from roracle.db import get_session
 from roracle.ingest.intake import add_document
 from roracle.labels import service
 from roracle.models import Document, DocumentVersion
+from roracle.onboarding import mark
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, EmptyFile, StagedBlob, StagedFile, TooLarge, blob_store_from, stage
 from roracle.upload_stream import Received, multipart_body, receive
@@ -196,6 +197,7 @@ def accept(
         label_id=label_id,
     )
     audit(session, p, "document.upload", str(doc.id), {"version_id": str(version.id), "size": staged.size})
+    mark(session, p.user_id, "upload")
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
 

@@ -84,6 +84,10 @@ def _label_payload(session: Session, p: Principal, payload: dict) -> dict:
         if n.parent_id is not None:
             raise HTTPException(422, "labels apply to thread roots, not replies")
         out["annotation_id"] = str(n.id)
+        if n.label_id == label_id:
+            raise HTTPException(422, "the note already has this label")
+    elif session.scalar(select(Document.label_id).where(Document.id == doc_id)) == label_id:
+        raise HTTPException(422, "the document already has this label")
     return out  # agent-supplied reason is dropped: the approver supplies it
 
 

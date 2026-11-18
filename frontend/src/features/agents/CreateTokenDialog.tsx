@@ -18,7 +18,7 @@ const LABEL: Record<Level, string> = {
 };
 const HELP: Record<Level, string> = { read: "only read", write: "read and write", manage: "read, write and manage" };
 
-export function CreateTokenDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function CreateTokenDialog({ open, onOpenChange, initialWrite = false }: { open: boolean; onOpenChange: (o: boolean) => void; initialWrite?: boolean }) {
   const [shown, setShown] = useState(false);
   const change = (o: boolean) => { if (!o) setShown(false); onOpenChange(o); };
   return (
@@ -26,16 +26,16 @@ export function CreateTokenDialog({ open, onOpenChange }: { open: boolean; onOpe
       {/* while the secret is shown, a stray outside click must not lose it: only Done or Esc close */}
       <DialogContent onInteractOutside={(e) => { if (shown) e.preventDefault(); }}>
         {/* Radix unmounts closed content, so the secret held in TokenForm's state is dropped on close */}
-        <TokenForm onDone={() => change(false)} onCreated={() => setShown(true)} />
+        <TokenForm initialWrite={initialWrite} onDone={() => change(false)} onCreated={() => setShown(true)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function TokenForm({ onDone, onCreated }: { onDone: () => void; onCreated: () => void }) {
+function TokenForm({ onDone, onCreated, initialWrite }: { onDone: () => void; onCreated: () => void; initialWrite: boolean }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
-  const [level, setLevel] = useState<Level>("read");
+  const [level, setLevel] = useState<Level>(initialWrite ? "write" : "read");
   const [days, setDays] = useState("30");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedToken | null>(null);

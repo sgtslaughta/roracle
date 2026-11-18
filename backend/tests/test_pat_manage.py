@@ -117,8 +117,8 @@ def test_token_scopes_closure(client, as_ana):
 
 
 def test_backfill_sql_grants_manage_to_write_tokens(db_session, user):
-    path = Path(__file__).parents[1] / "migrations/versions/0022_pat_manage_scope.py"
-    spec = importlib.util.spec_from_file_location("m0022", path)
+    path = Path(__file__).parents[1] / "migrations/versions/0023_pat_manage_scope.py"
+    spec = importlib.util.spec_from_file_location("m0023", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     for i, scopes in enumerate((["read"], ["read", "write"])):

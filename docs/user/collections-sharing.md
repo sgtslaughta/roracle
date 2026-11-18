@@ -1,5 +1,10 @@
 # Collections and sharing
 
+Collections group papers for a project, and sharing controls who else can see a paper. This page covers both.
+
+!!! warning "Collections are private"
+    Only you see your collections. To let colleagues see a paper, change who it is visible to.
+
 ## Collections
 
 A collection is your own named list of papers, for example a literature review. Collections are private: only you see them, and they are not shared with colleagues. Names are 1 to 100 characters.

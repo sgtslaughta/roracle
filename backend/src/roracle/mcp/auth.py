@@ -20,6 +20,7 @@ from roracle import ratelimit
 from roracle.audit import audit_detached
 from roracle.auth import Principal, as_agent, get_app_settings, get_jwks, resolve_principal
 from roracle.db import get_session
+from roracle.onboarding import mark
 
 _current: ContextVar[Principal | None] = ContextVar("mcp_principal", default=None)
 
@@ -69,6 +70,9 @@ def _resolve(app: FastAPI, authorization: str | None) -> Principal:
                 if ratelimit.audit_due("mcp:" + ratelimit.principal_key(p)):
                     audit_detached(app.state.session_factory, p, "mcp.rate_limited", "/mcp", {"via": p.via})
                 raise
+            if p.via == "pat":
+                mark(session, p.user_id, "mcp")
+                session.commit()
             return p
         except Exception:
             session.rollback()

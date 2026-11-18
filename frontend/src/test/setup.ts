@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { server } from "@/mocks/server";
 import { resetMockState } from "@/mocks/state";
+import { helpStore } from "@/features/help/helpStore";
 import { cleanup, configure } from "@testing-library/react";
 import { notifyManager } from "@tanstack/react-query";
 import { guardedScheduler } from "./scheduler";
@@ -12,7 +13,7 @@ notifyManager.setScheduler(guardedScheduler);
 configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
-afterEach(() => { cleanup(); server.resetHandlers(); resetMockState(); });
+afterEach(() => { cleanup(); helpStore.reset(); server.resetHandlers(); resetMockState(); });
 afterAll(() => server.close());
 
 // jsdom gaps

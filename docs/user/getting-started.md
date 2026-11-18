@@ -1,4 +1,9 @@
-# Getting started
+# Welcome to rOracle
+
+rOracle is where you find, read and ask about the papers your organisation keeps. This page shows you around. Press `?` at any time to open Help.
+
+!!! tip "New here?"
+    Follow [Your first hour](first-hour.md) for a short list of things to try.
 
 ## Signing in
 
@@ -20,11 +25,11 @@ Which papers you can see depends on your account's groups (your org unit) and on
 | Area | What it holds |
 |---|---|
 | Top bar | Search box, command menu button, theme button, notification bell, avatar menu |
-| Left sidebar | Library, Ask, My uploads, Agent proposals, Drafts, Admin (admins only), Docs, your recent chats and your collections |
+| Left sidebar | Library, Ask, My uploads, Agent proposals, Drafts, Admin (admins only), Help, your recent chats and your collections |
 | Centre | The page you are on |
 | Right | The reader, which opens when you open a paper ([reader](reader.md)) |
 
-The sidebar shows a number on **My uploads** when an upload needs your attention, and on **Agent proposals** when agents have suggestions waiting. **Docs** opens this documentation.
+The sidebar shows a number on **My uploads** when an upload needs your attention, and on **Agent proposals** when agents have suggestions waiting. **Help** opens this guide in a window; press `?` to open it from anywhere. Help also has a link to the full docs site.
 
 Settings (from the avatar menu) holds your access tokens and handoffs. The bell lists notifications; choosing one marks it read and takes you to what it is about.
 
@@ -44,29 +49,11 @@ It offers every sidebar page, Settings, Notifications, Admin (admins only), **Ne
 
 ## Keyboard shortcuts
 
-Shortcuts that are plain letters or `/` do nothing while you are typing in a text field or while a dialog is open.
-
-| Key | Where | What it does |
-|---|---|---|
-| `Ctrl+K` / `Cmd+K` | Anywhere | Open or close the command menu, even while typing |
-| `/` | Anywhere | Focus the top-bar search box |
-| `j` | Library results | Move to the next result (the first one if none is focused) |
-| `k` | Library results | Move to the previous result (the first one if none is focused) |
-| `Enter` | A focused result | Open that paper in the reader |
-| `Esc` | Reader | Step the reader back: full, then three-quarter, then split, then close it |
-| `Esc` | Add-note mode | Cancel picking a passage |
-| Up and Down arrows, `Enter` | Command menu | Move through and choose an item |
-| Up and Down arrows, `Home`, `End` | Row menus (the three-dot menus) | Move between menu items |
-| `Enter` | The "Add a tag" field | Add the tag |
-| `Enter`, `Shift+Enter`, Up and Down arrows | Chat question box | Send, new line, recall earlier questions ([chat shortcuts](chat.md#keyboard-shortcuts)) |
-| `Enter` | Group and people fields in sharing dialogs | Add the typed value as a chip ([chat shortcuts](chat.md#keyboard-shortcuts)) |
-
-`Esc` closes an open dialog or menu first; only when none is open does it step the reader back. It is also ignored while you type in a field.
-
-The search box waits 300 ms after you stop typing and searches once you have typed at least three characters. Clearing the box returns to browsing.
+The full list is in [Keyboard shortcuts](keyboard-shortcuts.md). The one to remember: press `?` to open Help.
 
 ## Where to next
 
+- [Your first hour](first-hour.md)
 - [Find something](library-search.md)
 - [Read it](reader.md)
 - [Add your own papers](uploads.md)

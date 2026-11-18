@@ -1,6 +1,8 @@
-# Uploads
+# Uploading papers
 
 **My uploads** is where you add papers and follow each file until it can be searched.
+
+<!-- try:uploads label="Open My uploads" -->
 
 ![My uploads with files in different stages and the filter buttons](../assets/screens/uploads-list.png)
 
@@ -32,6 +34,9 @@ Each row shows the file name, size and time, five steps (**Scanned**, **Parsed**
 Filter the list with **All**, **Processing**, **Needs you** (decisions and titles together), **Failed** and **Searchable**; each shows a count. The sidebar badge on **My uploads** counts uploads that need you or have failed. You also get notifications when an upload is ready, looks like a duplicate, or fails.
 
 Until a paper is Searchable only you (and admins) can see it. The row menu has **Open document** once it is done and **Copy filename**.
+
+!!! tip "Duplicates are caught"
+    If you upload a file rOracle already has, it tells you instead of adding a second copy.
 
 ## Duplicates
 

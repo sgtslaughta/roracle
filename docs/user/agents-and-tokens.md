@@ -2,10 +2,13 @@
 
 An **agent** here is an AI assistant or script (a coding agent, a notebook, your own program) that uses rOracle for you over MCP, a standard way for agents to call tools. It signs in with an **access token** that you create. The agent acts as you, sees only what you can see, and is held to the same label rules, with a few extra limits below. Terms are in the [glossary](../glossary.md#access).
 
+!!! warning "Treat a token like a password"
+    Anyone who has it can act as you, within its access level. Copy it once, store it safely and revoke it if it leaks.
+
 ## Create a token
 
 1. Open the avatar menu, choose **Settings**, and stay on **Access tokens**.
-2. Choose **New token**.
+2. Choose **New token**. If your administrators have turned access tokens off, it is refused with a 403 ("personal access tokens are disabled"); ask them to enable tokens.
 3. Fill in:
    - **Name**: 1 to 100 characters, such as "Laptop agent". It identifies the agent in your proposals and in the audit log.
    - **Access**: **Read only** (search, ask, load handoffs) or **Read and write** (also add handoff notes and propose changes) or **Read, write and manage** (also change sharing, delete, transfer and submit drafts).
@@ -50,12 +53,14 @@ A token also stops working when you have not signed in to rOracle for a while. B
 
 ## Connect an MCP client
 
+For a step-by-step walkthrough, see [Set up MCP](agents-mcp-setup.md). In short:
+
 1. Create a token as above and keep it in a safe place such as a secret store or an environment variable of your agent. Do not paste it into shared files or chats.
 2. In your MCP client, add a server of type "HTTP" (Streamable HTTP) with:
    - the URL of your rOracle address followed by `/mcp`, for example `https://roracle.example.internal/mcp`;
    - the header `Authorization: Bearer <your token>`.
 
-A typical client configuration:
+A configuration in the shape Claude Code reads from `.mcp.json`:
 
 ```json
 {
@@ -74,13 +79,15 @@ The exact file and field names differ between clients; use your client's own doc
 3. Test it by asking the agent something simple, such as "list my rOracle collections" or "search rOracle for a paper you know is there".
 4. To give an agent a piece of work to continue, create a handoff ([handoffs](handoffs-inbox.md#creating-a-handoff)) and paste its **Copy agent prompt** text into the agent.
 
-If a call fails with "insufficient scope", the token lacks the access the tool needs ("insufficient scope: manage" means it needs **Read, write and manage**); create a token with the right access level. A 401 means the token is wrong, expired, revoked or its owner has not signed in recently.
+If a call fails with "insufficient scope", the token lacks the access the tool needs ("insufficient scope: manage" means it needs **Read, write and manage**); create a token with the right access level. A 401 means the token is wrong, expired, revoked or its owner has not signed in recently. More in [Troubleshooting agents](agents-troubleshooting.md).
 
 Tool names, parameters and limits are in the [MCP tool reference](../reference/mcp-tools.md). Operators and integrators should also read the [agent integration guide](../enterprise/agent-integration.md).
 
 ## Related
 
-- [Handoffs, inbox and notifications](handoffs-inbox.md)
+- [Set up MCP, step by step](agents-mcp-setup.md)
+- [Troubleshooting agents](agents-troubleshooting.md)
+- [Hand work to an agent](handoffs-inbox.md)
 - [Writing drafts](writing-drafts.md)
 - [Sensitivity labels](labels.md)
-- [Getting started](getting-started.md)
+- [Welcome to rOracle](getting-started.md)

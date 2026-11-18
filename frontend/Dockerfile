@@ -12,6 +12,11 @@ COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN if [ -n "$NPM_CONFIG_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_CONFIG_REGISTRY"; fi \
  && corepack enable && corepack pnpm install --frozen-lockfile
 COPY frontend/ ./
+# Help modal bundles the Markdown + screenshots (vite alias @docs -> ../docs = /docs).
+COPY docs/user /docs/user
+COPY docs/glossary.md /docs/glossary.md
+COPY docs/admin /docs/admin
+COPY docs/assets/screens /docs/assets/screens
 # Placeholders are swapped at request time by nginx sub_filter (see nginx/default.conf.template).
 ENV VITE_OIDC_AUTHORITY=__ROR_OIDC_AUTHORITY__ VITE_OIDC_CLIENT_ID=__ROR_OIDC_CLIENT_ID__
 RUN corepack pnpm build && corepack pnpm check:dist \

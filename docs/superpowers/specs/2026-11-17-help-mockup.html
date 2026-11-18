@@ -1,0 +1,535 @@
+<title>rOracle Help Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+<style>
+/* Layout: faux rOracle shell; help = large centred sheet. Left: collapsible topic tree (groups > topics > sections of the open topic). Right: reading column with figures, snippets, callouts. Phone: full screen, tree -> select. */
+:root {
+  --bg: #ffffff; --surface: #ffffff; --muted-bg: #eef3f8; --ink: #1f2e3d; --muted: #5a6b7d; --border: #dce5ee;
+  --primary: #496580; --primary-fg: #ffffff; --primary-soft: #e3ecf5; --tray: #eaf0f6; --chrome: #fff9f3;
+  --good: #1f7a6b; --warn: #9a5a12; --warn-bg: #fff3e3; --scrim: rgba(31,46,61,.42); --code-bg: #f3f6fa; --guide: #c6d3e0;
+  --f-ui: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-read: "Newsreader", Georgia, serif;
+  --f-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #343a42; --surface: #434a54; --muted-bg: #383e46; --ink: #f4f2ea; --muted: #c9c6b8; --border: #535b67;
+  --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --tray: #2d3239; --chrome: #2a2f36;
+  --good: #7cd992; --warn: #ffd28a; --warn-bg: #4a4130; --scrim: rgba(10,14,20,.6); --code-bg: #2a2f36; --guide: #5b6470; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #343a42; --surface: #434a54; --muted-bg: #383e46; --ink: #f4f2ea; --muted: #c9c6b8; --border: #535b67;
+  --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --tray: #2d3239; --chrome: #2a2f36;
+  --good: #7cd992; --warn: #ffd28a; --warn-bg: #4a4130; --scrim: rgba(10,14,20,.6); --code-bg: #2a2f36; --guide: #5b6470; color-scheme: dark; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-ui); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* faux app */
+.app { display: grid; grid-template-columns: 210px minmax(0,1fr); grid-template-rows: 52px 1fr; min-height: 100%; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding-block: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--chrome); border-bottom: 1px solid var(--border); }
+.brand { font: 600 16px var(--f-read); }
+.search { flex: 1; max-width: 520px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0 10px; color: var(--muted); display: flex; align-items: center; }
+.qbtn { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); font-weight: 700; cursor: pointer; }
+.side { padding: 14px 10px; background: var(--chrome); border-right: 1px solid var(--border); display: grid; align-content: start; gap: 2px; }
+.side a { padding: 6px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; cursor: pointer; }
+.side a.cur { background: var(--primary-soft); }
+.main { padding: 22px 26px; min-width: 0; }
+.main h1 { font: 600 22px var(--f-read); margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.faux { display: grid; gap: 10px; max-width: 760px; }
+.faux .card h3 { margin: 0; font: 600 16px var(--f-read); }
+.faux .card p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+/* checklist */
+.start { max-width: 760px; margin-bottom: 14px; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.start header { display: flex; align-items: baseline; gap: 10px; }
+.start h2 { margin: 0; font: 600 17px var(--f-read); }
+.start .prog { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.start .x { margin-left: auto; border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 18px; line-height: 1; }
+.bar { height: 4px; border-radius: 4px; background: var(--muted-bg); margin: 10px 0 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; }
+.steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--border); }
+.steps li:first-child { border-top: 0; }
+.tick { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); display: grid; place-items: center; font-size: 11px; cursor: pointer; background: none; padding: 0; }
+.done .tick { background: var(--good); border-color: var(--good); color: var(--surface); }
+.done .lbl { color: var(--muted); }
+.lbl small { display: block; color: var(--muted); font-size: 12px; }
+.link { border: 0; background: none; color: var(--primary); cursor: pointer; padding: 2px 4px; font-weight: 600; font-size: 13px; }
+.next-group { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+
+/* sheet */
+.scrim { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; padding: 24px; z-index: 20; }
+.sheet { width: min(1140px, 100%); height: min(84vh, 800px); background: var(--surface); border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 24px 60px -20px rgba(0,0,0,.45); display: grid; grid-template-columns: 272px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: rise .18s ease-out; } @keyframes rise { from { transform: translateY(8px); opacity: .6 } } }
+.shead { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.shead h2 { margin: 0; font: 600 18px var(--f-read); width: 240px; flex: none; }
+.hsearch { flex: 1; max-width: 380px; height: 32px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--bg); }
+.shead .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.ghost { height: 30px; padding: 0 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; font-size: 13px; }
+.ghost:hover { border-color: var(--primary); }
+.close { width: 30px; height: 30px; border: 0; background: none; font-size: 20px; cursor: pointer; color: var(--muted); }
+
+/* tree nav */
+.snav { border-right: 1px solid var(--border); background: var(--tray); overflow: auto; padding: 8px 8px 24px; }
+.grp { margin-top: 4px; }
+.grp > summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; cursor: pointer; font-weight: 700; font-size: 13.5px; }
+.grp > summary::-webkit-details-marker { display: none; }
+.grp > summary:hover { background: var(--muted-bg); }
+.chev { width: 14px; display: inline-grid; place-items: center; color: var(--muted); transition: transform .15s; font-size: 10px; }
+.grp[open] > summary .chev { transform: rotate(90deg); }
+.gicon { width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center; background: var(--primary-soft); font-size: 11px; }
+.gcount { margin-left: auto; color: var(--muted); font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tree { list-style: none; margin: 0 0 4px 16px; padding: 0 0 0 10px; border-left: 1px solid var(--guide); }
+.tree li { position: relative; }
+.tree li::before { content: ""; position: absolute; left: -10px; top: 15px; width: 8px; border-top: 1px solid var(--guide); }
+.tree button { display: flex; width: 100%; gap: 8px; align-items: center; text-align: left; border: 0; background: none; padding: 5px 8px; border-radius: 7px; cursor: pointer; font-size: 13.5px; }
+.tree button:hover { background: var(--muted-bg); }
+.tree button[aria-current="true"] { background: var(--surface); font-weight: 600; box-shadow: 0 0 0 1px var(--border); }
+.here { margin-left: auto; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 99px; padding: 0 6px; }
+.secs { list-style: none; margin: 2px 0 6px 14px; padding: 0 0 0 10px; border-left: 1px dashed var(--guide); }
+.secs li::before { content: ""; position: absolute; left: -10px; top: 13px; width: 8px; border-top: 1px dashed var(--guide); }
+.secs button { font-size: 12.5px; color: var(--muted); padding: 3px 8px; }
+.secs button:hover { color: var(--ink); }
+.mnav { display: none; }
+
+/* reading column */
+.body { overflow: auto; padding: 24px 40px 48px; min-width: 0; scroll-behavior: smooth; }
+.crumb { color: var(--muted); font-size: 12.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.crumb .sep { opacity: .6; }
+.copyl { margin-left: auto; border: 1px solid var(--border); background: var(--surface); border-radius: 7px; color: var(--ink); cursor: pointer; font-size: 12.5px; padding: 3px 9px; }
+.body h1 { font: 600 30px/1.18 var(--f-read); margin: 8px 0 6px; text-wrap: balance; max-width: 26ch; }
+.lede { font: 18px/1.55 var(--f-read); color: var(--muted); max-width: 62ch; margin: 0 0 18px; }
+.meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+.chip { font-size: 12px; border: 1px solid var(--border); border-radius: 99px; padding: 2px 9px; color: var(--muted); }
+.body h3 { font: 600 16px var(--f-ui); margin: 28px 0 8px; padding-top: 4px; scroll-margin-top: 12px; }
+.prose { max-width: 66ch; font: 16.5px/1.62 var(--f-read); }
+.prose p { margin: 0 0 12px; }
+.prose ul { padding-left: 20px; margin: 0 0 12px; }
+.prose li { margin-bottom: 4px; }
+code, .kbd { font: 13px var(--f-code); background: var(--code-bg); border-radius: 5px; padding: 1px 5px; }
+.kbd { border: 1px solid var(--border); border-bottom-width: 2px; }
+.dl { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 6px 16px; max-width: 66ch; margin: 4px 0 14px; font-size: 14px; }
+.dl dt { font-weight: 600; } .dl dd { margin: 0; color: var(--muted); }
+.snip { margin: 10px 0 14px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; max-width: 72ch; }
+.snip figcaption { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; background: var(--muted-bg); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.snip figcaption button { margin-left: auto; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 12px; }
+.snip pre { margin: 0; padding: 10px 12px; font: 13px/1.55 var(--f-code); background: var(--code-bg); overflow-x: auto; }
+.shot { margin: 12px 0 18px; max-width: 72ch; }
+.shot img { display: block; width: 100%; max-width: 100%; border: 1px solid var(--border); border-radius: 9px; }
+.shot figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.call { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px; border-radius: 9px; padding: 10px 12px; margin: 10px 0 14px; max-width: 70ch; font-size: 14px; background: var(--primary-soft); }
+.call.warn { background: var(--warn-bg); }
+.call b { font-weight: 700; }
+.try { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 6px 0 14px; }
+.prim { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--primary); color: var(--primary-fg); font-weight: 600; cursor: pointer; }
+.try span { font-size: 12.5px; color: var(--muted); }
+
+/* step walkthrough */
+.walk { list-style: none; counter-reset: s; padding: 0; margin: 8px 0 0; max-width: 74ch; }
+.walk > li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0,1fr); column-gap: 14px; position: relative; padding-bottom: 22px; }
+.walk > li::before { content: counter(s); grid-row: 1 / span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; font: 700 13px var(--f-ui); }
+.walk > li:not(:last-child)::after { content: ""; position: absolute; left: 13.5px; top: 32px; bottom: 4px; border-left: 2px solid var(--guide); }
+.walk h3 { margin: 3px 0 6px; padding: 0; }
+.walk .stepbody { min-width: 0; }
+.walk .stepbody > p { margin: 0 0 10px; font: 16px/1.58 var(--f-read); }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: -1px; }
+.tabs button { height: 28px; padding: 0 11px; border: 1px solid var(--border); border-bottom: 0; background: var(--muted-bg); border-radius: 7px 7px 0 0; cursor: pointer; font-size: 12.5px; }
+.tabs button[aria-selected="true"] { background: var(--code-bg); font-weight: 700; }
+.tabs + .snip { margin-top: 0; border-top-left-radius: 0; }
+.related { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+.related button { border: 1px solid var(--border); background: var(--surface); border-radius: 99px; padding: 1px 10px; cursor: pointer; font-size: 12.5px; color: var(--ink); }
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 30px; max-width: 74ch; }
+.pager button { text-align: left; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 8px 12px; cursor: pointer; }
+.pager button.next { text-align: right; grid-column: 2; }
+.pager small { display: block; color: var(--muted); font-size: 11.5px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 40; max-width: calc(100% - 32px); }
+.mock-note { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.mock-note label { display: flex; gap: 4px; align-items: center; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; } .side { display: none; }
+  .main { padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); }
+  .scrim { padding: 0; }
+  .sheet { width: 100%; height: 100%; border-radius: 0; grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0,1fr); }
+  .shead h2 { width: auto; } .snav, .hsearch, .ghost.full { display: none; }
+  .mnav { display: block; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  .mnav select { width: 100%; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0 8px; }
+  .body { padding: 18px 16px 30px; } .body h1 { font-size: 25px; }
+  .walk > li { grid-template-columns: 28px minmax(0,1fr); column-gap: 10px; }
+  .pager { grid-template-columns: 1fr; } .pager button.next { grid-column: 1; }
+  .mock-note { display: none; }
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <span class="brand">rOracle</span>
+    <span class="search">Search papers, passages, authors</span>
+    <button class="qbtn" id="qbtn" aria-label="Help (press ?)" title="Help (press ?)">?</button>
+  </header>
+  <nav class="side" aria-label="Main">
+    <a class="cur" data-page="library">Library</a>
+    <a data-page="ask">Ask</a>
+    <a data-page="uploads">My uploads</a>
+    <a data-page="proposals">Agent proposals</a>
+    <a data-page="drafts">Drafts</a>
+    <a id="sideHelp">Help</a>
+  </nav>
+  <main class="main">
+    <h1 id="pageTitle">Library</h1>
+    <p class="sub">Showing 1–20 of 5,190 papers</p>
+    <section class="card start" id="start" aria-labelledby="start-h">
+      <header>
+        <h2 id="start-h">Get started</h2>
+        <span class="prog" id="prog"></span>
+        <button class="x" id="dismiss" aria-label="Hide Get started. Reopen it from Help.">×</button>
+      </header>
+      <div class="bar"><i id="barfill"></i></div>
+      <ul class="steps" id="steps"></ul>
+      <p class="next-group" id="nextGroup"></p>
+    </section>
+    <div class="faux">
+      <article class="card"><h3>Scalability in Computing and Robotics</h3><p>Heiko Hamann, Andreagiovanni Reina. 2021. This research proposes a general model for system scalability based on interactions between units…</p></article>
+      <article class="card"><h3>Even Loose Proximity Constraints Make Makespan-optimal Unlabeled Multi-agent Pathfinding Hard</h3><p>Takahiro Suzuki, Keisuke Okumura. 2026.</p></article>
+      <article class="card"><h3>LEDGER: Auditable Agent Memory Under Change</h3><p>Aidul Islam, Nasir Uddin Shuvo, Muhammad Waseem, Pekka Abrahamsson. 2026.</p></article>
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="help" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div class="shead">
+      <h2 id="help-title">Help</h2>
+      <input class="hsearch" id="hsearch" type="search" placeholder="Search help" aria-label="Search help">
+      <div class="tools">
+        <button class="ghost full" id="fullDocs" title="Admin, operator and developer guides">Open full docs</button>
+        <button class="close" id="close" aria-label="Close help (Esc)">×</button>
+      </div>
+    </div>
+    <nav class="snav" id="snav" aria-label="Help topics"></nav>
+    <div class="mnav"><select id="msel" aria-label="Help topic"></select></div>
+    <article class="body" id="body" tabindex="-1"></article>
+  </div>
+</div>
+
+<div class="mock-note" aria-label="Mockup controls">
+  <strong>Mockup</strong>
+  <label><input type="checkbox" id="admin"> Admin</label>
+  <button class="ghost" id="reset">Reset checklist</button>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+const ORIGIN = "https://roracle.lab.internal";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2800); }
+
+/* ---------- building blocks ---------- */
+const SNIPS = [];
+const snip = (label, code) => { SNIPS.push(code); return `<figure class="snip"><figcaption>${esc(label)}<button data-copysnip="${SNIPS.length - 1}">Copy</button></figcaption><pre>${esc(code)}</pre></figure>`; };
+const shot = (file, cap) => `<figure class="shot"><img src="shots/${file}" alt="${esc(cap)}" loading="lazy"><figcaption>${esc(cap)}</figcaption></figure>`;
+const note = (html, warn) => `<div class="call${warn ? " warn" : ""}"><b>${warn ? "Heads up" : "Tip"}</b><div>${html}</div></div>`;
+const tryIt = (label, effect, hint = "") => `<div class="try"><button class="prim" data-try="${effect}">${esc(label)}</button>${hint ? `<span>${esc(hint)}</span>` : ""}</div>`;
+const related = (...ids) => `<p class="related">See also ${ids.map((id) => `<button data-go="${id}">${esc(T[id]?.title ?? id)}</button>`).join("")}</p>`;
+const h = (id, text) => `<h3 id="s-${id}">${esc(text)}</h3>`;
+
+/* ---------- checklist ---------- */
+const BASICS = [
+  { id: "search", t: "Search the library", s: "Try a phrase in quotes.", topic: "finding" },
+  { id: "ask", t: "Open a paper and ask about it", s: "Ask about this, in the reader.", topic: "asking" },
+  { id: "upload", t: "Upload a paper", s: "PDF or Word. Duplicates are caught.", topic: "uploading" },
+  { id: "collect", t: "Save a collection", s: "Group papers for a project.", topic: "collections" },
+];
+const AGENTS = [
+  { id: "token", t: "Create an access token", s: "Your agent signs in with it.", topic: "mcp" },
+  { id: "mcp", t: "Connect an agent with MCP", s: "Paste the config into your client.", topic: "mcp" },
+  { id: "handoff", t: "Hand a chat to an agent", s: "Continue in agent, from any chat.", topic: "handoffs" },
+];
+let done = new Set(["search"]);
+function renderChecklist() {
+  const basicsDone = BASICS.every((x) => done.has(x.id));
+  const list = basicsDone ? AGENTS : BASICS;
+  const n = list.filter((x) => done.has(x.id)).length;
+  $("#start-h").textContent = basicsDone ? "Connect your agents" : "Get started";
+  $("#prog").textContent = `${n} of ${list.length}`;
+  $("#barfill").style.width = `${(n / list.length) * 100}%`;
+  $("#steps").innerHTML = list.map((x) => `
+    <li class="${done.has(x.id) ? "done" : ""}">
+      <button class="tick" data-tick="${x.id}" aria-label="${done.has(x.id) ? "Done" : "Not done yet"}: ${esc(x.t)}">${done.has(x.id) ? "✓" : ""}</button>
+      <span class="lbl">${esc(x.t)}<small>${esc(x.s)}</small></span>
+      ${done.has(x.id) ? "" : `<button class="link" data-show="${x.topic}">Show me</button>`}
+    </li>`).join("");
+  $("#nextGroup").textContent = basicsDone ? "" : "Next: connect your agents. It opens when these four are done.";
+}
+$("#steps").addEventListener("click", (e) => {
+  const tk = e.target.closest("[data-tick]"); const sh = e.target.closest("[data-show]");
+  if (tk) { const id = tk.dataset.tick; done.has(id) ? done.delete(id) : done.add(id); toast(done.has(id) ? "In the app this ticks itself when you do it." : "Unticked (mockup only)."); renderChecklist(); }
+  if (sh) openHelp(sh.dataset.show);
+});
+$("#dismiss").addEventListener("click", () => { $("#start").hidden = true; toast("Hidden. Reopen it from Help, Your first hour."); });
+$("#reset").addEventListener("click", () => { done = new Set(); $("#start").hidden = false; renderChecklist(); });
+
+/* ---------- topics ---------- */
+const T = {};
+const GROUPS = [
+  { name: "Start here", icon: "★", ids: [] },
+  { name: "Using rOracle", icon: "▤", ids: [] },
+  { name: "Agents", icon: "⌁", ids: [] },
+  { name: "Reference", icon: "⌘", ids: [] },
+  { name: "Admin", icon: "⚙", ids: [], admin: true },
+];
+function topic(group, id, title, lede, body, opts = {}) { T[id] = { group, id, title, lede, body, ...opts }; GROUPS.find((g) => g.name === group).ids.push(id); }
+
+topic("Start here", "welcome", "Welcome to rOracle",
+  "Your lab's private library of research papers. Search them, ask questions with cited answers, and hand the work to an agent.",
+  () => `${shot("library-results.png", "The library: filters on the left, results in the middle, the reader opens on the right.")}
+${h("where", "Where things are")}
+<dl class="dl">
+  <dt>Library</dt><dd>Every paper you can see, with search, filters and three views.</dd>
+  <dt>Ask</dt><dd>Questions answered from the papers, each claim cited to a passage.</dd>
+  <dt>My uploads</dt><dd>Papers you added and where each one is in processing.</dd>
+  <dt>Agent proposals</dt><dd>Changes your agents suggest, waiting for you.</dd>
+  <dt>Drafts</dt><dd>Papers you are writing in rOracle.</dd>
+</dl>
+${h("private", "What stays private")}
+<div class="prose"><p>Everything stays on this network. Nothing you search, read or ask is sent anywhere else.</p></div>
+${note(`Press <span class="kbd">?</span> on any page to open help on the topic for that page.`)}`);
+
+topic("Start here", "first-hour", "Your first hour",
+  "Seven short steps, in two groups. Each one ticks itself off on the Get started card when you do it.",
+  () => `${h("basics", "Basics")}
+<div class="prose"><ul><li>Search the library</li><li>Open a paper and ask about it</li><li>Upload a paper</li><li>Save a collection</li></ul></div>
+${h("agents", "Connect your agents")}
+<div class="prose"><ul><li>Create an access token</li><li>Connect an agent with MCP</li><li>Hand a chat to an agent</li></ul></div>
+${tryIt("Show the Get started card", "card", "Brings back the card if you hid it.")}`);
+
+topic("Start here", "links", "Sharing help topics",
+  "Every topic and section has its own link, so you can point a colleague straight at the answer.",
+  () => `${h("copy", "Copy a link")}
+<div class="prose"><p>Use <b>Copy link to this topic</b> at the top of any topic, then paste it into a chat, an email or a ticket. Whoever opens it lands on the same topic, with help already open.</p></div>
+${snip("Example link", `${ORIGIN}/library#help-mcp`)}
+${note("Links only open help for people who can sign in to rOracle. They don't share any papers.")}`);
+
+topic("Using rOracle", "finding", "Finding papers",
+  "The library searches titles, authors, summaries and the full text of every paper you can see, all at once.",
+  () => `${h("syntax", "Search syntax")}
+<dl class="dl">
+  <dt><code>"exact phrase"</code></dt><dd>Words in this order.</dd>
+  <dt><code>-word</code></dt><dd>Leave out papers that contain it.</dd>
+  <dt><code>author:okumura</code></dt><dd>Search one field. Also <code>title:</code>, <code>venue:</code> and <code>tag:</code>.</dd>
+</dl>
+${snip("Search box", `"multi-agent" -survey author:okumura`)}
+${tryIt("Run this search", "search")}
+${h("filters", "Filters")}
+${shot("library-filters.png", "Each filter value can be included or excluded. Counts cover everything you can see.")}
+${h("views", "Views and saved searches")}
+<div class="prose"><ul><li><b>List</b> shows summaries and matching passages.</li><li><b>Compact</b> shows one line per paper.</li><li><b>Table</b> lets you pick columns and sort by any of them.</li></ul>
+<p>Save a search to reopen it later with the same filters and sort.</p></div>
+${related("reading", "keys")}`, { page: "library" });
+
+topic("Using rOracle", "reading", "Reading a paper",
+  "Click any title to open it beside the library. The reader keeps your place in each open paper.",
+  () => `${shot("reader-split.png", "The reader opens next to the results. Tabs along the top hold each open paper.")}
+${h("tabs", "What each tab shows")}
+<dl class="dl">
+  <dt>Document</dt><dd>The paper itself, with passages from your search highlighted.</dd>
+  <dt>Summary</dt><dd>The AI summary and the paper's own abstract.</dd>
+  <dt>Details</dt><dd>Authors, identifiers, versions, label and everything else known about it.</dd>
+  <dt>References</dt><dd>What it cites. References in the library link straight to them.</dd>
+  <dt>Cited by</dt><dd>Papers here that cite it.</dd>
+  <dt>Notes</dt><dd>Your notes and shared notes on it.</dd>
+</dl>
+${h("votes", "Voting on a paper")}
+${shot("vote-reasons.png", "A downvote asks why, so readers know a paper is outdated or superseded.")}
+${related("notes", "asking")}`);
+
+topic("Using rOracle", "asking", "Asking questions",
+  "Ask answers only from papers you can see. Every claim links to the passage it came from.",
+  () => `${shot("ask-answer.png", "Each numbered citation opens the page with that passage highlighted.")}
+${h("focus", "Ask about one paper")}
+<div class="prose"><p>In the reader, <b>Ask about this</b> focuses the question on that paper. Chips above the box show which papers are in play; remove one to leave it out.</p></div>
+${shot("ask-context-chips.png", "Context chips: the papers this question will draw on.")}
+${tryIt("Ask about the open paper", "ask")}
+${h("quick", "Quick prompts")}
+<div class="prose"><p>Under the box: <i>Summarize this paper</i>, <i>List the key findings</i>, <i>What methods were used</i>. Press <span class="kbd">↑</span> to bring back an earlier question.</p></div>
+${note("Long papers are summarized in parts. If one part can't be read, the answer says the summary is partial.", true)}`, { page: "ask" });
+
+topic("Using rOracle", "notes", "Notes and tags",
+  "Notes hold your thinking next to the passage it is about. Tags group papers across the library.",
+  () => `${h("notes", "Notes")}
+${shot("reader-notes.png", "Select a passage, then Add note. The note stays anchored to that passage.")}
+<div class="prose"><ul><li><b>Private</b> notes are yours alone.</li><li><b>Shared</b> notes are seen by everyone who can see the paper.</li></ul></div>
+${h("tags", "Tags")}
+<div class="prose"><p>Add tags from the reader or with <b>+ tag</b> on a result. Some tags are suggested by AI from the summary and look slightly different. Remove any you don't want.</p></div>`);
+
+topic("Using rOracle", "uploading", "Uploading papers",
+  "Drop PDF or Word files on My uploads. rOracle reads them and adds them to the library.",
+  () => `${h("steps", "What happens to a file")}
+<div class="prose"><ul><li>The text, references and identifiers such as DOI and arXiv are extracted.</li><li>The paper is indexed for search.</li><li>A summary is written. Long papers take a few minutes.</li></ul></div>
+${h("dups", "Duplicates")}
+${shot("uploads-near-dup.png", "If a file is already in the library, you are told instead of getting a copy.")}
+${tryIt("Open My uploads", "uploads")}`, { page: "uploads" });
+
+topic("Using rOracle", "collections", "Collections",
+  "Your own lists of papers for a project. Only you see your collections.",
+  () => `${shot("collections-add.png", "Add a paper from its ⋯ menu or from the reader.")}
+<div class="prose"><p>Open a collection from the sidebar to filter the library to it. Rename or delete it from its ⋯ menu; deleting a collection never deletes papers.</p></div>`);
+
+topic("Agents", "agents", "What agents can see",
+  "An agent works with your access, minus what your lab keeps away from AI.",
+  () => `${h("labels", "Sensitivity labels")}
+<dl class="dl">
+  <dt>General</dt><dd>Agents can read the paper and quote it.</dd>
+  <dt>Keep away from AI</dt><dd>Agents see the title and details, never the text.</dd>
+  <dt>Block agents</dt><dd>Agents can't see the paper at all.</dd>
+</dl>
+${h("scopes", "Token scopes")}
+<dl class="dl">
+  <dt><code>read</code></dt><dd>Search, read and ask.</dd>
+  <dt><code>write</code></dt><dd>Suggest notes and tags, upload private papers.</dd>
+  <dt><code>manage</code></dt><dd>Change sharing and visibility, delete, transfer.</dd>
+</dl>
+${note("Give an agent the smallest set of scopes that does the job. You can make more tokens later.")}
+${related("mcp", "trouble")}`);
+
+topic("Agents", "mcp", "Set up MCP, step by step",
+  "Connect an AI agent such as Claude Code or Claude Desktop to rOracle. About ten minutes.",
+  mcpGuide);
+
+topic("Agents", "handoffs", "Hand work to an agent",
+  "Send a chat, a search or a paper to your agent, with your notes, in one step.",
+  () => `<ol class="walk">
+<li><h3 id="s-start">Start from what you're doing</h3><div class="stepbody"><p>Choose <b>Continue in agent</b> on a chat, a search or a paper. rOracle packages it as a handoff.</p>${shot("handoff-dialog.png", "The handoff dialog. Copy the prompt or the short code.")}</div></li>
+<li><h3 id="s-paste">Paste the prompt into your agent</h3><div class="stepbody"><p>The agent fetches the handoff over MCP: the conversation, the papers, and your notes on them.</p>${snip("Prompt for your agent", "Use rOracle to open handoff H-7Q2K and continue the work.")}</div></li>
+<li><h3 id="s-left">What is left out</h3><div class="stepbody"><p>Text from papers the agent may not read shows as <code>[withheld]</code>. Papers it can't see at all are left out.</p></div></li>
+<li><h3 id="s-back">Review what comes back</h3><div class="stepbody"><p>Anything the agent wants to change waits in <b>Agent proposals</b>.</p></div></li>
+</ol>${tryIt("Continue this chat in an agent", "handoff")}${related("mcp", "proposals")}`);
+
+topic("Agents", "proposals", "Agent proposals",
+  "Agents never change your library directly. Every change waits here for you.",
+  () => `${shot("agent-proposals.png", "Each proposal shows what would change and why.")}
+<dl class="dl"><dt>Accept</dt><dd>Apply the change as proposed.</dd><dt>Edit</dt><dd>Change it first, then apply.</dd><dt>Decline</dt><dd>Drop it. The agent is told.</dd></dl>`, { page: "proposals" });
+
+topic("Agents", "trouble", "Troubleshooting agents",
+  "What the common errors mean and how to fix each one.",
+  () => `${h("401", "401 Unauthorized")}<div class="prose"><p>The token is missing, expired or revoked. Create a new one and update your client's config.</p></div>
+${h("403", "403 Missing scope")}<div class="prose"><p>The token lacks a scope the action needs, for example <code>manage</code> to change sharing. Create a token with that scope.</p></div>
+${h("429", "429 Too many requests")}<div class="prose"><p>The agent is over the rate limit. It can retry after the seconds in the <code>Retry-After</code> header.</p></div>
+${h("404", "Paper not found")}<div class="prose"><p>The agent can't see it, because of the paper's label or because you can't see it either.</p></div>`);
+
+topic("Reference", "keys", "Keyboard shortcuts",
+  "Everything in rOracle works from the keyboard.",
+  () => `${h("everywhere", "Everywhere")}<dl class="dl"><dt><span class="kbd">?</span></dt><dd>Help on this page</dd><dt><span class="kbd">/</span></dt><dd>Focus search</dd><dt><span class="kbd">⌘</span> <span class="kbd">K</span></dt><dd>Command palette</dd><dt><span class="kbd">Esc</span></dt><dd>Close the reader or this help</dd></dl>
+${h("library", "Library")}<dl class="dl"><dt><span class="kbd">j</span> <span class="kbd">k</span></dt><dd>Next and previous result</dd><dt><span class="kbd">o</span></dt><dd>Open the result</dd></dl>
+${shot("command-menu.png", "The command palette finds papers, chats and actions.")}`);
+
+topic("Admin", "admin", "Running rOracle",
+  "Labels, settings, jobs and connectors live in the Admin section.",
+  () => `<div class="prose"><p>Operator guides for upgrades, backups and Helm are in the full docs.</p></div>${tryIt("Open full docs", "docs")}`);
+
+const CLIENTS = {
+  "Claude Code": { label: "Terminal", code: `export RORACLE_TOKEN=<your token>\nclaude mcp add --transport http roracle ${ORIGIN}/mcp \\\n  --header "Authorization: Bearer $RORACLE_TOKEN"` },
+  "Claude Desktop": { label: "claude_desktop_config.json", code: `{\n  "mcpServers": {\n    "roracle": {\n      "type": "http",\n      "url": "${ORIGIN}/mcp",\n      "headers": { "Authorization": "Bearer <your token>" }\n    }\n  }\n}` },
+  "Other client": { label: "Connection settings", code: `Transport:  Streamable HTTP\nURL:        ${ORIGIN}/mcp\nHeader:     Authorization: Bearer <your token>` },
+};
+let client = "Claude Code";
+function mcpGuide() {
+  const c = CLIENTS[client];
+  return `${note("You need an MCP client, such as Claude Code or Claude Desktop, on a computer that can reach this server.")}
+<ol class="walk">
+<li><h3 id="s-see">Know what the agent will see</h3><div class="stepbody"><p>It works with your access, minus papers labelled to keep away from AI.</p>${related("agents")}</div></li>
+<li><h3 id="s-token">Create a token</h3><div class="stepbody"><p>Choose <code>read</code> to search and read. Add <code>write</code> if the agent should suggest notes and tags. Set an expiry date.</p>${shot("tokens-create.png", "Settings, Access tokens, New token. The token is shown once: copy it now.")}${tryIt("Create token with read and write", "token", "Opens the dialog with these scopes selected.")}</div></li>
+<li><h3 id="s-client">Add rOracle to your client</h3><div class="stepbody"><p>Pick your client. This server's address is already filled in; paste your token where shown.</p>
+<div class="tabs" role="tablist">${Object.keys(CLIENTS).map((n) => `<button role="tab" aria-selected="${n === client}" data-client="${n}">${n}</button>`).join("")}</div>
+${snip(c.label, c.code)}</div></li>
+<li><h3 id="s-test">Check the connection</h3><div class="stepbody"><p>Ask your agent this. It should reply with your username and the token's scopes.</p>${snip("Prompt", "Use rOracle to tell me who I am.")}${tryIt("Mark as connected", "mcp", "In the app this ticks itself on first use.")}</div></li>
+<li><h3 id="s-hand">Hand it some work</h3><div class="stepbody"><p>Open any chat and choose <b>Continue in agent</b>.</p>${related("handoffs")}</div></li>
+<li><h3 id="s-review">Review its suggestions</h3><div class="stepbody"><p>Anything it wants to change waits in <b>Agent proposals</b>.</p>${related("proposals", "trouble")}</div></li>
+</ol>`;
+}
+
+/* ---------- help shell ---------- */
+let current = "welcome";
+let page = "library";
+const PAGE_TOPIC = { library: "finding", ask: "asking", uploads: "uploading", proposals: "proposals", drafts: "welcome" };
+const isAdmin = () => $("#admin").checked;
+const groups = () => GROUPS.filter((g) => !g.admin || isAdmin());
+const order = () => groups().flatMap((g) => g.ids);
+const text = (id) => (T[id].title + " " + T[id].lede + " " + T[id].body()).replace(/<[^>]+>/g, " ").toLowerCase();
+let sections = [];
+const openGroups = new Set(["Start here", "Using rOracle", "Agents"]);
+
+function renderNav() {
+  const q = $("#hsearch").value.trim().toLowerCase();
+  const html = groups().map((g) => {
+    const ids = g.ids.filter((id) => !q || text(id).includes(q));
+    if (!ids.length) return "";
+    const open = q || openGroups.has(g.name) || ids.includes(current);
+    return `<details class="grp" data-grp="${g.name}" ${open ? "open" : ""}><summary><span class="chev">▶</span><span class="gicon" aria-hidden="true">${g.icon}</span>${g.name}<span class="gcount">${ids.length}</span></summary>
+      <ul class="tree">${ids.map((id) => `<li><button data-go="${id}" aria-current="${id === current}">${esc(T[id].title)}${T[id].page === page ? '<span class="here">this page</span>' : ""}</button>
+        ${id === current && sections.length ? `<ul class="secs">${sections.map(([sid, st]) => `<li><button data-sec="${sid}">${esc(st)}</button></li>`).join("")}</ul>` : ""}</li>`).join("")}</ul></details>`;
+  }).join("");
+  $("#snav").innerHTML = html || `<p style="padding:8px;color:var(--muted)">No topic matches “${esc($("#hsearch").value)}”. Try fewer words.</p>`;
+  $("#msel").innerHTML = groups().map((g) => `<optgroup label="${g.name}">${g.ids.map((id) => `<option value="${id}" ${id === current ? "selected" : ""}>${esc(T[id].title)}</option>`).join("")}</optgroup>`).join("");
+}
+function renderTopic() {
+  SNIPS.length = 0;
+  const t = T[current], o = order(), i = o.indexOf(current);
+  const prev = o[i - 1], next = o[i + 1];
+  $("#body").innerHTML = `<div class="crumb"><span>Help</span><span class="sep">/</span><span>${t.group}</span><button class="copyl" data-copylink>Copy link to this topic</button></div>
+  <h1>${esc(t.title)}</h1><p class="lede">${esc(t.lede)}</p>${t.body()}
+  <nav class="pager" aria-label="More topics">${prev ? `<button data-go="${prev}"><small>Previous</small>${esc(T[prev].title)}</button>` : ""}${next ? `<button class="next" data-go="${next}"><small>Next</small>${esc(T[next].title)}</button>` : ""}</nav>`;
+  sections = [...$("#body").querySelectorAll("h3[id]")].map((el) => [el.id, el.textContent]);
+  $("#body").scrollTop = 0;
+}
+function go(id, sec) {
+  if (!T[id]) return;
+  current = id;
+  try { history.replaceState(null, "", "#help-" + id); } catch {}
+  renderTopic(); renderNav();
+  if (sec) document.getElementById(sec)?.scrollIntoView();
+}
+function openHelp(id) { $("#help").hidden = false; go(id || PAGE_TOPIC[page] || "welcome"); $("#hsearch").focus(); }
+function closeHelp() { $("#help").hidden = true; try { history.replaceState(null, "", location.pathname); } catch {} $("#qbtn").focus(); }
+function copy(textv, msg) { try { navigator.clipboard.writeText(textv).then(() => toast(msg), () => toast("Copying isn't available here. Select the text instead.")); } catch { toast("Copying isn't available here. Select the text instead."); } }
+
+$("#snav").addEventListener("toggle", (e) => { const d = e.target.closest("[data-grp]"); if (d) d.open ? openGroups.add(d.dataset.grp) : openGroups.delete(d.dataset.grp); }, true);
+document.addEventListener("click", (e) => {
+  const g = e.target.closest("[data-go]"); if (g) { e.preventDefault(); go(g.dataset.go); return; }
+  const s = e.target.closest("[data-sec]"); if (s) { document.getElementById(s.dataset.sec)?.scrollIntoView(); return; }
+  const c = e.target.closest("[data-client]"); if (c) { client = c.dataset.client; const y = $("#body").scrollTop; renderTopic(); $("#body").scrollTop = y; return; }
+  const cs = e.target.closest("[data-copysnip]"); if (cs) { copy(SNIPS[+cs.dataset.copysnip], "Copied."); return; }
+  if (e.target.closest("[data-copylink]")) { copy(`${ORIGIN}/library#help-${current}`, "Link copied. Anyone who opens it lands on this topic."); return; }
+  const tr = e.target.closest("[data-try]");
+  if (tr) {
+    const k = tr.dataset.try;
+    if (k === "search") { done.add("search"); renderChecklist(); }
+    if (k === "token") { done.add("token"); renderChecklist(); }
+    if (k === "mcp") { done.add("token"); done.add("mcp"); renderChecklist(); }
+    if (k === "card") { $("#start").hidden = false; closeHelp(); }
+    toast({ search: "Help closes and this search runs in the library.", ask: "Help closes and the question box focuses on the open paper.", uploads: "Help closes and My uploads opens.", handoff: "The Continue in agent dialog opens.", token: "The token dialog opens with read and write selected.", mcp: "Connected. Ticked off on your Get started card.", docs: "The full docs open in a new tab.", card: "The Get started card is back on the library." }[k]);
+  }
+});
+$("#qbtn").addEventListener("click", () => openHelp());
+$("#sideHelp").addEventListener("click", () => openHelp());
+$("#close").addEventListener("click", closeHelp);
+$("#help").addEventListener("click", (e) => { if (e.target.id === "help") closeHelp(); });
+$("#hsearch").addEventListener("input", renderNav);
+$("#msel").addEventListener("change", (e) => go(e.target.value));
+$("#fullDocs").addEventListener("click", () => toast("The full docs open in a new tab at /docs/."));
+$("#admin").addEventListener("change", () => { if (!$("#help").hidden) renderNav(); });
+document.querySelectorAll(".side a[data-page]").forEach((a) => a.addEventListener("click", () => { document.querySelectorAll(".side a").forEach((x) => x.classList.toggle("cur", x === a)); page = a.dataset.page; $("#pageTitle").textContent = a.textContent; toast(`On ${a.textContent}. Press ? to open help there.`); }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#help").hidden) closeHelp();
+  if (e.key === "?" && $("#help").hidden && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); openHelp(); }
+});
+function fromHash() { const m = location.hash.match(/^#help-([a-z0-9-]+)$/); if (m && T[m[1]]) openHelp(m[1]); }
+window.addEventListener("hashchange", fromHash);
+renderChecklist();
+fromHash();
+</script>
