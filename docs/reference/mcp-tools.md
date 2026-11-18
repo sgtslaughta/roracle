@@ -210,7 +210,7 @@ Search the research library (hybrid keyword + semantic). Returns documents the c
 
 ## `upload`
 
-Upload a document (base64 content; needs a write token; size-capped, larger files use POST /documents). `label` is a sensitivity label name (default: the library default; choosing a lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}.
+Upload a document (base64 content; needs a write token; size-capped, larger files use POST /documents). `label` is a sensitivity label name (default: the library default; choosing a lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}. A ZIP/tar/ tar.gz that is not LaTeX source is unpacked: {"archive": true, "documents": [{document_id, version_id, sha256, filename}], "skipped": [{name, reason}]}.
 
 - Scope: `write`
 - Label gates: chosen label must rank at least the library default; only an admin on an interactive JWT may go lower, never a PAT (`mcp/tools_write.py:upload, labels/service.py:86`)

@@ -30,6 +30,7 @@ from roracle.ingest.embed import (
     prompt_sha,
     to_bytes,
 )
+from roracle.ingest.formats import prepare
 from roracle.ingest.neardup import find_near_duplicate, find_sibling_duplicate, minhash, write_bands
 from roracle.ingest.office import is_office, rendition_key, to_pdf
 from roracle.ingest.parse import convert, document_text, grobid_metadata, merge_page_ids
@@ -100,6 +101,7 @@ def _parse(v: DocumentVersion, settings: Settings, store: BlobStore, sf) -> dict
         )
         store.put_bytes(rendition_key(v.id), data, "application/pdf")
         name, is_pdf = f"{name.rsplit('.', 1)[0]}.pdf", True
+    data, name = prepare(data, name, settings.max_upload_bytes)
     doc = convert(data, name, settings.docling_url, timeout=settings.docling_timeout_s)
     store.put_bytes(docling_key(v.id), json.dumps(doc).encode(), "application/json")
     meta, refs = {}, []

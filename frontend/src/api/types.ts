@@ -143,6 +143,8 @@ export type TitleResult = NearDupResult;
 export interface NeedsTitleItem { document_id: string; version_id: string; filename: string; owner: string; uploaded_at: string }
 export interface UploadsResponse { items: UploadItem[]; total: number }
 export interface UploadCreated { document_id: string; version_id: string; sha256: string }
+/** POST /documents of a ZIP/tar that is not LaTeX source: one paper per file */
+export interface UploadArchive { archive: true; documents: (UploadCreated & { filename: string })[]; skipped: { name: string; reason: string }[] }
 export interface DuplicateDetail { code: "duplicate"; document_id: string }
 export type NearDupAction = "new_version" | "separate" | "cancel";
 

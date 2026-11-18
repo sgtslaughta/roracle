@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from roracle import quota
 from roracle.access import org_unit_error, org_units, readable_documents
+from roracle.api.routes.upload_archive import unpack
 from roracle.audit import audit
 from roracle.auth import MANAGE, Principal, agent_marker, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
@@ -150,6 +151,20 @@ def accept(
     filename: str,
     content_type: str,
 ) -> dict:
+    """One document per upload; an archive that is not LaTeX source is unpacked into one per file."""
+    _visibility(p, session, form)  # refuse before unpacking anything
+    out = unpack(
+        lambda **kw: accept_one(p, session, store, settings, **kw),
+        store, staged, form, filename, settings.max_upload_bytes,
+    )  # fmt: skip
+    if out is not None:
+        return out
+    return accept_one(
+        p, session, store, settings, staged=staged, form=form, filename=filename, content_type=content_type
+    )
+
+
+def _visibility(p: Principal, session: Session, form: UploadForm) -> tuple[str, list[str]]:
     vis = form.visibility
     if vis is None:  # omitted: callers without manage get a private document
         vis = "everyone" if MANAGE in p.scopes else "private"
@@ -158,6 +173,21 @@ def accept(
     units = org_units(list(p.groups))
     if err := org_unit_error(vis, units[0] if units else ""):
         raise HTTPException(422, err)
+    return vis, units
+
+
+def accept_one(
+    p: Principal,
+    session: Session,
+    store: BlobStore,
+    settings: Settings,
+    *,
+    staged: StagedFile | StagedBlob,
+    form: UploadForm,
+    filename: str,
+    content_type: str,
+) -> dict:
+    vis, units = _visibility(p, session, form)
     quota.check(session, settings, p.user_id, staged.size)
     if not form.force:
         dup = session.scalar(

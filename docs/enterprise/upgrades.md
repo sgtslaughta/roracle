@@ -149,6 +149,12 @@ Journal and has-identifier results are only correct for papers written by that r
 
 ## Release notes
 
+### Unreleased (0.4.1)
+
+- Wider file types: images (OCR), JATS and other XML, LaTeX (single files and arXiv source archives), EPUB, CSV, TSV and JSON are ingested ([supported file types](../user/uploads.md#supported-file-types)). The website connector accepts them too, and decides by file extension when a server sends `application/octet-stream`.
+- Archives: uploaded and connector ZIP, tar and tar.gz files are unpacked into one paper per file, with limits (500 files, the upload limit per file, 10 times the upload limit in total); LaTeX source archives stay one paper ([connectors](../admin/connectors.md#archives)). `POST /api/documents` and the MCP `upload` tool answer an unpacked archive with `{"archive": true, "documents": [...], "skipped": [...]}`.
+- The reader shows image originals. No migration and no new settings; a patch upgrade. Docling needs its OCR models for images and scans: in an air-gapped install mirror them as described in the [deployment guide](deployment-guide.md) (Configuration, OCR models).
+
 ### 0.4.0
 
 - Security hardening: one agent principal for PATs, `/mcp` and OAuth agent clients (`oidc_agent_clients`), the `manage` token scope, quoted prompt metadata, durable audit rows for denials and failures, handoff redaction of papers a loader cannot see, deleted papers removed from Elasticsearch, and a shorter [known limits](security/known-limits.md). Security review record: [2026-11 review](security/review-2026-11.md).

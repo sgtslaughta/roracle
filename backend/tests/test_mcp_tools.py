@@ -91,6 +91,20 @@ def test_write_pat_upload_private_and_duplicate(mc, ana, db_session, fes):
     assert call(mc, h, "upload", filename="a.pdf", content_base64="!!notb64")[1].endswith("invalid base64")
 
 
+@pytest.mark.usefixtures("_blob_store_override")
+def test_upload_zip_returns_archive_shape(mc, ana, db_session, fes):
+    import base64
+
+    from archive_helpers import make_zip
+
+    h = pat(db_session, ana, ["write"])
+    z = base64.b64encode(make_zip({"a.txt": b"A", "../x": b"B"})).decode()
+    err, out = call(mc, h, "upload", filename="p.zip", content_base64=z)
+    assert not err and out["archive"] is True
+    assert [d["filename"] for d in out["documents"]] == ["a.txt"]
+    assert out["skipped"][0]["name"] == "../x"
+
+
 def test_upload_too_large(app, settings, ana, db_session, fes):
     from roracle.api.app import create_app
 
