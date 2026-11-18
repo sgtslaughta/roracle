@@ -12,3 +12,11 @@ describe("shell styles", () => {
     for (const sel of rules) for (const part of sel.split(",")) expect(part).toMatch(/\.app\.reading/);
   });
 });
+
+describe("ask styles", () => {
+  it("the citation margin stacks by the view's width, so an open reader cannot squeeze the answer", () => {
+    const ask = readFileSync("src/styles/ask.css", "utf8");
+    expect(ask).toMatch(/@container \(max-width:\s*\d+px\)\s*\{[^@]*\.answer\{grid-template-columns:minmax\(0,1fr\)/);
+    expect(ask).not.toMatch(/@media \(max-width:1100px\)\{\s*\.answer/);
+  });
+});
