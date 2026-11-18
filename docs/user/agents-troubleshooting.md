@@ -17,6 +17,11 @@ Check **Settings, Access tokens** for the token's state. Sign in to the web app 
 
 The token lacks the access the tool needs: **Read only** for a write tool, or **Read and write** for a tool that changes sharing, deletes, transfers or submits a draft (the message then says "insufficient scope: manage"). The agent shows the message text ("insufficient scope") rather than an HTTP code, because MCP tool errors reach it as text. Only 401 and 429 arrive as HTTP status codes at the MCP endpoint; calls to the web API do return 403 and 404. Create a token with the access the tool needs (**Read and write**, or **Read, write and manage**) and give it to the agent.
 
+Two MCP cases that need **manage** and fail with "insufficient scope: manage" on a read and write token:
+
+- `upload` with any `visibility` other than `private`. Leave `visibility` out (the paper is then private) or give the agent a manage token. The same refusal applies to a REST upload asking for non-private visibility; it is sent before the file is read.
+- `create_handoff` (or changing a handoff) with an `audience` other than `creator`, that is, shared beyond you. A creator-only handoff needs only read and write.
+
 A call can also fail as "withheld by label: <label name>". That happens when the agent reads, validates, citation-checks or builds a draft, or downloads a paper's file or evidence, and the draft or paper has the **Exclude from AI** label. No token can do that for such an item.
 
 If **New token** itself fails with a 403, your administrators have turned personal access tokens off; ask them to enable them.
