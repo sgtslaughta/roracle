@@ -31,7 +31,9 @@ const values: Record<FacetName, (d: MockDoc) => string[]> = {
   label: (d) => [docLabel(d.id).id],
 };
 
-export const tagsOf = (d: MockDoc) => [...d.tags, ...(state.extraTags[d.id] ?? [])].filter((t) => !(state.removedTags[d.id] ?? []).includes(t));
+export const tagsOf = (d: MockDoc) => [...new Set([...d.tags, ...(state.extraTags[d.id] ?? [])])].filter((t) => !(state.removedTags[d.id] ?? []).includes(t));
+/** Mock auto tags: each doc's last fixture tag was "suggested by AI" until a user adds (adopts) it. */
+export const autoTagsOf = (d: MockDoc) => d.tags.slice(-1).filter((t) => tagsOf(d).includes(t) && !(state.extraTags[d.id] ?? []).includes(t));
 /** The first sample document belongs to the mock user; the rest to someone else. */
 export const ownerOf = (d: MockDoc) => state.owners[d.id] ?? (d === DOCS[0] ? "u-me" : "u-owner");
 export const votesOf = (d: MockDoc) => {
@@ -128,7 +130,7 @@ export function runSearch(sp: URLSearchParams): SearchResponse {
   const results: SearchHit[] = kept.slice((page - 1) * size, page * size).map(({ d, hits, score }) => ({
     doc_id: d.id, title: d.title, authors: d.authors, year: d.year, score: ts.length ? score * boost(d) : 0,
     passages: hits.slice(0, 2).map((h) => ({ page: h.p + 1, chunk_id: chunkId(d, h.p, h.c), text: d.pages[h.p][h.c], highlight: emphasize(d.pages[h.p][h.c], ts) })),
-    tags: tagsOf(d), votes: votesOf(d), file_type: d.type, version: state.versions[d.id], label: labelJson(docLabel(d.id).id),
+    tags: tagsOf(d), auto_tags: autoTagsOf(d), votes: votesOf(d), file_type: d.type, version: state.versions[d.id], label: labelJson(docLabel(d.id).id),
     venue: d.venue, org_unit: d.org, owner_id: ownerOf(d), flag: d.flag ?? null, cited_by_count: citedBy(d.id).length, page_count: d.pages.length, added_at: addedAt(d),
   }));
   return { total: kept.length, total_capped: false, next: null, page, results, facets };

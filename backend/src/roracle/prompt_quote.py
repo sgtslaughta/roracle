@@ -4,7 +4,7 @@ import re
 
 TAGS = (
     "passage", "note", "unit", "finding", "question", "found",
-    "source", "document", "chunk", "title", "sentence", "claim",
+    "source", "document", "chunk", "title", "sentence", "claim", "paper", "vocab",
 )  # fmt: skip  # every delimiter tag used in a prompt
 _CLOSE = re.compile(r"<\s*/\s*([A-Za-z][\w-]*)")
 _OPEN = re.compile(rf"<\s*({'|'.join(TAGS)})\b", re.IGNORECASE)

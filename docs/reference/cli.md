@@ -7,10 +7,12 @@
 ## `roracle`
 
 ```text
-usage: roracle [-h] {api,worker,migrate,eval,rebuild,reparse-refs,perf} ...
+usage: roracle [-h]
+               {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
+               ...
 
 positional arguments:
-  {api,worker,migrate,eval,rebuild,reparse-refs,perf}
+  {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
     api                 run the HTTP API
     worker              run the job worker
     migrate             alembic upgrade head
@@ -19,6 +21,8 @@ positional arguments:
                         per version
     reparse-refs        re-run GROBID on PDFs lacking identifiers (enqueues
                         jobs)
+    auto-tags           suggest AI tags for documents never auto-tagged
+                        (enqueues jobs)
     perf                synthetic data and load tests (scratch DB/index only)
 
 options:
@@ -34,6 +38,16 @@ options:
   -h, --help   show this help message and exit
   --host HOST
   --port PORT
+```
+
+### `roracle auto-tags`
+
+```text
+usage: roracle auto-tags [-h] [--limit N]
+
+options:
+  -h, --help  show this help message and exit
+  --limit N   enqueue at most N versions (0 = all)
 ```
 
 ### `roracle eval`

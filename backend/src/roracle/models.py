@@ -19,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 TZ = DateTime(timezone=True)
@@ -75,6 +75,9 @@ class Document(Base):
         index=True,
         default=text("(SELECT id FROM labels WHERE is_default)"),
     )
+    rejected_tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String(40)), default=list, server_default="{}"
+    )  # AI tags the owner removed: auto-tags never re-adds them
 
 
 class DocumentVersion(Base):
@@ -141,7 +144,7 @@ class DocumentCoauthor(Base):
 # Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
 # claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
 # (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
-BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs")
+BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs", "auto_tags")
 
 
 def bulk_sql(*, bulk: bool) -> str:
@@ -236,12 +239,16 @@ class Vote(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
-    __table_args__ = (Index("ix_tags_tag", "tag", "document_id"),)
+    __table_args__ = (
+        Index("ix_tags_tag", "tag", "document_id"),
+        CheckConstraint("source IN ('user', 'llm')", name="ck_tags_source"),
+    )
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
     )
     tag: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(String(8), default="user", server_default="user")  # user | llm
 
 
 class Collection(Base):
