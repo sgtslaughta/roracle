@@ -11,7 +11,8 @@ import { useMe } from "@/features/library/useMe";
 import { useNotes } from "@/features/notes/api";
 import { useDoc } from "@/features/reader/api";
 import { openDoc } from "@/features/reader/useReaderStore";
-import { useApprove, useReject, type Proposal } from "./api";
+import { clientName, useApprove, useReject, type Proposal } from "./api";
+import { proposalVerb } from "./ProposalCard";
 
 const fail = (e: unknown) => (e instanceof ApiError && [403, 409, 422].includes(e.status) ? e.message : "That didn't work. Try again.");
 
@@ -26,6 +27,7 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
   const current = noteId ? noteLabel : docLabel;
   const target = labels.find((l) => l.id === p.payload.label_id);
   const lowering = !!current && !!target && target.rank < current.rank;
+  const noop = !!current && !!target && current.id === target.id;
   const admin = !!useMe().data?.is_admin; // only admins can lower, so only they are asked for a reason
   const needReason = lowering && admin && !!current?.gates.reason_on_lower;
   const [reason, setReason] = useState("");
@@ -33,23 +35,23 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
   const busy = approve.isPending || reject.isPending;
   const title = doc?.title || "Untitled";
   return (
-    <article className="prop" aria-label={`Label change proposed by ${p.client}`}>
+    <article className="prop" aria-label={`Label change proposed by ${clientName(p.client)}`}>
       <div className="prop-main">
-        <div className="nhead">
+        <div className="psent">
           {onSelect && <Checkbox checked={!!selected} onCheckedChange={(c) => onSelect(c === true)} aria-label={`Select label change on ${doc?.title || "missing document"}`} />}
-          <span className="tpill t-comment">{noteId ? "Note label change" : "Label change"}</span>
-          <span>on</span>
-          {doc
-            ? <button className="badge-o" title={title} onClick={() => openDoc(doc.id)}><span className="t">{title}</span><ArrowUpRight aria-hidden /></button>
-            : <span className="badge-o">Document no longer available</span>}
-          <span className="badge-o"><Bot aria-hidden />Agent-assisted</span>
-          <span className="badge-o" title="Agent client">{p.client}</span>
+          <span><b>{proposalVerb(p)}</b>{" "}
+            {doc
+              ? <button className="plink" title={title} onClick={() => openDoc(doc.id)}>{title}<ArrowUpRight aria-hidden /></button>
+              : <span className="sub">a document that is no longer available</span>}
+          </span>
         </div>
+        <p className="pmeta"><Bot aria-hidden />Agent-assisted, from {clientName(p.client)}. Proposed {fmtDate(p.created_at)}.</p>
         <div className="nhead" aria-label="Proposed change">
           {current ? <SensitivityBadge label={current} /> : <span className="badge-o">Current label</span>}
           <ArrowRight aria-hidden />
           {target ? <SensitivityBadge label={target} /> : <span className="badge-o">A label that no longer exists</span>}
           {lowering && <span className="flag">Lowers the label: admins only</span>}
+          {noop && <span className="flag">Already has this label: approving changes nothing</span>}
         </div>
         {p.status === "pending" && lowering && admin && (
           <label>Reason for lowering{needReason ? " (required)" : " (optional)"}
@@ -62,7 +64,7 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
       <div className="side2">
         {p.status === "pending" ? (
           <>
-            <Button variant="primary" disabled={busy || !target || (needReason && reason.trim().length < 3)} onClick={() => {
+            <Button variant="primary" disabled={busy || !target || noop || (needReason && reason.trim().length < 3)} onClick={() => {
               setError(null);
               approve.mutate({ id: p.id, body: lowering && reason.trim() ? { reason: reason.trim() } : {} }, {
                 onSuccess: () => toast("Approved. The label was changed."), onError: (e) => setError(fail(e)),
