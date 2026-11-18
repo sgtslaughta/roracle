@@ -71,7 +71,7 @@ no tools that write data in the chat path.
 | S | Injected text posing as a system or tool message | Retrieved text is placed inside tagged blocks (`<passage>`, `<note>`, `<unit>`, `<finding>`, `<question>`, `<found>`) and the prompt says it is quoted data. The system prompt is trusted; so is the structure outside the tags, and titles and authors are quoted too (`prompt_quote.meta`); a model can still be persuaded by quoted data ([known limits](known-limits.md#labels-and-handoffs)) |
 | T | Text closes a delimiter and escapes the block | `prompt_quote.quote` (re-exported as `chat/answer.py::_quote`) rewrites every `</` (also `< /x >`, any tag name) to `<\/` and every opening of one of our tags (`<passage`, `<note`, `<unit`, `<finding`, `<question`, `<found`) to `<\tag`, case-insensitively. It runs over passage, note, unit (`chat/global_map.py`, `<unit id=...>`), finding (`chat/global_answer.py`, `<finding n=...>`), the document title in the global map and the finding titles in the global answer, the agentic planner's seen passages and the question. Document titles and author names go through `prompt_quote.meta` (whitespace-normalised, capped at 300 characters, then quoted) and sit inside `<source>` delimiters. **Residual:** quoting cannot stop a model from being persuaded by quoted data ([known limits](known-limits.md#labels-and-handoffs)) |
 | R | Which context produced an answer | Answers store citations and retrieved passages; handoffs and exports re-check them per reader |
-| I | Injected text makes the model leak gated text or call out | Gated text never enters a prompt (`exclude_llm`, see [LLM gate coverage](access-control.md#llm-gate-coverage-exclude_llm-block_agents)). Chat answers never render images and render only http(s), same-site relative or fragment links, so injected URLs cannot exfiltrate by image or link. Community notes reach the model only if written by the asker or upvoted at least `ROR_CHAT_NOTE_MIN_UPVOTES` with ratio above `ROR_CHAT_NOTE_MIN_RATIO`, in a separate labelled block, never numbered or citable; authors cannot vote on their own notes and editing a body resets its votes |
+| I | Injected text makes the model leak gated text or call out | Gated text never enters a prompt (`exclude_llm`, see [LLM gate coverage](access-control.md#llm-gate-coverage-exclude_llm-block_agents)). Chat answers never render images; same-site relative and fragment links stay links, but external http(s) URLs are shown as plain, non-clickable text with the full URL, so an injected URL cannot exfiltrate by image or by one click (a user who copies it deliberately still can: [known limits](known-limits.md#labels-and-handoffs)). Community notes reach the model only if written by the asker or upvoted at least `ROR_CHAT_NOTE_MIN_UPVOTES` with ratio above `ROR_CHAT_NOTE_MIN_RATIO`, in a separate labelled block, never numbered or citable; authors cannot vote on their own notes and editing a body resets its votes |
 | D | Prompt stuffing | Per-document character budgets (`ROR_GLOBAL_DOC_CHARS`), question cap (600 characters) for the router and planner, retrieval and history limits |
 | E | Injected instructions change what the system does | Chat tools are read-only; agents can only *propose* annotations and humans approve. **Residual:** wrong or manipulated answers are possible; the UI always shows sources and the passages read |
 
@@ -139,9 +139,10 @@ The SPA ships a meta CSP limited to `img-src 'self' data: blob:` (so Vite dev ke
 nginx must send a full CSP header with at least: `default-src 'self'; img-src 'self' data: blob:;
 script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' <OIDC authority origin>;
 frame-ancestors 'none'; base-uri 'self'; object-src 'none'`. The header the chart's web pod actually sends is in
-[network](network.md#headers-sent-by-the-web-pod). Chat answers never render images and only
-render http(s), same-site relative or fragment links, so prompt-injected documents cannot exfiltrate data
-through image or link URLs.
+[network](network.md#headers-sent-by-the-web-pod). Chat answers never render images and render
+external http(s) URLs as plain text with the full destination shown (never a clickable link); only same-site
+relative and fragment links stay clickable. A prompt-injected document therefore cannot exfiltrate data through an
+image fetch or a one-click link; copying a shown URL by hand remains possible.
 
 ## 4. Abuse and rate limits
 
