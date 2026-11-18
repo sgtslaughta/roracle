@@ -1,12 +1,14 @@
-# Chat (Ask)
+# Asking questions
 
 **Ask** answers a question from the papers you are allowed to see and cites every claim. Open it from the sidebar, with **Ask about this** in the reader, or with **New chat** in the command menu. Answers only use passages from the library. If the passages do not contain the answer, the answer says so.
+
+<!-- try:ask label="Ask about the open paper" -->
 
 ![An answer with numbered markers in the text and the source margin beside it](../assets/screens/ask-answer.png)
 
 ## Asking a question
 
-Type in the question box and press `Enter` (or choose **Ask**). A question can be up to 4000 characters. The chat gets a title from your first question (its first 80 characters); **Rename** in the chat header changes it. Follow-up questions in the same chat can build on the last few messages (the most recent six).
+Type in the question box and press `Enter` (or choose **Ask**). A question can be up to 4000 characters. The chat gets a title from your first question (its first 80 characters); **Rename** in the chat header (owners only) changes it. Follow-up questions in the same chat can build on the last few messages (the most recent six).
 
 Under the box you can set:
 
@@ -15,6 +17,9 @@ Under the box you can set:
 | **Search in** | **All documents you can see**, **Open documents only** (the papers open in the reader; disabled while none are open), or **Collection: name** for one of your collections. The 20 first collections are listed; the rest are behind **More collections…** with a filter. The choice is saved with the chat |
 | **Model** | The language model that writes the answer. Your admins decide which models are listed; the first one is the default |
 | **Ask** / **Stop** | **Stop** appears while an answer is being written. It keeps what was written so far and marks it "Stopped before the answer finished." |
+
+!!! tip "Check the sources"
+    Every claim carries a numbered marker. Open the marker to see the passage it came from.
 
 Keys in the question box are in [Keyboard shortcuts](#keyboard-shortcuts).
 
@@ -55,7 +60,7 @@ Other things to know:
 
 Ask "summarize this paper", "key findings", "what is this paper about?" or "tl;dr" while a paper is open in the reader, and the answer covers **that paper only**: the library is not searched. With several tabs open, the active tab is used; with a passage selected, the question is about the selection instead.
 
-- **Quick prompts.** With a paper open, chips under the question box send *Summarize this paper*, *Key findings*, *Methods used*, *Limitations* or *Explain for a non-specialist* in one click. With no paper open, chips such as *Summarize research on …* fill the question box for you to finish. Chips hide while an answer is written and once you start typing.
+- **Quick prompts.** With a paper open, chips under the question box send *Summarize this paper*, *Key findings*, *Methods used*, *Limitations* or *Explain for a non-specialist* in one click. With no paper open, chips such as *Summarize research on [topic]* fill the question box with the first [slot] selected, so you type over it. Chips hide while an answer is written and once you start typing.
 - **How it reads the paper.** A short paper is read in full, in page order, and cited by page. A long paper is read in parts ("Reading part 2 of 5…") and the parts are combined. If a part cannot be read in time, the note above the answer says the summary is partial.
 - **Without an open paper.** "Give me a summary" on its own gets "Summary of what?" instead of a library search. Add a topic ("summarize research on statins") to search the library.
 - **Limits.** One long-paper summary per person runs at a time; a second one gets a "wait for it to finish" message. Papers kept away from AI are never summarized.
@@ -108,7 +113,7 @@ Under a finished answer:
 
 ## Keyboard shortcuts
 
-Global shortcuts are in [getting started](getting-started.md#keyboard-shortcuts). These work only in chat:
+Global shortcuts are in [Keyboard shortcuts](keyboard-shortcuts.md). These work only in chat:
 
 | Key | Where | What it does |
 |---|---|---|

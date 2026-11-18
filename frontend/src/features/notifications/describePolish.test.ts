@@ -10,3 +10,11 @@ describe("draft notifications", () => {
     expect(d("draft.rejected", {}).to).toBe("/drafts");
   });
 });
+
+describe("label.changed", () => {
+  it("links to the document", () => {
+    expect(d("label.changed", { document_id: id, from: "a", to: "b" })).toEqual({ text: "The sensitivity label on your document was changed.", to: `/d/${id}` });
+    expect(d("label.changed", { document_id: id, annotation_id: id }).text).toBe("The sensitivity label on your note was changed.");
+    expect(d("label.changed", {}).to).toBeUndefined();
+  });
+});

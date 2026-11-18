@@ -23,7 +23,7 @@
   flex: 1; min-width: 0; max-width: 760px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: var(--r); background: var(--bg); color: var(--muted); box-shadow: var(--well);
 }
-.gsearch:focus-within { border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+.gsearch:focus-within { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring), 0 0 0 4px var(--primary-soft); }
 .gsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); font-size: 14.5px; }
 .tact { margin-left: auto; display: flex; gap: 4px; align-items: center; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--sky); color: #1d3640; display: grid; place-items: center; font-weight: 600; font-size: 12px; margin-left: 4px; }

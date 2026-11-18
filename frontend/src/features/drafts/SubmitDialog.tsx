@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { VIS_LABEL, VIS_ORDER } from "@/features/uploads/status";
 import { useLabels } from "@/features/labels/api";
-import { useMe } from "@/features/library/useMe";
 import { useDoc } from "@/features/reader/api";
 import { draftError, useSaveDraft, useSubmitDraft } from "./api";
 import { readAi, withAi } from "./frontMatter";
@@ -23,7 +22,6 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
   const [groups, setGroups] = useState("");
   const [labelId, setLabelId] = useState("");
   const labels = useLabels().data ?? [];
-  const admin = !!useMe().data?.is_admin;
   const current = useDoc(draft.id).data?.label;
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
@@ -85,10 +83,7 @@ export function SubmitDialog({ draft, base, onSaved, open, onOpenChange }: { dra
               <label>Sensitivity label
                 <select className="inp" value={labelId} onChange={(e) => setLabelId(e.target.value)}>
                   <option value="">Keep the draft's label{current ? ` (${current.name})` : ""}</option>
-                  {labels.map((l) => {
-                    const low = !!current && !admin && l.rank < current.rank;
-                    return <option key={l.id} value={l.id} disabled={low}>{l.name}{low ? " (only admins can lower a label)" : ""}</option>;
-                  })}
+                  {labels.filter((l) => !current || l.rank >= current.rank).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
                 <span className="help">Submitting never lowers the label.</span>
               </label>

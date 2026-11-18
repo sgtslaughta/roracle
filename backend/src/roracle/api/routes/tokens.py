@@ -14,6 +14,7 @@ from roracle.audit import audit
 from roracle.auth import Principal, require_jwt
 from roracle.db import get_session
 from roracle.models import PersonalAccessToken
+from roracle.onboarding import mark
 
 router = APIRouter()
 Who = Annotated[Principal, Depends(require_jwt)]
@@ -55,6 +56,7 @@ def create_token(body: TokenBody, p: Who, session: Session_) -> dict:
     scopes = ["read", "write"] if "write" in body.scopes else ["read"]
     row, token = pats.create(session, p.user_id, body.name, scopes, body.expires_in_days)
     audit(session, p, "pat.create", str(row.id), {"scopes": scopes})
+    mark(session, p.user_id, "token")
     session.commit()
     session.refresh(row)
     return {**_view(row), "token": token}

@@ -172,7 +172,7 @@ build:
 .frontend-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: [frontend/**/*, .gitlab-ci.yml]
+      changes: [frontend/**/*, docs/user/**/*, docs/admin/**/*, docs/glossary.md, docs/assets/screens/**/*, .gitlab-ci.yml]
     - if: $CI_PIPELINE_SOURCE != "merge_request_event"
 
 .helm-rules:

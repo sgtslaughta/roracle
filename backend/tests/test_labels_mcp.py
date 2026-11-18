@@ -94,6 +94,8 @@ def test_propose_label_by_name(client, mc, ana, admin, db_session, fes):
     assert "reason" not in row.payload  # agent reason is dropped: the approver supplies it
     err, text = call(mc, h, "propose_label", doc_id=str(d.id), label="nope")
     assert err and "General" in text and "Sec" in text
+    err, text = call(mc, h, "propose_label", doc_id=str(d.id), label="General")  # already its label
+    assert err and "already has this label" in text
 
 
 def test_handoff_manifest_labels_and_withheld_reasons(client, mc, as_ana, ana, bob, admin, db_session, fes):

@@ -1,7 +1,7 @@
 /* proposals: sunken tray (client) > raised cards (header, each proposal) > inset well (actions); notifications bell + list */
 .plist { margin-top: 14px; }
 .pgroup { background: var(--tray); border-radius: 16px; padding: 10px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--well); }
-.pghead { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }
+.pghead { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 8px; background: none; border: 0; box-shadow: none; }
 .pghead b { display: inline-flex; gap: 6px; align-items: center; }
 .pghead svg.lucide { width: 15px; height: 15px; }
 .prop { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 18px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); }
@@ -19,11 +19,22 @@
 .bellall { justify-content: center; font-weight: 600; color: var(--primary); }
 .nrow { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 0; background: none; padding: 8px; border-radius: 8px; font-size: 13px; color: var(--ink); }
 .nrow:hover, .nrow:focus-visible { background: var(--muted-bg); }
-.nrow.unread { background: var(--primary-soft); }
+.nrow.unread { background: none; box-shadow: inset 3px 0 var(--apricot); }
 .nrow.unread .nrow-t { font-weight: 600; }
 .nrow-t { overflow-wrap: anywhere; }
 .ntfy { list-style: none; margin: 14px 0; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--tray); border-radius: 16px; box-shadow: var(--well); }
 .ntfy .nrow { background: var(--surface); border: 1px solid var(--border); }
-.ntfy .nrow.unread { border-left: 3px solid var(--apricot); }
+.ntfy .nrow.unread { border-left: 3px solid var(--apricot); box-shadow: none; }
 .ntfy .nli { display: flex; align-items: center; gap: 4px; }
 .ntfy .nli .nrow { flex: 1; min-width: 0; width: auto; }
+/* A proposal reads as one sentence, then who/when, the content, and a compact action row. */
+.prop { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.psent { display: flex; gap: 10px; align-items: baseline; font-size: 15px; line-height: 1.45; }
+.psent b { font-weight: 600; }
+.plink { all: unset; cursor: pointer; font: 600 15px/1.45 var(--f-ui); color: var(--ink); border-bottom: 1px solid color-mix(in srgb, var(--primary) 50%, transparent); }
+.plink:hover { color: var(--primary); }
+.plink svg { display: inline-block; width: 13px; height: 13px; margin-left: 3px; vertical-align: -1px; }
+.pmeta { margin: 0; display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.pmeta svg { width: 13px; height: 13px; }
+.prop .side2 { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; padding: 0; background: none; box-shadow: none; align-self: end; }
+@media (max-width: 720px) { .prop { grid-template-columns: 1fr; } .prop .side2 { justify-content: flex-start; } }

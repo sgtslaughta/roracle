@@ -19,6 +19,7 @@ from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
+from roracle.onboarding import mark
 from roracle.search_index import MUTATE_ALIAS, run_update_by_query
 from roracle.search_signals import enqueue_signals
 
@@ -121,6 +122,12 @@ def tags_of(session: Session, doc_id: UUID) -> list[str]:
     return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
 
 
+def auto_tags_of(session: Session, doc_id: UUID) -> list[str]:
+    """The document's tags suggested by the LLM and not (yet) adopted by a user."""
+    q = select(Tag.tag).where(Tag.document_id == doc_id, Tag.source != "user").order_by(Tag.tag)
+    return list(session.scalars(q))
+
+
 def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
     tags: list[str] = []
 
@@ -164,13 +171,17 @@ def add_tag(
 ) -> dict:
     _visible(session, p, doc_id)
     session.scalar(select(Document.id).where(Document.id == doc_id).with_for_update())  # serialize cap check
-    have = tags_of(session, doc_id)
-    if body.tag not in have and len(have) >= MAX_TAGS:
+    have = list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id, Tag.source == "user")))
+    if body.tag not in have and len(have) >= MAX_TAGS:  # AI tags never block a user's tag
         raise HTTPException(422, "too many tags")
-    session.execute(insert(Tag).values(document_id=doc_id, tag=body.tag).on_conflict_do_nothing())
+    session.execute(  # adding an existing auto tag adopts it as the user's
+        insert(Tag)
+        .values(document_id=doc_id, tag=body.tag, source="user")
+        .on_conflict_do_update(index_elements=[Tag.document_id, Tag.tag], set_={"source": "user"})
+    )
     session.commit()
     tags = _sync_or_queue(session, es, sf, doc_id)
-    return {"tag": body.tag, "tags": tags}
+    return {"tag": body.tag, "tags": tags, "auto_tags": auto_tags_of(session, doc_id)}
 
 
 @router.delete("/documents/{doc_id}/tags/{tag}")
@@ -189,10 +200,12 @@ def delete_tag(
         norm = normalize_tag(tag)
     except ValueError:
         return {"tags": tags_of(session, doc_id)}
-    session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
+    gone = session.scalar(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm).returning(Tag.source))
+    if gone == "llm" and norm not in doc.rejected_tags:  # an AI tag the owner rejected: never suggested again
+        doc.rejected_tags = [*doc.rejected_tags, norm]
     session.commit()
     tags = _sync_or_queue(session, es, sf, doc_id)
-    return {"tags": tags}
+    return {"tags": tags, "auto_tags": auto_tags_of(session, doc_id)}
 
 
 # ---- collections
@@ -239,6 +252,7 @@ def list_collections(p: Who, session: Session_) -> list[dict]:
 def create_collection(body: CollectionBody, p: Who, session: Session_) -> dict:
     c = Collection(owner_id=p.user_id, name=body.name)
     session.add(c)
+    mark(session, p.user_id, "collect")
     session.commit()
     return {"id": str(c.id), "name": c.name, "count": 0}
 

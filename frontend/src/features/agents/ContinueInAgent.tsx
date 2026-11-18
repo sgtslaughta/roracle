@@ -9,7 +9,7 @@ export function ContinueInAgent({ source, variant, onCreated }: { source: () => 
   const [src, setSrc] = useState<HandoffSource | null>(null);
   return (
     <>
-      <Button variant={variant} onClick={() => setSrc(source())}><Bot aria-hidden />Continue in agent</Button>
+      <Button variant={variant} title="Continue in agent" onClick={() => setSrc(source())}><Bot aria-hidden /><span className="tlbl">Continue in agent</span></Button>
       {src && <HandoffDialog source={src} open onOpenChange={(o) => !o && setSrc(null)} onCreated={onCreated} />}
     </>
   );

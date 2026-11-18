@@ -4,7 +4,7 @@ import type { ChatScope } from "@/api/chat";
 import { Button } from "@/components/ui/button";
 import { useMe } from "@/features/library/useMe";
 import { ContextChips } from "./ContextChips";
-import { PLACEHOLDER } from "./quickPrompts";
+import { SLOT } from "./quickPrompts";
 import { QuickPrompts } from "./QuickPrompts";
 import { loadHistory, pushHistory } from "./promptHistory";
 import { ScopeSelect } from "./ScopeSelect";
@@ -32,14 +32,14 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
   /** recall position in the prompt history (null = not cycling) and the draft typed before cycling */
   const cursor = useRef<{ i: number; draft: string } | null>(null);
 
-  const caret = useRef<number | null>(null); // where to put the selection once a template has rendered
+  const caret = useRef<[number, number] | null>(null); // the selection to make once a template has rendered
   useLayoutEffect(() => { registerComposer(area.current); return () => registerComposer(null); }, []);
   useLayoutEffect(() => {
     const a = area.current;
     if (!a) return;
     a.style.height = "auto";
     a.style.height = `${Math.min(a.scrollHeight, 180)}px`;
-    if (caret.current !== null) { a.setSelectionRange(caret.current, caret.current + PLACEHOLDER.length); caret.current = null; }
+    if (caret.current !== null) { a.setSelectionRange(...caret.current); caret.current = null; }
   }, [draft]);
 
   const submit = (e?: FormEvent) => {
@@ -52,7 +52,7 @@ export function Composer({ scope, onScope, model, models, onModel, streaming, bu
     onSend(q);
   };
   const send = (q: string) => { if (!streaming && !busy) { if (uid) pushHistory(uid, q); onSend(q); area.current?.focus(); } };
-  const fill = (t: string) => { caret.current = Math.max(0, t.indexOf(PLACEHOLDER)); setDraft(t); area.current?.focus(); };
+  const fill = (t: string) => { const m = SLOT.exec(t); caret.current = m ? [m.index, m.index + m[0].length] : [t.length, t.length]; setDraft(t); area.current?.focus(); };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); return; }

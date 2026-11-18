@@ -20,7 +20,7 @@ def add_parser(sub) -> None:
     r = ev.add_parser("run", help="score a gold set per principal")
     g = r.add_mutually_exclusive_group(required=True)
     g.add_argument("--set", dest="set_name")
-    g.add_argument("--fixture", metavar="PATH", help="not implemented yet (use `eval ci`, task 2)")
+    g.add_argument("--fixture", metavar="PATH", help="not implemented; use `eval ci`")
     r.add_argument("--path", choices=["chat", "search"], default="chat")
     r.add_argument("--label", default="")
     r.add_argument("--set-override", action="append", default=[], metavar="KEY=VAL")

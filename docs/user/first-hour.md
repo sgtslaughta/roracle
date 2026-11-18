@@ -1,0 +1,47 @@
+# Your first hour
+
+A short list of things to try, in order. Each one takes a few minutes.
+
+## Basics
+
+<!-- steps -->
+
+### Search the library
+
+Type a phrase in quotes in the search box. See [Finding papers](library-search.md).
+
+### Open a paper and ask about it
+
+Open a paper, then choose **Ask about this** in the reader. See [Asking questions](chat.md).
+
+### Upload a paper
+
+Add a PDF or Word file in **My uploads**. Duplicates are caught. See [Uploading papers](uploads.md).
+
+### Save a collection
+
+Group papers for a project. See [Collections and sharing](collections-sharing.md).
+
+<!-- /steps -->
+
+## Connect your agents
+
+<!-- steps -->
+
+### Create an access token
+
+Your agent signs in with it. See [Set up MCP](agents-mcp-setup.md#create-a-token).
+
+### Connect an agent with MCP
+
+Paste the config into your client. See [Set up MCP](agents-mcp-setup.md).
+
+### Hand a chat to an agent
+
+Use **Continue in agent** on any chat. See [Hand work to an agent](handoffs-inbox.md).
+
+<!-- /steps -->
+
+The library shows a **Get started** card: first the four basics, then (once they are done) the agent steps. It ticks steps as you do them. If your site has access tokens turned off, the token and MCP steps are not shown.
+
+<!-- try:card label="Show the Get started card" hint="Brings back the card if you hid it." -->

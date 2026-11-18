@@ -44,8 +44,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 500, // routes, markdown/KaTeX and pdf.js load on demand
     rolldownOptions: { output: { codeSplitting: { groups: [{ name: "oidc", test: /node_modules[\\/]oidc-client-ts/ }] } } },
   },
-  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src"), "@docs": path.resolve(import.meta.dirname, "..", "docs") } },
   server: {
+    fs: { allow: [".", "../docs"] },
     proxy: {
       "/api": { target: "http://localhost:8000", changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, "") },
     },

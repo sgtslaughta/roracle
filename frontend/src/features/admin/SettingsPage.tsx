@@ -36,7 +36,7 @@ function Row({ name, value, source, models }: { name: string; value: SettingValu
   const id = `set-${name}`;
   let input;
   if (typeof value === "boolean") input = <label className="ck"><input id={id} type="checkbox" checked={draft as boolean} onChange={(e) => setDraft(e.target.checked)} />Enabled</label>;
-  else if (Array.isArray(value)) input = <ChipInput label={`${name} models`} values={draft as string[]} onChange={setDraft} placeholder="Add a model name" />;
+  else if (Array.isArray(value)) input = <ChipInput label="Models" values={draft as string[]} onChange={setDraft} placeholder="Add a model name" />;
   else if (num) input = <input id={id} type="number" value={draft as string} min={b?.min} max={b?.max} step={b?.step ?? 1} onChange={(e) => setDraft(e.target.value)} />;
   else if (name === "chat_default_model") input = (
     <select id={id} value={draft as string} onChange={(e) => setDraft(e.target.value)}>

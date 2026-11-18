@@ -39,7 +39,7 @@ export default function PdfView({ tab, version, filename, onDownload, blocked }:
     ro.observe(el);
     setWidth(el.clientWidth);
     return () => ro.disconnect();
-  }, []);
+  }, [pdf.data]); // the box only mounts once the PDF has loaded
 
   const [base, setBase] = useState({ width: 612, height: 792 });
   useEffect(() => {

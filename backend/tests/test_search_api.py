@@ -80,11 +80,20 @@ def test_hit_shape(client, as_ana, ana, bob, db_session, fes):
         {"page": 2, "chunk_id": f"{v.id}:0", "text": "alpha text", "highlight": "<em>alpha</em> text",
          "bbox": {"l": 1, "t": 2, "r": 3, "b": 4, "coord_origin": "BOTTOMLEFT"}}
     ]  # fmt: skip
-    assert {k: r[k] for k in ("title", "authors", "year", "file_type", "version", "venue", "org_unit", "owner_id", "flag", "cited_by_count", "tags")} == {
+    assert {k: r[k] for k in ("title", "authors", "year", "file_type", "version", "venue", "org_unit", "owner_id", "flag", "cited_by_count", "tags", "auto_tags")} == {
         "title": "Shape", "authors": ["Ann"], "year": 2020, "file_type": "pdf", "version": 1, "venue": "ICML",
-        "org_unit": "/", "owner_id": str(ana), "flag": None, "cited_by_count": 0, "tags": [],
+        "org_unit": "/", "owner_id": str(ana), "flag": None, "cited_by_count": 0, "tags": [], "auto_tags": [],
     }  # fmt: skip
     assert isinstance(r["score"], float)
+
+
+def test_hit_auto_tags_subset(client, as_ana, ana, db_session, fes):
+    d, v = seed(db_session, ana)
+    db_session.add_all([Tag(document_id=d.id, tag="mine"), Tag(document_id=d.id, tag="gnn", source="llm")])
+    db_session.flush()
+    fes.hits = [hit(d, v)]
+    r = get(client, as_ana, q="alpha").json()["results"][0]
+    assert r["tags"] == ["gnn", "mine"] and r["auto_tags"] == ["gnn"]
 
 
 def test_sorts(client, as_ana, ana, bob, db_session, fes):

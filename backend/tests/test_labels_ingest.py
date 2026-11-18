@@ -48,4 +48,4 @@ def test_ingest_summary_skipped_for_excluded_label(
     if excluded:
         assert llm.chats == 0 and got.summary == ""
     else:
-        assert llm.chats == 1 and got.summary.startswith("A summary")
+        assert llm.chats == 2 and got.summary.startswith("A summary")  # summary + auto-tags

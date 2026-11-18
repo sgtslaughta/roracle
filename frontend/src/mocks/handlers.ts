@@ -3,7 +3,7 @@ import { API_BASE } from "@/api/client";
 import type { CitedByItem, Collection, DocumentDetail, NearDupAction, ReferenceItem, VoteRequest } from "@/api/types";
 import { DOCS } from "./docs";
 import { buildPdf, docById, docling } from "./pdf";
-import { citedBy, COLLECTION_NAMES, findFacet, ownerOf, runSearch, tagsOf, votesOf } from "./search";
+import { autoTagsOf, citedBy, COLLECTION_NAMES, findFacet, ownerOf, runSearch, tagsOf, votesOf } from "./search";
 import { state } from "./state";
 import { adminHandlers } from "./admin";
 import { adminOpsHandlers } from "./adminOps";
@@ -18,6 +18,7 @@ import { draftDocument, draftHandlers } from "./drafts";
 import { defaultLabel, docLabel, labelHandlers, labelJson } from "./labels";
 import { savedSearchHandlers } from "./savedSearches";
 import { evalHandlers } from "./eval";
+import { onboardingHandlers } from "./onboarding";
 import { DIR_USERS, directoryHandlers } from "./directory";
 
 const url = (p: string) => `${API_BASE}${p}`;
@@ -35,7 +36,7 @@ function detail(id: string): DocumentDetail | null {
     id, title: d.title, authors: d.authors, year: d.year, venue: d.venue, org_unit: d.org, visibility: (state.docPatch[id]?.visibility as DocumentDetail["visibility"]) ?? "everyone",
     label: docLabel(id),
     ...(ownerOf(d) === "u-me" || state.admin ? { share_users: (state.docPatch[id]?.share_users ?? []).map((u) => DIR_USERS.find((x) => x.id === u) ?? { id: u, username: "" }), share_groups: state.docPatch[id]?.share_groups ?? [], coauthors: [] } : {}),
-    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : ownerOf(d) === "u-owner" ? "k.ito" : "ana" }, summary: d.pages[0][0], abstract: null, added_at: "2026-01-01T00:00:00Z", references_count: 0, stage: "searchable", tags: tagsOf(d),
+    owner: { id: ownerOf(d), username: ownerOf(d) === "u-me" ? "researcher" : ownerOf(d) === "u-owner" ? "k.ito" : "ana" }, summary: d.pages[0][0], abstract: null, added_at: "2026-01-01T00:00:00Z", references_count: 0, stage: "searchable", tags: tagsOf(d), auto_tags: autoTagsOf(d),
     votes: votesOf(d), ...(d.ids ? { ids: d.ids } : {}), file_type: d.type, page_count: d.pages.length, flag: d.flag ?? null,
     versions: Array.from({ length: ver }, (_, i) => ({ id: `${id}-v${ver - i}`, version: ver - i, filename: `${id}-v${ver - i}.pdf`, uploaded_at: "2026-10-01T10:00:00Z", is_latest: i === 0 })),
   };
@@ -115,16 +116,17 @@ export const handlers = [
   http.post(url("/documents/:id/tags"), async ({ params, request }) => {
     const d = docById(String(params.id));
     if (!d) return notFound();
-    const tag = String(((await request.json()) as { tag: string }).tag).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-    if (tag && !tagsOf(d).includes(tag)) (state.extraTags[d.id] ??= []).push(tag);
-    return HttpResponse.json({ tag, tags: tagsOf(d) });
+    const tag = String(((await request.json()) as { tag: string }).tag).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+    if (!tag || tag.length > 40) return HttpResponse.json({ detail: "tag must be 1-40 characters after normalization" }, { status: 422 });
+    if (tag && (!tagsOf(d).includes(tag) || autoTagsOf(d).includes(tag))) (state.extraTags[d.id] ??= []).push(tag); // adds or adopts
+    return HttpResponse.json({ tag, tags: tagsOf(d), auto_tags: autoTagsOf(d) });
   }),
   http.delete(url("/documents/:id/tags/:tag"), ({ params }) => {
     const d = docById(String(params.id));
     if (!d) return notFound();
     if (ownerOf(d) !== "u-me") return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
     (state.removedTags[d.id] ??= []).push(String(params.tag));
-    return HttpResponse.json({ tags: tagsOf(d) });
+    return HttpResponse.json({ tags: tagsOf(d), auto_tags: autoTagsOf(d) });
   }),
   http.get(url("/documents/:id/references"), ({ params }) => {
     const d = docById(String(params.id));
@@ -213,4 +215,5 @@ export const handlers = [
   ...notificationHandlers,
   ...draftHandlers,
   ...savedSearchHandlers,
+  ...onboardingHandlers,
 ];

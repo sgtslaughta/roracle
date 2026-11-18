@@ -26,6 +26,7 @@ from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session, release_before_io
 from roracle.labels.policy import Policy, label_json
+from roracle.onboarding import mark
 from roracle.retrieval import Passage, embed_query
 from roracle.search_acl import acl_filter
 from roracle.search_browse import browse, decorate, empty_body, find_values
@@ -155,7 +156,10 @@ def search(
     if not fields_ready(es, settings):
         if uses_new_params(f):
             raise HTTPException(503, UPGRADING)
-        return {**legacy_search(session, es, llm, settings, http, p, **_legacy_kwargs(f)), "upgrading": True}
+        out = {**legacy_search(session, es, llm, settings, http, p, **_legacy_kwargs(f)), "upgrading": True}
+        if f.q.strip():
+            mark(session, p.user_id, "search")
+        return out
     policy = Policy.load(session)
     try:
         pq = parse_query(f.q) if f.q.strip() else None
@@ -171,6 +175,8 @@ def search(
     out = {k: got[k] for k in ("total", "total_capped", "next", "facets")} | {"page": f.page}
     out["results"] = [_hit(r) for r in got["rows"]]
     decorate(session, p, policy, out["results"], f.notes)
+    if pq is not None:
+        mark(session, p.user_id, "search")
     return out
 
 

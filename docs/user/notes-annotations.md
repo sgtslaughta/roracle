@@ -21,9 +21,10 @@ A relation needs the target paper; you cannot post one without it. Replies are a
 ## Writing a note
 
 1. Open the paper. Choose **Add note**, then click the passage you want to note. Esc cancels, and **Write without picking** skips the click. Alternatively, open the Notes tab and choose **New note**.
-2. Pick the kind, optionally paste a quote and a page number, write the note (up to 10,000 characters; Markdown links and lists work) and choose **Post note**.
+2. Pick the kind, optionally paste a quote and a page number, and write the note (up to 10,000 characters; Markdown links and lists work).
 3. Choose who sees it with **Visible to**: **Everyone** (the default), **Named people or groups**, or **Only me**. For named people or groups, add user IDs or group paths (a group path starts with `/`, for example `/Mathematics/Spectral Theory`); at most 50 in total, and at least one is required.
 4. Optionally raise its sensitivity label. A note can be more sensitive than its paper, never less ([labels](labels.md)).
+5. Choose **Post note**. Visibility and label are set in the same form, before you post.
 
 When you post a note visible to everyone on a paper someone else owns, the owner is notified. Private and shared notes never notify the owner.
 
@@ -50,14 +51,14 @@ Notes with no quote (whole-document notes) move to the latest version automatica
 
 ## Replies, votes and moderation
 
-- **Reply** adds a comment under a note. Replies show three at a time.
+- **Reply** adds a comment under a note. The first three replies show; **Show N more replies** reveals the rest, 20 at a time.
 - The thumbs on a note mean **Helpful** and **Not helpful**. You cannot vote on your own note. Editing the text of a note resets its votes.
-- The three-dot menu depends on who you are: anyone but the author can **Report** (spam, abusive, wrong or misleading, or something else); the author can **Edit** or **Delete** (deleting a note also deletes its replies); the paper's owner can **Hide from readers** or unhide (the author and admins still see a hidden note); admins can **Remove**, which is audited.
+- The three-dot menu depends on who you are: anyone but the author can **Report** (spam, abusive, wrong or misleading, or something else); the author can **Edit** or **Delete** (deleting a note also deletes its replies); the paper's owner can **Hide from readers** or unhide (only the owner sees this item in the app) (the author and admins still see a hidden note); admins can **Remove (admin)**, which is audited.
 - A note reported by three or more readers stops appearing in search results.
 
 ## Evidence on findings
 
-A finding note has an **Evidence** panel. Choose **Add evidence** to record how a result was produced: stance (supports, refutes or inconclusive), the code repository and commit, an environment image digest, the agent or client and model, start and end times, inputs and outputs with optional checksums, parameters, and an optional description. You can attach a file (when a virus scanner is configured it is scanned, and an infected or unscannable file cannot be downloaded) or give a link with its checksum. Other readers can mark the evidence **Reproduced** or **Failed**. The finding card summarises the totals, for example "Evidence: 2 supports".
+A finding note has an **Evidence** panel. Choose **Add evidence** to record how a result was produced: stance (supports, refutes or inconclusive), the code repository and commit, an environment image digest, the agent or client and model, start and end times, inputs and outputs with optional checksums, parameters, and an optional description. You can attach a file (when a virus scanner is configured it is scanned, and an infected or unscannable file cannot be downloaded) or give a link with its checksum. Inputs and outputs are lists of up to 100 items each; a link must start with `http`, `https`, `s3`, `doi`, `git` or `ssh`, and a checksum is a 64-character SHA-256. Other readers can mark the evidence **Reproduced** or **Failed**, with an optional short note. The evidence author or an admin can delete it with the trash button, after a confirmation. The finding card summarises the totals, for example "Evidence: 2 supports".
 
 ## Notes your agents suggest
 
@@ -67,7 +68,7 @@ Notes proposed by your agents never appear on a paper until you approve them on 
 
 Community notes are notes visible to everyone that surface outside the reader:
 
-- In search results, a result card shows up to two community notes for each paper, with the author, kind and page. Click one to open the paper's Notes tab on that note.
+- In search results, a result card shows up to two community notes for each paper, with the author, kind and page. Click one to open the paper's Notes tab on that note. A results page shows community notes from at most six papers in total.
 - To appear, a note must be visible to everyone, on the latest version, not flagged as not applying, not hidden or removed, not reported by three or more readers, and not downvoted heavily (its smoothed helpfulness score must be at least 0.4). Notes anchored to a page that the result shows rank first.
 - Results show note text as plain text, cut to 500 characters.
 - Labels apply to notes too: a note's effective label is the higher of the paper's label and its own ([labels](labels.md)).

@@ -33,6 +33,8 @@ export interface SearchHit {
   score: number;
   passages: Passage[];
   tags: string[];
+  /** subset of `tags` suggested by the LLM from the AI summary */
+  auto_tags?: string[];
   votes: Votes;
   file_type: string;
   version: number;
@@ -85,6 +87,8 @@ export interface DocumentDetail {
   references_count?: number;
   stage: string;
   tags: string[];
+  /** subset of `tags` suggested by the LLM from the AI summary */
+  auto_tags?: string[];
   votes: Votes;
   file_type: string;
   versions: DocVersion[];
@@ -98,7 +102,7 @@ export interface DocumentDetail {
 export interface Person { id: string; username: string }
 
 export interface DocumentPatch { title?: string; visibility?: Visibility; org_unit?: string; share_users?: string[]; share_groups?: string[] }
-export interface TagsResponse { tag: string; tags: string[] }
+export interface TagsResponse { tag: string; tags: string[]; auto_tags?: string[] }
 
 /** GET /documents/{id}/versions/{n}/docling: page sizes + chunk boxes for passage highlighting. */
 export interface DoclingDoc {

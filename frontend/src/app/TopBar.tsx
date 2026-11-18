@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Command, LogOut, Moon, Search, Settings, Shield, Sun, SunMoon } from "lucide-react";
+import { CircleHelp, Command, LogOut, Moon, Search, Settings, Shield, Sun, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { initials } from "@/lib/initials";
 import { signOut, signOutAvailable } from "@/auth/oidc";
 import { cycleTheme, useTheme } from "@/lib/theme";
+import { openHelp } from "@/features/help/helpStore";
 import { openPalette } from "@/features/palette/usePalette";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMe } from "@/features/library/useMe";
@@ -24,6 +25,9 @@ export function TopBar() {
       </div>
       <GlobalSearch icon={<Search aria-hidden />} />
       <div className="tact">
+        <button className="icon-btn" aria-label="Help" title="Help (?)" onClick={() => openHelp()}>
+          <CircleHelp aria-hidden />
+        </button>
         <button className="icon-btn" aria-label="Command menu" title="Command menu (Ctrl K)" onClick={openPalette}>
           <Command aria-hidden />
         </button>
@@ -56,7 +60,8 @@ function AccountMenu() {
           {initials(me?.username)}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="chipmenu">
+      <PopoverContent align="end" sideOffset={8} className="chipmenu">
+        {me && <p className="menu-who">Signed in as <b>{me.username}</b></p>}
         <nav aria-label="Account">
           <ul className="menu-list">
             <li><Link to="/settings" className="menu-link" onClick={() => setOpen(false)}><Settings aria-hidden />Settings</Link></li>

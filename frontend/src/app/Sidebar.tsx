@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { errorText } from "@/api/client";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { BookOpen, Check, Folder, History, MessageCircle, Plus, Shield, X } from "lucide-react";
+import { Check, CircleHelp, Folder, History, MessageCircle, Plus, Shield, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { copyAction, RowMenu } from "@/components/RowMenu";
@@ -13,6 +13,7 @@ import { useUploadAttention } from "@/features/uploads/api";
 import { useProposals } from "@/features/proposals/api";
 import { useMe } from "@/features/library/useMe";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { openHelp } from "@/features/help/helpStore";
 import { NAV } from "./nav";
 import { CollectionDialogs, type CollectionEdit } from "./CollectionDialogs";
 
@@ -95,10 +96,10 @@ export function Sidebar() {
             <span>Admin</span>
           </Link>
         )}
-        <a href="/docs/" aria-label="Docs" title="Docs">
-          <BookOpen aria-hidden />
-          <span>Docs</span>
-        </a>
+        <button type="button" aria-label="Help" title="Help" onClick={() => openHelp()}>
+          <CircleHelp aria-hidden />
+          <span>Help</span>
+        </button>
         <Popover open={railOpen} onOpenChange={setRailOpen}>
           <PopoverTrigger asChild>
             <button className="rail-only" aria-label="Chats and collections" title="Chats and collections"><History aria-hidden /></button>

@@ -38,6 +38,7 @@ def test_handler_updates_refs_ids_and_links(db_session, ana, grobid):
     reparse.handle_reparse_refs(db_session, {"version_id": str(v.id)}, settings=cfg, store=_store(doc))
     db_session.refresh(v)
     assert v.meta["authors"] == ["Me"] and v.meta["venue"] == "NeurIPS"  # untouched
+    assert v.meta["arxiv_category"] == "cs.MA"  # auto-tag hint
     assert v.meta["ids"]["arxiv"] == "2611.20773" and v.meta["doi"] == "10.1234/agents.1"
     assert len(v.references) == 4 and v.references[0]["ids"] == {"arxiv": "1706.03762"}
     rows = db_session.scalars(select(DocCitation).where(DocCitation.src_version_id == v.id)).all()

@@ -1,6 +1,6 @@
 # rOracle Enterprise Deployment Guide
 
-Audience: operators and SRE deploying rOracle (Helm chart 0.2.0, `deploy/helm/roracle`) on an air-gapped Kubernetes cluster.
+Audience: operators and SRE deploying rOracle (Helm chart 0.3.0, `deploy/helm/roracle`) on an air-gapped Kubernetes cluster.
 Read with: [Terraform deployment](deployment-terraform.md), [kind rehearsal](deployment-kind-rehearsal.md), [upgrades](upgrades.md), [Helm values reference](../reference/helm-values.md), [security](security.md), [operations runbook](operations-runbook.md),
 [Keycloak setup](keycloak-setup.md), [mirror manifest](airgap-mirror-manifest.md). Terms are in the [glossary](../glossary.md).
 
@@ -36,7 +36,7 @@ Use `mode: external` for platform-provided data services. NetworkPolicies: defau
 | Component | Replicas | Per replica | Notes |
 |---|---|---|---|
 | api | 3 (HPA 3–10) | 2 vCPU, 4 GiB | CPU-bound on fusion/streaming; scale on p95 latency |
-| worker | 4 (HPA on queue depth) | 4 vCPU, 8 GiB | Parsing is delegated; worker is mostly I/O |
+| worker | 4 (CPU HPA in the chart; prefer KEDA on queue depth, which the chart does not ship) | 4 vCPU, 8 GiB | Parsing is delegated; worker is mostly I/O |
 | web | 2 | 0.25 vCPU, 128 MiB | static |
 | Docling | 2–4 | 4 vCPU, 16 GiB (or GPU) | ~200k pages/day ≈ 2.3 pages/s sustained; GPU or the inference endpoint's granite-docling model recommended |
 | GROBID | 2 | 4 vCPU, 8 GiB | |
@@ -90,7 +90,7 @@ Optional: `caBundle.extraSecrets`, `elasticsearch.snapshot.extraCASecret` (priva
 helm install roracle deploy/helm/roracle -n roracle -f my-values.yaml --timeout 30m
 ```
 
-Minimum `my-values.yaml`: `secrets.existingSecret`, `config.ROR_OIDC_ISSUER`, `config.ROR_OIDC_JWKS_URL`,
+Minimum `my-values.yaml`: `secrets.existingSecret`, `config.ROR_S3_ENDPOINT`, `config.ROR_OIDC_ISSUER`, `config.ROR_OIDC_JWKS_URL`,
 `config.ROR_LLM_BASE_URL`, `ingress.{enabled,host,className,tlsSecretName}`, the Secret names above, the
 NetworkPolicy values in 4.6, and (external modes) the endpoints. Missing required values fail the render.
 
@@ -98,13 +98,13 @@ First-install ordering:
 
 | `postgres.mode` | Migrate hook (`python -m roracle migrate --wait 600`, `backoffLimit: 0`) |
 |---|---|
-| `cnpg` | `post-install,pre-upgrade`: the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
+| `cnpg` | `post-install,pre-upgrade` (`post-install,post-upgrade` while `postgres.recovery.enabled`): the database does not exist before install. The Job waits up to 10 min for it (`migrate --wait 600`). api/worker may restart until migrations finish. Hooks (migrate, ES snapshot repo + SLM) wait on operator-managed services: keep `--timeout 30m`. |
 | `external` | `pre-install,pre-upgrade`: failure blocks the release. |
 
 Post hooks run in weight order: ES snapshot repo + SLM (0, retries repository registration up to 5 min until the S3 bucket and snapshot identity exist). `migrate` is -5 (`post-install` with cnpg, `pre-upgrade`).
 
 Render-time guards (the render fails, nothing is installed) cover: missing `secrets.existingSecret`, `ingress.host` (when ingress is on),
-`config.ROR_OIDC_ISSUER` or `web.oidcAuthority`, `postgres.appCredentialsSecret` (cnpg), `postgres.backup.credentialsSecret.name` and
+`config.ROR_S3_ENDPOINT`, `config.ROR_OIDC_ISSUER`, `config.ROR_OIDC_JWKS_URL` or `web.oidcAuthority`, `postgres.appCredentialsSecret` (cnpg), `postgres.backup.credentialsSecret.name` and
 `postgres.backup.endpointURL` (backups on), `elasticsearch.appUserSecret` (eck), `elasticsearch.snapshot.credentialsSecret` and
 `elasticsearch.snapshot.endpoint` (snapshots on); ClamAV `parsers.clamav.limits` below the upload and evidence caps or at 4G or more,
 or a ClamAV `/tmp` smaller than limits x `maxThreads`, or `parsers.clamav.mirrorUrl` without `mirrorCIDRs`; the database connection budget
@@ -165,8 +165,11 @@ Set by the chart on the `web` Deployment (nginx substitutes placeholders in the 
 |---|---|---|
 | `ROR_OIDC_AUTHORITY` | `web.oidcAuthority`, default `config.ROR_OIDC_ISSUER` | required; must be a URL |
 | `ROR_OIDC_CLIENT_ID` | `web.oidcClientId` (`roracle-web`) | |
-| `ROR_OIDC_ORIGIN` | derived from the authority | used in CSP `connect-src`/`frame-src`/`form-action` |
 | `API_UPSTREAM` | `http://<fullname>-api:8000` | `/api/` proxy; unset = `/api/` returns 404 |
+
+`ROR_OIDC_ORIGIN` (used in CSP `connect-src`/`frame-src`/`form-action`) is not set by the chart: the web image derives it at container start from `ROR_OIDC_AUTHORITY`. Set the env yourself to override it.
+
+The web pod also serves the bundled documentation site at `/docs/` from the same origin, with its own, looser CSP (`script-src` allows inline scripts; see [security](security.md) section 12).
 
 ### 4.8 Values reference (top-level keys)
 
@@ -216,11 +219,11 @@ credentials only in the Secrets of section 4.2. The chart already sets the datab
 
 - **Elasticsearch credentials**: put them in `ROR_ELASTIC_URL` as userinfo, or leave them out and set `ROR_ELASTIC_USERNAME` and `ROR_ELASTIC_PASSWORD` (secret keys `secrets.keys.elasticUsername` and `elasticPassword`, optional). There is no API-key setting.
 - **Database password**: `ROR_DATABASE_PASSWORD` (secret key `secrets.keys.databasePassword`, optional) is injected into `ROR_DATABASE_URL`, which must then carry a username. `ROR_DATABASE_URL` accepts `postgresql://`, `postgres://` or `postgresql+psycopg://`.
-- **Upload and evidence caps**: `ROR_MAX_UPLOAD_BYTES` and `ROR_EVIDENCE_MAX_BYTES` (1 GiB by default). Keep ClamAV `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` (`parsers.clamav.limits`, 1100M) and the reverse proxy body limit (ingress `proxy-body-size`, nginx `client_max_body_size`) at or above `ROR_EVIDENCE_MAX_BYTES`, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`), so the api needs no large `/tmp` (`api.tmpSize`, 1Gi). The bucket must allow multipart uploads and server-side copy for the app user. The api adds a 1-day `tmp/` expiry rule at start when it may; otherwise set it yourself (see [Terraform deployment](deployment-terraform.md), external S3 commands).
+- **Upload and evidence caps**: `ROR_MAX_UPLOAD_BYTES` (500 MiB by default) and `ROR_EVIDENCE_MAX_BYTES` (1 GiB by default). Keep ClamAV `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` (`parsers.clamav.limits`, 1100M) and the reverse proxy body limit (ingress `proxy-body-size`, nginx `client_max_body_size`) at or above `ROR_EVIDENCE_MAX_BYTES`, or evidence uploads fail or stay `failed`. Uploads are streamed to object storage (`tmp/` prefix, then copied to `blobs/`), so the api needs no large `/tmp` (`api.tmpSize`, 1Gi). The bucket must allow multipart uploads and server-side copy for the app user. The api adds a 1-day `tmp/` expiry rule at start when it may; otherwise set it yourself (see [Terraform deployment](deployment-terraform.md), external S3 commands).
 - **MCP uploads**: the org proxy must not buffer below `ROR_MCP_MAX_UPLOAD_BYTES` x 4/3 for `/mcp`.
 - **Database**: `ROR_DB_CONNECT_TIMEOUT_S` applies to the api, worker, `/readyz` and the metrics collector; a `?connect_timeout=` in `ROR_DATABASE_URL` overrides it. `ROR_DB_DISABLE_PREPARED` is set by the chart with the PgBouncer pooler. Connection budget formula: `docs/perf/connection-budget.md`.
 - **Jobs**: `ROR_JOB_LEASE_S` is 90, `ROR_JOB_DRAIN_S` is 120 in the chart. Keep `worker.terminationGracePeriodSeconds` at or above drain plus 30 (chart: 150).
-- **Connectors**: `ROR_CONNECTOR_FS_ROOTS` is empty by default, so filesystem connectors are rejected. Mount sources read-only into the worker and the api (for example `/srv/papers:/data/papers:ro`). `ROR_CONNECTOR_MAX_RUN_S` (3600): a run holds one database transaction for its whole duration, so set Postgres `idle_in_transaction_session_timeout` above it (or `0`). Crawl targets outside the public internet need `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` and, with NetworkPolicy on, `connectors.egressCIDRs`. See [connectors](../admin/connectors.md).
+- **Connectors**: `ROR_CONNECTOR_FS_ROOTS` is empty by default, so filesystem connectors are rejected. Mount sources read-only into the worker and the api (for example `/srv/papers:/data/papers:ro`). `ROR_CONNECTOR_MAX_ITEMS` (1000 items per run) and `ROR_CONNECTOR_TICK_S` (60, the scheduler interval) bound a run and its cadence. `ROR_CONNECTOR_MAX_RUN_S` (3600): a run holds one database transaction for its whole duration, so set Postgres `idle_in_transaction_session_timeout` above it (or `0`). Crawl targets outside the public internet need `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` and, with NetworkPolicy on, `connectors.egressCIDRs`. See [connectors](../admin/connectors.md).
 - **Retention and maintenance**: `ROR_RETENTION_DELETED_DAYS` (0 = never purge; irreversible, align it with backup retention) and `ROR_MAINTENANCE_INTERVAL_S` (86400), both under `config:`.
 - **Office conversion** (`ROR_GOTENBERG_URL`, `ROR_GOTENBERG_TIMEOUT_S`): office uploads are converted to PDF in the parse stage; Docling and GROBID read the rendition. Gotenberg down or 5xx is retryable, an invalid file a permanent failure. `ROR_MAX_RENDITION_BYTES` caps the rendition. Docling enforces page and size caps itself: the chart sets `DOCLING_SERVE_MAX_NUM_PAGES=2000` and `DOCLING_SERVE_MAX_FILE_SIZE=629145600` (`parsers.docling.env`).
 - **Gotenberg isolation**: the ingest instance runs `gotenberg --api-disable-download-from --webhook-disable --chromium-disable-routes --pdfengines-disable-routes --api-timeout=300s`. The draft-build instance (`parsers.draftgotenberg`, `ROR_DRAFT_GOTENBERG_URL`, Chromium enabled, called by the api only) runs `--api-disable-download-from --webhook-disable --pdfengines-disable-routes --libreoffice-disable-routes --api-timeout=120s`. Never share one instance: Chromium renders attacker-influenced HTML. Both get no egress, no secrets and a read-only root filesystem. External instances need the same hardening.

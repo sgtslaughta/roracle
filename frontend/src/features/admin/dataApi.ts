@@ -17,7 +17,13 @@ export function useSaveSetting() {
   });
 }
 
-export const useTags = () => useQuery({ queryKey: ["admin", "tags"], queryFn: async () => (await apiFetch<{ items: TagCount[]; total: number }>("/admin/tags")).items });
+/** Server-side filter; 200 is the backend's max page size. */
+export const useTags = (q = "") =>
+  useQuery({
+    queryKey: ["admin", "tags", q],
+    placeholderData: keepPreviousData,
+    queryFn: () => apiFetch<{ items: TagCount[]; total: number }>(`/admin/tags?limit=200${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+  });
 
 export function useMergeTags() {
   const qc = useQueryClient();

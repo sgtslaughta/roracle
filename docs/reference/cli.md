@@ -7,18 +7,22 @@
 ## `roracle`
 
 ```text
-usage: roracle [-h] {api,worker,migrate,eval,rebuild,reparse-refs,perf} ...
+usage: roracle [-h]
+               {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
+               ...
 
 positional arguments:
-  {api,worker,migrate,eval,rebuild,reparse-refs,perf}
+  {api,worker,migrate,eval,rebuild,reparse-refs,auto-tags,perf}
     api                 run the HTTP API
     worker              run the job worker
     migrate             alembic upgrade head
     eval                retrieval-quality evaluation
-    rebuild             rebuild index-time derived fields (contextual notes)
-                        per version
+    rebuild             rebuild index-time derived fields (contextual notes,
+                        RAPTOR summaries) per version
     reparse-refs        re-run GROBID on PDFs lacking identifiers (enqueues
                         jobs)
+    auto-tags           suggest AI tags for documents never auto-tagged
+                        (enqueues jobs)
     perf                synthetic data and load tests (scratch DB/index only)
 
 options:
@@ -34,6 +38,16 @@ options:
   -h, --help   show this help message and exit
   --host HOST
   --port PORT
+```
+
+### `roracle auto-tags`
+
+```text
+usage: roracle auto-tags [-h] [--limit N]
+
+options:
+  -h, --help  show this help message and exit
+  --limit N   enqueue at most N versions (0 = all)
 ```
 
 ### `roracle eval`
@@ -125,7 +139,7 @@ usage: roracle eval run [-h] (--set SET_NAME | --fixture PATH)
 options:
   -h, --help            show this help message and exit
   --set SET_NAME
-  --fixture PATH        not implemented yet (use `eval ci`, task 2)
+  --fixture PATH        not implemented; use `eval ci`
   --path {chat,search}
   --label LABEL
   --set-override KEY=VAL
@@ -162,8 +176,8 @@ positional arguments:
     load                open-loop load test against a running API
     reconcile           run the drift-only ACL reconcile over the scratch
                         corpus (set ROR_MUTATE_ALIAS)
-    suite               every Task 10 budget against a scratch environment (CI
-                        gate / report)
+    suite               every perf budget (docs/perf/budgets.yaml) against a
+                        scratch environment (CI gate / report)
     explain             time a hot statement (claim) on the scratch DB
 
 options:
@@ -314,8 +328,8 @@ options:
   --what context[,raptor]
   --drop NAME           delete a shadow index (never the active one, a re-
                         embed generation, or while jobs run)
-  --into NAME           shadow index chunks-<slug>-shadow (default: active
-                        index)
+  --into NAME           shadow index name chunks-<slug> (not ending in
+                        -<number>; default: active index)
 ```
 
 ### `roracle reparse-refs`

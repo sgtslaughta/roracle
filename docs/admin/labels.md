@@ -12,7 +12,7 @@ Labels mark how a paper or note must be handled. They only ever restrict: access
 
 ### Creating and editing
 
-**New label** opens a dialog for name, colour and description, and a **Default label for new documents** tick. The new label becomes the most sensitive one and starts with the same gates as the label below it. **Edit** on a row changes name, colour, description and default. Gates are not in the dialog: switch them in the list.
+**New label** opens a dialog for name, colour and description, and a **Default label for new documents** tick. The new label becomes the most sensitive one and starts with the same gates as the label below it. Each row has a three-dot menu with **Edit**, **Move up**, **Move down** and **Delete…** (which opens a confirmation explaining the in-use rule below). **Edit** changes name, colour, description and default. Gates are not in the dialog: switch them in the list.
 
 ![The New label dialog](../assets/screens/admin-label-form.png)
 
@@ -50,7 +50,7 @@ The default is what a new document gets when nothing else is said:
 
 ### Deleting
 
-**Delete** is refused with `409 label in use` while any document, note or connector uses the label, and for the default. Move the documents to another label first.
+Deleting is refused with `409 label in use` while any document, note or connector uses the label, and for the default. Move the documents to another label first.
 
 ## Lowering a label
 
@@ -70,7 +70,7 @@ After a label change the search index follows: the API updates the paper's acces
 
 Tags feed the same index projection as labels and access, so their maintenance sits here.
 
-**Admin, Tags** lists every tag with its document count. To merge tags, tick the sources (up to 50), type or choose the **Merge into** tag and confirm. Every document carrying a source tag gets the target and loses the sources. It cannot be undone. Tags are normalised (case-folded, punctuation and spaces become hyphens, 1 to 40 characters), so `PDE` and `pde` are one tag. Each changed document is queued for an index sync, and the merge is recorded as `admin.tags_merge`. API: `POST /api/admin/tags/merge` with `sources` and `target`.
+**Admin, Tags** lists tags with their document count, most used first, with a **Filter tags** box. The page loads the 200 most-used tags; the box searches every tag on the server, and "Showing X of N" appears when more tags match than are listed. The API is `GET /api/admin/tags?q=` (`limit` up to 200, `offset`). To merge tags, tick the sources (up to 50), type or choose the **Merge into** tag and confirm. Every document carrying a source tag gets the target and loses the sources. It cannot be undone. Tags are normalised (case-folded, punctuation and spaces become hyphens, 1 to 40 characters), so `PDE` and `pde` are one tag. Each changed document is queued for an index sync, and the merge is recorded as `admin.tags_merge`. API: `POST /api/admin/tags/merge` with `sources` and `target`.
 
 If you suspect the index and Postgres disagree, for example after a failed job, run a reconcile. `POST /api/admin/maintenance/reconcile` (`202`, returns a `job_id`) starts a `reconcile_tags` chain:
 

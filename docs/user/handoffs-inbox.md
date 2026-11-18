@@ -1,6 +1,36 @@
-# Handoffs, inbox and notifications
+# Hand work to an agent
 
 A **handoff** passes your current work to an agent (or a colleague) so it can continue where you stopped. Your **inbox** is where agents' suggestions wait for your decision, and **notifications** tell you when something needs you. Terms are in the [glossary](../glossary.md#collaboration).
+
+## How it works
+
+<!-- steps -->
+
+### Start from what you're doing
+
+Choose **Continue in agent** on a chat, a search or a paper. Fill in the goal and who can load it.
+
+![The Continue in an agent dialog with audience and expiry fields](../assets/screens/handoff-dialog.png)
+
+### Paste the prompt into your agent
+
+Choose **Copy agent prompt** and paste it into your agent. It must already be [connected with MCP](agents-mcp-setup.md).
+
+```text title="Prompt for your agent"
+Using the rOracle MCP server, load handoff K7MX-4PQ2 and continue: your goal
+```
+
+### What is left out
+
+The agent gets only what it may see. Papers you cannot see or that block agents are dropped, and text kept from AI is withheld. The agent is told how many sources were withheld.
+
+### Review what comes back
+
+Anything the agent wants to add arrives as a proposal in **Agent proposals**. You approve, edit or reject it. See [agent proposals](#agent-proposals).
+
+<!-- /steps -->
+
+<!-- try:handoff label="Hand the open paper to an agent" hint="Open a paper first." -->
 
 ## Handoffs
 
@@ -63,7 +93,7 @@ If it cannot be opened you see one of:
 - "This handoff has expired. Ask whoever shared it for a new one."
 - "This handoff was revoked by the person who made it."
 
-Agents can add short notes to a handoff they can load (up to 200 per handoff) if their token has write access. People cannot add notes in the app.
+Agents can add short notes to a handoff they can load (up to 200 per handoff) if their token has write access. People cannot add notes in the app. The page marks handoffs made by an agent "(via an agent)" and notes written by agents "(agent)".
 
 ![The handoff page showing goal, brief, documents with labels and a withheld count](../assets/screens/handoff-landing.png)
 
@@ -81,14 +111,14 @@ Open **Settings** from the avatar menu and choose the **Handoffs** tab. It lists
 
 Agents with a write token cannot change your library directly. They can only **propose** notes, replies to notes and sensitivity-label changes, and nothing is published until you decide. Proposals are in **Agent proposals** in the sidebar, where a number badge counts those waiting. The pending list refreshes every minute and when you return to the tab.
 
-- Tabs: **Pending**, **Approved** and **Rejected**. Proposals are grouped by agent: the heading shows the name of the access token the agent used (with a `pat:` prefix). An agent can have at most 50 proposals waiting at once.
-- Each card shows the kind (comment, finding, correction, question, relation, **Reply**, **Label change** or **Note label change**), the paper and page it is about, the quote it is anchored to, the proposed visibility and the text. The text is the agent's, shown as plain text and not to be trusted.
+- Tabs: **Pending**, **Approved** and **Rejected**. Proposals are grouped by agent: the heading reads **From your token “name”**, using the name of the access token the agent used. An agent can have at most 50 proposals waiting at once.
+- Each card is a sentence ending in the paper's title: "Add a *kind* to" (comment, finding, correction, question or relation), "Reply to a note on", "Change the label of" or "Change a note's label on". It also shows the page it is about and page it is about, the quote it is anchored to, "Visible to: …" and "Agent-assisted, from …" lines, and the text. The text is the agent's, shown as plain text and not to be trusted.
 - **Approve** publishes it as it is. A note becomes yours, marked **Agent-assisted**, with the visibility the agent proposed (private if it proposed none). **Open note** then jumps to it.
 - **Edit** lets you change the text, and for a new note its visibility (and, for **Named people or groups**, the people and groups), before **Approve with edits**. A reply follows the visibility of the note it answers.
 - **Reject** discards it. It moves to the Rejected tab.
-- **Approve selected** and **Approve all** (in the page header) approve several at once without edits, in batches of 100. A message says how many were approved and why any failed; the failed ones stay selected so you can retry.
+- Each agent group has a **Select all** checkbox, and **Approve selected** appears once you tick one, showing how many are selected. **Approve selected** and **Approve all…** (in the page header, after a confirmation "Approve all N proposals?") approve several at once without edits, in batches of 100. A message says how many were approved and why any failed; the failed ones stay selected so you can retry.
 
-Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner or an admin; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "Document no longer available". Agents never choose a label for a new note; it inherits the paper's (they can only propose a **Note label change** for an existing one).
+Label proposals show the current and proposed labels. Raising a label is allowed for the paper's owner or an admin; lowering is marked "Lowers the label: admins only", needs an admin, and an admin gives a reason when the label requires one ([labels](labels.md#labels-proposed-by-agents)). A proposal about a paper that is gone shows "a document that is no longer available". Agents never choose a label for a new note; it inherits the paper's (they can only propose a label change for an existing note).
 
 For what happens to approved notes, see [notes and annotations](notes-annotations.md).
 
@@ -97,6 +127,8 @@ For what happens to approved notes, see [notes and annotations](notes-annotation
 ## Notifications
 
 The bell in the top bar shows how many notifications are unread (99+ when more). It shows the latest 10 with **Mark all read** and **See all**, and refreshes every minute and when you return to the tab. **See all** opens the **Notifications** page with **Unread only**, **Mark all read** and **Load more** (30 at a time).
+
+You are also notified when someone else changes the sensitivity label on your paper or on a note you wrote; it opens the paper.
 
 Choosing a notification marks it read and takes you to what it is about. A note reply or a new note on your paper opens the Notes tab at that note. The row menu has **Open** and **Mark as read**.
 

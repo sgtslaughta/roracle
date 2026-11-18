@@ -61,7 +61,7 @@ All `/api/admin/*` routes need an admin JWT (PATs get 403) and each successful c
 
 | Endpoint | Operator use |
 |---|---|
-| `GET /api/admin/health` | Dependency probe (db, elastic, storage), queue depth and age, connector scheduler tick. `degraded` = at least one check failed. |
+| `GET /api/admin/health` | Dependency probe (db, elastic, storage), queue depth and age, connector scheduler tick. `queue.oldest_queued_s` is the age of the oldest queued job that is due to run; jobs scheduled for later, such as the periodic `maintenance` job, are not counted. It counts from creation, so for alerting prefer `roracle_jobs_oldest_queued_seconds` (it counts from `run_after`). `degraded` = at least one check failed. |
 | `GET /api/admin/jobs?status=failed&kind=` | Inspect failed jobs and their `last_error`. |
 | `GET /api/admin/jobs/summary` | Jobs per kind and status, and versions per pipeline stage. |
 | `POST /api/admin/jobs/{job_id}/retry` | Retry one failed job (409 otherwise); ingest jobs get a fresh attempt budget. |
@@ -70,6 +70,7 @@ All `/api/admin/*` routes need an admin JWT (PATs get 403) and each successful c
 | `POST /api/admin/maintenance/{op}` | Queue a one-off retention purge, blob GC or ES tag reconcile (`purge`, `gc`, `reconcile`; `202 {job_id}`). See [routine procedures](runbook-routine.md#maintenance-retention-purge-blob-gc-tag-reconcile-maintenance-job). |
 | `GET /api/admin/stats` | Document and blob counts, storage bytes, top uploaders. |
 | `GET /api/admin/users`, `GET /api/admin/groups` | Users mirror (as of last login), per-user usage, group sizes. |
+| `GET /api/admin/needs-title`, `GET /api/admin/tags`, `POST /api/admin/tags/merge`, `DELETE /api/admin/annotations/{note_id}`, `GET /api/admin/ratings`, `GET /api/admin/settings/schema` | Untitled versions, tag list and merge, removing a note, answer ratings, the runtime-settings schema. |
 | `GET /api/admin/audit?action=<prefix>&user_id=` | Audit trail search. |
 | `GET/PUT /api/admin/settings` | Runtime setting overrides. |
 | `POST/GET /api/admin/reindex`, `DELETE /api/admin/reindex/old` | Embedding-model switch (background re-embed, alias cutover). See [routine procedures](runbook-routine.md#change-the-embedding-model-zero-downtime). |

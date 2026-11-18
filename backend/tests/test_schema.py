@@ -54,6 +54,7 @@ def test_models_match_migrations(db_session):
         ("documents", {"private", "shared", "org_unit", "everyone"}),
         ("jobs", {"queued", "running", "done", "failed"}),
         ("document_shares", {"user", "group"}),
+        ("tags", {"user", "llm"}),
         (
             "document_versions",
             {"uploaded", "scanned", "parsed", "summarized", "deduped", "chunked", "embedded", "searchable"}

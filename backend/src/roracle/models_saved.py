@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from roracle.models import TZ, Base
@@ -21,4 +21,17 @@ class SavedSearch(Base):
     name: Mapped[str] = mapped_column(String(100))
     query: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class OnboardingProgress(Base):
+    """Per-user "Get started" checklist state (see roracle.onboarding)."""
+
+    __tablename__ = "onboarding_progress"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    steps: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
+    dismissed: Mapped[bool] = mapped_column(server_default="false")
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
