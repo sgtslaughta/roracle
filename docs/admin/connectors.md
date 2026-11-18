@@ -15,8 +15,8 @@ The list shows each connector's name, kind, an **Enabled** tick, its schedule an
 | Field | Meaning |
 |---|---|
 | Name | Up to 200 characters, unique |
-| Kind | `s3`, `fs` (folder on the server) or `http` (website) |
-| Visible to | `private` (only the admin who created it), `org_unit` or `everyone`. Choosing an org unit needs a path starting with `/`, for example `/Physics/Optics` |
+| Kind | **S3 bucket**, **Folder on the server** or **Website** (`s3`, `fs` and `http` in the API). The list shows the same names |
+| Visible to | **Only me** (`private`, only the admin who created it), **An org unit** (`org_unit`) or **Everyone** (`everyone`). Choosing an org unit needs a path starting with `/`, for example `/Physics/Optics` |
 | Label for new documents | See [labels and visibility](#labels-and-visibility) |
 | Run every (minutes) | 5 to 10080. Empty means manual runs only |
 | Enabled | A disabled connector is skipped by the scheduler. **Run now** still works |

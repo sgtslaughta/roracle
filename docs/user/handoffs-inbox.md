@@ -112,7 +112,7 @@ Open **Settings** from the avatar menu and choose the **Handoffs** tab. It lists
 Agents with a write token cannot change your library directly. They can only **propose** notes, replies to notes and sensitivity-label changes, and nothing is published until you decide. Proposals are in **Agent proposals** in the sidebar, where a number badge counts those waiting. The pending list refreshes every minute and when you return to the tab.
 
 - Tabs: **Pending**, **Approved** and **Rejected**. Proposals are grouped by agent: the heading reads **From your token “name”**, using the name of the access token the agent used. An agent can have at most 50 proposals waiting at once.
-- Each card is a sentence ending in the paper's title: "Add a *kind* to" (comment, finding, correction, question or relation), "Reply to a note on", "Change the label of" or "Change a note's label on". It also shows the page it is about and page it is about, the quote it is anchored to, "Visible to: …" and "Agent-assisted, from …" lines, and the text. The text is the agent's, shown as plain text and not to be trusted.
+- Each card is a sentence ending in the paper's title: "Add a *kind* to" (comment, finding, correction, question or relation), "Reply to a note on", "Change the label of" or "Change a note's label on". The title is followed by the page it is about, if any, and opens the paper there. The card also shows an "Agent-assisted, from …" line (with "Visible to: …" for a new note, and when it was proposed), the quote it is anchored to, the related paper for a relation, and the text. The text is the agent's, shown as plain text and not to be trusted.
 - **Approve** publishes it as it is. A note becomes yours, marked **Agent-assisted**, with the visibility the agent proposed (private if it proposed none). **Open note** then jumps to it.
 - **Edit** lets you change the text, and for a new note its visibility (and, for **Named people or groups**, the people and groups), before **Approve with edits**. A reply follows the visibility of the note it answers.
 - **Reject** discards it. It moves to the Rejected tab.
@@ -143,9 +143,10 @@ You may see:
 | "Someone replied to your note." / "Someone added a note to your document." | The note |
 | "*Draft* was approved and published." / "was sent back." (with the reviewer's note) | The draft ([writing](writing-drafts.md#submitting)) |
 | "*Draft* is waiting for your review." (admins) | The draft |
+| "The sensitivity label on your document was changed." / "…on your note was changed." | The paper |
 | Admin-only: failed jobs, connector runs | The admin pages |
 
-Some events, such as a label change on your paper, a deleted paper or a transferred paper, show the generic text "Something changed."
+Some events, such as a deleted paper or a transferred paper, show the generic text "Something changed." with no link.
 
 ![The bell popover with unread items](../assets/screens/notifications-bell.png)
 

@@ -71,7 +71,7 @@ Your admins can switch any rule to blocking, warning or off in a profile. If the
 
 ### Check citations
 
-**Check citations** looks up each citation and asks a language model whether the passage it points to supports the sentence that cites it. Each item gets one of:
+**Check citations** looks up each citation and asks a language model whether the passage it points to supports the sentence that cites it. For a `[@psg:…]` citation that is the cited passage. For a `[@doc:…]` citation it is the paper's passage that best matches the sentence; if that one does not support it, up to two more of the best-matching passages are tried before the citation is marked unsupported. Each item gets one of:
 
 - **supported**: the passage supports the sentence.
 - **unsupported** or **unclear**: it does not, or the model could not tell. Fix the sentence or the citation, or acknowledge it.

@@ -31,7 +31,7 @@ Which papers you can see depends on your account's groups (your org unit) and on
 
 The sidebar shows a number on **My uploads** when an upload needs your attention, and on **Agent proposals** when agents have suggestions waiting. **Help** opens this guide in a window; press `?` to open it from anywhere. On a narrow window the sidebar shrinks to a rail; its **Chats and collections** button opens a popover with recent chats, **New chat** and your collections. Help also has a link to the full docs site. Type in **Search help** to filter topics; **Previous** and **Next** step through them, and **Copy link to this topic** shares one.
 
-Settings (from the avatar menu) holds your access tokens and handoffs. The bell lists notifications; choosing one marks it read and takes you to what it is about.
+Settings (from the avatar menu, which also shows the name you are signed in as) holds your access tokens and handoffs. The bell lists notifications; choosing one marks it read and takes you to what it is about.
 
 ![The app shell with the reader open on the right](../assets/screens/getting-started-layout.png)
 
