@@ -20,9 +20,9 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   - A PAT is **never admin**, even for an admin owner.
   - `manage` gates sharing and ownership: `PATCH /api/documents/{id}` touching `visibility`, `org_unit`,
     `share_users`, `share_groups` or `coauthors`; `DELETE /api/documents/{id}`; `POST /api/documents/{id}/transfer`;
-    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors` (draft co-authors); `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private` (a caller without `manage` that omits visibility gets `private`; the owner may widen it later with a manage session); and handoff create or update with an audience other
+    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors` (draft co-authors); `DELETE /api/drafts/{id}` once the draft has been published; `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private` (a caller without `manage` that omits visibility gets `private`; the owner may widen it later with a manage session); and handoff create or update with an audience other
     than `creator` (REST and MCP). Without it: 403 `insufficient scope: manage`, checked before any document lookup.
-    Sessions (JWT) hold it. MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
+    Sessions (JWT) hold it, except JWTs of agent OAuth clients (`ROR_OIDC_AGENT_CLIENTS`). MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
     migration 0023; new `write` tokens do not get it.
   - Groups = snapshot at creation intersected with the groups stored on the owner's user row. That row is
     rewritten on every request the owner makes with a Keycloak JWT, so access can narrow but never widen after

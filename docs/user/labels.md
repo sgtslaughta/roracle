@@ -35,7 +35,7 @@ The owner of a paper and admins see a pencil button next to the badge in the rea
 
 For a note, the author and admins see the same pencil on the note. The same rules apply, and a note can never be labelled below its paper.
 
-If someone else changes the label of your paper, you get a notification, which currently reads only "Something changed." and has no link.
+If someone else changes the label of your paper or of a note you wrote, you get a notification ("The sensitivity label on your document was changed.", or "…on your note…") that opens the paper.
 
 ![The Change label dialog for a non-admin, noting that lower labels can't be chosen](../assets/screens/labels-change-dialog.png)
 

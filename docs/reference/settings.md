@@ -141,7 +141,7 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_SUMMARY_MAX_ADMITTED` | `int` | `16` |  | map-reduce summaries running at once per process (1 per user) |
 | `ROR_SUMMARY_MODEL` | `str` | `'qwen2.5:3b'` |  | Model for document summaries |
 | `ROR_SUMMARY_WINDOW_CHARS` | `int` | `6000` |  | text per map call when a document is map-reduced |
-| `ROR_UPLOAD_QUOTA_BYTES` | `int` | `0` | yes | per user, sum of live version sizes; 0 = unlimited |
+| `ROR_UPLOAD_QUOTA_BYTES` | `int` | `0` | yes | per user, live uploaded version sizes plus evidence files; 0 = unlimited |
 | `ROR_VECTOR_INDEX_TYPE` | `Literal['int8_hnsw', 'int4_hnsw', 'bbq_hnsw']` | `'int8_hnsw'` |  | bbq only after an eval gate |
 | `ROR_VECTOR_RESCORE_OVERSAMPLE` | `float` | `3.0` |  | bbq_hnsw: candidates rescored with float vectors |
 | `ROR_WORKER_DB_MAX_OVERFLOW` | `int` | `1` |  | Extra worker-process connections beyond the pool |

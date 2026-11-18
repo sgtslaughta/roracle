@@ -20,9 +20,9 @@ The token lacks the access the tool needs: **Read only** for a write tool, or **
 Two MCP cases that need **manage** and fail with "insufficient scope: manage" on a read and write token:
 
 - `upload` with any `visibility` other than `private`. Leave `visibility` out (the paper is then private) or give the agent a manage token. The same refusal applies to a REST upload asking for non-private visibility; it is sent before the file is read.
-- `create_handoff` (or changing a handoff) with an `audience` other than `creator`, that is, shared beyond you. A creator-only handoff needs only read and write.
+- `create_handoff` (or changing a handoff through the web API) with an `audience` other than `creator`, that is, shared beyond you. A creator-only handoff needs only read and write.
 
-A call can also fail as "withheld by label: <label name>". That happens when the agent reads, validates, citation-checks or builds a draft, or downloads a paper's file or evidence, and the draft or paper has the **Exclude from AI** label. No token can do that for such an item.
+A call can also fail as "withheld by label: <label name>" (for an evidence file, just "withheld by label"). That happens when the agent reads, validates, citation-checks or builds a draft, or downloads a paper's file or evidence, and the draft or paper (or, for evidence, the note) has the **Exclude from AI** label. No token can do that for such an item.
 
 If **New token** itself fails with a 403, your administrators have turned personal access tokens off; ask them to enable them.
 

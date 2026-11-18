@@ -19,6 +19,7 @@ Opening a paper from search results, a citation, a note or the command menu open
 - **Add note** ([notes](notes-annotations.md)).
 - The download button saves the original file. For papers whose label blocks export, see [labels](labels.md#what-each-gate-means-to-you).
 - **Sharing** and the three-dot **Manage** menu (transfer ownership, delete) appear only for the paper's owner and admins ([collections and sharing](collections-sharing.md#sharing-a-document-you-own)).
+- When the reader is narrow, **Copy link**, **Continue in agent**, **Add to collection** and **Sharing** show only their icons; hover one to see its name.
 - A tag bar at the bottom lists the paper's tags; type in "Add a tag" and press `Enter` to add one.
 
 Documents render as PDF pages. The page indicator at the bottom has zoom out and zoom in buttons. If a version has no PDF rendition, Markdown and plain-text files show as text; any other file shows "Preview not available for this file" with a **Download** button. A paper without a title shows "This document has no title" with **Add title**, for the owner and admins.

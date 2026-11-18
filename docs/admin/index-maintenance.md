@@ -102,6 +102,10 @@ roracle auto-tags [--limit N]
 
 **Admin, Jobs** shows counts by kind and status, the number of versions by stage, and a table filtered by status and kind. The kinds here are `reembed`, `rebuild_units`, `rebuild_watch`, `reparse_refs`, `eval_run` and `eval_generate`. **Retry** (on a row) and **Retry all failed** requeue failed jobs with a fresh attempt count. The API is `POST /api/admin/jobs/{id}/retry` (`409` unless the job failed) and `POST /api/admin/jobs/retry-failed`, which moves up to 1000 per call and reports `retried`. Audit: `admin.job_retry` and `admin.jobs_retry_failed`.
 
+## The Health screen
+
+**Admin, Health** (`GET /api/admin/health`) refreshes every 30 seconds. The heading shows **OK** or **Degraded**. One card each for **Database**, **Elastic** and **Storage** shows **OK** or what failed. The queue cards show **Queued**, **Running** and **Failed** job counts and **Oldest queued** (seconds since the oldest job that is due to run was queued; jobs scheduled for later are ignored). **Scheduler tick** reads **Queued** while a connector scheduler tick is queued or running, otherwise **Idle**. If the database cannot be reached the queue and scheduler cards read **Unavailable**. Alerts and what to do about each signal are in the [health and alerts runbook](../enterprise/runbook-health-alerts.md).
+
 ## Purge, blob GC and tag reconcile
 
 `POST /api/admin/maintenance/{op}` with `op` of `purge`, `gc` or `reconcile` answers `202` with a `job_id`. `purge` hard-deletes papers soft-deleted longer than `ROR_RETENTION_DELETED_DAYS` ago (default 0, which means never). `gc` deletes unreferenced stored files older than a day. `reconcile` re-pushes access and tags from Postgres to the index; see [labels](labels.md#tags-and-index-drift). All three also run on their own every `ROR_MAINTENANCE_INTERVAL_S` seconds (default 86400). Audit: `admin.maintenance_<op>`.

@@ -14,7 +14,7 @@ The Library is the start page. With nothing typed it lists the newest papers you
 - Results are papers, each with its best passages. Matches are marked in the passage text. Click a passage to open the paper at that page with the passage highlighted.
 - Only the latest version of each paper is searched.
 - You only ever see papers you may see; a paper you cannot access is simply absent. See [collections and sharing](collections-sharing.md#who-can-see-a-document).
-- If nothing matches you see "Nothing you can see matches …". Use fewer words or clear the filters.
+- If nothing matches you see "Nothing you can see matches …". Use fewer words, or choose **Clear search and filters** to start over.
 
 ### Query syntax
 

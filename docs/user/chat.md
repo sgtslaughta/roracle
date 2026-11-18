@@ -51,6 +51,7 @@ Other things to know:
 
 - A source you cannot see, or one that was removed since, shows as "Source not available". Its number stays so the text still reads correctly.
 - A `[3]` in the text that matches no source stays as plain `[3]`. While an answer streams, markers show before their cards arrive.
+- Links to other websites in an answer are shown as plain text with the full address, not as clickable links, so a link planted in a source cannot send your data anywhere in one click. Copy the address if you want to open it. Images in an answer are never loaded; only their alt text shows.
 - In **Passages read**, a passage from another reader's note is marked "Community note". Notes are context only and are never numbered sources.
 - **Passages read** (under a finished answer, "Show the N passages read") lists every passage the model saw, best first with a relevance score. It shows the first 20; **Show all** lists the rest. This is wider than the cited sources: it shows what the model had, not only what it used.
 

@@ -232,7 +232,7 @@ class Settings(AliasConfig):
     agentic_max_admitted: int = (
         4  # loops admitted per process at once (one per user); the rest take the fact path
     )
-    upload_quota_bytes: int = 0  # per user, sum of live version sizes; 0 = unlimited
+    upload_quota_bytes: int = 0  # per user, live uploaded version sizes plus evidence files; 0 = unlimited
     db_connect_timeout_s: int = (
         5  # PG connect timeout (api/worker/readyz); a ?connect_timeout= in the URL wins
     )

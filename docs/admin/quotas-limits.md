@@ -40,12 +40,13 @@ The other runtime settings (chat, retrieval and so on) are covered in [runtime s
 What counts:
 
 - The sizes of the user's uploaded versions, older versions included, except versions that were rejected or cancelled.
+- Files the user attached as [evidence](../user/notes-annotations.md#evidence-on-findings) on findings. Evidence given only as a link is not counted.
 - Documents ingested by connectors are exempt.
-- Deleting a paper does not give the space back at once: a deleted paper keeps counting until it is purged for good, and purging only happens when `ROR_RETENTION_DELETED_DAYS` is set above 0 (default 0, never). See the operations runbook for retention.
+- Deleted papers stop counting as soon as they are deleted, before they are purged.
 
-When a new upload would go over, it is refused with `413 upload quota exceeded` and the user sees that message. Uploads by the same user are serialised while the check runs, so parallel uploads cannot overshoot.
+When a new upload (a paper or an evidence file) would go over, it is refused with `413 upload quota exceeded` and the user sees that message. Uploads by the same user are serialised while the check runs, so parallel uploads cannot overshoot.
 
-To see who is close, use [Stats](#watching-usage). To free space for someone, they delete papers and you raise the quota or wait for purging.
+To see who is close, use [Stats](#watching-usage). To free space for someone, they delete papers or evidence files, or you raise the quota.
 
 ## Rate limit
 
