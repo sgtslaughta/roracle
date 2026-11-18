@@ -3,17 +3,16 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { errorText } from "@/api/client";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { BookOpen, Folder, History, MessageCircle, Plus, Shield } from "lucide-react";
+import { BookOpen, Check, Folder, History, MessageCircle, Plus, Shield, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OverflowList } from "@/components/OverflowList";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { useChats, useHideChat } from "@/features/ask/api";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useCollections } from "@/features/library/api";
 import { useUploadAttention } from "@/features/uploads/api";
 import { useProposals } from "@/features/proposals/api";
 import { useMe } from "@/features/library/useMe";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NAV } from "./nav";
 import { CollectionDialogs, type CollectionEdit } from "./CollectionDialogs";
 
@@ -31,8 +30,14 @@ export function Sidebar() {
   const attention = useUploadAttention();
   const waiting = useProposals("pending").data?.total ?? 0;
   /** Chat / collection entries; the rail popover variant is context-menu only and closes the popover on navigation. */
+  const doRemove = (id: string) => hide.mutate(id, {
+    onSuccess: () => { if (id === chatId) void navigate({ to: "/ask" }); setRemoving(null); },
+    onError: (e) => { toast(errorText(e)); setRemoving(null); },
+  });
   const chatRow = (c: Parameters<typeof chatTitle>[0] & { id: string }, rail = false) => (
-    <div key={c.id} className="rowline" data-row>
+    <Popover key={c.id} open={!rail && removing === c.id} onOpenChange={(o) => !o && setRemoving(null)}>
+    <PopoverAnchor asChild>
+    <div className="rowline" data-row>
       <Link to="/ask/$chatId" params={{ chatId: c.id }} title={chatTitle(c)} onClick={rail ? close : undefined}
         {...(rail ? { className: "menu-link" } : { activeProps: { "aria-current": "page" as const }, inactiveProps: { "aria-current": undefined } })}>
         <MessageCircle aria-hidden />
@@ -41,9 +46,21 @@ export function Sidebar() {
       <RowMenu label={`Actions for chat ${chatTitle(c)}`} actions={[
         { label: "Open", onSelect: () => { close(); void navigate({ to: "/ask/$chatId", params: { chatId: c.id } }); } },
         copyAction("Copy link", `${window.location.origin}/ask/${encodeURIComponent(c.id)}`),
-        { label: "Remove from my chats", danger: true, onSelect: () => { close(); setRemoving(c.id); } },
+        { label: "Remove from my chats", danger: true, onSelect: () => {
+          close();
+          // rail rows unmount with the rail popover: nothing to anchor to, so ask natively
+          if (rail) { if (window.confirm("Remove from my chats? Shared links keep working.")) doRemove(c.id); return; }
+          setTimeout(() => setRemoving(c.id)); // after the menu closes, or its focus return dismisses the popover
+        } },
       ]} />
     </div>
+    </PopoverAnchor>
+    <PopoverContent side="right" align="center" className="confirm-pop" role="alertdialog" aria-label="Remove from my chats?">
+      <span>Remove? Shared links keep working.</span>
+      <button type="button" className="icon-btn ok" aria-label="Remove" disabled={hide.isPending} onClick={() => doRemove(c.id)}><Check aria-hidden /></button>
+      <button type="button" className="icon-btn" aria-label="Keep" autoFocus onClick={() => setRemoving(null)}><X aria-hidden /></button>
+    </PopoverContent>
+    </Popover>
   );
   const collectionRow = (c: { id: string; name: string }, rail = false) => (
     <div key={c.id} className="rowline" data-row>
@@ -52,10 +69,8 @@ export function Sidebar() {
         <span>{c.name}</span>
       </Link>
       <RowMenu label={`Actions for collection ${c.name}`} actions={[
-        { label: "Show in Library", onSelect: () => { close(); void navigate({ to: "/library", search: { collection: [c.id] } }); } },
         { label: "Rename…", onSelect: () => { close(); setEdit({ ...c, mode: "rename" }); } },
         { label: "Delete…", danger: true, onSelect: () => { close(); setEdit({ ...c, mode: "delete" }); } },
-        copyAction("Copy name", c.name),
       ]} />
     </div>
   );
@@ -135,13 +150,6 @@ export function Sidebar() {
         </div>
       )}
       <CollectionDialogs edit={edit} onClose={() => setEdit(null)} />
-      <ConfirmDialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)} title="Remove from my chats?" confirm="Remove" busy={hide.isPending}
-        onConfirm={() => removing && hide.mutate(removing, {
-          onSuccess: () => { if (removing === chatId) void navigate({ to: "/ask" }); setRemoving(null); },
-          onError: (e) => { toast(errorText(e)); setRemoving(null); },
-        })}>
-        Remove this chat from your list? Shared links keep working.
-      </ConfirmDialog>
     </aside>
   );
 }
