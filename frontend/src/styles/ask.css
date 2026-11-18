@@ -74,6 +74,7 @@ sup.c.gone,sup.c.pending{color:var(--muted);background:var(--muted-bg)}
 .ask-head{display:flex;align-items:center;gap:12px;width:100%;max-width:1228px;margin:0 auto;padding:18px 24px 0}
 .ask-head h1{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ask-actions{display:flex;gap:4px;align-items:center}
+@media (max-width:640px){.ask-head{flex-wrap:wrap;padding:14px 16px 0}.ask-head h1{flex:1 1 100%;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 .ask-load{padding:24px;text-align:center}
 .thread-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
 .thread-wrap .thread{flex:1;min-height:0}

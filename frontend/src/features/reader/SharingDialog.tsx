@@ -35,7 +35,7 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
       <DialogContent>
         <DialogTitle>Sharing</DialogTitle>
         <DialogDescription>Choose who can see “{docTitle(doc)}”.</DialogDescription>
-        <form style={{ display: "grid", gap: 10 }} onSubmit={(e) => {
+        <form className="dform" onSubmit={(e) => {
           e.preventDefault();
           const body: DocumentPatch = { visibility: vis };
           if (vis === "private") { body.share_users = []; body.share_groups = []; }
@@ -67,7 +67,10 @@ export function SharingDialog({ doc, open, onOpenChange }: { doc: DocumentDetail
             </div>
           )}
           {confirm && <p role="alert">This empties a share list and removes everyone on it. Press Save again to confirm.</p>}
-          <Button variant="primary" type="submit" disabled={save.isPending}>Save</Button>
+          <div className="foot">
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={save.isPending}>Save</Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
