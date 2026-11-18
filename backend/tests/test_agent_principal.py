@@ -68,3 +68,42 @@ def test_no_raw_pat_checks_left():
         if f.name not in allowed and re.search(r'\.via\s*[!=]=\s*"pat"', f.read_text())
     ]
     assert bad == []
+
+
+# --- C1: OAuth tokens of an agent client (azp in oidc_agent_clients) are agents on REST too ---
+
+
+@pytest.fixture
+def as_agent_jwt(make_token):
+    return bearer(make_token(sub="ana", username="ana", groups=("/Mathematics/Spectral Theory",), azp="roracle-mcp"))
+
+
+@pytest.fixture
+def agent_admin(make_token):
+    return bearer(make_token(sub="root", username="root", roles=("roracle-admin",), azp="roracle-mcp"))
+
+
+def test_agent_client_jwt_search_hides_block_agents(client, as_agent_jwt, as_ana, ana, admin, db_session, fes):
+    sec = mk(client, admin, "NoAg", 3, block_agents=True)
+    d, v = seed(db_session, ana, title="Hidden")
+    label(db_session, d, sec)
+    fes.hits = [hit(d, v, "SECRET")]
+    assert client.get("/search", headers=as_agent_jwt, params={"q": "alpha"}).json()["results"] == []
+    assert client.get(f"/documents/{d.id}", headers=as_agent_jwt).status_code == 404
+    assert len(client.get("/search", headers=as_ana, params={"q": "alpha"}).json()["results"]) == 1
+
+
+def test_agent_client_admin_jwt_is_not_admin(client, agent_admin, admin):
+    assert client.get("/admin/audit", headers=agent_admin).status_code == 403
+    assert client.get("/admin/audit", headers=admin).status_code == 200
+
+
+def test_agent_client_jwt_cannot_mint_tokens(client, as_agent_jwt):
+    r = client.post("/me/tokens", json={"name": "x", "scopes": ["manage"]}, headers=as_agent_jwt)
+    assert r.status_code == 403
+
+
+def test_agent_client_jwt_cannot_delete(client, as_agent_jwt, ana, db_session):
+    d, _ = seed(db_session, ana, visibility="private")
+    r = client.delete(f"/documents/{d.id}", headers=as_agent_jwt)
+    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"

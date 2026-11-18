@@ -63,6 +63,10 @@ class Settings(AliasConfig):
     oidc_allowed_clients: Annotated[list[str], NoDecode] = Field(
         ["roracle-web", "roracle-mcp"], description="Accepted OIDC client ids (JSON list or comma-separated)"
     )
+    oidc_agent_clients: Annotated[list[str], NoDecode] = Field(
+        ["roracle-mcp"],
+        description="OIDC client ids whose tokens are agents everywhere (never admin, no `manage`; JSON list or comma-separated)",
+    )
     max_upload_bytes: int = Field(524288000, description="Maximum size of one uploaded file in bytes")
     evidence_max_bytes: int = 1073741824  # notes evidence file cap (1 GiB)
     draft_max_bytes: int = 2 * 1024 * 1024  # P9 draft Markdown cap (UTF-8)
@@ -304,7 +308,7 @@ class Settings(AliasConfig):
         return v
 
     @field_validator(
-        "oidc_allowed_clients", "connector_fs_roots", "connector_http_allow_cidrs", mode="before"
+        "oidc_allowed_clients", "oidc_agent_clients", "connector_fs_roots", "connector_http_allow_cidrs", mode="before"
     )
     @classmethod
     def _parse_clients(cls, v):

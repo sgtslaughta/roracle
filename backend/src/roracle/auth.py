@@ -270,7 +270,9 @@ def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token:
         },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()
-    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=str(claims.get("azp", "")))
+    azp = str(claims.get("azp", ""))
+    p = Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=azp)
+    return as_agent(p) if azp in settings.oidc_agent_clients else p
 
 
 def principal_for_user(session: Session, user_id: UUID) -> Principal:
