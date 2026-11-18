@@ -46,6 +46,8 @@ export function describe(kind: string, payload: Record<string, unknown> | null |
       return { text: `${q(p.title, "Your draft")} was approved and published.${note(p.note)}`, ...draftLink(p.draft_id) };
     case "draft.rejected":
       return { text: `${q(p.title, "Your draft")} was sent back.${note(p.note)}`, ...draftLink(p.draft_id) };
+    case "label.changed":
+      return { text: `The sensitivity label on your ${isDocId(p.annotation_id) ? "note" : "document"} was changed.`, to: docLink(p.document_id) };
     default:
       return { text: "Something changed." };
   }

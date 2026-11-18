@@ -128,6 +128,8 @@ For what happens to approved notes, see [notes and annotations](notes-annotation
 
 The bell in the top bar shows how many notifications are unread (99+ when more). It shows the latest 10 with **Mark all read** and **See all**, and refreshes every minute and when you return to the tab. **See all** opens the **Notifications** page with **Unread only**, **Mark all read** and **Load more** (30 at a time).
 
+You are also notified when someone else changes the sensitivity label on your paper or on a note you wrote; it opens the paper.
+
 Choosing a notification marks it read and takes you to what it is about. A note reply or a new note on your paper opens the Notes tab at that note. The row menu has **Open** and **Mark as read**.
 
 You may see:

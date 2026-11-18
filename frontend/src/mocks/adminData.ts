@@ -54,7 +54,12 @@ export const adminDataHandlers = [
     d.overrides = next;
     return HttpResponse.json(view(d));
   }),
-  http.get(url("/admin/tags"), () => (state.admin ? HttpResponse.json({ items: dataOf().tags, total: dataOf().tags.length }) : forbidden())),
+  http.get(url("/admin/tags"), ({ request }) => {
+    if (!state.admin) return forbidden();
+    const sp = new URL(request.url).searchParams;
+    const all = dataOf().tags.filter((t) => t.tag.toLowerCase().includes((sp.get("q") ?? "").toLowerCase()));
+    return HttpResponse.json({ items: all.slice(0, Number(sp.get("limit") ?? 50)), total: all.length });
+  }),
   http.post(url("/admin/tags/merge"), async ({ request }) => {
     if (!state.admin) return forbidden();
     const d = dataOf();
