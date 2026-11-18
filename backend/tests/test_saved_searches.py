@@ -93,4 +93,3 @@ def test_user_delete_cascades(client, as_ana, db_session):
 
 def test_single_migration_head():
     assert len(ScriptDirectory.from_config(_alembic_config()).get_heads()) == 1
-
