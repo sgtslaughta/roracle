@@ -38,6 +38,19 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   (**PASS** / **FAIL** / **INSUFFICIENT**) and its reasons, the latency check, and `acl_violations` (any hit the principal may not
   see: Postgres `visible_documents`, plus `llm_allowed` on the chat path) which fails the run. `--judge` answers and judges a
   deterministic sample of non-PAT chat pairs (`ROR_EVAL_JUDGE_SAMPLE`, model `ROR_EVAL_JUDGE_MODEL`) for faithfulness and citation support.
+- **Judge v2** (`eval/judge.py`, `judge_version` 2 in every judged result and run summary). The answer is split into sentence
+  claims (list lead-ins ending in `:` and questions are skipped); each claim carries the preceding sentence as context only.
+  - `citation_support`: share of (claim, cited passage) pairs where that passage supports the claim (one call per pair).
+  - `faithfulness`: share of claims supported by the passages the model saw. A claim no cite supports (uncited, out-of-range or
+    unsupporting cites) gets one more call against all passages. The judge sees exactly the text the model saw (chat passages are
+    clipped to `chat/retrieve.py::MAX_CHARS` before the answer, so judging unclipped text would credit content the model never read).
+  - `citation_coverage`: share of claims carrying at least one `[n]` (reported, not gated).
+  - The rubric counts paraphrase, number formatting and faithful summary as supported; added facts, causal links, attributions or
+    generalizations are not. A refusal (no claims) still scores 0.
+  - Why: judge v1 scored every uncited sentence as unfaithful without checking it. On own-corpus-v1 (runs `93a71318`, `3762cb28`,
+    30 judged answers each) 135 of 148 "unfaithful" claims were uncited sentences, about two thirds of them plainly supported by the
+    passages; v1 faithfulness (~0.5 micro, ~0.58 macro) measured citation density, not grounding. **v1 and v2 numbers are not
+    comparable**: compare runs judged with the same `judge_version` only.
 - Gate constants (`eval/gate.py`): `MIN_QUERIES` 200, `MIN_SCOPE_QUERIES` 50, `MIN_PRINCIPALS` 3, passage nDCG@10 gain 0.02 **or**
   Recall@10 gain 0.02 (either gain counts only with a CI lower bound > 0), Recall@100 loss <= 0.005 (the `global` scope guards document Recall@40 instead), judge loss <= 0.02; `global` scope: document-level
   Recall@10 gain 0.05 and `fact` nDCG@10 loss <= 0.005.

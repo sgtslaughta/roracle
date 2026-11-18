@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from roracle.chat.answer import build_messages
-from roracle.eval.judge import _supported
+from roracle.eval.judge import Claim, _supported
 from roracle.ingest.context import _note
 from roracle.ingest.summary import summarize
 from roracle.prompt_quote import meta, quote
@@ -69,9 +69,9 @@ def test_summary_context_cite_check_judge_quote():
     t = llm.user_text()
     assert t.count("</sentence>") == 1 and t.count("</passage>") == 1
     llm = FakeLLM()
-    _supported(llm, "m", evil, passage(text=evil))
+    _supported(llm, "m", Claim(evil, [1], evil), passage(text=evil))
     t = llm.user_text()
-    assert t.count("</passage>") == 1 and t.count("</claim>") == 1
+    assert t.count("</passage>") == 1 and t.count("</claim>") == 1 and t.count("</context>") == 1
     assert not any(r in quote(evil) for r in raw)
 
 

@@ -47,7 +47,9 @@ def test_claims_keep_markers_and_skip_non_assertions():
 
 
 def test_judge_exact_ratios_and_invalid_json_is_unsupported():
-    def fn(body):  # c2's first cite (passage pa) is garbage, everything else supports
+    def fn(body):  # c2's first cite (passage pa) is garbage; claim four is backed by no passage
+        if "claim four" in body:
+            return '{"supported": false}'
         return "not json" if "claim two" in body and "alphatext" in body else '{"supported": true}'
 
     llm = ScriptLLM(fn=fn)
@@ -58,13 +60,30 @@ def test_judge_exact_ratios_and_invalid_json_is_unsupported():
         Claim("claim four", []),
     ]
     r = judge.judge(llm, "m", cl, [P("alphatext"), P("betatext")])
-    assert len(llm.calls) == 3  # out-of-range cite and uncited claim cost no call
-    assert (r["claims"], r["supported_claims"], r["pairs"], r["supported_pairs"]) == (4, 2, 4, 2)
-    assert (
-        r["faithfulness"] == 0.5 and r["citation_support"] == 0.5
-    )  # 2 of 4 claims; 2 of 4 (claim, cite) pairs
-    assert [v["supported"] for v in r["verdicts"]] == [True, True, False, False]
+    # 3 cite calls (out-of-range cite costs none) + 1 all-passages call each for claims three and four
+    assert len(llm.calls) == 5
+    assert (r["claims"], r["supported_claims"], r["pairs"], r["supported_pairs"]) == (4, 3, 4, 2)
+    assert r["faithfulness"] == 0.75 and r["citation_support"] == 0.5 and r["citation_coverage"] == 0.75
+    assert [v["supported"] for v in r["verdicts"]] == [True, True, True, False]
+    assert [v["cited_ok"] for v in r["verdicts"]] == [True, True, False, False]
     assert all(c["model"] == "m" and c["temperature"] == 0 for c in llm.calls)
+    assert r["judge_version"] == judge.JUDGE_VERSION == 2
+
+
+def test_uncited_claim_is_checked_against_every_passage_with_context():
+    llm = ScriptLLM(fn=lambda body: '{"supported": %s}' % ("true" if "betatext" in body else "false"))
+    cl = judge.claims("Alpha holds here [1]. This means beta also holds.")
+    r = judge.judge(llm, "m", cl, [P("alphatext"), P("betatext")])
+    assert r["faithfulness"] == 1.0 and r["citation_coverage"] == 0.5
+    body = llm.calls[-1]["messages"][-1]["content"]
+    assert '<passage n="1">' in body and '<passage n="2">' in body
+    assert "<context>\nAlpha holds here .\n</context>" in body and "This means beta" in body
+    assert llm.calls[-1]["messages"][0]["content"] == judge.JUDGE_ALL_SYSTEM
+
+
+def test_lead_in_lines_are_not_claims():
+    out = judge.claims("The papers in the library report several roles:\n- Gaps bound mixing times [1].")
+    assert [(c.text, c.cites) for c in out] == [("Gaps bound mixing times .", [1])]
 
 
 def test_judge_fenced_json_ok_and_empty_denominators_none():
@@ -169,6 +188,8 @@ def test_run_set_judges_deterministic_sample_never_pats(db_session, world):
     assert len(seen) == 2 and seen[0] == seen[1] and seen[0][0] == "jwt"  # same pair both runs, a human one
     run = db_session.get(EvalRun, ids[0])
     assert run.metrics["judge"] == {
+        "judge_version": 2,
+        "citation_coverage": 0.0,  # the fake reports no cited_claims
         "judged_pairs": 1,
         "claims": 2,
         "pairs": 2,
