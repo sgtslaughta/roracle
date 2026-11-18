@@ -99,7 +99,7 @@ def community_notes(
         )
     else:
         gate = and_(A.visibility == "everyone", score >= MIN_SCORE)
-        if p.via == "pat":  # agents never get the text of an exclude_llm note
+        if p.is_agent:  # agents never get the text of an exclude_llm note
             gate = and_(gate, gate_ok(A.label_id, "exclude_llm"))
     ranked = (
         select(

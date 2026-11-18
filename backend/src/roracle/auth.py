@@ -4,7 +4,7 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -37,8 +37,19 @@ class Principal:
     is_admin: bool
     scopes: frozenset[str] = frozenset({"read", "write"})
     client: str = ""
-    via: Literal["jwt", "pat"] = "jwt"
+    via: Literal["jwt", "pat", "mcp"] = "jwt"
     pat_id: str = ""
+
+    @property
+    def is_agent(self) -> bool:
+        return self.via != "jwt"
+
+
+def as_agent(p: Principal) -> Principal:
+    """Every non-PAT caller reaching a tool through /mcp is an agent: never admin, never `manage`."""
+    if p.via == "pat":
+        return p
+    return replace(p, via="mcp", is_admin=False, scopes=p.scopes - {"manage"})
 
 
 def httpx_fetch(url: str) -> dict:
@@ -191,7 +202,7 @@ def current_principal(
     ratelimit.check(p, settings.rate_limit_per_minute)
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
         raise HTTPException(403, "insufficient scope")
-    if p.via == "pat":
+    if p.is_agent:
         session.add(
             AuditLog(
                 user_id=p.user_id,

@@ -64,7 +64,7 @@ def list_drafts(p: Who, session: Db) -> dict:
         select(Draft, Document)
         .join(Document, Document.id == Draft.document_id)
         .where(
-            Document.deleted_at.is_(None), or_(*mine), *((agent_visible(),) if p.via == "pat" else ())
+            Document.deleted_at.is_(None), or_(*mine), *((agent_visible(),) if p.is_agent else ())
         )  # gate (b)
         .order_by(Draft.updated_at.desc(), Draft.document_id)
         .limit(LIMIT)

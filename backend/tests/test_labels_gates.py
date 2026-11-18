@@ -86,8 +86,8 @@ def test_es_lag_pat_search_and_ask_use_current_pg_label(mc, client, as_ana, ana,
     assert call(mc, h, "search", query="alpha")[1]["results"] == []
     err, out = call(mc, h, "ask", question="alpha?")
     assert not err and out["citations"] == [] and not llm.sent
-    err, out = call(mc, as_ana, "search", query="alpha")  # human JWT still sees it
-    assert out["results"][0]["title"] == "Lagging"
+    err, out = call(mc, as_ana, "search", query="alpha")  # JWT over /mcp is an agent too
+    assert out["results"] == []
 
 
 def test_mcp_passages_and_handoff_gate(mc, client, as_ana, ana, admin, db_session, fes):

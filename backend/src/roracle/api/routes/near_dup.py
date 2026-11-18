@@ -92,7 +92,7 @@ def _move_under_match(session: Session, p: Principal, v: DocumentVersion, doc: D
     if target is None or target.deleted_at is not None:
         raise HTTPException(409, "matched document no longer exists")
     if (
-        p.via == "pat"
+        p.is_agent
         and session.scalar(select(Document.id).where(Document.id == target.id, agent_visible())) is None
     ):
         raise HTTPException(409, "matched document no longer exists")  # hidden from agents: say nothing more

@@ -93,10 +93,11 @@ visibility; labels never grant access.
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner (JWT or PAT) and admins on an interactive JWT. Admin PATs are not exempt (a PAT is never admin) |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
-**Which callers are gated.** The `block_agents` filter and the PAT text withholding key on the credential type
-(`p.via == "pat"`), not on who the human is. A caller on `/mcp` who authenticates with an OAuth/Keycloak access token is the
-interactive user and is not subject to them (see [known limits](known-limits.md#agents-and-the-mcp-mount)). The LLM gate
-(`exclude_llm` in `ask`, chat and the ingest paths) and the handoff gates apply to every caller.
+**Which callers are gated.** Every agent: PAT callers and every caller on `/mcp`, including an OAuth/Keycloak
+access token (`Principal.is_agent`, `via != "jwt"`). On `/mcp` a JWT principal is rewritten to `via="mcp"` and is never
+admin, so an admin's token there sees only what a non-admin agent would. The `block_agents` filter and the agent text
+withholding apply to all of them; only web-app (REST, `via="jwt"`) users are exempt. The LLM gate (`exclude_llm` in
+`ask`, chat and the ingest paths) and the handoff gates apply to every caller.
 
 **Ruling (cross-encoder reranker):** `exclude_llm` text may be scored by the site-hosted cross-encoder reranker (`ROR_RERANK_URL`). It is non-generative and returns only scores, like the embedding model, so it is not an "LLM" for this gate. Keep the endpoint on a trusted network (loopback/mesh). It receives only passages that passed the Elasticsearch ACL filter for the caller, but rerank runs **before** the Postgres re-check, so during the `acl_sync` window after a revocation it can still score text the caller may no longer read (see [known limits](known-limits.md#retrieval-and-label-timing)).
 

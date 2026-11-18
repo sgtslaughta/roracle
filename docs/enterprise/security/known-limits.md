@@ -21,12 +21,6 @@ are limits of the design, not a list of open defects. For what the controls do g
 
 ## Agents and the MCP mount
 
-- **OAuth/JWT callers on `/mcp` are not subject to the PAT-only gates.** `block_agents` document hiding and the
-  withholding of `exclude_llm` text in `search`, `get_document`, `get_passages` and `list_annotations` key on the PAT
-  credential (`p.via == "pat"`). An OAuth or Keycloak access token presented to `/mcp` is the interactive user and sees
-  what that user sees in the web app. `ask` (the `exclude_llm` filter on retrieval) and handoffs (`block_agents`
-  documents dropped, gated transcript text withheld) apply to every caller. Use PATs, not OAuth tokens, for
-  agent clients when labels must restrict agents. (`labels/textgate.py`, `access.py`, `search_acl.py`, `mcp/server.py`.)
 - **A write-scope PAT can submit drafts through the REST API** (`POST /api/drafts/{id}/submit`): that route uses the
   general principal, not the human-only guard. MCP has no submit tool, and the writing profile's admin review still
   applies. (`api/routes/drafts_submit.py`.)

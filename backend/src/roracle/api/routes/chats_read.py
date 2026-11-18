@@ -69,7 +69,7 @@ def list_chats(
 
 def _agent_chat(session: Session, p: Principal, out: dict) -> dict:
     """PAT callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
-    if p.via != "pat":
+    if not p.is_agent:
         return out
     ids = [i for i in (*out["pins"], *out["excludes"]) if isinstance(i, str)]
     ok = set()
@@ -124,7 +124,7 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "model": m.model,
                 "created_at": m.created_at,
                 "viewer": m.viewer
-                if m.role == "user" and owner and p.via != "pat"
+                if m.role == "user" and owner and not p.is_agent
                 else None,  # agents: no selection text
                 "citations": strip_text(recheck(m.citations, ok, drop=False, notes=notes), gated),
                 "retrieved": strip_text(recheck(m.retrieved, ok, drop=True, notes=notes), gated),

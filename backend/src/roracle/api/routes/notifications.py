@@ -26,7 +26,7 @@ _NOTE_KEYS = ("note_id", "annotation_id")
 
 def _agent_hidden(session: Session, p: Principal, page: list[Notification]) -> set[int]:
     """PAT callers: ids of notifications that name a document hidden from agents (titles/ids would leak)."""
-    if p.via != "pat":
+    if not p.is_agent:
         return set()
     refs: dict[int, set[UUID]] = {}
     for n in page:
@@ -72,7 +72,7 @@ def list_notifications(
     rows = list(session.scalars(q))
     page = rows[:limit]
     unread_q = select(Notification).where(mine, Notification.read_at.is_(None))
-    if p.via == "pat":  # hidden rows must not be countable either
+    if p.is_agent:  # hidden rows must not be countable either
         every = list(session.scalars(unread_q.limit(5000)))
         unread = len(every) - len(_agent_hidden(session, p, every))
     else:

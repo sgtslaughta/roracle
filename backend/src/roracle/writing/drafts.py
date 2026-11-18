@@ -31,7 +31,7 @@ def _can_read(p: Principal, doc: Document, d: Draft) -> bool:
 
 def _agent_blocked(session: Session, p: Principal, doc: Document) -> bool:
     """Gate (b): an agent/PAT principal sees a draft labelled `block_agents` as non-existent."""
-    return p.via == "pat" and Policy.load(session).has(doc.label_id, "block_agents")
+    return p.is_agent and Policy.load(session).has(doc.label_id, "block_agents")
 
 
 def readable_draft(
