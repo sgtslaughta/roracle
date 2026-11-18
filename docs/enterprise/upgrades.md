@@ -151,7 +151,15 @@ Journal and has-identifier results are only correct for papers written by that r
 
 ### 0.4.0
 
-- Security hardening: one agent principal for PATs and `/mcp`, the `manage` token scope, quoted prompt metadata, durable audit rows for denials and failures, handoff redaction of papers a loader cannot see, a shorter [known limits](security/known-limits.md).
+- Security hardening: one agent principal for PATs, `/mcp` and OAuth agent clients (`oidc_agent_clients`), the `manage` token scope, quoted prompt metadata, durable audit rows for denials and failures, handoff redaction of papers a loader cannot see, deleted papers removed from Elasticsearch, and a shorter [known limits](security/known-limits.md). Security review record: [2026-11 review](security/review-2026-11.md).
+- Security review fixes: near-duplicate checks use the uploading agent's view, external links in chat answers are inert text, evidence files count against the upload quota, and an approved label proposal updates Elasticsearch before it returns.
+- AI tag suggestions: the LLM suggests tags from the AI summary at ingest; `roracle auto-tags [--limit N]` backfills existing papers through the `auto_tags` bulk job. Owners add tags with **+ tag** and can remove AI tags (they are not suggested again). Agents never receive AI tags of papers labelled with the Exclude from AI gate.
+- Help window (topics rendered from `docs/user`, deep links `#help-<topic>`) and the Get started checklist, ticked from server-side events.
+- Library cards show the AI summary, abstract, identifiers, page and reference counts; votes moved to the reader, which gains Summary and Details tabs.
+- Chat retrieval: filler words are stripped from the keyword leg, titles, abstracts and tags are boosted, and at most `ROR_CHAT_CHUNKS_PER_DOC` (default 3) passages per paper reach the reranker.
+- Citation check: `@doc:` citations are judged against up to three passages, not only the best match.
+- Agent proposals page: proposals read as sentences, label proposals that would change nothing are refused, and **Approve all** asks first.
+- UI polish across the app (focus ring contrast, field borders, dark-mode colours, phone layouts for tables and the reader).
 - Upgrade: migrations 0021 `tag_source` (**drain workers first**; then optionally run `roracle auto-tags` to backfill tags), 0022 `onboarding` and 0023 (backfills `manage` onto `write` tokens); notes in section 7.
 
 ### 0.3.0
@@ -159,6 +167,4 @@ Journal and has-identifier results are only correct for papers written by that r
 - Advanced library search: query syntax with exact phrases, exclusions and field scope; include and exclude per filter value with match any or all for tags and authors; venue, journal (by ISSN) and has-identifier filters; year histogram with a range; date added, page count, votes and cited-by ranges; owner and citing filters; ten sorts; list, compact and table views with a column picker; the query sentence; saved searches ([library search](../user/library-search.md)).
 - API: new `GET /api/search` parameters, `GET /api/search/facets/{name}` and `/api/me/saved-searches` ([agent integration](agent-integration.md#library-search-api)). The `year` list parameter is replaced by `year_min` and `year_max`.
 - Browse runs from Elasticsearch: counts and facets cover every visible paper up to 10,000 (`total_capped` above), and the `after` cursor works for every browse sort.
-- AI tag suggestions: the LLM suggests tags from the AI summary at ingest; `roracle auto-tags [--limit N]` backfills existing papers through the `auto_tags` bulk job. Migration 0021 recreates the claim indexes: drain workers first.
-- Get started checklist and help window (migration 0022).
-- Upgrade: migrations 0020 to 0022 and the required same-model reindex (section 6).
+- Upgrade: migration 0020 and the required same-model reindex (section 6).
