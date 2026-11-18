@@ -58,7 +58,6 @@ export function LabelProposal({ p, selected, onSelect }: { p: Proposal; selected
             <textarea className="ta short" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
         )}
-        {p.payload.reason && <p className="sub">Agent&apos;s reason (untrusted): {p.payload.reason}</p>}
         {error && <p className="chipin-err" role="alert">{error}</p>}
       </div>
       <div className="side2">
