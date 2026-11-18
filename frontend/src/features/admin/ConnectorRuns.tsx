@@ -11,7 +11,12 @@ export const LOG_CAP = 200_000;
 const STAT_LABELS: [keyof NonNullable<ConnectorRun["stats"]>, string][] = [
   ["seen", "seen"], ["ingested", "ingested"], ["versions", "new versions"], ["unchanged", "unchanged"], ["duplicate", "duplicates"], ["too_large", "too large"], ["errors", "errors"],
 ];
-const statsText = (s: ConnectorRun["stats"]) => STAT_LABELS.filter(([k]) => typeof s?.[k] === "number").map(([k, l]) => `${s![k]} ${l}`).join(", ") || "No stats";
+/** Non-zero counters only ("0 duplicates, 0 too large" is noise); all zero reads "Nothing found". */
+const statsText = (s: ConnectorRun["stats"]) => {
+  const known = STAT_LABELS.filter(([k]) => typeof s?.[k] === "number");
+  if (!known.length) return "No stats";
+  return known.filter(([k]) => s![k] !== 0).map(([k, l]) => `${s![k]} ${l}`).join(", ") || "Nothing found";
+};
 
 /** Run history (keyset, newest first) and the selected run's plain-text log. */
 export function ConnectorRuns({ id }: { id: string }) {

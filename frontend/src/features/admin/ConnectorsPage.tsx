@@ -13,7 +13,7 @@ import { ConnectorDialog } from "./ConnectorForm";
 import { StatusPill } from "./StatusPill";
 import { RowMenu } from "@/components/RowMenu";
 
-const KIND_LABEL: Record<string, string> = { s3: "S3 bucket", fs: "Folder on the server", http: "Website" };
+export const KIND_LABEL: Record<string, string> = { s3: "S3 bucket", fs: "Folder on the server", http: "Website" };
 
 const SHOWN = 50;
 export const scheduleText = (m: number | null) => (m ? `Every ${m} min` : "Manual");

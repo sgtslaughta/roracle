@@ -220,6 +220,8 @@ describe("connector detail", () => {
     await renderAdmin(`/admin/connectors/${C1}`, "Runs");
     expect(await screen.findByText("group-papers")).toBeInTheDocument();
     expect(screen.getByText("***")).toBeInTheDocument();
+    expect(screen.getByText("Secret key")).toBeInTheDocument(); // config keys are named, not shown raw
+    expect(screen.queryByText("secret_key")).toBeNull();
     const rows = screen.getAllByRole("row").slice(1);
     expect(rows).toHaveLength(3);
     await user.click(within(rows[1]).getByRole("button", { name: "View log" }));
