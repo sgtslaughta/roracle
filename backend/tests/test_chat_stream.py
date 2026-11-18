@@ -145,7 +145,9 @@ def test_stream_happy_path(client, as_ana, ana, db_session, setup):
     assert r.headers["cache-control"] == "no-cache" and r.headers["x-accel-buffering"] == "no"
     ev = sse(r)
     assert [e for e, _ in ev] == ["token", "token", "token", "citations", "done"]
-    assert r.text.startswith('event: status\ndata: {"stage": "writing"}\n\nevent: token\ndata: {"text": "Alpha "}')
+    assert r.text.startswith(
+        'event: status\ndata: {"stage": "writing"}\n\nevent: token\ndata: {"text": "Alpha "}'
+    )
     items = ev[3][1]["items"]
     assert [i["n"] for i in items] == [1]
     assert items[0]["version"] == 1
