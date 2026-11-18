@@ -78,7 +78,7 @@ describe("settings drafts", () => {
     await user.click(screen.getByRole("button", { name: "Save pats_enabled" }));
     await waitFor(() => expect(rowOf("pats_enabled")).toHaveTextContent("override"));
     expect(screen.getByLabelText("rerank_depth")).toHaveValue(77);
-    expect(screen.getByLabelText("chat_models models")).toBeInTheDocument();
+    expect(screen.getByLabelText("Models")).toBeInTheDocument();
   });
 });
 
