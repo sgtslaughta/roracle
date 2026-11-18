@@ -47,7 +47,8 @@ def handle_reparse_refs(session: Session, payload: dict, *, settings: Settings, 
     old = v.meta or {}
     ids = {**(old.get("ids") or {}), **new["ids"]}
     before = match_ids(old)
-    v.meta = {**old, "ids": ids, "doi": ids.get("doi") or old.get("doi")}
+    hints = {k: new[k] for k in ("keywords", "arxiv_category") if k in new}  # auto-tag hints
+    v.meta = {**old, **hints, "ids": ids, "doi": ids.get("doi") or old.get("doi")}
     if refs:  # a failed/empty GROBID answer must not wipe the references we already have
         v.references = refs
     session.flush()

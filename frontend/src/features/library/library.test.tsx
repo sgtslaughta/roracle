@@ -115,6 +115,50 @@ describe("library search", () => {
     expect(within(menu).getByRole("searchbox")).toBeInTheDocument();
   });
 
+  it("auto tags are marked as AI suggestions", async () => {
+    await renderLibrary();
+    await screen.findByText(/of 7 papers/);
+    const chips = within(results()[0]).getAllByRole("button", { name: /^#/ });
+    const auto = chips.filter((c) => c.classList.contains("auto"));
+    expect(auto).toHaveLength(1);
+    expect(auto[0]).toHaveAttribute("title", expect.stringContaining("Suggested by AI from the summary"));
+    expect(auto[0]).toHaveAccessibleName(/Suggested by AI from the summary/);
+    expect(chips.filter((c) => !c.classList.contains("auto")).every((c) => !/Suggested/.test(c.title))).toBe(true);
+  });
+
+  it("+ tag on a card adds a normalised tag; adding an auto tag adopts it", async () => {
+    const sent: string[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      if (request.method === "POST" && /\/tags$/.test(new URL(request.url).pathname)) sent.push(((await request.clone().json()) as { tag: string }).tag);
+    });
+    await renderLibrary();
+    await screen.findByText(/of 7 papers/);
+    const card = results()[0];
+    await userEvent.click(within(card).getByRole("button", { name: "Add tag" }));
+    await userEvent.type(within(card).getByLabelText("New tag"), "Brand New!{Enter}");
+    await waitFor(() => expect(sent).toContain("Brand New!"));
+    expect(within(card).queryByLabelText("New tag")).toBeNull();
+    const autoName = within(card).getAllByRole("button", { name: /^#/ }).find((c) => c.classList.contains("auto"))!.textContent!.replace(/^#| \(.*$/g, "");
+    await userEvent.click(within(card).getByRole("button", { name: "Add tag" }));
+    await userEvent.type(within(card).getByLabelText("New tag"), `${autoName}{Enter}`);
+    await waitFor(() => expect(within(results()[0]).getAllByRole("button", { name: /^#/ }).some((c) => c.classList.contains("auto"))).toBe(false));
+    server.events.removeAllListeners();
+  });
+
+  it("+ tag rejects an over-long tag with a message and sends nothing", async () => {
+    let posts = 0;
+    server.events.on("request:start", ({ request }) => { if (request.method === "POST" && /\/tags$/.test(new URL(request.url).pathname)) posts++; });
+    await renderLibrary();
+    await screen.findByText(/of 7 papers/);
+    const card = results()[0];
+    await userEvent.click(within(card).getByRole("button", { name: "Add tag" }));
+    await userEvent.type(within(card).getByLabelText("New tag"), `${"x".repeat(45)}{Enter}`);
+    expect(await screen.findByText("Tags are at most 40 characters.")).toBeInTheDocument();
+    expect(within(card).getByLabelText("New tag")).toBeInTheDocument(); // stays open for editing
+    expect(posts).toBe(0);
+    server.events.removeAllListeners();
+  });
+
   it("caps tags on a result card at 4", async () => {
     await renderLibrary();
     await screen.findByText(/of 7 papers/);

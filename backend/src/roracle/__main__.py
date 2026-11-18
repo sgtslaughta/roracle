@@ -43,6 +43,9 @@ def main(argv: list[str] | None = None) -> None:
     from roracle.ingest.reparse import add_parser as add_reparse
 
     add_reparse(sub)
+    from roracle.autotag import add_parser as add_autotag
+
+    add_autotag(sub)
     from roracle.perf.cli import add_parser as add_perf
 
     add_perf(sub)
@@ -64,6 +67,10 @@ def main(argv: list[str] | None = None) -> None:
         from roracle.ingest.reparse import run as reparse_run
 
         sys.exit(reparse_run(args))
+    elif args.cmd == "auto-tags":
+        from roracle.autotag import run as autotag_run
+
+        sys.exit(autotag_run(args))
     elif args.cmd == "perf":
         from roracle.perf.cli import run as perf_run
 

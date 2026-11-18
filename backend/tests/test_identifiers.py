@@ -108,7 +108,15 @@ def test_extract(text, want):
     ],
 )
 def test_arxiv_stamp(text, want):
-    assert extract_arxiv_stamp(text) == want
+    assert {k: v for k, v in extract_arxiv_stamp(text).items() if k != "category"} == want
+
+
+def test_arxiv_stamp_category():
+    assert extract_arxiv_stamp("arXiv:2611.20773v1 [cs.DC] 20 Nov 2026") == {
+        "arxiv": "2611.20773",
+        "category": "cs.DC",
+    }
+    assert extract_arxiv_stamp("arXiv:math.GT/0309136v2 [math.GT]")["category"] == "math.GT"
 
 
 def test_doi_hostile_input_bounded():
