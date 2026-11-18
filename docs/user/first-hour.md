@@ -42,6 +42,6 @@ Use **Continue in agent** on any chat. See [Hand work to an agent](handoffs-inbo
 
 <!-- /steps -->
 
-The library also shows a **Get started** card with these steps. It ticks them as you go.
+The library shows a **Get started** card: first the four basics, then (once they are done) the agent steps. It ticks steps as you do them. If your site has access tokens turned off, the token and MCP steps are not shown.
 
 <!-- try:card label="Show the Get started card" hint="Brings back the card if you hid it." -->

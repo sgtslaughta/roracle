@@ -123,3 +123,5 @@ browse, LSH near-duplicate lookup, sliced re-embed with a pre-swap convergence p
 ## Update (2026-11-17)
 
 The Elasticsearch 9.5.6 decision above says "a rebuild from Postgres + MinIO"; read "the object store" (Rook-Ceph RGW or external S3, [ADR-0016](0016-terraform-iac.md)). Still true and eval-gated: `bbq_hnsw` is not the default (`int8_hnsw` is, `config.py:93`), and every feature flag in the table stays `false` in `config.py` until its report says PASS. The agentic planner model (`ROR_AGENTIC_PLANNER_MODEL`, empty = the first chat model) has only a ledger ruling, not its own ADR.
+
+Update (2026-11-17): the work is implemented and merged to main (PR #19), no longer only on the `feat/retrieval-quality` branch.

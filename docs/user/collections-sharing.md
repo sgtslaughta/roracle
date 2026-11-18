@@ -21,7 +21,7 @@ A collection is your own named list of papers, for example a literature review. 
 
 - Your collections are listed in the sidebar. Click one to open the Library filtered to it. The **Collection** filter does the same and can be combined with other filters ([library and search](library-search.md#filters)).
 - With exactly one collection selected, a result's three-dot menu has **Remove from collection**. A toast offers **Undo**.
-- The sidebar three-dot menu on a collection offers **Show in Library**, **Rename…**, **Delete…** and **Copy name**. Deleting removes the collection for you; the papers stay in the library.
+- The sidebar three-dot menu on a collection offers **Rename…** and **Delete…**; click the collection's name to open it in the Library. Deleting removes the collection for you; the papers stay in the library.
 - The count next to a collection only counts papers you can currently see. If a paper in it is deleted or you lose access, it quietly drops out of the count.
 
 To pass a whole collection to an agent, use **Continue in agent** on the Library while filtered to that single collection. See [handoffs](handoffs-inbox.md#creating-a-handoff).

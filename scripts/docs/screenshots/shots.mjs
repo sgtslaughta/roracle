@@ -15,7 +15,6 @@ export const SHOTS = [
     await p.waitForTimeout(500);
   } },
 
-  { id: "vote-reasons", path: "/library", run: async (p) => { await p.getByRole("button", { name: "Downvote" }).first().click(); await p.waitForTimeout(400); } },
   { id: "getting-started-layout", path: DOC1 },
   { id: "reader-split", path: DOC1 },
   { id: "reader-focus", path: DOC1, run: async (p) => { await btn(p, /Focus mode/).click(); await p.waitForTimeout(600); } },

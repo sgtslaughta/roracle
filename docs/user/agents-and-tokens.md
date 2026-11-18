@@ -34,7 +34,7 @@ The limits that apply to every token:
 - **It sees what you see, minus more.** Papers labelled **Block agents** are invisible to tokens, admins' tokens included. The text of papers labelled **Exclude from AI** is never given to a token ([labels](labels.md#what-each-gate-means-to-you)). Group-based access follows the groups you had when you created the token, and only those you still have as of your last sign-in or use of the web app; a group you lose reaches the token only then.
 - **It proposes, you decide.** Anything an agent wants to add to your library as notes or labels becomes a proposal you approve or reject ([agent proposals](handoffs-inbox.md#agent-proposals)). It cannot approve its own proposals, acknowledge citations in a draft, or lower a label on its own.
 - **Uploads stay private by default** and use your default label; an agent cannot choose a label below the default. A file uploaded by an agent is capped at 25 MiB by default (a larger file needs a normal upload).
-- **Drafts.** An agent can write and check a draft, and no agent tool submits one; you submit from the web app ([writing drafts](writing-drafts.md)). The web API does not stop a write token from submitting, so give write access only to agents you trust. A token is refused (403, "withheld by label") when it validates, citation-checks or builds a draft whose label is **Exclude from AI**.
+- **Drafts.** An agent can write and check a draft, and no agent tool submits one; you submit from the web app ([writing drafts](writing-drafts.md)). The web API does not stop a write token from submitting, so give write access only to agents you trust. A token is refused (403, "withheld by label") when it reads, validates, citation-checks or builds a draft, or downloads a paper, whose label is **Exclude from AI**.
 - **Human-only actions.** Approving proposals, acknowledging citations and managing tokens need you signed in; a token cannot do them.
 - **A read-only token cannot change anything**, through MCP or the web API.
 
@@ -46,7 +46,7 @@ Calls a token makes are recorded in the audit log under its name, so your admins
 
 **Revoke** stops the token at once: agents using it are signed out. It cannot be undone; create a new token instead.
 
-A token also stops working when you have not signed in to rOracle for a while. By default that is 30 days since your last sign-in; the agent then gets "token owner session stale, sign in again". Sign in to the web app again to restore it. Your admins can also switch access tokens off for the whole site, in which case every token is rejected.
+A token also stops working when you have not signed in to rOracle for a while. By default that is 30 days since your last sign-in; the agent then gets "token owner session stale — sign in again". Sign in to the web app again to restore it. Your admins can also switch access tokens off for the whole site, in which case every token is rejected.
 
 ![The token table with one active, one expired and one revoked token](../assets/screens/tokens-list.png)
 

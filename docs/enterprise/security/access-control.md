@@ -89,7 +89,7 @@ visibility; labels never grant access.
 | Gate | Effect | Applies to |
 |---|---|---|
 | `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
-| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
+| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary, auto-tag suggestions. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner (JWT or PAT) and admins on an interactive JWT. Admin PATs are not exempt (a PAT is never admin) |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
@@ -184,6 +184,7 @@ documents:
 | Router | the prompt carries the question only (<= 600 characters), no document text (`chat/router.py`) |
 | Global map-reduce | candidates come from ES with the `exclude_llm` filter (plus the PAT `block_agents` filter), then Postgres re-checks visibility, gate (a), the latest searchable version and `gated_docs`; each map call sees one document's own units (`chat/global_answer.py`) |
 | Agentic loop | every retrieval, the first and each sub-query, is `rank_for_chat` as the caller; the planner prompt holds the question and passages that came out of it, with delimiter tags neutralised (`_quote`); sub-queries are plain strings, scope and principal are fixed by the caller (`chat/agentic.py`) |
+| Auto-tags | an `exclude_llm` document is never sent (the label is re-read before the call); the tag vocabulary comes only from documents visible to everyone and allowed near an LLM (`autotag.py`) |
 | Eval judge | refuses with `LabelGateError` if a gated document is in its input (`eval/judge.py`) |
 | Eval question generation | samples only documents visible to the chosen non-admin principal and `llm_allowed`, re-checked per document (`eval/generate.py`) |
 | Reranker | a cross-encoder service you operate, not a generative model. On library search it receives the passages the caller already sees, **including `exclude_llm` documents** (their text is withheld from PATs, not from the human who may read them); chat and MCP `ask` retrieve with the `exclude_llm` filter. Keep the reranker host inside the same trust boundary as the API |

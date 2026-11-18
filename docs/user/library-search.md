@@ -41,24 +41,28 @@ With **Anywhere** or **Full text**, an excluded word is checked per passage, so 
 
 ### The query sentence
 
-Under the search box the current search reads as a sentence, for example "Papers matching “spectral graphs” · not by A. Author · published 2015–2020 · tagged expanders". Each part is a chip: click it to edit that part in place, or remove it with its cross (or Backspace or Delete). **Clear all** removes every filter and the query. With nothing set the sentence reads "All papers you can see".
+Under the search box the current search reads as a sentence, for example "Papers matching “spectral graphs” · not by A. Author · published 2015–2020 · tagged expanders". Each part is a chip: click it to edit that part in place, or remove it with its cross (or Backspace or Delete). With two or more parts, **Clear all** removes every filter and the query. With nothing set the sentence reads "All papers you can see".
 
 ## Views
 
 The **List**, **Compact** and **Table** switch changes how results are shown; the choice is kept in the address.
 
-- **List**: result cards with passages, tags, notes and votes (described below).
+- **List**: result cards with passages, tags and notes (described below).
 - **Compact**: one line per paper with title, first author, year, venue, citations and net votes.
-- **Table**: sortable columns. **Columns** chooses which of Title, Authors, Year, Venue, Cited by, Votes and Added are shown. Click a column header to sort by it; click again to reverse where that applies. On a narrow screen the table scrolls sideways inside its own frame.
+- **Table**: sortable columns. **Columns** chooses which of Authors, Year, Venue, Cited by, Votes and Added are shown (Title is always shown). Click a column header to sort by it; click again to reverse where that applies. On a narrow screen the table scrolls sideways inside its own frame.
 
 ### What a result card shows
 
 - Title, authors, venue and year.
-- The sensitivity label badge ([labels](labels.md)), the file type, the version (`v2`), and "Cited by N here" when N papers in the library that you can see cite it.
-- Tags. Click a tag to filter by it.
+- An AI summary, clamped to three lines. **More** expands it; when the paper also has an extracted abstract the button reads **More and abstract** and shows the abstract under the summary.
+- Persistent identifiers (DOI, arXiv and so on), when the paper has them.
+- The sensitivity label badge ([labels](labels.md)), unless the paper has the default label. Then the file type, the version (`v2`), the page count, the reference count (when it is not zero), an "Added *date*" badge, and "Cited by N here" when N papers in the library that you can see cite it.
+- Tags. Click a tag to filter by it. Tags the AI suggested from the summary are styled differently and carry the hint "Suggested by AI from the summary". Right-click a tag (or use its menu) for **Filter by this tag**, **Copy tag** and, if you own the paper or are an admin, **Remove tag**. This is also how you remove an AI-suggested tag you do not want.
+- A **+ tag** button: click it, type a tag and press `Enter` to add it (`Esc` cancels).
 - Up to two community notes on the paper ([notes](notes-annotations.md#community-notes)), shown as plain text. Click one to open the paper on its Notes tab.
 - The three-dot menu: **Open**, **Add to collection**, **Copy title**, and **Remove from collection** when you are viewing exactly one of your collections.
-- The vote control (see [votes](#votes)).
+
+Votes are cast in the reader (see [votes](#votes)); the Compact and Table views show the net score read-only.
 
 ### Counts and paging
 
@@ -119,7 +123,7 @@ Changing a filter returns you to page 1. The address in your browser holds the q
 
 ## Saved searches
 
-**Saved searches** keeps searches for later. **Save this search** asks for a name (1 to 100 characters, unique among your saved searches) and stores the current address: query, filters, view and sort. Pick a saved search to run it again; rename or delete it from the same menu. Saved searches are private to you, and you can keep up to 200. A saved search re-runs against the library as it is now, so its results change as papers are added or shared.
+**Saved searches** keeps searches for later. **Save this search** asks for a name (1 to 100 characters, unique among your saved searches) and stores the current address: query, filters, view, columns and sort. A search whose address is longer than 4000 characters cannot be saved ("This search is too long to save. Remove some filters."). Pick a saved search to run it again; rename or delete it from the same menu. Saved searches are private to you, and you can keep up to 200. A saved search re-runs against the library as it is now, so its results change as papers are added or shared.
 
 ## While the search index upgrades
 
@@ -127,13 +131,11 @@ After an upgrade your administrator may need to rebuild the search index. Until 
 
 ## Votes
 
-Each paper has up and down arrows with a score (up minus down).
+Vote in the reader, with the thumbs up and thumbs down next to **Ask about this**. The score is up minus down; the Compact and Table views show it read-only.
 
-- Click the up arrow to mark a paper useful. Click it again to take the vote back.
-- Click the down arrow to say it is not useful. A menu asks why; the owner sees your reason. The choices are **Outdated**, **Wrong or misleading**, **Low quality** and **Superseded by a newer document**. Choosing the last one asks which paper replaces it, from the other papers on the same results page; it is not offered where there are none, such as in the reader.
+- Click the thumbs up to mark a paper useful. Click it again to take the vote back.
+- Click the thumbs down to say it is not useful. A menu asks why; the owner sees your reason. The choices are **Outdated**, **Wrong or misleading**, **Low quality** and **Superseded by a newer document**. Choosing the last one asks which paper replaces it, chosen from papers in your recent library results. It is not offered if you have not searched yet in this session.
 - Votes nudge ranking: a well-liked paper ranks a little higher and a disliked one a little lower (the effect is at most 15 percent).
-
-![The downvote reason menu open on a result card](../assets/screens/vote-reasons.png)
 
 ## Related
 

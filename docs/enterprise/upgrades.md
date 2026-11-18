@@ -2,7 +2,7 @@
 
 Audience: operators and SRE. How to upgrade rOracle (Helm chart `deploy/helm/roracle`), the special cases (chart 0.1 to 0.2.0, Elasticsearch 8.x to 9.x, the 0.3.0 library search reindex), the database migrations with the risky ones flagged, and the re-embed after an embedding model change. Back to the [enterprise index](README.md); terms are in the [glossary](../glossary.md). Install is in the [deployment guide](deployment-guide.md); backups and restore are in the [operations runbook](operations-runbook.md).
 
-Versioning is SemVer. `VERSION`, chart `version` and `appVersion` are the same number (`scripts/check-version.sh` enforces it in CI; chart 0.2.0 ships appVersion 0.2.0), and an empty image tag means `appVersion`. A patch release is drop-in, a minor release adds migrations and rolls without downtime, a major release comes with release notes and manual steps.
+Versioning is SemVer. `VERSION`, chart `version` and `appVersion` are the same number (`scripts/check-version.sh` enforces it in CI; for example chart 0.3.0 ships appVersion 0.3.0), and an empty image tag means `appVersion`. A patch release is drop-in, a minor release adds migrations and rolls without downtime, a major release comes with release notes and manual steps.
 
 ## 1. General order
 
@@ -88,6 +88,8 @@ Plan for double vector storage during a re-embed. Details: [search index lifecyc
 | 0018 `0018_chat_hidden_at.py` | `chats.hidden_at` (owner's soft remove) | none |
 | 0019 `0019_reparse_refs_bulk.py` | `reparse_refs` becomes a bulk kind (claim indexes recreated) | **drain workers first**: same concurrent swap as 0014b |
 | 0020 `0020_saved_searches.py` | `saved_searches` (owner-only saved library searches, unique name per owner) | none; 0.3.0 also needs the search reindex in section 6 |
+| 0021 `0021_tag_source.py` | `tags.source`, `documents.rejected_tags`; `auto_tags` becomes a bulk kind (claim indexes recreated) | **drain workers first**: same concurrent swap as 0019 |
+| 0022 `0022_onboarding.py` | `onboarding_progress` (Get started checklist) | none |
 
 Concurrent index migrations cannot run inside a transaction, so they use Alembic's autocommit block. If one is interrupted it can leave an invalid index; the migrations drop an invalid leftover and verify validity, so fixing the cause and re-running `roracle migrate` is safe. A migration that waits does so on long-running transactions: drain the workers (step 4 of section 1) and check `pg_stat_activity` for long transactions on the primary.
 
@@ -138,4 +140,6 @@ Journal and has-identifier results are only correct for papers written by that r
 - Advanced library search: query syntax with exact phrases, exclusions and field scope; include and exclude per filter value with match any or all for tags and authors; venue, journal (by ISSN) and has-identifier filters; year histogram with a range; date added, page count, votes and cited-by ranges; owner and citing filters; ten sorts; list, compact and table views with a column picker; the query sentence; saved searches ([library search](../user/library-search.md)).
 - API: new `GET /api/search` parameters, `GET /api/search/facets/{name}` and `/api/me/saved-searches` ([agent integration](agent-integration.md#library-search-api)). The `year` list parameter is replaced by `year_min` and `year_max`.
 - Browse runs from Elasticsearch: counts and facets cover every visible paper up to 10,000 (`total_capped` above), and the `after` cursor works for every browse sort.
-- Upgrade: migration 0020 and the required same-model reindex (section 6).
+- AI tag suggestions: the LLM suggests tags from the AI summary at ingest; `roracle auto-tags [--limit N]` backfills existing papers through the `auto_tags` bulk job. Migration 0021 recreates the claim indexes: drain workers first.
+- Get started checklist and help window (migration 0022).
+- Upgrade: migrations 0020 to 0022 and the required same-model reindex (section 6).

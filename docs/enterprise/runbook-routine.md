@@ -212,7 +212,7 @@ Citations link by DOI, arXiv, PMID, PMCID, ACL Anthology and OpenReview ids as w
 
 Context notes and RAPTOR units are index-time. `roracle rebuild --what context[,raptor] [--into chunks-<slug>-shadow]` (or
 `POST /api/admin/retrieval/rebuild {"what": [...], "into": "..."}`) enqueues `rebuild_units` jobs of 25 latest searchable, non-deleted versions each, plus a
-`rebuild_watch` job that queues the eval run when the batch is done (not for a shadow). `rebuild_units` and `reconcile_tags` are claimed only when no user job is due, so
+`rebuild_watch` job that queues the eval run when the batch is done (not for a shadow). Bulk kinds (`rebuild_units`, `reconcile_tags`, `reparse_refs`, `auto_tags`) are claimed only when no user job is due, so
 a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed runs, and a re-embed is refused while rebuild jobs are pending.
 
 - **Shadow workflow** (judge a feature before it touches search): `roracle rebuild --what context --into chunks-<model-slug>-shadow` creates the shadow index

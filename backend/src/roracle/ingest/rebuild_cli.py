@@ -9,7 +9,7 @@ from roracle.ingest import rebuild
 
 
 def add_parser(sub) -> None:
-    r = sub.add_parser("rebuild", help="rebuild index-time derived fields (contextual notes) per version")
+    r = sub.add_parser("rebuild", help="rebuild index-time derived fields (contextual notes, RAPTOR summaries) per version")
     g = r.add_mutually_exclusive_group(required=True)
     g.add_argument("--what", metavar="context[,raptor]")
     g.add_argument(
@@ -17,7 +17,7 @@ def add_parser(sub) -> None:
         metavar="NAME",
         help="delete a shadow index (never the active one, a re-embed generation, or while jobs run)",
     )
-    r.add_argument("--into", metavar="NAME", help="shadow index chunks-<slug>-shadow (default: active index)")
+    r.add_argument("--into", metavar="NAME", help="shadow index name chunks-<slug> (not ending in -<number>; default: active index)")
 
 
 def run(args) -> int:
