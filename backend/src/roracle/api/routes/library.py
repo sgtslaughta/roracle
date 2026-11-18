@@ -121,6 +121,12 @@ def tags_of(session: Session, doc_id: UUID) -> list[str]:
     return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
 
 
+def auto_tags_of(session: Session, doc_id: UUID) -> list[str]:
+    """The document's tags suggested by the LLM and not (yet) adopted by a user."""
+    q = select(Tag.tag).where(Tag.document_id == doc_id, Tag.source != "user").order_by(Tag.tag)
+    return list(session.scalars(q))
+
+
 def _sync_es(session: Session, es: Elasticsearch, doc_id: UUID) -> list[str]:
     tags: list[str] = []
 
@@ -167,10 +173,14 @@ def add_tag(
     have = tags_of(session, doc_id)
     if body.tag not in have and len(have) >= MAX_TAGS:
         raise HTTPException(422, "too many tags")
-    session.execute(insert(Tag).values(document_id=doc_id, tag=body.tag).on_conflict_do_nothing())
+    session.execute(  # adding an existing auto tag adopts it as the user's
+        insert(Tag)
+        .values(document_id=doc_id, tag=body.tag, source="user")
+        .on_conflict_do_update(index_elements=[Tag.document_id, Tag.tag], set_={"source": "user"})
+    )
     session.commit()
     tags = _sync_or_queue(session, es, sf, doc_id)
-    return {"tag": body.tag, "tags": tags}
+    return {"tag": body.tag, "tags": tags, "auto_tags": auto_tags_of(session, doc_id)}
 
 
 @router.delete("/documents/{doc_id}/tags/{tag}")
@@ -192,7 +202,7 @@ def delete_tag(
     session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
     session.commit()
     tags = _sync_or_queue(session, es, sf, doc_id)
-    return {"tags": tags}
+    return {"tags": tags, "auto_tags": auto_tags_of(session, doc_id)}
 
 
 # ---- collections

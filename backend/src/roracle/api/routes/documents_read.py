@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from roracle.access import visible_documents
 from roracle.api.routes.documents import get_blob_store
-from roracle.api.routes.library import get_es, tags_of, vote_summary
+from roracle.api.routes.library import auto_tags_of, get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.identifiers import public_ids
@@ -136,6 +136,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "withheld": lab.name if hide else None,
         "stage": latest.stage if latest else "uploaded",
         "tags": tags_of(session, doc_id),
+        "auto_tags": auto_tags_of(session, doc_id),  # subset of `tags` suggested by the LLM
         "votes": vote_summary(session, doc_id, p.user_id),
         "file_type": file_type(latest.filename) if latest else "other",
         "versions": [
