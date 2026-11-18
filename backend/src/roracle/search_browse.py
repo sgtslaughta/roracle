@@ -60,17 +60,18 @@ def empty_body(page: int, policy: Policy) -> dict:
     }
 
 
-def card_extras(session: Session, ids: list[UUID]) -> dict[str, tuple[str | None, int]]:
-    """Page-only card fields, one query: kept out of `_load` (it loads up to MAX_DOCS rows for facets)."""
+def card_extras(session: Session, ids: list[UUID]) -> dict[str, tuple[str | None, str | None, int]]:
+    """Page-only card fields, one query: kept out of `_load` (it loads up to MAX_DOCS rows for facets).
+    Text fields (summary, abstract) exist ONLY here, so a route that skips `decorate` never carries them."""
     if not ids:
         return {}
     v = DocumentVersion
     rows = session.execute(
-        select(v.document_id, v.summary, func.jsonb_array_length(v.references)).where(
-            v.document_id.in_(ids), v.is_latest, v.stage == "searchable"
-        )
+        select(
+            v.document_id, v.summary, v.meta["abstract"].astext, func.jsonb_array_length(v.references)
+        ).where(v.document_id.in_(ids), v.is_latest, v.stage == "searchable")
     )
-    return {str(d): (s, n or 0) for d, s, n in rows}
+    return {str(d): (s, a, n or 0) for d, s, a, n in rows}
 
 
 def decorate(session: Session, p: Principal, policy: Policy, results: list[dict], notes: bool) -> None:
@@ -80,7 +81,7 @@ def decorate(session: Session, p: Principal, policy: Policy, results: list[dict]
     extra = card_extras(session, ids)
     for h in results:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
-        h["summary"], h["ref_count"] = extra.get(h["doc_id"], (None, 0))
+        h["summary"], h["abstract"], h["ref_count"] = extra.get(h["doc_id"], (None, None, 0))
         h["label"] = label_json(policy.get(h["label"]))
     gated = gated_docs(session, p, [h["doc_id"] for h in results])
     for h in results:  # agents: metadata and label, no passage text of exclude_llm docs

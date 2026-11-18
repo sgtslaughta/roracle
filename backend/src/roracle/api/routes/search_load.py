@@ -244,6 +244,5 @@ def _hit(r: Row) -> dict:
         "cited_by_count": 0,  # filled by the route in one batched query
         "page_count": r.ver.page_count,
         "added_at": r.doc.created_at.isoformat() if r.doc.created_at else None,
-        "abstract": r.meta.get("abstract") if isinstance(r.meta.get("abstract"), str) else None,
         "ids": public_ids(r.meta),
     }
