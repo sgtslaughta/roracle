@@ -28,9 +28,19 @@ ENV = {
     "openin_any": "p",
     "openout_any": "p",
     "shell_escape": "f",
-    "TEXMFVAR": "/tmp/texmf-var",
-    "TEXMFCONFIG": "/tmp/texmf-config",
+    "MKTEXTFM": "0",  # no on-demand font generation
+    "MKTEXPK": "0",
+    "MKTEXMF": "0",
 }
+# PDF names a published paper must not carry (viewers run or fetch them); /URI is checked separately.
+FORBIDDEN = (
+    "JavaScript JS AA Named Launch EmbeddedFile EmbeddedFiles RichMedia SubmitForm ImportData GoToR GoToE "
+    "Movie Sound Rendition XFA FileAttachment 3D"
+).split()
+_NAME = re.compile(rb"/(" + b"|".join(k.encode() for k in FORBIDDEN) + rb")(?![A-Za-z0-9_.#-])")
+_STREAM = re.compile(rb"stream\r?\n.*?endstream", re.DOTALL)
+_URI = re.compile(rb"/URI\s*\(((?:[^()\\]|\\.)*)\)")
+_HEXNAME = re.compile(rb"#([0-9A-Fa-f]{2})")
 _sem = threading.BoundedSemaphore(max(1, int(os.environ.get("LATEX_CONCURRENCY", 2))))
 
 
@@ -83,37 +93,76 @@ def _dir_bytes(p: Path) -> int:
     return sum(f.stat().st_size for f in p.rglob("*") if f.is_file() and not f.is_symlink())
 
 
-def compile_pdf(src: str, files: dict[str, str], timeout_s: float) -> bytes:
-    work = Path(tempfile.mkdtemp(prefix="latex-"))
+def build_env(root: Path) -> dict[str, str]:
+    """Per-request environment: TeX's writable dirs live in this request's own root, never shared between builds."""
+    return {
+        **ENV,
+        "HOME": str(root / "work"),
+        "TEXMFVAR": str(root / "texmf-var"),
+        "TEXMFCONFIG": str(root / "texmf-config"),
+    }
+
+
+def forbidden_features(pdf: bytes) -> list[str]:
+    """Active-content keys in the PDF's object structure (stream bodies skipped) and non-web /URI schemes."""
+    body = _HEXNAME.sub(lambda m: bytes([int(m.group(1), 16)]), _STREAM.sub(b"", pdf))
+    found = sorted({m.group(1).decode() for m in _NAME.finditer(body)})
+    for m in _URI.finditer(body):
+        if not m.group(1).strip().lower().startswith((b"http://", b"https://", b"mailto:")):
+            found.append("URI")
+            break
+    return found
+
+
+def _run(cmd: list[str], cwd: Path, env: dict[str, str], timeout_s: float) -> int:
+    p = subprocess.Popen(  # noqa: PLW1509 - handler threads hold no locks the child needs before exec
+        cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, preexec_fn=_limits,
+    )
     try:
+        return p.wait(timeout_s)
+    except subprocess.TimeoutExpired:
+        raise Bad(503, "build timed out") from None
+    finally:
+        with_suppress_kill(p)  # stray children (bibtex, dvips) die with the group
+
+
+def sanitize_pdf(raw: Path, root: Path, env: dict[str, str], timeout_s: float) -> bytes:
+    """Re-distill with Ghostscript (drops catalog actions, JS, attachments), then refuse any residue."""
+    out = root / "clean.pdf"
+    cmd = ["gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
+           f"-sOutputFile={out}", str(raw)]
+    if _run(cmd, root, env, timeout_s) != 0 or not out.is_file():
+        raise Bad(422, "PDF could not be sanitised")
+    data = out.read_bytes()
+    if bad := forbidden_features(data) or forbidden_features(raw.read_bytes()):
+        raise Bad(422, "document uses PDF features that are not allowed: " + ", ".join(bad))
+    return data
+
+
+def compile_pdf(src: str, files: dict[str, str], timeout_s: float) -> bytes:
+    root = Path(tempfile.mkdtemp(prefix="latex-"))
+    try:
+        work = root / "work"  # cwd; TeX's cache dirs and gs output sit beside it, off every TeX search path
+        for d in (work, root / "texmf-var", root / "texmf-config"):
+            d.mkdir()
         (work / "main.tex").write_text(src, "utf-8")
         for k, v in files.items():
             (work / k).write_text(v, "utf-8")
         cmd = ["latexmk", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "-norc", "main.tex"]
-        env = {**ENV, "HOME": str(work)}
-        # preexec_fn is safe here: the handler threads never hold locks the child needs before exec
-        p = subprocess.Popen(  # noqa: PLW1509
-            cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, preexec_fn=_limits,
-        )
-        try:
-            p.wait(timeout_s)
-        except subprocess.TimeoutExpired:
-            with_suppress_kill(p)
-            raise Bad(503, "build timed out") from None
-        finally:
-            with_suppress_kill(p)  # stray children (bibtex, dvips) die with the group
+        env = build_env(root)
+        rc = _run(cmd, work, env, timeout_s)
         if _dir_bytes(work) > WORK_BYTES:
             raise Bad(422, "build output too large")
         pdf = work / "main.pdf"
-        if p.returncode != 0 or not pdf.is_file():
+        if rc != 0 or not pdf.is_file():
             log = work / "main.log"
             raise Bad(422, error_excerpt(log.read_text("utf-8", "replace") if log.is_file() else ""))
         if pdf.stat().st_size > MAX_PDF:
             raise Bad(422, "built PDF is too large")
-        return pdf.read_bytes()
+        return sanitize_pdf(pdf, root, env, timeout_s)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def with_suppress_kill(p: subprocess.Popen) -> None:
