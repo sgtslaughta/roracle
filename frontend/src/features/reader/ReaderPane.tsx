@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { BookOpen, FileSearch, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { docTitle } from "@/lib/docTitle";
@@ -24,6 +24,7 @@ import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
 import { CitedByTab, ReferencesTab } from "./ReferencesTab";
 import { TagBar } from "./TagBar";
+import { DetailsTab, SummaryTab } from "./DocInfo";
 import { setVersion, setView, type ReaderTab, type ReaderView } from "./useReaderStore";
 
 export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) {
@@ -90,10 +91,12 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>
           <TabsList aria-label="Document sections">
-            <TabsTrigger value="doc"><BookOpen aria-hidden />Document</TabsTrigger>
-            <TabsTrigger value="refs"><ListOrdered aria-hidden />References{refs && <span className="n">{refs.length}</span>}</TabsTrigger>
-            <TabsTrigger value="cited"><Quote aria-hidden />Cited by{cited && <span className="n">{cited.length}</span>}</TabsTrigger>
-            <TabsTrigger value="notes"><MessageSquareQuote aria-hidden />Notes{notes && <span className="n">{notes.filter((n) => !n.parent_id).length}</span>}</TabsTrigger>
+            <TabsTrigger value="doc" aria-label="Document" title="Document"><BookOpen aria-hidden /><span className="tl">Document</span></TabsTrigger>
+            <TabsTrigger value="summary" aria-label="Summary" title="Summary"><Sparkles aria-hidden /><span className="tl">Summary</span></TabsTrigger>
+            <TabsTrigger value="details" aria-label="Details" title="Details"><FileSearch aria-hidden /><span className="tl">Details</span></TabsTrigger>
+            <TabsTrigger value="refs" aria-label="References" title="References"><ListOrdered aria-hidden /><span className="tl">References</span>{refs && <span className="n">{refs.length}</span>}</TabsTrigger>
+            <TabsTrigger value="cited" aria-label="Cited by" title="Cited by"><Quote aria-hidden /><span className="tl">Cited by</span>{cited && <span className="n">{cited.length}</span>}</TabsTrigger>
+            <TabsTrigger value="notes" aria-label="Notes" title="Notes"><MessageSquareQuote aria-hidden /><span className="tl">Notes</span>{notes && <span className="n">{notes.filter((n) => !n.parent_id).length}</span>}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -104,6 +107,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} blocked={blocked} />
         </Suspense>
       )}
+      {view === "summary" && <SummaryTab d={d} />}
+      {view === "details" && <DetailsTab d={d} />}
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} latest={latest} />}

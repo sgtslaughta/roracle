@@ -60,33 +60,33 @@ def empty_body(page: int, policy: Policy) -> dict:
     }
 
 
-def card_extras(session: Session, ids: list[UUID]) -> dict[str, tuple[str | None, int]]:
-    """Page-only card fields, one query: kept out of `_load` (it loads up to MAX_DOCS rows for facets)."""
+def card_extras(session: Session, ids: list[UUID]) -> dict[str, tuple[str | None, str | None, int]]:
+    """Page-only card fields, one query: kept out of `_load` (it loads up to MAX_DOCS rows for facets).
+    Text fields (summary, abstract) exist ONLY here, so a route that skips `decorate` never carries them."""
     if not ids:
         return {}
     v = DocumentVersion
     rows = session.execute(
-        select(v.document_id, v.summary, func.jsonb_array_length(v.references)).where(
-            v.document_id.in_(ids), v.is_latest, v.stage == "searchable"
-        )
+        select(
+            v.document_id, v.summary, v.meta["abstract"].astext, func.jsonb_array_length(v.references)
+        ).where(v.document_id.in_(ids), v.is_latest, v.stage == "searchable")
     )
-    return {str(d): (s, n or 0) for d, s, n in rows}
+    return {str(d): (s, a, n or 0) for d, s, a, n in rows}
 
 
 def decorate(session: Session, p: Principal, policy: Policy, results: list[dict], notes: bool) -> None:
     """Viewer-relative extras of a result page: visible cited-by counts, label JSON, agent gate, notes."""
     ids = [UUID(h["doc_id"]) for h in results]
     counts = cited_by_counts(session, p, ids)
-    extra = card_extras(session, ids)
+    gated = gated_docs(session, p, [h["doc_id"] for h in results])
+    # fail closed: text fields are only ever fetched for ungated docs
+    extra = card_extras(session, [i for i in ids if str(i) not in gated])
     for h in results:
         h["cited_by_count"] = counts.get(h["doc_id"], 0)
-        h["summary"], h["ref_count"] = extra.get(h["doc_id"], (None, 0))
+        h["summary"], h["abstract"], h["ref_count"] = extra.get(h["doc_id"], (None, None, 0))
         h["label"] = label_json(policy.get(h["label"]))
-    gated = gated_docs(session, p, [h["doc_id"] for h in results])
-    for h in results:  # agents: metadata and label, no passage text of exclude_llm docs
-        if h["doc_id"] in gated:
+        if h["doc_id"] in gated:  # agents: metadata and label, no text of exclude_llm docs
             h["passages"], h["withheld"] = [], gated[h["doc_id"]]
-            h["summary"] = h["abstract"] = None
     attach_notes(session, p, results, notes)
 
 

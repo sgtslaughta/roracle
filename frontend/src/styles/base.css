@@ -74,3 +74,9 @@ input.add-tag { height: 22px; width: 110px; border: 1px dashed var(--border); bo
 .rid dt { font-weight: 600; }
 .rid dd { margin: 0; font-family: ui-monospace, monospace; user-select: all; }
 .rid-copy { background: none; border: 0; padding: 2px; color: inherit; cursor: pointer; }
+/* Text input: one look everywhere (dialogs, forms). */
+.inp { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.inp:focus-visible { outline: none; border-color: var(--apricot); box-shadow: 0 0 0 3px var(--primary-soft); }
+/* Inline yes/no confirmation next to the row it acts on. */
+.confirm-pop { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; font-size: 13px; width: auto; }
+.confirm-pop .ok { color: var(--danger, #e5484d); }

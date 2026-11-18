@@ -107,6 +107,17 @@ describe("reader pane", () => {
     expect(hl.style.top).not.toBe("");
   });
 
+  it("Summary and Details tabs show the AI summary and the metadata", async () => {
+    await renderApp("/d/00000000-0000-4000-8000-000000000001");
+    await screen.findByRole("heading", { name: /Lower bounds/ });
+    await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
+    expect(await screen.findByRole("heading", { name: "AI summary" })).toBeInTheDocument();
+    expect(screen.getByText("No abstract was found in this document.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /Details/ }));
+    expect(await screen.findByText("Visibility")).toBeInTheDocument();
+    expect(screen.getAllByText(/^Version \d+ \(latest\)$/).some((e) => e.tagName === "DT")).toBe(true);
+  });
+
   it("deep link with a version opens that version", async () => {
     await renderApp("/d/00000000-0000-4000-8000-000000000001/v/1");
     await screen.findByRole("heading", { name: /Lower bounds/ });
