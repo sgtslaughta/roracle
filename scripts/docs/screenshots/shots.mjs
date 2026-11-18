@@ -9,9 +9,9 @@ export const SHOTS = [
   { id: "library-results", path: "/library" },
   { id: "getting-started-signed-in", path: "/library" },
   { id: "library-filters", path: "/library", run: async (p) => {
-    await p.getByText("Thesis reading list", { exact: true }).last().click();
-    await p.getByText("spectral-graph-theory", { exact: true }).first().click();
-    await p.getByRole("checkbox", { name: "Year: 2024" }).click();
+    await p.getByRole("checkbox", { name: "Include Collection: Thesis reading list" }).click();
+    await p.getByRole("checkbox", { name: "Include Tags: spectral-graph-theory" }).click();
+    await p.getByRole("button", { name: /^Year 2024,/ }).click();
     await p.waitForTimeout(500);
   } },
 

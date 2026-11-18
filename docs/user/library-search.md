@@ -4,7 +4,7 @@ The Library is the start page. With nothing typed it lists the newest papers you
 
 <!-- try:search label="Try a search" hint="Quotes match a phrase; a minus sign leaves a word out." q='"multi-agent" -survey' -->
 
-![Library search results with passages, tags, votes and the filter rail](../assets/screens/library-results.png)
+![Library search results with tags, badges and the filter rail](../assets/screens/library-results.png)
 
 ## Searching
 
