@@ -211,14 +211,14 @@ def test_rest_upload_default_visibility(client, as_ana, db_session, ana):
         assert db_session.get(Document, UUID(r.json()["document_id"])).visibility == "everyone"
 
 
-def test_write_pat_cannot_delete_published_draft(client, db_session, ana, doc):
+def test_published_draft_cannot_be_deleted(client, db_session, ana, doc):
     from roracle.models_writing import Draft
 
     db_session.add(Draft(document_id=doc.id, status="in_review", submitted_version=1))
     db_session.commit()
-    h = new_pat(db_session, ana, ["read", "write"])
+    h = new_pat(db_session, ana, ["read", "write", "manage"])
     r = client.delete(f"/drafts/{doc.id}", headers=h)
-    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"
+    assert r.status_code == 409 and "published version" in r.json()["detail"]
     db_session.refresh(doc)
     assert doc.deleted_at is None
 

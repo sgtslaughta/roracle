@@ -70,7 +70,7 @@ export function DraftsPage() {
       <StatusBadge status={d.status} />
       <RowMenu label={`Actions for ${d.title}`} actions={[
         copyAction("Copy link", `${location.origin}/drafts/${d.id}`),
-        ...(d.owner.id === me?.id && d.status !== "submitted" ? [{ label: "Delete draft", danger: true, onSelect: () => setDoomed(d) }] : []),
+        ...(d.owner.id === me?.id && d.status !== "submitted" && !d.published ? [{ label: "Delete draft", danger: true, onSelect: () => setDoomed(d) }] : []),
       ]} />
     </div>
   );

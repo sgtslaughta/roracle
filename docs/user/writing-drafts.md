@@ -11,7 +11,7 @@
 - **Markdown.** The text is Markdown with a short block of settings at the top (the front matter). Raw HTML and raw TeX are dropped when the PDF is built. Images are kept only when they are embedded in the text as data, and links only if they start with http, https or mailto.
 - **Size limit.** A draft can be up to 2 MiB.
 
-The Drafts page lists drafts you own or co-author: title, writing profile, latest version, owner, date, sensitivity label and a status of **Draft**, **In review** or **Submitted**. The row menu has **Copy link** and, for the owner of a draft that is not yet submitted, **Delete draft**. A submitted draft cannot be deleted.
+The Drafts page lists drafts you own or co-author: title, writing profile, latest version, owner, date, sensitivity label and a status of **Draft**, **In review** or **Submitted**. The row menu has **Copy link** and, for the owner of a draft that is not yet submitted, **Delete draft**. A submitted draft cannot be deleted, and neither can a draft reopened for revision after it was published: deleting it would remove the published paper. Delete the paper from the Library instead.
 
 ## Starting a draft and writing profiles
 
