@@ -4,9 +4,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import false, func, or_, select, text, true
+from sqlalchemy import false, or_, select, true
 from sqlalchemy.orm import Session
 
+from roracle import quota
 from roracle.access import org_unit_error, org_units, readable_documents
 from roracle.audit import audit
 from roracle.auth import MANAGE, Principal, agent_marker, current_principal, get_app_settings, require_scope
@@ -149,21 +150,7 @@ def accept(
     units = org_units(list(p.groups))
     if err := org_unit_error(vis, units[0] if units else ""):
         raise HTTPException(422, err)
-    if settings.upload_quota_bytes > 0:
-        # serialize per user until commit so concurrent uploads cannot overshoot the quota
-        session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:u, 0))"), {"u": str(p.user_id)})
-        used = session.scalar(
-            select(func.coalesce(func.sum(DocumentVersion.size), 0))
-            .join(Document, Document.id == DocumentVersion.document_id)
-            .where(
-                Document.owner_id == p.user_id,
-                Document.connector_id.is_(None),  # connector documents are exempt
-                Document.deleted_at.is_(None),  # deleted papers free their quota
-                DocumentVersion.stage.not_in(("rejected", "cancelled")),
-            )
-        )
-        if used + staged.size > settings.upload_quota_bytes:
-            raise HTTPException(413, "upload quota exceeded")
+    quota.check(session, settings, p.user_id, staged.size)
     if not form.force:
         dup = session.scalar(
             select(DocumentVersion.document_id)
