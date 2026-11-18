@@ -20,7 +20,7 @@ export interface MockDraft extends Omit<DraftSummary, "label"> { vers: (VersionR
 const AI = `ai_assistance: {"used": false, "tools": [], "description": ""}`;
 function mk(id: string, title: string, status: DraftSummary["status"], owner: MockDraft["owner"], texts: string[], extra: Partial<MockDraft> = {}): MockDraft {
   const vers = texts.map((content, i) => ({ version: i + 1, author: owner, created_at: `2026-11-1${i}T10:00:00Z`, content }));
-  return { id, title, profile: "journal-article", status, owner, coauthors: { users: [], groups: [] }, latest_version: vers.length, updated_at: "2026-11-14T10:00:00Z", review_note: null, vers, reports: {}, acks: [], ...extra };
+  return { id, title, profile: "journal-article", status, owner, coauthors: { users: [], groups: [] }, latest_version: vers.length, updated_at: "2026-11-14T10:00:00Z", review_note: null, published: false, vers, reports: {}, acks: [], ...extra };
 }
 const seed = (): MockDraft[] => [
   mk(D1, "Spectral gaps of random hypergraphs", "draft", ME, ["# Intro\n\nFirst pass.", "# Intro\n\nSecond pass with a claim [@spectral-gap-v3]."]),

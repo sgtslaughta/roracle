@@ -5,7 +5,7 @@ export interface Who { id: string; username: string }
 export type DraftStatus = "draft" | "in_review" | "submitted";
 export interface DraftSummary {
   id: string; title: string; profile: string | null; status: DraftStatus; owner: Who;
-  coauthors: { users: string[]; groups: string[] }; latest_version: number; updated_at: string; review_note: string | null; label: Label;
+  coauthors: { users: string[]; groups: string[] }; latest_version: number; updated_at: string; review_note: string | null; published: boolean; label: Label;
 }
 export interface VersionRef { version: number; author: Who; created_at: string }
 export interface DraftDetail extends DraftSummary { content: string; versions: VersionRef[] }

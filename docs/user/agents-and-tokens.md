@@ -25,7 +25,7 @@ Tokens can be created and revoked only while you are signed in to the web app. A
 |---|---|
 | Read only | Search the library, read papers, passages and notes, list your collections, ask questions, export BibTeX, load handoffs and read their parts |
 | Read and write | All of the above, and: upload private papers, create handoffs for yourself, add notes to handoffs, propose notes, replies and label changes, save drafts, run validation and citation checks on drafts |
-| Read, write and manage | All of the above, and: change a paper's sharing or visibility, upload a paper that is not private, delete or transfer a paper, edit a draft's co-authors, submit a draft, delete a draft that was already published, share a chat, create or widen a handoff beyond yourself |
+| Read, write and manage | All of the above, and: change a paper's sharing or visibility, upload a paper that is not private, delete or transfer a paper, edit a draft's co-authors, submit a draft, share a chat, create or widen a handoff beyond yourself |
 
 The full list of tools, with their access level, is in the [MCP tool reference](../reference/mcp-tools.md). The integration contract is the [MCP guide](../reference/mcp.md).
 
