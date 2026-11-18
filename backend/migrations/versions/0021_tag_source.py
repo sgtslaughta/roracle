@@ -1,4 +1,6 @@
-"""tags.source (`user` | `llm` auto-tag) + `auto_tags` becomes a bulk job kind
+"""tags.source (`user` | `llm` auto-tag), documents.rejected_tags + `auto_tags` becomes a bulk job kind
+
+Downgrade: drain (or delete) queued/running `auto_tags` jobs first; the old claim indexes treat them as user work.
 
 The claim indexes are recreated with the wider predicate exactly as 0019 (temporary name, validate, drop old +
 rename; CONCURRENTLY). Drain workers first.
@@ -9,6 +11,7 @@ Revises: 0020
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import ARRAY
 
 revision = "0021"
 down_revision = "0020"
@@ -46,9 +49,14 @@ def _both(kinds: str) -> None:
 
 def upgrade() -> None:
     op.add_column("tags", sa.Column("source", sa.String(8), nullable=False, server_default="user"))
+    op.create_check_constraint("ck_tags_source", "tags", "source IN ('user', 'llm')")
+    op.add_column(  # AI tags the owner removed: never suggested again for this document
+        "documents", sa.Column("rejected_tags", ARRAY(sa.String(40)), nullable=False, server_default="{}")
+    )
     _both(NEW)
 
 
 def downgrade() -> None:
     _both(OLD)
+    op.drop_column("documents", "rejected_tags")
     op.drop_column("tags", "source")

@@ -32,8 +32,8 @@ def _label(n: int, x: Passage) -> str:
     return f"[{n}] {title}, p. {page}"
 
 
-# every delimiter tag used in a prompt (`paper`: auto-tags)
-TAGS = ("passage", "note", "unit", "finding", "question", "found", "paper")
+# every delimiter tag used in a prompt (`paper`, `vocab`: auto-tags)
+TAGS = ("passage", "note", "unit", "finding", "question", "found", "paper", "vocab")
 _CLOSE = re.compile(r"<\s*/\s*([A-Za-z][\w-]*)")
 _OPEN = re.compile(rf"<\s*({'|'.join(TAGS)})\b", re.IGNORECASE)
 

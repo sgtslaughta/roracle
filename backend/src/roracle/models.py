@@ -19,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 TZ = DateTime(timezone=True)
@@ -75,6 +75,9 @@ class Document(Base):
         index=True,
         default=text("(SELECT id FROM labels WHERE is_default)"),
     )
+    rejected_tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String(40)), default=list, server_default="{}"
+    )  # AI tags the owner removed: auto-tags never re-adds them
 
 
 class DocumentVersion(Base):
@@ -236,7 +239,10 @@ class Vote(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
-    __table_args__ = (Index("ix_tags_tag", "tag", "document_id"),)
+    __table_args__ = (
+        Index("ix_tags_tag", "tag", "document_id"),
+        CheckConstraint("source IN ('user', 'llm')", name="ck_tags_source"),
+    )
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True

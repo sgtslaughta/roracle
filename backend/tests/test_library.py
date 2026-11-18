@@ -162,6 +162,20 @@ def test_adding_an_auto_tag_adopts_it_and_auto_tags_are_exposed(client, as_ana, 
     assert db_session.get(Tag, (did, "gnn")).source == "user"
     r = client.delete(f"/documents/{d}/tags/rag", headers=as_ana)  # owner removes an auto tag as any other
     assert r.json() == {"tags": ["gnn"], "auto_tags": []}
+    client.delete(f"/documents/{d}/tags/gnn", headers=as_ana)  # a user tag: not remembered as rejected
+    db_session.expire_all()
+    assert db_session.get(Document, did).rejected_tags == ["rag"]  # re-ingest will not suggest it again
+
+
+def test_auto_tags_do_not_count_towards_the_user_cap(client, as_ana, up, fes, db_session, monkeypatch):
+    import roracle.api.routes.library as lib
+
+    monkeypatch.setattr(lib, "MAX_TAGS", 1)
+    d = up(as_ana)
+    db_session.add(Tag(document_id=uuid.UUID(d), tag="auto-one", source="llm"))
+    db_session.commit()
+    assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "mine"}).status_code == 200
+    assert client.post(f"/documents/{d}/tags", headers=as_ana, json={"tag": "more"}).status_code == 422
 
 
 def test_tag_422(client, as_ana, up, fes):

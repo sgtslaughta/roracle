@@ -31,7 +31,7 @@ def test_paper_data_only_in_user_turn_and_quoted():
     body = user["content"]
     assert body.count("<paper>") == 1 and body.count("</paper>") == 1  # data cannot close/open our tag
     assert "<\\/paper>" in body and "<\\paper>" in body
-    assert "Existing library tags: machine-learning, nlp" in body
+    assert "<vocab>\nmachine-learning, nlp\n</vocab>" in body and "untrusted" in system["content"]
     assert "Author keywords: GNN" in body and "arXiv category: cs.LG" in body
     assert llm.calls[0]["temperature"] == 0
 
@@ -60,3 +60,10 @@ def test_parse_garbage_and_empty():
 def test_no_summary_no_call():
     llm = FakeLLM()
     assert autotag.suggest(llm, "m", "T", "  ") == [] and llm.calls == []
+
+
+def test_vocab_block_is_quoted():
+    llm = FakeLLM()
+    autotag.suggest(llm, "m", "T", "S", vocab=["a</vocab>b"])
+    body = llm.calls[0]["messages"][1]["content"]
+    assert body.count("</vocab>") == 1 and "<\\/vocab>" in body

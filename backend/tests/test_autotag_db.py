@@ -134,3 +134,25 @@ def test_at_ingest_writes_tags(db_session, session_factory, ana):
     assert autotag.at_ingest(db_session, session_factory, FakeLLM('["RAG"]'), "m", d, "T", "A summary.", {})
     db_session.expire_all()
     assert _tags(db_session, d.id) == {"rag": "llm"}
+
+
+def test_vocabulary_r16_and_agent_gates(db_session, ana):
+    ok, _ = seed(db_session, ana)
+    stuck, _ = seed(db_session, ana, stage="needs_title")  # everyone-visible but never searchable (R16)
+    blocked, _ = seed(db_session, ana)
+    lab = Label(name="NoAgents", colour="#aabbcc", rank=2, block_agents=True)
+    db_session.add(lab)
+    db_session.flush()
+    blocked.label_id = lab.id
+    for d, t in ((ok, "fine"), (stuck, "stuck-x"), (blocked, "blocked-x")):
+        db_session.add(Tag(document_id=d.id, tag=t))
+    db_session.flush()
+    assert autotag.vocabulary(db_session) == ["fine"]
+
+
+def test_apply_skips_tags_the_owner_rejected(db_session, ana):
+    d, _ = seed(db_session, ana)
+    d.rejected_tags = ["nope"]
+    db_session.flush()
+    autotag.apply(db_session, d.id, ["nope", "yes"])
+    assert _tags(db_session, d.id) == {"yes": "llm"}

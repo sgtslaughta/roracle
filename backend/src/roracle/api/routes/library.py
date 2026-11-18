@@ -170,8 +170,8 @@ def add_tag(
 ) -> dict:
     _visible(session, p, doc_id)
     session.scalar(select(Document.id).where(Document.id == doc_id).with_for_update())  # serialize cap check
-    have = tags_of(session, doc_id)
-    if body.tag not in have and len(have) >= MAX_TAGS:
+    have = list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id, Tag.source == "user")))
+    if body.tag not in have and len(have) >= MAX_TAGS:  # AI tags never block a user's tag
         raise HTTPException(422, "too many tags")
     session.execute(  # adding an existing auto tag adopts it as the user's
         insert(Tag)
@@ -199,7 +199,9 @@ def delete_tag(
         norm = normalize_tag(tag)
     except ValueError:
         return {"tags": tags_of(session, doc_id)}
-    session.execute(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm))
+    gone = session.scalar(delete(Tag).where(Tag.document_id == doc_id, Tag.tag == norm).returning(Tag.source))
+    if gone == "llm" and norm not in doc.rejected_tags:  # an AI tag the owner rejected: never suggested again
+        doc.rejected_tags = [*doc.rejected_tags, norm]
     session.commit()
     tags = _sync_or_queue(session, es, sf, doc_id)
     return {"tags": tags, "auto_tags": auto_tags_of(session, doc_id)}
