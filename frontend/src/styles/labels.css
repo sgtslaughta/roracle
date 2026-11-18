@@ -3,7 +3,9 @@
 .slabel svg{width:12px;height:12px;flex:none}
 .slabel .t{overflow:hidden;text-overflow:ellipsis}
 .rlabel{display:flex;align-items:center;gap:6px;margin:4px 0}
-.lpick{display:grid;gap:8px}
+.lpick{display:grid;gap:14px;margin-top:4px}
+.lpick label{display:grid;gap:6px;font-size:13px;color:var(--muted)}
+.lpick label .inp{color:var(--ink);font-size:14px}
 .lpick .foot{display:flex;justify-content:flex-end;gap:8px}
 .dirpick{display:grid;gap:4px}
 .dirlist{list-style:none;margin:0;padding:2px;border:1px solid var(--border);border-radius:8px;max-height:160px;overflow:auto;background:var(--surface)}

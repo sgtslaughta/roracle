@@ -74,7 +74,7 @@
 .coll-pick .menu-link:hover { background: var(--muted-bg); }
 .synopsis { margin-top: 8px; max-width: 80ch; font: 14.5px/1.55 var(--f-read); color: color-mix(in srgb, var(--ink) 88%, var(--muted)); }
 .synopsis p { margin: 0 0 4px; }
-.synopsis .syn-sum svg { width: 13px; height: 13px; margin-right: 6px; vertical-align: -1px; color: var(--apricot); }
+.synopsis .syn-sum svg { display: inline-block; width: 13px; height: 13px; margin-right: 6px; vertical-align: -1px; color: var(--apricot); }
 .synopsis:not(.open) .syn-sum { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .synopsis .syn-abs { margin-top: 6px; color: var(--muted); }
 .result .rids { margin-top: 6px; }
