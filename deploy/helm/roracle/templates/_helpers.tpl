@@ -52,6 +52,9 @@ ROR_RERANK_MODEL: {{ .model | quote }}
 {{- with .Values.parsers.gotenberg }}{{ if .enabled }}
 ROR_GOTENBERG_URL: {{ printf "http://%sgotenberg:%v" $pf .port | quote }}
 {{- end }}{{ end }}
+{{- with .Values.parsers.latexbuilder }}{{ if .enabled }}
+ROR_LATEX_BUILDER: {{ printf "http://%slatexbuilder:%v" $pf .port | quote }}
+{{- end }}{{ end }}
 {{- with .Values.parsers.draftgotenberg }}{{ if .enabled }}
 ROR_DRAFT_GOTENBERG_URL: {{ printf "http://%sdraftgotenberg:%v" $pf .port | quote }}
 {{- end }}{{ end }}

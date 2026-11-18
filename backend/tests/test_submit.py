@@ -457,3 +457,25 @@ def test_root_group_rejected(client, as_ana, ana):
 def test_uploads_total_excludes_drafts(client, as_ana, ana, db_session):
     mk(client, as_ana)
     assert client.get("/me/uploads", headers=as_ana).json()["total"] == 0
+
+
+def test_latex_draft_submits_through_service(client, as_ana, ana, db_session, monkeypatch, s3):
+    import httpx
+
+    from roracle.writing.latex import LatexBuilder
+
+    seen = []
+
+    def h(r):
+        seen.append(r.content)
+        return httpx.Response(200, content=b"%PDF-1.5 tex")
+
+    class C:
+        latex_builder, build_timeout_s, build_concurrency, build_max_pdf_bytes = "http://l:8080", 30, 2, 1000
+
+    monkeypatch.setattr(build, "get_builder", lambda s, f: LatexBuilder(C(), httpx.MockTransport(h)))
+    i = mk(client, as_ana, content=MD.replace("title: T", "title: T\nformat: latex"))
+    reports(db_session, i, ana)
+    r = sub(client, as_ana, i)
+    assert r.status_code == 200 and r.json()["document_version"] == 1, r.text
+    assert b"edited prose" not in seen[0]  # front matter is not sent to TeX

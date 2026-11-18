@@ -72,7 +72,7 @@ are behaviours of the shipped design, not open defects. For what the controls gu
   their blobs stay until purge, so an upload/delete loop can hold more than the quota for `ROR_RETENTION_DELETED_DAYS`.
 - **The OpenAPI schema is public**: `/api/openapi.json`, `/api/docs` and `/api/redoc` need no sign-in and list every
   route, admin routes included. The schema is also in the repository; no data is exposed.
-- **The latex-builder is not shipped**: `format: latex` builds return 501, and a site that implements it owns its isolation ([contract](../latex-builder.md)).
+- **The latex-builder is off by default** (`format: latex` builds return 501 until enabled). When enabled, TeX can still read any file inside its container (`openin_any=p` does not stop absolute reads in TeX Live), so the container must hold nothing secret ([latex-builder](../latex-builder.md#threat-model)).
 - **Connector S3 endpoints are admin-chosen and not SSRF-filtered**: with an allowlisted internal CIDR the HTTP connector can read any HTTP service in that range ([threat model](threat-model.md#5-connectors)).
 - **Network isolation depends on the CNI**: "no egress" for parser sandboxes holds only where `networkPolicy.enabled` is true and the cluster enforces NetworkPolicy.
 - **Encryption at rest and TLS to data services are platform properties** (storage class, object store, operators); rOracle does not provide them.

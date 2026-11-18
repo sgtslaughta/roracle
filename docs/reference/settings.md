@@ -88,7 +88,7 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_GROBID_URL` | `str` | `''` |  | GROBID (bibliographic metadata) service URL; empty = disabled |
 | `ROR_JOB_DRAIN_S` | `float` | `0.0` |  | after SIGTERM a running job gets this long, then it is released (0 = wait) |
 | `ROR_JOB_LEASE_S` | `float` | `90.0` |  | a running job's lease; the worker heartbeat renews it every lease/3 |
-| `ROR_LATEX_BUILDER` | `Literal['disabled']` | `'disabled'` |  | `disabled` -> format: latex builds return 501 |
+| `ROR_LATEX_BUILDER` | `str` | `'disabled'` |  | `disabled` -> format: latex builds return 501; else the latex-builder service URL |
 | `ROR_LLM_API_KEY` | `str` | *** |  | API key sent to the LLM endpoint (secret) |
 | `ROR_LLM_BASE_URL` | `str` | `'http://localhost:11434/v1'` |  | OpenAI-compatible LLM endpoint (chat and embeddings) |
 | `ROR_LLM_TIMEOUT_S` | `float` | `120.0` |  | LLM request timeout in seconds |

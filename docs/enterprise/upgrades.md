@@ -151,6 +151,8 @@ Journal and has-identifier results are only correct for papers written by that r
 
 ### Unreleased (0.4.1)
 
+- LaTeX draft builder (optional, off by default): `format: latex` drafts build and submit through the new `latex-builder` service (`deploy/latex-builder/`, Helm `parsers.latexbuilder`, dev compose profile `latex`). Set `ROR_LATEX_BUILDER` to its URL; the default `disabled` keeps the 501 answer. The chart adds a `latexbuilder` parser entry (disabled) with a no-egress NetworkPolicy and an api-egress rule when enabled; build and mirror the image first ([latex-builder](latex-builder.md)). `ROR_LATEX_BUILDER` is now a URL string instead of the single value `disabled`.
+
 - Wider file types: images (OCR), JATS and other XML, LaTeX (single files and arXiv source archives), EPUB, CSV, TSV and JSON are ingested ([supported file types](../user/uploads.md#supported-file-types)). The website connector accepts them too, and decides by file extension when a server sends `application/octet-stream`.
 - Archives: uploaded and connector ZIP, tar and tar.gz files are unpacked into one paper per file, with limits (500 files, the upload limit per file, 10 times the upload limit in total); LaTeX source archives stay one paper ([connectors](../admin/connectors.md#archives)). `POST /api/documents` and the MCP `upload` tool answer an unpacked archive with `{"archive": true, "documents": [...], "skipped": [...]}`.
 - The reader shows image originals. No migration and no new settings; a patch upgrade. Docling needs its OCR models for images and scans: in an air-gapped install mirror them as described in the [deployment guide](deployment-guide.md) (Configuration, OCR models).

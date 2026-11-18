@@ -276,6 +276,22 @@ parsers:
     resources:
       requests: {cpu: "1", memory: 2Gi}
       limits: {memory: 4Gi}
+  # Optional LaTeX draft builder (docs/enterprise/latex-builder.md); `format: latex` drafts return 501 until enabled.
+  # Image is built from deploy/latex-builder/ (texlive/texlive, ~2-5 GB): mirror/build it and set repository + tag.
+  # Called by the api only; NetworkPolicy gives it no egress. Fixed non-root uid 1001, read-only root, tmpfs /tmp.
+  latexbuilder:
+    enabled: false
+    image: {repository: roracle/latex-builder, tag: "", digest: "", pullPolicy: IfNotPresent}
+    port: 8080
+    replicas: 1
+    runAsUser: 1001
+    readOnlyRootFilesystem: true
+    writableDirs: [{path: /tmp, size: 1Gi}]
+    probe: {path: /health}
+    env: {LATEX_CONCURRENCY: "2"}
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {memory: 3Gi}
   docling:
     enabled: true
     # Upstream is unversioned in dev compose (latest); pin in mirror: verify the tag and prefer a digest.

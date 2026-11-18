@@ -53,10 +53,17 @@ dd = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].end
 need("--chromium-disable-routes" not in dd["args"], "draft gotenberg must have chromium enabled")
 need(dd["securityContext"]["readOnlyRootFilesystem"] and dd["resources"]["limits"], "draft gotenberg hardening")
 ing = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"].endswith("-env")][0]["data"]
+lg = [d for d in nps if d["metadata"]["name"].endswith("-parser-latexbuilder")][0]["spec"]
+need(lg["ingress"][0]["from"][0]["podSelector"]["matchExpressions"][0]["values"] == ["api"], "latexbuilder ingress must be from api only")
+need("egress" not in lg and "Egress" in lg["policyTypes"], "latexbuilder must have no egress")
+need([e for e in nps if e["metadata"]["name"].endswith("-api-egress-latex")], "api-egress-latex missing")
+ld = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-latexbuilder")][0]["spec"]["template"]["spec"]["containers"][0]
+need(ld["securityContext"]["readOnlyRootFilesystem"] and ld["resources"]["limits"], "latexbuilder hardening")
+need(ing.get("ROR_LATEX_BUILDER", "").endswith("-latexbuilder:8080"), "latex env wiring")
 need(ing.get("ROR_DRAFT_GOTENBERG_URL", "").endswith("-draftgotenberg:3000") and ing.get("ROR_BUILD_CONCURRENCY") == "2", "draft env wiring")
 dns = [d for d in nps if d["metadata"]["name"].endswith("-allow-dns")][0]["spec"]["podSelector"]["matchExpressions"][0]
 need(dns["operator"] == "NotIn", "allow-dns must use NotIn")
-need(set(dns["values"]) == ({"gotenberg", "draftgotenberg", "docling", "grobid"} if mirror else {"gotenberg", "draftgotenberg", "docling", "grobid", "clamav"}),
+need(set(dns["values"]) == ({"gotenberg", "draftgotenberg", "latexbuilder", "docling", "grobid"} if mirror else {"gotenberg", "draftgotenberg", "latexbuilder", "docling", "grobid", "clamav"}),
      "allow-dns NotIn must cover all parsers (clamav excepted only with a mirror): %s" % dns["values"])
 pm = [d for d in docs if d["kind"] == "PodMonitor"]
 need(pm, "PodMonitor missing")

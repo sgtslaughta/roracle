@@ -14,3 +14,4 @@ docs/developer/local-dev.md|ROR_GOTENBERG_DRAFTS_PORT  # compose-only variable i
 /api/openapi.json  # FastAPI's own schema route (not in its own schema), documented as public in security docs
 /api/docs  # FastAPI's Swagger UI route, documented as public in security docs
 /api/redoc  # FastAPI's ReDoc route, documented as public in security docs
+docs/enterprise/latex-builder.md|ROR_LATEX_BUILDER_PORT  # compose-only variable in deploy/dev/compose.yaml, not a Settings field
