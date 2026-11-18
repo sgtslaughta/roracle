@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { useJobs, useJobsSummary, useRetryFailed, useRetryJob } from "./api";
 import { fmtDateTime as fmtTime } from "@/lib/dates";
-import { StatusPill } from "./StatusPill";
+import { humanize, StatusPill } from "./StatusPill";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 
 const STATUSES: JobStatus[] = ["queued", "running", "failed", "done"];
@@ -44,14 +44,14 @@ export function JobsPage() {
       {sum.data && (
         <div className="sumgrid" aria-label="Job counts">
           {kinds.map((k) => (
-            <div className="card" key={k}><b>{k}</b>: {STATUSES.filter((s) => sum.data.jobs[k]?.[s]).map((s) => `${sum.data.jobs[k][s]} ${s}`).join(", ") || "none"}</div>
+            <div className="card" key={k}><b>{humanize(k)}</b>: {STATUSES.filter((s) => sum.data.jobs[k]?.[s]).map((s) => `${humanize(s)} ${sum.data.jobs[k][s]}`).join(", ") || "none"}</div>
           ))}
           {!kinds.length && <div className="card">No jobs yet.</div>}
         </div>
       )}
       {sum.data && Object.keys(sum.data.versions).length > 0 && (
         <div className="sumgrid" aria-label="Versions by stage">
-          {Object.entries(sum.data.versions).sort().map(([s, n]) => <div className="card" key={s}>{s}: <b>{n}</b></div>)}
+          {Object.entries(sum.data.versions).sort().map(([s, n]) => <div className="card" key={s}>{humanize(s)}: <b>{n}</b></div>)}
         </div>
       )}
       <div className="filters">

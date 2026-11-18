@@ -262,7 +262,7 @@ describe("jobs", () => {
   it("shows summary counts and filters by status", async () => {
     const user = userEvent.setup();
     await renderAdmin("/admin/jobs", "Queue");
-    expect(await screen.findAllByText(/1 failed/)).toHaveLength(2);
+    expect(await screen.findAllByText(/Failed 1/)).toHaveLength(2);
     await user.selectOptions(field("Status"), "failed");
     await waitFor(() => expect(seen.some((r) => r.url.includes("/admin/jobs?") && r.url.includes("status=failed"))).toBe(true));
     await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(3));
@@ -281,7 +281,7 @@ describe("jobs", () => {
   it("Retry all failed asks first and sends the kind filter", async () => {
     const user = userEvent.setup();
     await renderAdmin("/admin/jobs", "Queue");
-    await screen.findAllByText(/1 failed/);
+    await screen.findAllByText(/Failed 1/);
     await user.selectOptions(field("Kind"), "ingest");
     await user.click(screen.getByRole("button", { name: "Retry all failed" }));
     expect(sent("POST", "/admin/jobs/retry-failed")).toHaveLength(0);
