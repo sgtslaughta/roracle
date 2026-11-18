@@ -126,3 +126,36 @@ def test_tar_gz_bomb_rejected_at_listing(tmp_path):
     assert len(data) < 500  # compresses tiny
     with pytest.raises(ArchiveError, match="uncompressed"):
         open_archive(tmp_path, data, "x.tgz", cap=100)
+
+
+def test_zip_with_too_many_entries_refused_up_front(tmp_path, monkeypatch):
+    monkeypatch.setattr("roracle.ingest.archive.MAX_ENTRIES", 10)
+    with pytest.raises(ArchiveError, match="too many entries"):
+        open_archive(tmp_path, make_zip({f".junk{i}": b"x" for i in range(11)}), "x.zip")
+
+
+def test_tar_iteration_stops_early_on_many_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr("roracle.ingest.archive.MAX_ENTRIES", 10)
+    calls = []
+    real = tarfile.TarFile.next
+    monkeypatch.setattr(tarfile.TarFile, "next", lambda self: (calls.append(1), real(self))[1])
+    data = make_tar({"ok.txt": b"ok", **{f".junk{i}": b"x" for i in range(50)}})
+    a = open_archive(tmp_path, data, "x.tar", cap=100_000)
+    assert names(a) == ["ok.txt"]
+    assert len(calls) <= 12  # stopped at the limit, did not read all 51 headers
+    assert any("more than 10 entries" in r for _, r in a.skipped)
+
+
+def test_tar_too_many_entries_and_nothing_accepted_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("roracle.ingest.archive.MAX_ENTRIES", 10)
+    with pytest.raises(ArchiveError, match="too many entries"):
+        open_archive(tmp_path, make_tar({f".junk{i}": b"x" for i in range(50)}), "x.tar", cap=100_000)
+
+
+def test_skipped_reasons_capped_with_summary(tmp_path):
+    warns = []
+    p = tmp_path / "s"
+    p.write_bytes(make_zip({f"../bad{i}": b"x" for i in range(120)}))
+    a = Archive(p, "x.zip", 10_000, warn=warns.append)
+    assert len(a.skipped) == 51 and a.skipped[-1] == ("…", "and 70 more skipped")
+    assert len(warns) == 51 and warns[-1] == "… and 70 more skipped"

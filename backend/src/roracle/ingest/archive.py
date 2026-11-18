@@ -16,6 +16,8 @@ from typing import Any, BinaryIO, Self
 from roracle.storage import TooLarge
 
 MAX_MEMBERS = 500
+MAX_ENTRIES = 4 * MAX_MEMBERS  # every entry seen counts, accepted or not
+MAX_REPORTED = 50  # skipped reasons kept (and warned); the rest are only counted
 TOTAL_FACTOR = 10  # total uncompressed bytes <= TOTAL_FACTOR x per-file cap
 _CHUNK = 1 << 20
 
@@ -132,6 +134,7 @@ class Archive:
         self.cap, self.limit = cap, cap * TOTAL_FACTOR
         self.total = 0
         self.skipped: list[tuple[str, str]] = []
+        self._more = 0
         self.members: list[Member] = []
         self._warn = warn or (lambda m: None)
         self._zip: zipfile.ZipFile | None = None
@@ -180,37 +183,56 @@ class Archive:
             capped.seek(0)
             self._single = capped
 
-    def _skip(self, name: str, reason: str) -> None:
+    def _note(self, name: str, reason: str) -> None:
         self.skipped.append((name, reason))
-        self._warn(f"{name}: {reason}")
+        self._warn(f"{name}: {reason}" if name != "…" else f"… {reason}")
+
+    def _skip(self, name: str, reason: str) -> None:
+        if len(self.skipped) < MAX_REPORTED:
+            self._note(name, reason)
+        else:
+            self._more += 1
 
     def _entries(self):
-        """(raw name, size, token, regular?, ref) per entry, directories already dropped."""
+        """(raw name, size, token, kind, ref) per entry; kind is dir, file or other."""
         if self._zip is not None:
             for zi in self._zip.infolist():
-                if zi.is_dir():
-                    continue
                 mode = zi.external_attr >> 16
                 regular = stat.S_IFMT(mode) in (0, stat.S_IFREG)
-                yield zi.filename, zi.file_size, f"{zi.CRC:08x}", regular, zi
+                kind = "dir" if zi.is_dir() else "file" if regular else "other"
+                yield zi.filename, zi.file_size, f"{zi.CRC:08x}", kind, zi
         elif self._tar is not None:
-            for ti in self._tar:
-                if ti.isdir():
-                    continue
-                yield ti.name, ti.size, str(int(ti.mtime)), ti.type in (tarfile.REGTYPE, tarfile.AREGTYPE), ti
+            while (ti := self._tar.next()) is not None:  # header by header: never getmembers()
+                kind = (
+                    "dir"
+                    if ti.isdir()
+                    else "file"
+                    if ti.type in (tarfile.REGTYPE, tarfile.AREGTYPE)
+                    else "other"
+                )
+                yield ti.name, ti.size, str(int(ti.mtime)), kind, ti
         else:
-            yield self.stem, None, "gz", True, None
+            yield self.stem, None, "gz", "file", None
 
     def _scan(self) -> list[Member]:
+        if self._zip is not None and len(self._zip.infolist()) > MAX_ENTRIES:
+            raise ArchiveError("archive has too many entries")
         out: list[Member] = []
         seen: set[str] = set()
-        for raw, size, token, regular, ref in self._entries():
+        for n, (raw, size, token, kind, ref) in enumerate(self._entries()):
+            if n >= MAX_ENTRIES:
+                if not out:
+                    raise ArchiveError("archive has too many entries")
+                self._note("…", f"archive has more than {MAX_ENTRIES} entries; the rest were ignored")
+                break
             name = _clean(raw)
+            if kind == "dir":
+                continue
             if name is None:
                 self._skip(raw, "unsafe path")
             elif _junk(name):
                 continue
-            elif not regular:
+            elif kind == "other":
                 self._skip(name, "not a regular file")
             elif self._zip is not None and ref.flag_bits & 1:
                 self._skip(name, "encrypted")
@@ -218,10 +240,12 @@ class Archive:
                 self._skip(name, "nested archive is not unpacked")
             elif name not in seen:
                 if len(out) >= MAX_MEMBERS:
-                    self._skip(name, f"more than {MAX_MEMBERS} files in the archive; the rest are skipped")
+                    self._note("…", f"more than {MAX_MEMBERS} files in the archive; the rest are skipped")
                     break
                 seen.add(name)
                 out.append(Member(name, size, token, ref))
+        if self._more:
+            self._note("…", f"and {self._more} more skipped")
         return out
 
     def open(self, m: Member) -> _Counted:
