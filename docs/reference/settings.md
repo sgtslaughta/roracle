@@ -149,4 +149,5 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_WORKER_HEALTH_PORT` | `int` | `8001` |  | worker /healthz + /metrics; 0 = off |
 | `ROR_WRITING_MAX_CITATIONS` | `int` | `200` |  | distinct citation keys a draft may use |
 | `ROR_WRITING_MODEL` | `str` | `''` |  | P9 style check / citation judge; empty = first chat model |
+| `ROR_WRITING_STYLE_TIMEOUT_S` | `float` | `30.0` |  | Timeout in seconds of the style check LLM call in draft validation |
 | `ROR_WRITING_VALIDATE_BUDGET_S` | `float` | `10` |  | deterministic checks wall-clock budget (fail closed) |

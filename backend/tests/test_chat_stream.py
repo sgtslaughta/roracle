@@ -71,12 +71,13 @@ def setup(app, db_session):
     return make
 
 
-def sse(resp):
+def sse(resp, status=False):
+    """(event, data) frames; the "status" progress frames only when `status`."""
     out = []
     for block in resp.text.strip().split("\n\n"):
         ev, data = block.split("\n")
         out.append((ev.removeprefix("event: "), json.loads(data.removeprefix("data: "))))
-    return out
+    return [x for x in out if status or x[0] != "status"]
 
 
 def new_chat(client, headers, **body):
@@ -144,7 +145,9 @@ def test_stream_happy_path(client, as_ana, ana, db_session, setup):
     assert r.headers["cache-control"] == "no-cache" and r.headers["x-accel-buffering"] == "no"
     ev = sse(r)
     assert [e for e, _ in ev] == ["token", "token", "token", "citations", "done"]
-    assert r.text.startswith('event: token\ndata: {"text": "Alpha "}\n\n')
+    assert r.text.startswith(
+        'event: status\ndata: {"stage": "writing"}\n\nevent: token\ndata: {"text": "Alpha "}'
+    )
     items = ev[3][1]["items"]
     assert [i["n"] for i in items] == [1]
     assert items[0]["version"] == 1
@@ -231,7 +234,7 @@ def test_llm_error_mid_stream(client, as_ana, ana, db_session, setup):
     assert r.status_code == 200
     ev = sse(r)
     assert [e for e, _ in ev] == ["token", "token", "error"]
-    assert ev[-1][1] == {"detail": "inference failed"} and "boom" not in r.text
+    assert ev[-1][1] == {"detail": "something went wrong while writing it"} and "boom" not in r.text
     db_session.expire_all()
     m = db_session.scalars(select(ChatMessage).where(ChatMessage.role == "assistant")).one()
     assert m.status == "failed" and m.content == "Alpha is [1]" and [c["n"] for c in m.citations] == [1]
@@ -252,6 +255,7 @@ def test_disconnect_saves_interrupted(db_session, user):
     db_session.commit()
     llm = FakeStreamLLM()
     gen = stream_answer(db_session, llm, chat.id, "m", [], [P(1)])
+    assert next(gen).startswith("event: status")
     assert next(gen).startswith("event: token")
     gen.close()
     gen.close()  # idempotent: still one row
@@ -293,7 +297,7 @@ def test_disconnect_after_citations_marker(db_session, user):
     db_session.add(chat)
     db_session.commit()
     gen = stream_answer(db_session, FakeStreamLLM(), chat.id, "m", [], [P(1)])
-    next(gen), next(gen)
+    next(gen), next(gen), next(gen)  # status, 2 tokens
     gen.close()
     m = db_session.scalars(select(ChatMessage)).one()
     assert m.status == "interrupted" and m.content == "Alpha is [1]" and [c["n"] for c in m.citations] == [1]
@@ -382,6 +386,7 @@ def test_frames_aclose_unstarted_and_started(db_session, user):
 
     async def started():
         agen = _frames(stream_answer(db_session, FakeStreamLLM(), chat.id, "m", [], [P(1)]))
+        await agen.__anext__()  # status
         await agen.__anext__()
         await agen.aclose()
 

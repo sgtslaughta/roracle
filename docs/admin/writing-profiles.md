@@ -67,6 +67,7 @@ Things to know:
 
 - At most 100 findings are reported per rule (50 for `notation` and `acronyms`). At most `ROR_WRITING_MAX_CITATIONS` (default 200) distinct citations are checked, and a draft with more is blocked whatever the severity of `citations`, unless that rule is `off`.
 - Validation also stops with a blocking finding if the deterministic checks take longer than `ROR_WRITING_VALIDATE_BUDGET_S` (default 10 seconds).
+- The style review (a language model call) has its own timeout, `ROR_WRITING_STYLE_TIMEOUT_S` (default 30 seconds), so a busy model cannot hold validation for the full `ROR_LLM_TIMEOUT_S`. When it runs out, the report says the style check was unavailable; it never blocks.
 - `style` never blocks: if the review is unavailable it is reported as a warning only. It is skipped, with a warning, when the draft's label has the `exclude_llm` gate, because the text must not reach a model. The model is `ROR_WRITING_MODEL`, or the first chat model if that is empty.
 - `ai_disclosure` blocks unless the draft's front matter has the block. The shipped templates include it, so a custom profile should too: leave the template empty and every new draft starts out failing this check.
 

@@ -43,15 +43,23 @@ export interface StreamHandlers {
   onReading?(part: number, of: number): void;
   /** the open paper being summarized (shown as a note in the turn) */
   onSummarizing?(s: { title: string; version: number; partial?: { read: number; of: number } }): void;
+  /** the server finished searching and the model is writing (`status` frame) */
+  onWriting?(): void;
   onDone(messageId: string): void;
-  onError(detail: string): void;
+  /** `reason` is plain lowercase text for "The answer could not be generated: <reason>." */
+  onError(reason: string): void;
 }
+
+/** Plain reason for an `error` frame; older servers sent the generic "inference failed". */
+export const errorReason = (detail: unknown) =>
+  !detail || detail === "inference failed" ? "the language model could not finish it" : String(detail);
+export const CUT_OFF = "the connection closed before the answer finished";
 
 /** POST a question and dispatch the SSE answer. Rejects on non-OK (ApiError) and on abort. */
 export async function streamMessage(chatId: string, body: SendMessageBody, h: StreamHandlers, signal?: AbortSignal): Promise<void> {
   const res = await authedFetch(`/chats/${seg(chatId)}/messages`, { method: "POST", json: body, headers: { Accept: "text/event-stream" }, signal });
   if (!res.ok) throw await errorOf(res);
-  if (!res.body) { h.onError("The answer was cut off."); return; }
+  if (!res.body) { h.onError(CUT_OFF); return; }
   let finished = false;
   const parse = createSseParser(({ event, data }) => {
     if (finished || signal?.aborted) return;
@@ -60,6 +68,7 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     if (event === "token") h.onToken(String(p.text ?? ""));
     else if (event === "citations") { if (Array.isArray(p.items)) h.onCitations(p.items as Citation[]); }
     else if (event === "progress") { if (typeof p.step === "number" && typeof p.of === "number") h.onProgress?.({ step: p.step, of: p.of, done: Number(p.done ?? 0) }); }
+    else if (event === "status") { if (p.stage === "writing") h.onWriting?.(); }
     else if (event === "reading") { if (typeof p.part === "number" && typeof p.of === "number") h.onReading?.(p.part, p.of); }
     else if (event === "meta") {
       if (Array.isArray(p.excluded_by_label)) h.onExcluded?.(p.excluded_by_label as ExcludedByLabel[]);
@@ -68,7 +77,7 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
       if (s && typeof s.title === "string") h.onSummarizing?.({ title: s.title, version: Number(s.version ?? 1), partial: pt });
     }
     else if (event === "done") { if (typeof p.message_id === "string") { finished = true; h.onDone(p.message_id); } }
-    else if (event === "error") { finished = true; h.onError(p.detail === "inference failed" ? "The model couldn't finish this answer." : String(p.detail ?? "Something went wrong.")); }
+    else if (event === "error") { finished = true; h.onError(errorReason(p.detail)); }
   });
   const reader = res.body.getReader();
   const dec = new TextDecoder(); // also strips a leading BOM from the first chunk
@@ -84,5 +93,5 @@ export async function streamMessage(chatId: string, body: SendMessageBody, h: St
     await reader.cancel().catch(() => {});
     try { reader.releaseLock(); } catch { /* already released */ }
   }
-  if (!finished) h.onError("The answer was cut off.");
+  if (!finished) h.onError(CUT_OFF);
 }

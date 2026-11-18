@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "@/mocks/server";
 import { API_BASE, ApiError, apiFetch, setAuthHooks } from "@/api/client";
 import type { ChatDetail, Citation, Viewer } from "@/api/chat";
-import { createSseParser, streamMessage } from "./stream";
+import { createSseParser, CUT_OFF, streamMessage } from "./stream";
 
 const VIEWER: Viewer = { tabs: [], ignored: [], selection: null };
 const collect = () => {
@@ -85,8 +85,16 @@ describe("streamMessage", () => {
     const h = handlers();
     await streamMessage("c1", { content: "q", viewer: VIEWER }, h);
     expect(h.onToken).toHaveBeenCalledTimes(1);
-    expect(h.onError).toHaveBeenCalledWith("The answer was cut off.");
+    expect(h.onError).toHaveBeenCalledWith(CUT_OFF);
     expect(h.onDone).not.toHaveBeenCalled();
+  });
+
+  it("a status frame reports that the model is writing", async () => {
+    server.use(http.post(`${API_BASE}/chats/c1/messages`, () => sse('event: status\ndata: {"stage":"writing"}\n\nevent: done\ndata: {"message_id":"m1"}\n\n')));
+    const h = { ...handlers(), onWriting: vi.fn() };
+    await streamMessage("c1", { content: "q", viewer: VIEWER }, h);
+    expect(h.onWriting).toHaveBeenCalledTimes(1);
+    expect(h.onDone).toHaveBeenCalledWith("m1");
   });
 
   it("error event goes to onError only", async () => {
@@ -163,7 +171,7 @@ describe("streamMessage", () => {
     await streamMessage("c1", { content: "q", viewer: VIEWER }, h);
     expect(h.onCitations).not.toHaveBeenCalled();
     expect(h.onDone).not.toHaveBeenCalled();
-    expect(h.onError).toHaveBeenCalledWith("The answer was cut off.");
+    expect(h.onError).toHaveBeenCalledWith(CUT_OFF);
   });
 
   it("mock: aborting mid-stream saves the assistant message as interrupted with partial content", async () => {

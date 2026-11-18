@@ -1,4 +1,6 @@
+import { Loader2, RotateCcw } from "lucide-react";
 import { memo, useMemo, useRef, useState } from "react";
+import { SEARCHING } from "./askStore";
 import { AnswerText } from "./AnswerText";
 import { Sidenotes } from "./Sidenotes";
 import { citeNumbers } from "./citeMarkers";
@@ -31,12 +33,12 @@ function TurnImpl({ turn, who, chat, onRetry }: Props) {
           {!!answer.excluded?.length && <ExcludedNote items={answer.excluded} />}
           <Sidenotes citations={answer.citations} order={order} excludes={chat?.excludes} answerRef={ref} hot={hot} onHot={setHot} />
           {(streaming || answer.status !== "complete") && <div className="ans-foot">
-            {streaming && !answer.text && <p className="stat" role="status">{answer.progress ?? "Reading the library…"}</p>}
+            {streaming && !answer.text && <p className="stat" role="status"><Loader2 className="spin" aria-hidden />{answer.progress ?? SEARCHING}</p>}
             {answer.status === "interrupted" && <p className="stat">Stopped before the answer finished.</p>}
             {answer.status === "failed" && (
               <div className="stat bad" role="alert">
-                <span>The answer couldn't be completed. {answer.detail}</span>
-                <Button onClick={() => onRetry(question)}>Try again</Button>
+                <span>The answer could not be generated: {answer.detail ?? "the language model could not finish it"}.</span>
+                <Button onClick={() => onRetry(question)}><RotateCcw aria-hidden />Retry</Button>
               </div>
             )}
           </div>}

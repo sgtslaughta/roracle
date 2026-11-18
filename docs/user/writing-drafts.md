@@ -41,7 +41,7 @@ The editor has **Edit** and **Preview** (the preview hides the front matter and 
 
 ### Citing papers
 
-Cite a library paper with its identifier: `[@doc:<id>]` cites the whole paper, and `[@psg:<version id>:<n>]` cites one passage. The paper's id is the part of its link after `/d/`. Group citations as `[@doc:<id>; @doc:<id>]`. A reference list is generated for you. By default a draft can use up to 200 different citations.
+Cite a library paper with its identifier: `[@doc:<id>]` cites the whole paper, and `[@psg:<version id>:<n>]` cites one passage. The paper's id is the part of its link after `/d/`, but you rarely need to copy it: **Insert citation** above the editor (or typing `[@`) opens a search of the papers you can see by title, and choosing one puts `[@doc:<id>]` at the cursor. **Preview** shows the paper's title in place of a `[@doc:…]` citation. Group citations as `[@doc:<id>; @doc:<id>]`. A reference list is generated for you. By default a draft can use up to 200 different citations.
 
 A paper you cannot see is treated exactly like one that does not exist, so a citation to it is "unresolved". Citations cannot point at unpublished drafts.
 
@@ -67,11 +67,11 @@ Open the **Checks** tab. Only the owner and co-authors can run checks; admins ca
 | si_units | Units are SI and written with a space after the number | Warning |
 | style | A language model reviews the text against the profile's style guidance | Warning |
 
-Your admins can switch any rule to blocking, warning or off in a profile. If the style review cannot run, you see "Style checks were unavailable for this run" and it never blocks. If the draft's label is **Exclude from AI**, the style review is skipped and a warning says so, because the draft text must not reach a language model ([labels](labels.md#what-each-gate-means-to-you)). Validation stops with a blocking "validation exceeded time budget" finding if it runs too long.
+Your admins can switch any rule to blocking, warning or off in a profile. The style review asks a language model, so validation can take up to about 30 seconds; the Checks tab says so while it runs, and you can keep editing. If the style review cannot run or takes longer than that, you see "Style checks were unavailable for this run" and it never blocks. If the draft's label is **Exclude from AI**, the style review is skipped and a warning says so, because the draft text must not reach a language model ([labels](labels.md#what-each-gate-means-to-you)). Validation stops with a blocking "validation exceeded time budget" finding if it runs too long.
 
 ### Check citations
 
-**Check citations** looks up each citation and asks a language model whether the passage it points to supports the sentence that cites it. For a `[@psg:…]` citation that is the cited passage. For a `[@doc:…]` citation it is the paper's passage that best matches the sentence; if that one does not support it, up to two more of the best-matching passages are tried before the citation is marked unsupported. Each item gets one of:
+**Check citations** looks up each citation and asks a language model whether the passage it points to supports the sentence that cites it. One model call per citation can take a while on a long draft; the tab says so while it runs. For a `[@psg:…]` citation that is the cited passage. For a `[@doc:…]` citation it is the paper's passage that best matches the sentence; if that one does not support it, up to two more of the best-matching passages are tried before the citation is marked unsupported. Each item gets one of:
 
 - **supported**: the passage supports the sentence.
 - **unsupported** or **unclear**: it does not, or the model could not tell. Fix the sentence or the citation, or acknowledge it.

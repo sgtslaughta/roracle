@@ -121,6 +121,7 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "role": m.role,
                 "content": m.content,
                 "status": m.status,
+                "error": m.error,
                 "model": m.model,
                 "created_at": m.created_at,
                 "viewer": m.viewer

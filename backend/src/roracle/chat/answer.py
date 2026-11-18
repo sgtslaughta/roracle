@@ -6,6 +6,8 @@ import re
 from datetime import UTC, datetime
 from uuid import UUID
 
+import httpx
+import openai
 from sqlalchemy.orm import Session
 
 from roracle.models import Chat, ChatMessage
@@ -103,6 +105,25 @@ def retrieved_item(n: int, x: Passage, version: int | None = None) -> dict:
     return {**_base(n, x, version), "score": x.score, "text": x.text}
 
 
+class EmptyAnswer(Exception):
+    """The model finished without writing anything: a failure, never saved as an empty answer."""
+
+
+def failure_reason(e: BaseException) -> str:
+    """Plain-language reason for a failed answer (shown as "The answer could not be generated: <reason>.")."""
+    if isinstance(e, EmptyAnswer):
+        return "the language model returned an empty answer"
+    if isinstance(e, (openai.APITimeoutError, httpx.TimeoutException)):
+        return "the language model took too long to respond"
+    if isinstance(e, (openai.APIConnectionError, httpx.TransportError)):
+        return "the language model could not be reached"
+    if isinstance(e, openai.APIStatusError) and e.status_code in (429, 503):
+        return "the language model is busy"
+    if isinstance(e, openai.APIError):
+        return "the language model reported an error"
+    return "something went wrong while writing it"
+
+
 def frame(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -154,7 +175,7 @@ class AnswerStream:
         self._gen.close()
         self._cleanup()
 
-    def _persist(self, status: str, safe: bool = False) -> UUID | None:
+    def _persist(self, status: str, safe: bool = False, error: str | None = None) -> UUID | None:
         if self.saved:
             return None
         try:
@@ -163,7 +184,7 @@ class AnswerStream:
             cites = [self.items[k - 1] for k in parse_citations(text, len(self.items))]
             msg = ChatMessage(
                 chat_id=self.chat_id, role="assistant", content=text, citations=cites,
-                retrieved=self.retrieved, status=status, model=self.model, viewer=None,
+                retrieved=self.retrieved, status=status, model=self.model, viewer=None, error=error,
             )  # fmt: skip
             self.session.add(msg)
             chat = self.session.get(Chat, self.chat_id)
@@ -197,6 +218,7 @@ class AnswerStream:
                 self.parts.append(self.canned)
                 yield frame("token", {"text": self.canned})
             else:
+                yield frame("status", {"stage": "writing"})  # retrieval is done: the model is writing now
                 stream = self.llm.chat.completions.create(
                     model=self.model,
                     messages=self.messages,
@@ -209,13 +231,16 @@ class AnswerStream:
                     if delta:
                         self.parts.append(delta)
                         yield frame("token", {"text": delta})
+                if not "".join(self.parts).strip():
+                    raise EmptyAnswer
             cites = [self.items[k - 1] for k in parse_citations("".join(self.parts), len(self.items))]
             yield frame("citations", {"items": cites})
             yield frame("done", {"message_id": str(self._persist("complete"))})
-        except Exception:
+        except Exception as e:
             log.exception("chat inference failed")
-            self._persist("failed", safe=True)
-            yield frame("error", {"detail": "inference failed"})
+            reason = failure_reason(e)
+            self._persist("failed", safe=True, error=reason)
+            yield frame("error", {"detail": reason})
         finally:
             self._cleanup()
             close = getattr(stream, "close", None)

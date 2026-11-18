@@ -32,8 +32,15 @@ def policy_blocks(session: Session, doc) -> bool:
     return Policy.load(session).has(doc.label_id, "exclude_llm")
 
 
-def check_style(llm, model: str, content: str, prof: profiles.Profile) -> list[checks.Finding]:
+def check_style(
+    llm, model: str, content: str, prof: profiles.Profile, timeout: float | None = None
+) -> list[checks.Finding]:
+    """Soft style warnings from the LLM. Bounded by `timeout` so a busy model cannot hold validation for the
+    full LLM timeout: on timeout the report says "style check unavailable" (a soft warning)."""
     try:
+        bounded = getattr(llm, "with_options", None)
+        if timeout and bounded:
+            llm = bounded(timeout=timeout)
         r = llm.chat.completions.create(
             model=model,
             messages=[
@@ -86,7 +93,7 @@ def validate(session: Session, llm, settings: Settings, p: Principal, doc_id: UU
         if rule == "style" and llm_blocked:
             continue  # gate (a): draft text never reaches the style LLM
         if rule == "style":
-            found = check_style(llm, model, content, prof)
+            found = check_style(llm, model, content, prof, settings.writing_style_timeout_s)
         elif rule == "citations":
             found = checks.check_citations(parsed, prof, resolved, cap)
             if len(keys) > cap:  # fail closed whatever the severity

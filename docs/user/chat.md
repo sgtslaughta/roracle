@@ -88,10 +88,10 @@ Agents using access tokens never receive the text of such papers either ([agents
 
 ## While an answer is written
 
-The answer streams in. If you are at the bottom, it scrolls with the text; if you scroll up, a **Jump to latest** button appears. A screen reader hears only how the answer ended: "Answer ready", "Answer stopped" or "Answer failed".
+Until the first words arrive, the answer shows what is happening: "Searching your library…", then "Writing the answer…" once the language model starts. The answer then streams in. If you are at the bottom, it scrolls with the text; if you scroll up, a **Jump to latest** button appears. A screen reader hears only how the answer ended: "Answer ready", "Answer stopped" or "Answer failed".
 
 - **Stop** ends the answer. If the server had not yet saved your question, it returns to the question box.
-- If the answer fails, you see "The answer couldn't be completed" with the reason and **Try again**. If answering is unavailable, a message says to try again shortly and your question stays in the box.
+- If the answer fails, it says so in plain words, for example "The answer could not be generated: the language model took too long to respond.", with a **Retry** button that asks the same question again. The reason stays on the answer when you come back to the chat. Other reasons are that the model could not be reached, is busy, or returned an empty answer (an empty answer is never saved as an answer), or that answering is unavailable right now.
 - Leaving the chat page while an answer is being written stops it.
 
 ## After an answer
