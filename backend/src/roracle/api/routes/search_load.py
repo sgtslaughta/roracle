@@ -23,6 +23,7 @@ class Row:
     doc: Document
     ver: DocumentVersion
     tags: list[str] = field(default_factory=list)
+    auto_tags: list[str] = field(default_factory=list)  # subset of `tags` suggested by the LLM
     votes: tuple[int, int, int] = (0, 0, 0)  # up, down, mine
     colls: list[tuple[str, str]] = field(default_factory=list)  # caller's (id, name)
     score: float = 0.0
@@ -183,10 +184,15 @@ def _load(
     rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
     if rows:
         keys = list(rows)
-        for doc_id, tag in session.execute(select(Tag.document_id, Tag.tag).where(Tag.document_id.in_(keys))):
+        for doc_id, tag, src in session.execute(
+            select(Tag.document_id, Tag.tag, Tag.source).where(Tag.document_id.in_(keys))
+        ):
             rows[doc_id].tags.append(tag)
+            if src != "user":
+                rows[doc_id].auto_tags.append(tag)
         for r in rows.values():
             r.tags.sort()
+            r.auto_tags.sort()
         for doc_id, cid, name in session.execute(
             select(CollectionItem.document_id, Collection.id, Collection.name)
             .join(Collection, Collection.id == CollectionItem.collection_id)
@@ -233,6 +239,7 @@ def _hit(r: Row) -> dict:
         "score": r.score,
         "passages": [_passage(x) for x in r.passages],
         "tags": r.tags,
+        "auto_tags": r.auto_tags,
         "votes": {"up": r.votes[0], "down": r.votes[1], "mine": r.votes[2]},
         "file_type": ext_of(r.ver.filename),
         "version": r.ver.version,

@@ -86,6 +86,18 @@ roracle reparse-refs [--limit N]
 - Each job refreshes only the identifiers and the reference list. Titles and authors a person edited are left alone. An empty or failed GROBID answer never wipes references already stored. Links between papers are then re-evaluated in both directions.
 - It prints `enqueued <n> reparse_refs job(s)`. Watch kind `reparse_refs` in **Admin, Jobs**.
 
+## AI-suggested tags
+
+New papers get up to 5 topical tags from their AI summary at ingest (shown dashed, "Suggested by AI from the summary"; users remove or adopt them like any tag). A paper's declared keywords and the arXiv category are hints only. Papers with an `exclude_llm` label or no summary get none. For papers ingested before this feature:
+
+```text
+roracle auto-tags [--limit N]
+```
+
+- It queues one bulk `auto_tags` job per latest, searchable paper with a summary, an LLM-allowed label and no earlier auto-tagging (`meta.auto_tagged`). Safe to repeat.
+- Each job replaces only that paper's earlier AI tags; tags people added are never touched. Tags reach search through `acl_sync`.
+- It prints `enqueued <n> auto_tags job(s)`.
+
 ## Watching and retrying jobs
 
 **Admin, Jobs** shows counts by kind and status, the number of versions by stage, and a table filtered by status and kind. The kinds here are `reembed`, `rebuild_units`, `rebuild_watch`, `reparse_refs`, `eval_run` and `eval_generate`. **Retry** (on a row) and **Retry all failed** requeue failed jobs with a fresh attempt count. The API is `POST /api/admin/jobs/{id}/retry` (`409` unless the job failed) and `POST /api/admin/jobs/retry-failed`, which moves up to 1000 per call and reports `retried`. Audit: `admin.job_retry` and `admin.jobs_retry_failed`.

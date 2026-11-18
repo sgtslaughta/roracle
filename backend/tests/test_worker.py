@@ -17,6 +17,7 @@ def test_build_handlers_registers_ingest(settings, session_factory):
         "rebuild_units",
         "rebuild_watch",
         "reparse_refs",
+        "auto_tags",
         "eval_run",
         "eval_generate",
         "search_signals",

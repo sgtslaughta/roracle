@@ -126,7 +126,12 @@ def merge_page_ids(meta: dict, doc: dict) -> dict:
         for t in doc.get("texts") or []
         if any(isinstance(p, dict) and p.get("page_no") == 1 for p in t.get("prov") or [])
     )
-    return {**meta, "ids": {**extract_arxiv_stamp(page1), **meta["ids"]}}
+    stamp = extract_arxiv_stamp(page1)
+    cat = stamp.pop("category", None)
+    return {**meta, "ids": {**stamp, **meta["ids"]}, **({"arxiv_category": cat} if cat else {})}
+
+
+MAX_KEYWORDS = 20
 
 
 def _t(el, path: str) -> str | None:
@@ -207,6 +212,12 @@ def parse_tei(xml: bytes) -> tuple[dict, list[dict]]:
     if meta["title"] is None:
         meta["title"] = _t(root, ".//t:teiHeader//t:titleStmt/t:title")
     meta["abstract"] = _t(root, ".//t:teiHeader//t:abstract")
+    terms = [
+        " ".join("".join(k.itertext()).split())
+        for k in root.findall(".//t:teiHeader//t:keywords/t:term", _NS)
+    ]
+    if kw := [k for k in terms if k][:MAX_KEYWORDS]:  # author-declared: only a hint for auto-tags
+        meta["keywords"] = kw
     refs = []
     for b in root.findall(".//t:back//t:listBibl/t:biblStruct", _NS):
         ana = b.find("t:analytic", _NS)

@@ -3,6 +3,7 @@ from functools import partial
 
 from roracle import clients, http_pool, runtime, search_index, worker_health
 from roracle.acl_sync import handle_acl_sync
+from roracle.autotag import handle_auto_tags
 from roracle.citations import handle_citations
 from roracle.config import get_settings
 from roracle.connectors.run import ensure_tick, handle_connector_run, handle_connector_tick
@@ -56,6 +57,7 @@ def build_handlers(settings, session_factory) -> dict[str, Handler]:
         ),
         "reconcile_tags": partial(handle_reconcile_tags, es=clients.es(settings)),
         "reparse_refs": partial(handle_reparse_refs, settings=settings, store=blob_store_from(settings)),
+        "auto_tags": partial(handle_auto_tags, settings=settings, llm=clients.llm(settings)),
         "lsh_backfill": handle_lsh_backfill,
         "eval_run": partial(
             handle_eval_run,

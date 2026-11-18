@@ -34,7 +34,7 @@ _EXTRACT = {
 _TRAIL = ".,;:)]}"
 _OPEN = {")": "(", "]": "[", "}": "{"}
 # the arXiv margin stamp: the id must be followed by the [category] bracket (a footnote citing BERT has none)
-_ARX_STAMP = re.compile(rf"arxiv:({_ARX_ID})(?:v\d+)?\s*\[[a-z\-]+(?:\.[a-z\-]+)?\]", _I)
+_ARX_STAMP = re.compile(rf"arxiv:({_ARX_ID})(?:v\d+)?\s*\[([a-z\-]+(?:\.[a-z\-]+)?)\]", _I)
 _ISSN = re.compile(r"\b(e-?)?issn\s*:?\s*(\d{4}-?\d{3}[\dX])\b", _I)
 
 
@@ -167,10 +167,13 @@ def extract_ids(text: str) -> dict[str, str]:
 
 
 def extract_arxiv_stamp(text: str) -> dict[str, str]:
-    """The paper's OWN arXiv id from the first-page margin stamp `arXiv:<id>[vN] [cs.XX]`; none when the text
-    holds no stamp or several different ones."""
-    found = {n for m in _ARX_STAMP.finditer(text or "") if (n := normalize("arxiv", m[1]))}
-    return {"arxiv": found.pop()} if len(found) == 1 else {}
+    """The paper's OWN arXiv id + primary category from the first-page margin stamp `arXiv:<id>[vN] [cs.XX]`
+    (`{"arxiv": id, "category": "cs.XX"}`); none when the text holds no stamp or several different ones."""
+    found = {(n, m[2]) for m in _ARX_STAMP.finditer(text or "") if (n := normalize("arxiv", m[1]))}
+    if len({n for n, _ in found}) != 1:
+        return {}
+    (n, cat), *_ = found
+    return {"arxiv": n, "category": cat}
 
 
 def public_ids(meta: dict) -> dict[str, str]:
