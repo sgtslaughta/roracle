@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 KIND = "auto_tags"
 MAX_AUTO = 5
 MAX_WORDS = 3
+MAX_KEYWORDS = 10
+KEYWORD_LEN = 40  # the tag length limit
 VOCAB_SIZE = 50
 SYSTEM_PROMPT = (
     "You tag research papers for a library. Choose at most 5 topical tags, each 1-3 words, naming what the paper "
@@ -67,7 +69,7 @@ def suggest(
     if not (summary or "").strip():
         return []
     paper = [f"Title: {_meta(title)}", f"Summary: {summary.strip()}"]
-    if kw := [k for k in keywords if isinstance(k, str) and k.strip()]:
+    if kw := [k.strip()[:KEYWORD_LEN] for k in keywords if isinstance(k, str) and k.strip()][:MAX_KEYWORDS]:
         paper.append("Author keywords: " + "; ".join(kw))
     if category:
         paper.append(f"arXiv category: {category}")

@@ -19,7 +19,7 @@ from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
-from roracle.onboarding import mark
+from roracle.onboarding import mark_human
 from roracle.search_index import MUTATE_ALIAS, run_update_by_query
 from roracle.search_signals import enqueue_signals
 
@@ -118,8 +118,9 @@ class TagBody(BaseModel):
         return self
 
 
-def tags_of(session: Session, doc_id: UUID) -> list[str]:
-    return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
+def tags_of(session: Session, doc_id: UUID, *, user_only: bool = False) -> list[str]:
+    q = select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)
+    return list(session.scalars(q.where(Tag.source == "user") if user_only else q))
 
 
 def auto_tags_of(session: Session, doc_id: UUID) -> list[str]:
@@ -252,7 +253,7 @@ def list_collections(p: Who, session: Session_) -> list[dict]:
 def create_collection(body: CollectionBody, p: Who, session: Session_) -> dict:
     c = Collection(owner_id=p.user_id, name=body.name)
     session.add(c)
-    mark(session, p.user_id, "collect")
+    mark_human(session, p, "collect")
     session.commit()
     return {"id": str(c.id), "name": c.name, "count": 0}
 

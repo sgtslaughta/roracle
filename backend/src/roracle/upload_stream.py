@@ -4,6 +4,7 @@ Non-file fields are collected in memory (capped); the single `file` part goes th
 Raises TooLarge / EmptyFile (storage) or HTTPException 422 (malformed). The caller promotes or discards."""
 
 import codecs
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl
 
@@ -45,8 +46,10 @@ class _Part:
 
 
 class _Sink:
-    def __init__(self, store: BlobStore, max_bytes: int, file_field: str, field_max: int, charset: str):
-        self.store, self.max_bytes, self.file_field = store, max_bytes, file_field
+    def __init__(
+        self, store: BlobStore, max_bytes: int, file_field: str, field_max: int, charset: str, guard=None
+    ):
+        self.store, self.max_bytes, self.file_field, self.guard = store, max_bytes, file_field, guard
         self.field_max, self.charset = field_max, charset
         self.fields: dict[str, str] = {}
         self.upload: TmpUpload | None = None
@@ -101,6 +104,8 @@ class _Sink:
         p.filename = self._dec(opts[b"filename"])
         ctype = self._dec(parse_options_header(h.get(b"content-type", b""))[0]) or "application/octet-stream"
         self.filename, self.content_type = p.filename, ctype
+        if self.guard:
+            self.guard(self.fields)  # fields sent before the file: refuse before anything is staged
         self.upload = TmpUpload(self.store, ctype, self.max_bytes)
 
     def on_part_data(self, data: bytes, start: int, end: int) -> None:
@@ -126,6 +131,7 @@ async def receive(
     *,
     file_field: str = "file",
     field_max: int = FIELD_MAX,
+    guard: Callable[[dict[str, str]], None] | None = None,
 ) -> Received:
     ctype, params = parse_options_header(request.headers.get("content-type", ""))
     if ctype == b"application/x-www-form-urlencoded":  # file-less submissions (e.g. evidence with a uri)
@@ -141,7 +147,7 @@ async def receive(
         charset = codecs.lookup(params.get(b"charset", b"utf-8").decode("latin-1")).name
     except LookupError:
         charset = "utf-8"
-    sink = _Sink(store, max_bytes, file_field, field_max, charset)
+    sink = _Sink(store, max_bytes, file_field, field_max, charset, guard)
     parser = MultipartParser(
         params[b"boundary"],
         {
