@@ -123,8 +123,10 @@ def test_build_messages():
     assert [m["content"] for m in msgs[1:-1]] == ["m3", "m4", "m5", "m6", "m7", "m8"]
     last = msgs[-1]
     assert last["role"] == "user" and last["content"].endswith("Question: why?")
-    assert '[1] T1, p. 1\n<passage n="1">\ntext 1\n</passage>' in last["content"]
-    assert '[2] Selected passage, p. 7\n<passage n="2">\ntext 2\n</passage>' in last["content"]
+    assert '[1] <source>T1, p. 1</source>\n<passage n="1">\ntext 1\n</passage>' in last["content"]
+    assert (
+        '[2] <source>Selected passage, p. 7</source>\n<passage n="2">\ntext 2\n</passage>' in last["content"]
+    )
     assert "Real Title" not in last["content"]
 
 
@@ -182,7 +184,10 @@ def test_stream_happy_path(client, as_ana, ana, db_session, setup):
     assert sorted(m.role for m in msgs) == ["assistant", "user"]
     assert db_session.get(Chat, uuid.UUID(cid)).title == "what is alpha?"
     sent = llm.received[0]["messages"]
-    assert sent[0]["content"] == SYSTEM_PROMPT and "[1] Alpha Paper, p. 2" in sent[-1]["content"]
+    assert (
+        sent[0]["content"] == SYSTEM_PROMPT
+        and "[1] <source>Alpha Paper, p. 2</source>" in sent[-1]["content"]
+    )
 
 
 def test_history_included_on_second_turn(client, as_ana, ana, db_session, setup):
