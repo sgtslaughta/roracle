@@ -43,8 +43,7 @@ MCP never writes `pat.use`; REST never writes `mcp.*`. An MCP request rejected f
 
 Events that are **not** audited, because no code writes them: sign-in (the user row is upserted, no audit row),
 search queries (REST or MCP `search` beyond the `mcp.search` row), document view or download (apart from
-`label.view` on `block_export` documents), chat questions and answers, uploads, sharing and visibility changes
-(`PATCH /api/documents/{id}`, collections, chat shares), and note creation. Earlier versions of this page listed
+`label.view` on `block_export` documents), chat questions and answers, collection sharing changes, and note creation. Earlier versions of this page listed
 sign-in and search auditing; that was never implemented.
 
 ### Reading and exporting
