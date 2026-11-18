@@ -11,7 +11,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.metrics import AUDIT_WRITE_FAILURES
-from roracle.models import AuditLog
+from roracle.models import AuditLog, User
 
 if TYPE_CHECKING:
     from roracle.auth import Principal
@@ -47,16 +47,18 @@ def _committed(session: Session) -> None:
 
 
 def replay_durable(session: Session, status: int) -> None:
-    """After a rollback: re-add the request's durable rows (user_id=None: the user row may be gone too)."""
+    """After a rollback: re-add the request's durable rows (user_id kept when the user row exists)."""
     rows = session.info.pop(KEY, [])
     if not rows:
         return
     try:
         for r in rows:
             detail = {**r["detail"], "failed": status}
-            if r["user_id"] is not None:
-                detail["user_id"] = str(r["user_id"])
-            session.add(AuditLog(**{**r, "user_id": None, "detail": detail}))
+            uid = r["user_id"]
+            if uid is not None and session.get(User, uid) is None:  # user row gone: keep the id in detail only
+                detail["user_id"] = str(uid)
+                uid = None
+            session.add(AuditLog(**{**r, "user_id": uid, "detail": detail}))
         session.commit()
     except Exception:
         with contextlib.suppress(Exception):

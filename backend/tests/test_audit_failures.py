@@ -58,7 +58,7 @@ def test_failed_request_keeps_pat_use(real, client, db_session, ana):
     assert r.status_code == 422
     (row,) = rows(db_session, "pat.use")
     assert row.detail["failed"] == 422 and row.target == "POST /handoffs"
-    assert row.user_id is None and row.detail["user_id"] == str(ana)
+    assert row.user_id == ana  # user row exists in the replay session
 
 
 def test_handler_error_keeps_pat_use(real, client, db_session, ana):
@@ -185,3 +185,21 @@ def test_mcp_write_scope_denied_audited(app, db_session, ana):
     assert err and "insufficient scope" in text
     (row,) = rows(db_session, "auth.scope_denied")
     assert row.detail["need"] == "write" and row.detail["via"] == "pat"
+
+
+def test_replay_without_user_row_keeps_id_in_detail(db_session):
+    ghost = uuid4()
+    db_session.info[audit_mod.KEY] = [
+        {"user_id": ghost, "action": "x.gone", "target": "t", "client": "", "detail": {}}
+    ]
+    audit_mod.replay_durable(db_session, 500)
+    (row,) = rows(db_session, "x.gone")
+    assert row.user_id is None and row.detail["user_id"] == str(ghost)
+
+
+def test_admin_audit_filter_finds_replayed_rows(real, client, db_session, ana, make_token):
+    h = bearer(new_pat(db_session, ana, ["read", "write"]))
+    assert client.post("/handoffs", json={"kind": "bogus"}, headers=h).status_code == 422
+    adm = bearer(make_token(sub="root", username="root", roles=("roracle-admin",)))
+    items = client.get(f"/admin/audit?user_id={ana}&action=pat.use", headers=adm).json()["items"]
+    assert any(i["detail"].get("failed") == 422 for i in items)

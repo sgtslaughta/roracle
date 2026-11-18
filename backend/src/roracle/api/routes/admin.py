@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, func, literal, select, update
+from sqlalchemy import delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
@@ -270,7 +270,7 @@ def list_audit(
         esc = action.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.where(AuditLog.action.like(esc + "%", escape="\\"))
     if user_id:
-        q = q.where(AuditLog.user_id == user_id)
+        q = q.where(or_(AuditLog.user_id == user_id, AuditLog.detail["user_id"].astext == str(user_id)))
     if before_id:
         q = q.where(AuditLog.id < before_id)
     rows = session.execute(q.order_by(AuditLog.id.desc()).limit(limit + 1)).all()
