@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from roracle.access import llm_allowed, visible_documents
 from roracle.api.routes.search import _own_collections
 from roracle.auth import Principal
+from roracle.chat.lexical import chat_bm25
 from roracle.config import Settings
 from roracle.db import release_before_io
 from roracle.labels.policy import Policy
@@ -129,6 +130,13 @@ def open_blocked(session: Session, p: Principal, viewer: Viewer) -> list[dict]:
     return _blocked(session, p, _open_ids(viewer))
 
 
+def _per_doc(settings: Settings, doc_ids: list[str] | None) -> int | None:
+    """Per-document chunk cap before the rerank, unless the scope is too few documents to fill the context under it
+    (an open tab or a tiny collection must keep all its chunks)."""
+    cap = settings.chat_chunks_per_doc
+    return cap if cap and (doc_ids is None or len(doc_ids) * cap >= MAX_K) else None
+
+
 def _search(
     session, es, llm, settings: Settings, p: Principal, q: str, doc_ids: list[str] | None, size: int, qvec,
     units: tuple[str, ...] = ("chunk",), policy: Policy | None = None,
@@ -152,6 +160,8 @@ def _search(
             min_similarity=settings.chat_min_similarity or None,
             summary_knn=False,  # summary hit is chunk 0 of a doc, not the matching passage
             units=units,
+            bm25=chat_bm25(q, units),  # BM25 on the filler-free question; kNN + rerank keep `q`
+            per_doc=_per_doc(settings, doc_ids),
         )
     except NotFoundError:  # nothing ingested yet: no index
         return []

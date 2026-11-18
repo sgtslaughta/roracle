@@ -20,6 +20,7 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_BUILD_MAX_PDF_BYTES` | `int` | `104857600` |  | Maximum size of a built draft PDF in bytes |
 | `ROR_BUILD_TIMEOUT_S` | `float` | `120.0` |  | per pandoc call and for the Gotenberg request |
 | `ROR_CHAT_CANDIDATES` | `int` | `200` |  | BM25 and kNN list size on the chat path |
+| `ROR_CHAT_CHUNKS_PER_DOC` | `int` | `3` |  | Chunks per document kept before the chat rerank (0 = no cap) |
 | `ROR_CHAT_MIN_SIMILARITY` | `float` | `0.35` |  | kNN floor for chat retrieval; 0 disables |
 | `ROR_CHAT_MODELS` | `str` | `'qwen2.5:14b'` | yes | comma-separated; first is the default |
 | `ROR_CHAT_NOTE_MIN_RATIO` | `float` | `0.6` | yes | Minimum upvote ratio for a community note to reach the LLM |

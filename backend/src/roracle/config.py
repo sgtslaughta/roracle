@@ -153,6 +153,9 @@ class Settings(AliasConfig):
     latex_builder: Literal["disabled"] = "disabled"  # `disabled` -> format: latex builds return 501
     writing_model: str = ""  # P9 style check / citation judge; empty = first chat model
     chat_passages: int = 8  # clamped 4-12 at use
+    chat_chunks_per_doc: int = Field(
+        3, ge=0, description="Chunks per document kept before the chat rerank (0 = no cap)"
+    )
     chat_note_min_upvotes: int = 3  # community notes reach the LLM only above these (own notes always)
     chat_note_min_ratio: float = Field(
         0.6, description="Minimum upvote ratio for a community note to reach the LLM"

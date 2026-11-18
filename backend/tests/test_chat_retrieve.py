@@ -338,3 +338,33 @@ def test_chat_turn_on_a_flagged_request_session_rechecks_after_the_commit(db_ses
     out = run(db_session, es, settings, me)
     assert ids(out) == [str(mine.id)]
     assert seen and set(seen) == {0}
+
+
+def test_bm25_leg_is_filler_free_while_dense_and_rerank_keep_the_question(
+    db_session, settings, me, other, calls
+):
+    from roracle.chat.lexical import chat_bm25
+
+    a, av = seed(db_session, other.id)
+    es = FakeES([hit(a, av)])
+    run(db_session, es, settings, me, q="find things on robots")
+    kw = calls[0][1]
+    assert kw["query"] == "find things on robots"  # rerank + embedding input
+    assert kw["bm25"] == chat_bm25("find things on robots", ("chunk",))
+    body = next(c for c in es.calls if "query" in c)
+    assert body["query"]["bool"]["must"] == [kw["bm25"]]
+
+
+def test_corpus_search_caps_chunks_per_doc_but_a_few_tabs_do_not(db_session, settings, me, other, calls):
+    docs = [seed(db_session, other.id, title=f"D{i}") for i in range(2)]
+    d0, v0 = docs[0]
+    es = FakeES([*(hit(d0, v0, chunk=n) for n in range(6)), hit(*docs[1])])
+    s = settings.model_copy(update={"chat_chunks_per_doc": 2})
+    out = rt.rank_for_chat(
+        db_session, es, FakeLLM(), s, me, "alpha", viewer=Viewer(tabs=[Tab(doc_id=str(d0.id))])
+    )
+    assert [kw["per_doc"] for _, kw in calls] == [2, None]  # corpus capped; the tab search fills the open doc
+    assert ids(out).count(str(d0.id)) == 6
+    calls.clear()
+    out = rt.rank_for_chat(db_session, FakeES(es.hits), FakeLLM(), s, me, "alpha")
+    assert ids(out).count(str(d0.id)) == 2 and str(docs[1][0].id) in ids(out)

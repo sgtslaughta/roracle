@@ -19,7 +19,7 @@ from roracle.auth import Principal
 from roracle.config import Settings
 from roracle.labels.policy import Policy
 from roracle.metrics import RERANK_FALLBACK, RERANK_SECONDS
-from roracle.retrieval_util import _EMBEDS, TtlLru, _msearch, embed_query  # noqa: F401 (re-exported)
+from roracle.retrieval_util import _EMBEDS, TtlLru, _msearch, cap_per_doc, embed_query  # noqa: F401 (re-exported)
 from roracle.search_acl import acl_filter
 from roracle.search_index import active_index
 
@@ -296,6 +296,7 @@ def search_chunks(
     extra_filter: list[dict] | None = None,
     must_not: list[dict] | None = None,
     knn: bool = True,
+    per_doc: int | None = None,
 ) -> list[Passage]:
     """Fused passages, best first. Raises ValueError on an empty query (callers browse instead).
 
@@ -309,6 +310,7 @@ def search_chunks(
     light=True is the facet-universe pass: ids only (no text/bboxes/highlight), never reranked.
     bm25 replaces the default BM25 clause; extra_filter is ANDed into the filter; must_not excludes from BM25
     and every kNN; knn=False sends the BM25 body only (head-only field scopes).
+    per_doc caps the fused list at that many chunks per document before the rerank (`cap_per_doc`).
     """
     if not query.strip():
         raise ValueError("empty query")
@@ -372,7 +374,7 @@ def search_chunks(
     by_id.update({h["_source"]["chunk_id"]: h for h in bm25_hits})  # BM25 hit carries the highlight
     fused = rrf([[h["_source"]["chunk_id"] for h in x] for x in (bm25_hits, knn_hits, sknn)])
     ranked = sorted(fused, key=lambda c: -fused[c])
-    out = [_passage(by_id[c], fused[c]) for c in ranked]
+    out = cap_per_doc([_passage(by_id[c], fused[c]) for c in ranked], per_doc)
     if settings.rerank_url and not light:
         out = _rerank(settings, query, out, http, rerank_depth)
     return out
