@@ -29,7 +29,7 @@ Which papers you can see depends on your account's groups (your org unit) and on
 | Centre | The page you are on |
 | Right | The reader, which opens when you open a paper ([reader](reader.md)) |
 
-The sidebar shows a number on **My uploads** when an upload needs your attention, and on **Agent proposals** when agents have suggestions waiting. **Help** opens this guide in a window; press `?` to open it from anywhere. Help also has a link to the full docs site. Type in **Search help** to filter topics; **Previous** and **Next** step through them, and **Copy link to this topic** shares one.
+The sidebar shows a number on **My uploads** when an upload needs your attention, and on **Agent proposals** when agents have suggestions waiting. **Help** opens this guide in a window; press `?` to open it from anywhere. On a narrow window the sidebar shrinks to a rail; its **Chats and collections** button opens a popover with recent chats, **New chat** and your collections. Help also has a link to the full docs site. Type in **Search help** to filter topics; **Previous** and **Next** step through them, and **Copy link to this topic** shares one.
 
 Settings (from the avatar menu) holds your access tokens and handoffs. The bell lists notifications; choosing one marks it read and takes you to what it is about.
 
