@@ -18,13 +18,14 @@ from roracle.audit import audit
 from roracle.auth import Principal
 from roracle.chat.access import readable_chat, recheck, visible_versions
 from roracle.labels.policy import Policy, label_json
-from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withhold_messages
+from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withheld_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 
 # R9: note citations fail closed in handoffs (recheck notes=frozenset()).
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 PAGE = 20
 MAX_NOTES = 200
+UNAVAILABLE = "unavailable"
 KINDS = ("chat", "collection", "search", "document", "agent")
 _CODE = re.compile(f"[{ALPHABET}]{{8}}")
 NF = HTTPException(404, "not found")
@@ -316,7 +317,14 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
             for m in items
         ]
         withhold_messages(items, gated, lambda m: m["_docs"])
+        seen = set(_visible_doc_ids(session, p, {d for m in items for d in m["_docs"]}))
         for m in items:
+            if (
+                m.get("role") == "assistant"
+                and m["_docs"] - seen
+                and not m["content"].startswith("[withheld: ")
+            ):
+                m["content"] = withheld_text(UNAVAILABLE)
             del m["_docs"]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
     return {"part": part, "items": items, "page": page, "pages": pages}
