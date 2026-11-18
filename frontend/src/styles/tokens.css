@@ -12,6 +12,8 @@
   --f-ui: "Manrope Variable", "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-read: "Newsreader Variable", "Newsreader", Georgia, serif;
   --f-math: "STIX Two Text", "Cambria Math", Georgia, serif;
+  --f-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --warn-bg: #fff3e3; --code-bg: #f3f6fa; --guide: #c6d3e0;
   --side: 232px; --reader: 620px; --top: 56px; --r: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -23,6 +25,7 @@
     --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5; --on-apricot: #1f2e3d;
     --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
     --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
+    --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470;
   }
 }
 :root[data-theme="dark"] {
@@ -33,4 +36,5 @@
   --primary: #fdb813; --primary-fg: #26281c; --primary-soft: #55523a; --apricot: #82c8e5; --on-apricot: #1f2e3d;
   --terra: #ffb4a0; --rose: #3e6e85; --sky: #82c8e5; --hl: #3f6a80; --hl-ink: #f4fbff; --good: #7cfc00;
   --shadow: 0 1px 2px rgba(15,23,42,.2), 0 6px 20px rgba(15,23,42,.18); color-scheme: dark;
+  --warn-bg: #4a4130; --code-bg: #2a2f36; --guide: #5b6470;
 }
