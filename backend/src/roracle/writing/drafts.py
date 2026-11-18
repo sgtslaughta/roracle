@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from roracle.access import group_path, org_units
 from roracle.audit import audit
-from roracle.auth import Principal
+from roracle.auth import MANAGE, Principal, require_scope
 from roracle.labels.policy import Policy, label_json
 from roracle.models import Document, DocumentShare, User
 from roracle.models_writing import Draft, DraftVersion
@@ -165,6 +165,8 @@ def set_coauthors(
 
 def delete_draft(session: Session, p: Principal, doc_id: UUID) -> None:
     doc, d = owned_draft(session, p, doc_id, lock=True)
+    if d.submitted_version is not None:  # a publication exists: same bar as deleting the paper
+        require_scope(session, p, MANAGE)
     if d.status == "submitted":
         raise HTTPException(409, "draft already submitted")
     doc.deleted_at = datetime.now(UTC)

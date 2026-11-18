@@ -209,3 +209,21 @@ def test_rest_upload_default_visibility(client, as_ana, db_session, ana):
         r = client.post("/documents", headers=h, files=files)
         assert r.status_code in (200, 201, 202), r.text
         assert db_session.get(Document, UUID(r.json()["document_id"])).visibility == "everyone"
+
+
+def test_write_pat_cannot_delete_published_draft(client, db_session, ana, doc):
+    from roracle.models_writing import Draft
+
+    db_session.add(Draft(document_id=doc.id, status="in_review", submitted_version=1))
+    db_session.commit()
+    h = new_pat(db_session, ana, ["read", "write"])
+    r = client.delete(f"/drafts/{doc.id}", headers=h)
+    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"
+    db_session.refresh(doc)
+    assert doc.deleted_at is None
+
+
+def test_write_pat_deletes_unpublished_draft(client, db_session, ana):
+    h = new_pat(db_session, ana, ["read", "write"])
+    i = client.post("/drafts", headers=h, json={"title": "T"}).json()["id"]
+    assert client.delete(f"/drafts/{i}", headers=h).status_code == 204
