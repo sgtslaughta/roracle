@@ -20,3 +20,10 @@ describe("ask styles", () => {
     expect(ask).not.toMatch(/@media \(max-width:1100px\)\{\s*\.answer/);
   });
 });
+
+describe("draft preview styles", () => {
+  it("preview headings are styled (preflight would make them body text)", () => {
+    const css = readFileSync("src/styles/drafts.css", "utf8");
+    expect(css).toMatch(/\.dpreview h2\s*\{[^}]*font-size/);
+  });
+});

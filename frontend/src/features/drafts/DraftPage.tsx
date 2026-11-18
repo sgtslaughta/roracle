@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
-import type { DraftDetail } from "@/api/drafts";
+import { profileLabel, type DraftDetail } from "@/api/drafts";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/features/library/useMe";
@@ -60,7 +60,7 @@ function DraftView({ draft, refetch }: { draft: DraftDetail; refetch: () => Prom
       <div className="uhead-row">
         <div>
           <h1>{draft.title}</h1>
-          <p className="sub"><StatusBadge status={draft.status} /> {draft.profile ?? "default profile"} · version {draft.latest_version} · owner {draft.owner.username}</p>
+          <p className="sub"><StatusBadge status={draft.status} /> {profileLabel(draft.profile)} · version {draft.latest_version} · owner {draft.owner.username}</p>
         </div>
         <div className="row2">
           <Button variant="primary" onClick={doSave} disabled={!dirty || save.isPending || locked}>{save.isPending ? "Saving…" : "Save"}</Button>

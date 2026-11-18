@@ -3,6 +3,8 @@
 Access rule (NOT visible_documents): admin, owner, or co-author (user id / group). Everything else, and any
 soft-deleted document, is 404. One helper (`readable_draft`) guards every route and MCP tool."""
 
+import json
+import re
 from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
@@ -79,6 +81,20 @@ def _touch(d: Draft) -> None:
     d.updated_at = datetime.now(UTC)
 
 
+_EMPTY_TITLE = re.compile(r'^title: ""$', re.M)
+
+
+def _titled(template: str, title: str) -> str:
+    """The template with the new draft's title in its front matter (only an empty `title: ""` is filled)."""
+    if not template.startswith("---"):
+        return template
+    end = template.find("\n---", 3)
+    if end < 0:
+        return template
+    head = _EMPTY_TITLE.sub(lambda _: "title: " + json.dumps(title.strip(), ensure_ascii=False), template[:end], count=1)
+    return head + template[end:]
+
+
 def create(
     session: Session, p: Principal, title: str, content: str | None, profile: str | None, max_bytes: int
 ) -> Draft:
@@ -88,7 +104,7 @@ def create(
         prof, _, _ = profiles.resolve(session, profile, org, None)
     except KeyError:
         raise HTTPException(422, "unknown profile") from None
-    text = prof.template if content is None else content
+    text = _titled(prof.template, title) if content is None else content
     _check_size(text, max_bytes)
     doc = Document(owner_id=p.user_id, title=title, org_unit=org, visibility="private")
     session.add(doc)

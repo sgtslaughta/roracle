@@ -1,10 +1,12 @@
 import { Download, Loader2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { QUIET } from "@/api/client";
+import { ApiError, QUIET } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { buildDraftPdf, draftError } from "./api";
 
+/** 503: no build service on this server, which the author can't fix themselves. */
+const buildError = (e: unknown) => (e instanceof ApiError && e.status === 503 ? "PDF building isn't set up on this server. Ask an admin to turn on the build service." : draftError(e));
 const DraftPdf = lazy(() => import("./DraftPdf"));
 const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "draft";
 
@@ -27,7 +29,7 @@ export function BuildPanel({ id, title, author }: { id: string; title: string; a
         {href && <Button asChild><a href={href} download={`${slug(title)}.pdf`}><Download aria-hidden />Download PDF</a></Button>}
       </div>
       {build.isPending && <p className="sub" role="status">Building the PDF. This can take up to two minutes.</p>}
-      {build.isError && <p role="alert" className="derr">{draftError(build.error)}</p>}
+      {build.isError && <p role="alert" className="derr">{buildError(build.error)}</p>}
       {blob && <Suspense fallback={<p className="sub" role="status">Loading preview…</p>}><DraftPdf blob={blob} /></Suspense>}
     </div>
   );

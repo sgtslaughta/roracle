@@ -58,7 +58,7 @@ describe("drafts list", () => {
     await user.selectOptions(screen.getByLabelText("Writing profile"), "dissertation");
     await user.click(screen.getByRole("button", { name: "Create draft" }));
     expect(await screen.findByRole("heading", { name: "Brand new paper" })).toBeInTheDocument();
-    expect(screen.getByText(/dissertation/)).toBeInTheDocument();
+    expect(screen.getByText(/Dissertation/)).toBeInTheDocument();
   });
 
   it("deletes through the row menu with confirmation", async () => {
@@ -246,6 +246,17 @@ describe("build pdf", () => {
     await user.click(screen.getByRole("button", { name: "Build PDF" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("LaTeX builds are not enabled");
     expect(revoke).toHaveBeenCalledWith("blob:draft");
+    server.use(http.post(url(`/drafts/${D1}/build`), () => HttpResponse.json({ detail: "build service not configured" }, { status: 503 })));
+    await user.click(screen.getByRole("button", { name: "Build PDF" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("PDF building isn't set up on this server"); // not the raw server text
+  });
+
+  it("names writing profiles in words", async () => {
+    const user = userEvent.setup();
+    await open("/drafts");
+    await user.click(await screen.findByRole("button", { name: /New draft/ }));
+    expect(await screen.findByRole("option", { name: "Journal article" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "journal-article" })).toBeNull();
   });
 });
 
