@@ -32,15 +32,16 @@ ENV = {
     "MKTEXPK": "0",
     "MKTEXMF": "0",
 }
-# PDF names a published paper must not carry (viewers run or fetch them); /URI is checked separately.
-FORBIDDEN = (
-    "JavaScript JS AA Named Launch EmbeddedFile EmbeddedFiles RichMedia SubmitForm ImportData GoToR GoToE "
-    "Movie Sound Rendition XFA FileAttachment 3D"
-).split()
-_NAME = re.compile(rb"/(" + b"|".join(k.encode() for k in FORBIDDEN) + rb")(?![A-Za-z0-9_.#-])")
-_STREAM = re.compile(rb"stream\r?\n.*?endstream", re.DOTALL)
-_URI = re.compile(rb"/URI\s*\(((?:[^()\\]|\\.)*)\)")
-_HEXNAME = re.compile(rb"#([0-9A-Fa-f]{2})")
+# Active content a published paper must not carry (viewers run or fetch it). Checked on qpdf's decoded object JSON.
+BAD_KEYS = frozenset(
+    "/JavaScript /JS /AA /Launch /EmbeddedFile /EmbeddedFiles /RichMedia /SubmitForm /ImportData /GoToR /GoToE "
+    "/Movie /Sound /Rendition /XFA /FileAttachment /3D".split()
+)
+BAD_ACTIONS = frozenset(
+    "/JavaScript /Launch /GoToR /GoToE /ImportData /SubmitForm /Named /Rendition /Movie /Sound".split()
+)
+WEB = ("http://", "https://", "mailto:")
+JSON_CAP = 64 * 1024 * 1024
 _sem = threading.BoundedSemaphore(max(1, int(os.environ.get("LATEX_CONCURRENCY", 2))))
 
 
@@ -103,20 +104,45 @@ def build_env(root: Path) -> dict[str, str]:
     }
 
 
-def forbidden_features(pdf: bytes) -> list[str]:
-    """Active-content keys in the PDF's object structure (stream bodies skipped) and non-web /URI schemes."""
-    body = _HEXNAME.sub(lambda m: bytes([int(m.group(1), 16)]), _STREAM.sub(b"", pdf))
-    found = sorted({m.group(1).decode() for m in _NAME.finditer(body)})
-    for m in _URI.finditer(body):
-        if not m.group(1).strip().lower().startswith((b"http://", b"https://", b"mailto:")):
-            found.append("URI")
-            break
-    return found
+def _uri_ok(v: object) -> bool:
+    """qpdf JSON strings are `u:<text>` or `b:<hex>`; anything else (a reference, a number) cannot be verified."""
+    if not isinstance(v, str):
+        return False
+    if v.startswith("u:"):
+        text = v[2:]
+    elif v.startswith("b:"):
+        try:
+            text = bytes.fromhex(v[2:]).decode("latin-1")
+        except ValueError:
+            return False
+    else:
+        return False
+    return text.strip().lower().startswith(WEB)
 
 
-def _run(cmd: list[str], cwd: Path, env: dict[str, str], timeout_s: float) -> int:
+def forbidden_features(doc: object) -> list[str]:
+    """Walk qpdf's `--json=2` output iteratively: forbidden keys, bad /S action types, non-web /URI values."""
+    found: set[str] = set()
+    stack = [doc]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict):
+            for k, v in n.items():
+                if k in BAD_KEYS:
+                    found.add(k[1:])
+                elif k == "/URI" and not _uri_ok(v):
+                    found.add("URI")
+                elif k == "/S" and v in BAD_ACTIONS:
+                    found.add(v[1:])
+                stack.append(v)
+        elif isinstance(n, list):
+            stack.extend(n)
+    return sorted(found)
+
+
+def _run(cmd: list[str], cwd: Path, env: dict[str, str], timeout_s: float, stdout=subprocess.DEVNULL) -> int:
     p = subprocess.Popen(  # noqa: PLW1509 - handler threads hold no locks the child needs before exec
-        cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=stdout,
         stderr=subprocess.DEVNULL, preexec_fn=_limits,
     )
     try:
@@ -127,6 +153,23 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str], timeout_s: float) -> in
         with_suppress_kill(p)  # stray children (bibtex, dvips) die with the group
 
 
+def verify_pdf(pdf: Path, root: Path, env: dict[str, str], timeout_s: float) -> None:
+    """qpdf decodes every object; any failure, timeout or oversize output means the PDF cannot be verified."""
+    unverified = Bad(422, "PDF could not be verified")
+    js = root / "check.json"
+    try:
+        with js.open("wb") as f:
+            rc = _run(["qpdf", "--json=2", "--json-stream-data=none", str(pdf)], root, env, timeout_s, f)
+        if rc != 0 or js.stat().st_size > JSON_CAP:
+            raise unverified
+        with js.open("rb") as f:
+            doc = json.load(f)
+    except (Bad, OSError, ValueError, RecursionError, MemoryError):
+        raise unverified from None
+    if bad := forbidden_features(doc):
+        raise Bad(422, "document uses PDF features that are not allowed: " + ", ".join(bad))
+
+
 def sanitize_pdf(raw: Path, root: Path, env: dict[str, str], timeout_s: float) -> bytes:
     """Re-distill with Ghostscript (drops catalog actions, JS, attachments), then refuse any residue."""
     out = root / "clean.pdf"
@@ -134,10 +177,11 @@ def sanitize_pdf(raw: Path, root: Path, env: dict[str, str], timeout_s: float) -
            f"-sOutputFile={out}", str(raw)]
     if _run(cmd, root, env, timeout_s) != 0 or not out.is_file():
         raise Bad(422, "PDF could not be sanitised")
-    data = out.read_bytes()
-    if bad := forbidden_features(data) or forbidden_features(raw.read_bytes()):
-        raise Bad(422, "document uses PDF features that are not allowed: " + ", ".join(bad))
-    return data
+    if out.stat().st_size > MAX_PDF:  # before reading it into memory
+        raise Bad(422, "built PDF is too large")
+    verify_pdf(raw, root, env, timeout_s)  # the original too: the sanitised copy must not be the only check
+    verify_pdf(out, root, env, timeout_s)
+    return out.read_bytes()
 
 
 def compile_pdf(src: str, files: dict[str, str], timeout_s: float) -> bytes:

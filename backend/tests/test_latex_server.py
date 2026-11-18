@@ -97,21 +97,71 @@ def test_e2e_timeout_kills_build():
     assert r.status_code == 503
 
 
-def test_forbidden_features_scan():
-    ok = b"%PDF-1.4\n1 0 obj<</Type/Annot/Subtype/Link/A<</S/URI/URI(https://a.example/x)>>>>endobj\n"
-    assert srv.forbidden_features(ok) == []
-    assert srv.forbidden_features(b"<</URI(mailto:a@b.c)>>") == []
-    assert srv.forbidden_features(b"<</OpenAction<</S/JavaScript/JS(app.alert(1))>>>>") == [
-        "JS",
-        "JavaScript",
-    ]
-    assert srv.forbidden_features(b"<</S/#4Aava#53cript>>") == ["JavaScript"]  # hex-escaped name
-    assert srv.forbidden_features(b"<</A<</S/URI/URI(file:///etc/passwd)>>>>") == ["URI"]
-    assert srv.forbidden_features(b"<</Names<</EmbeddedFiles 1 0 R>>>>") == ["EmbeddedFiles"]
-    assert (
-        srv.forbidden_features(b"<</Subtype/Link>> stream\n/JavaScript\nendstream") == []
-    )  # stream body skipped
-    assert srv.forbidden_features(b"<</JSON 1>>") == []  # whole names only
+def feats(**objs):
+    """Shape of qpdf --json=2: {"qpdf": [meta, {"obj:N 0 R": {"value": ...}}]}."""
+    return srv.forbidden_features(
+        {"qpdf": [{}, {f"obj:{i} 0 R": {"value": v} for i, v in enumerate(objs.values())}]}
+    )
+
+
+def test_forbidden_features_walk():
+    link = {"/S": "/URI", "/URI": "u:https://a.example/x"}
+    assert feats(a={"/A": link}, b={"/URI": "u:MAILTO:a@b.c"}, c={"/URI": "b:" + b"https://x".hex()}) == []
+    assert feats(a={"/OpenAction": "1 0 R", "/Type": "/Catalog"}) == []  # hyperref's page-fit destination
+    assert feats(a={"/A": {"/S": "/JavaScript", "/JS": "u:app.alert(1)"}}) == ["JS", "JavaScript"]
+    assert feats(a={"/URI": "b:" + b"file:///etc/passwd".hex()}) == ["URI"]  # hex-string URI
+    assert feats(a={"/URI": "12 0 R"}) == ["URI"]  # indirect reference cannot be verified
+    assert feats(a={"/URI": 5}, b={"/URI": ["u:https://a"]}) == ["URI"]
+    assert feats(a={"/URI": "u:javascript:alert(1)"}) == ["URI"]
+    assert feats(a={"/S": "/Launch"}) == ["Launch"]
+    assert feats(a={"/Names": {"/EmbeddedFiles": "1 0 R"}}) == ["EmbeddedFiles"]
+    assert feats(a={"/Subtype": "/Link", "/Border": [0, 0, 1]}) == []
+
+
+def test_forbidden_features_nested_after_fake_stream_token():
+    # a dictionary placed after a literal "stream" string is still just data in the decoded JSON
+    deep = {"/Contents": "u:stream\nendstream", "/Next": {"/Kids": [{"/A": {"/S": "/Launch"}}]}}
+    assert feats(a=deep) == ["Launch"]
+    nest: object = {"/A": {"/S": "/Launch"}}
+    for _ in range(50000):  # no recursion bomb: iterative walk
+        nest = [nest]
+    assert feats(a=nest) == ["Launch"]
+
+
+def test_verify_fails_closed(tmp_path, monkeypatch):
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+
+    def timeout(*a, **k):
+        raise srv.Bad(503, "build timed out")
+
+    monkeypatch.setattr(srv, "_run", timeout)  # qpdf timeout
+    with pytest.raises(srv.Bad) as e:
+        srv.verify_pdf(pdf, tmp_path, {}, 1)
+    assert (e.value.status, e.value.msg) == (422, "PDF could not be verified")
+    monkeypatch.setattr(srv, "_run", lambda *a, **k: 2)  # qpdf failed
+    with pytest.raises(srv.Bad) as e:
+        srv.verify_pdf(pdf, tmp_path, {}, 1)
+    assert e.value.msg == "PDF could not be verified"
+    monkeypatch.setattr(srv, "_run", lambda *a, **k: 0)  # qpdf printed garbage
+    with pytest.raises(srv.Bad) as e:
+        srv.verify_pdf(pdf, tmp_path, {}, 1)
+    assert e.value.msg == "PDF could not be verified"
+
+
+def test_oversize_output_refused_before_read(tmp_path, monkeypatch):
+    (tmp_path / "raw.pdf").write_bytes(b"%PDF-1.4")
+
+    def fake_gs(cmd, *a, **k):
+        (tmp_path / "clean.pdf").write_bytes(b"%PDF-" + b"x" * 50)
+        return 0
+
+    monkeypatch.setattr(srv, "_run", fake_gs)
+    monkeypatch.setattr(srv, "MAX_PDF", 10)
+    monkeypatch.setattr(Path, "read_bytes", lambda self: pytest.fail("read before size check"))
+    with pytest.raises(srv.Bad) as e:
+        srv.sanitize_pdf(tmp_path / "raw.pdf", tmp_path, {}, 1)
+    assert e.value.msg == "built PDF is too large"
 
 
 def test_build_env_is_per_request_and_hardened():
@@ -131,12 +181,16 @@ def test_e2e_pdf_active_content_never_returned():
         "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /Launch /F (calc.exe) >>}",
         "\\pdfobj{<< /S /JavaScript /JS (x) >>}\\pdfcatalog{/AA << /O \\pdflastobj\\space 0 R >>}",
         "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI (file:///etc/passwd) >>}",
+        "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI <66696c653a2f2f2f6574632f706173737764> >>}",
+        "\\immediate\\pdfobj{(javascript:alert(1))}\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI \\pdflastobj\\space 0 R >>}",
     ):
         r = post(DOC % body)
         if r.status_code == 200:  # Ghostscript dropped it: the returned PDF must be clean
-            assert srv.forbidden_features(r.content) == [] and b"app.alert" not in r.content, body
+            assert b"app.alert" not in r.content and b"/JavaScript" not in r.content, body
         else:
-            assert r.status_code == 422 and "PDF features that are not allowed" in r.json()["detail"], (
+            assert r.status_code == 422 and r.json()["detail"].startswith(
+                ("document uses PDF features", "PDF could not be")
+            ), (
                 body,
                 r.text,
             )
