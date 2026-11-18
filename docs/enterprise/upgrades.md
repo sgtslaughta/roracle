@@ -151,6 +151,8 @@ Journal and has-identifier results are only correct for papers written by that r
 
 ### Unreleased (0.4.1)
 
+- Retrieval-quality gates (own-corpus-v1, [eval reports](../eval/README.md)): the TEI reranker PASSED (chat nDCG@10 +0.044, p95 +440 ms; confirmed on human-labelled SciFact, chat nDCG@10 +0.055). Operator step: set Helm `rerank.url` to your site's TEI endpoint (the chart now defaults to `api: tei`, `model: bge-reranker-v2-m3`; an empty url keeps it off). The router, context notes, RAPTOR and agentic retrieval stay off and are PENDING: run their gates on your corpus first ([how](../eval/README.md#run-the-pending-gates-in-the-target-network)); context notes and RAPTOR need a full rebuild of the active index after a PASS (no live cutover in this release).
+
 - LaTeX draft builder (optional, off by default): `format: latex` drafts build and submit through the new `latex-builder` service (`deploy/latex-builder/`, Helm `parsers.latexbuilder`, dev compose profile `latex`). Set `ROR_LATEX_BUILDER` to its URL; the default `disabled` keeps the 501 answer. The chart adds a `latexbuilder` parser entry (disabled) with a no-egress NetworkPolicy and an api-egress rule when enabled; build and mirror the image first ([latex-builder](latex-builder.md)). `ROR_LATEX_BUILDER` is now a URL string instead of the single value `disabled`.
 
 - Wider file types: images (OCR), JATS and other XML, LaTeX (single files and arXiv source archives), EPUB, CSV, TSV and JSON are ingested ([supported file types](../user/uploads.md#supported-file-types)). The website connector accepts them too, and decides by file extension when a server sends `application/octet-stream`.

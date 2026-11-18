@@ -219,6 +219,7 @@ a backfill never delays ingest. It is refused (exit 2 / `409`) while a re-embed 
   (it joins `chunks-all`, so ACL syncs and deletes reach it, but never the read alias `chunks`); `roracle eval compare ... --candidate-index
   chunks-<model-slug>-shadow` judges it; on a PASS set `ROR_CONTEXT_NOTES=true` (and `ROR_CONTEXT_MODEL`) and rebuild into the ACTIVE index (omit
   `--into`); finally `roracle rebuild --drop chunks-<model-slug>-shadow` (refuses the active index, the read-alias holder, re-embed generations and any moment a rebuild or re-embed job is queued or running).
+- **Pending gates (router, context notes, RAPTOR, agentic):** run them on your own corpus before turning them on; reference set, one model name for every LLM call, shadow builds, compare commands and durations: [Run the pending gates in the target network](../eval/README.md#run-the-pending-gates-in-the-target-network).
 - Requires the notes model for `context` (`ROR_CONTEXT_MODEL`; refused up front, exit 2 / 422, and a job that still sees it unset fails). Each version is idempotent; a broken version is skipped and the
   job fails at the end naming the count, the rest are done. Progress: `SELECT status, count(*) FROM jobs WHERE kind='rebuild_units' GROUP BY 1;`.
 
