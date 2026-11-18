@@ -102,8 +102,10 @@ describe("tags", () => {
     await user.type(screen.getByLabelText(/Merge into/), "PDE");
     expect(screen.getByRole("button", { name: /Merge 1 selected/ })).toBeDisabled();
     await user.type(screen.getByLabelText(/Filter tags/), "oper");
-    expect(screen.queryByText("survey")).toBeNull();
+    await waitFor(() => expect(sent("GET", "/admin/tags").some((r) => new URL(r.url).searchParams.get("q") === "oper")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("survey")).toBeNull());
     expect(screen.getByText("operators")).toBeInTheDocument();
+    expect(new URL(sent("GET", "/admin/tags").at(-1)!.url).searchParams.get("limit")).toBe("200");
   });
 });
 

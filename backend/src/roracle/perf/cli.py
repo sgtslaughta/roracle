@@ -61,7 +61,10 @@ def add_parser(sub) -> None:
     rc.add_argument("--es-url", default="http://localhost:9200")
     rc.add_argument("--index", default="perf-chunks-1")
 
-    su = s.add_parser("suite", help="every perf budget (docs/perf/budgets.yaml) against a scratch environment (CI gate / report)")
+    su = s.add_parser(
+        "suite",
+        help="every perf budget (docs/perf/budgets.yaml) against a scratch environment (CI gate / report)",
+    )
     su.add_argument("--profile", choices=["ci", "full"], default="ci")
     su.add_argument("--url", required=True, help="scratch Postgres URL (name must contain 'perf')")
     su.add_argument("--es-url", default="http://localhost:9200")

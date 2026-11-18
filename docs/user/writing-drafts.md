@@ -110,7 +110,7 @@ The owner chooses **Submit…** once the latest saved version has passed validat
 
 - **AI assistance**, described above.
 - **Visible to**: **Everyone** (the default), **My org unit**, **Only me** or **Shared** (add user IDs and org units). Co-authors are included automatically. **My org unit** needs a usable org unit on your account.
-- **Sensitivity label**: keep the draft's label or pick a higher one. Submitting never lowers it, and the profile may also set a minimum.
+- **Sensitivity label**: keep the draft's label or pick a higher one. Only labels at or above the current one are listed, for admins too, because submitting never lowers it. The profile may also set a minimum.
 
 If something is missing you see a plain message: "Run validation and the citation check on the latest saved version first.", "Fix the blocking findings first.", "Some citations are unresolved. Fix them first.", "Complete the AI-assistance disclosure." or "This version was already submitted. Save a change first."
 
