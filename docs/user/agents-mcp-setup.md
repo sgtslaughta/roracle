@@ -27,7 +27,7 @@ Pick **Read only** if the agent should only search and read. Pick **Read and wri
 
 The address is your rOracle address followed by `/mcp`. The agent signs in with the header `Authorization: Bearer <your token>`. Pick your client.
 
-Claude Desktop does not take a remote server with a custom header directly in `claude_desktop_config.json`: that file starts local programs. The setting below uses a small bridge, `mcp-remote`, which needs Node.js. Claude Desktop's Connectors screen can add a remote server by URL, but it signs in with your organisation's login rather than a token. Read [Connect an MCP client](agents-and-tokens.md#connect-an-mcp-client) before you choose it.
+Claude Desktop does not take a remote server with a custom header directly in `claude_desktop_config.json`: that file starts local programs. The setting below uses a small bridge, `mcp-remote`. It needs Node.js and access to an npm registry or your organisation's mirror. Pin a version your admins have reviewed in place of `<version>`. It runs on your computer and receives your token, and the rOracle address must be https. Claude Desktop's Connectors screen can add a remote server by URL, but it signs in with your organisation's login rather than a token. Read [Connect an MCP client](agents-and-tokens.md#connect-an-mcp-client) before you choose it.
 
 <!-- tabs -->
 
@@ -43,7 +43,7 @@ claude mcp add --transport http roracle https://roracle.example.internal/mcp --h
       "command": "npx",
       "args": [
         "-y",
-        "mcp-remote",
+        "mcp-remote@<version>",
         "https://roracle.example.internal/mcp",
         "--header",
         "Authorization:${RORACLE_AUTH}"

@@ -13,11 +13,11 @@ The token is not accepted. The usual causes:
 
 Check **Settings, Access tokens** for the token's state. Sign in to the web app again, or create a new token.
 
-## 403 Insufficient scope
+## Insufficient scope (403)
 
-The token is **Read only** and the tool needs write access. Create a token with **Read and write** and give it to the agent.
+The token is **Read only** and the tool needs write access. The agent shows the message text ("insufficient scope") rather than an HTTP code, because MCP tool errors reach it as text. Only 401 and 429 arrive as HTTP status codes at the MCP endpoint; calls to the web API do return 403 and 404. Create a token with **Read and write** and give it to the agent.
 
-A 403 can also say "withheld by label". That means a draft the agent tried to validate, citation-check or build has the **Exclude from AI** label. No token can do that to such a draft.
+A call can also fail as "withheld by label". That happens when the agent runs a citation check on a draft, or downloads a paper's file or evidence, and the draft or paper has the **Exclude from AI** label. No token can do that for such an item.
 
 !!! tip "Least access first"
     Start with a read only token. Make a read and write token only when the agent needs to write.
