@@ -6,6 +6,9 @@ A label can switch on rules, called gates. Which gates a label has is decided by
 
 ![A result card and the reader header showing sensitivity badges](../assets/screens/labels-badges.png)
 
+!!! warning "Labels apply to agents too"
+    A paper labelled **Block agents** is invisible to every agent token, and the text of an **Exclude from AI** paper is never given to one.
+
 ## What each gate means to you
 
 | Gate | What you notice |

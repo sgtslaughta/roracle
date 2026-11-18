@@ -1,6 +1,36 @@
-# Handoffs, inbox and notifications
+# Hand work to an agent
 
 A **handoff** passes your current work to an agent (or a colleague) so it can continue where you stopped. Your **inbox** is where agents' suggestions wait for your decision, and **notifications** tell you when something needs you. Terms are in the [glossary](../glossary.md#collaboration).
+
+## How it works
+
+<!-- steps -->
+
+### Start from what you're doing
+
+Choose **Continue in agent** on a chat, a search or a paper. Fill in the goal and who can load it.
+
+![The Continue in an agent dialog with audience and expiry fields](../assets/screens/handoff-dialog.png)
+
+### Paste the prompt into your agent
+
+Choose **Copy agent prompt** and paste it into your agent. It must already be [connected with MCP](agents-mcp-setup.md).
+
+```text title="Prompt for your agent"
+Using the rOracle MCP server, load handoff K7MX-4PQ2 and continue: your goal
+```
+
+### What is left out
+
+The agent gets only what it may see. Papers you cannot see or that block agents are dropped, and text kept from AI is withheld. The agent is told how many sources were withheld.
+
+### Review what comes back
+
+Anything the agent wants to add arrives as a proposal in **Agent proposals**. You approve, edit or reject it. See [agent proposals](#agent-proposals).
+
+<!-- /steps -->
+
+<!-- try:handoff label="Hand the open paper to an agent" hint="Open a paper first." -->
 
 ## Handoffs
 
