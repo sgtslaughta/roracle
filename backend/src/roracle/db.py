@@ -1,7 +1,8 @@
 import time
 from collections.abc import Callable, Iterator
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -88,13 +89,36 @@ def heartbeat_session_factory(settings) -> sessionmaker[Session]:
     )
 
 
+def failure_status(e: Exception) -> int:
+    """The HTTP status the app's exception handlers will send for `e` (500 when none applies)."""
+    if isinstance(e, HTTPException):
+        return e.status_code
+    from sqlalchemy.exc import DataError
+
+    from roracle.ingest.embed import EmbedUnavailable
+    from roracle.labels.policy import ExportBlocked
+
+    for cls, status in (
+        (RequestValidationError, 422),
+        (DataError, 422),
+        (EmbedUnavailable, 503),
+        (ExportBlocked, 403),
+    ):
+        if isinstance(e, cls):
+            return status
+    return 500
+
+
 def get_session(request: Request) -> Iterator[Session]:
     with request.app.state.session_factory() as session:
         try:
             yield session
             session.commit()
-        except Exception:
+        except Exception as e:
             session.rollback()
+            from roracle.audit import replay_durable  # lazy: audit -> models, auth -> db
+
+            replay_durable(session, failure_status(e))
             raise
 
 

@@ -144,7 +144,7 @@ def download(evidence_id: UUID, session: Session_, p: Who, store: Store) -> Stre
     note = session.get(Annotation, e.annotation_id)
     doc = session.get(Document, note.document_id)
     require_exportable(session, p, doc, "evidence.file", note.label_id)  # effective label
-    if p.via == "pat" and Policy.load(session).effective(doc.label_id, note.label_id).exclude_llm:
+    if p.is_agent and Policy.load(session).effective(doc.label_id, note.label_id).exclude_llm:
         raise HTTPException(403, "withheld by label")  # agents get no text-bearing bytes
     if e.blob_sha256 is None or e.scan_status not in ("clean", "unscanned"):
         raise HTTPException(409, "not available")

@@ -64,7 +64,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         and target_doc_id. At most 50 pending proposals per client. Returns {proposal_id, status}."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             payload: dict = {"document_id": doc_id, "kind": kind, "body": body, "visibility": visibility}
             if quote:
                 payload["anchor"] = {"quote": quote, "prefix": prefix, "suffix": suffix, "page": page}
@@ -88,7 +88,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         admin); `reason` is advisory and not stored, the approver supplies their own. Returns {proposal_id, status}."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             payload: dict = {"document_id": doc_id, "label_id": label_by_name(session, label).id}
             if annotation_id:
                 payload["annotation_id"] = annotation_id
@@ -106,7 +106,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         Returns {proposal_id, status}."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             n = get_readable(session, p, _uuid(annotation_id))
             payload = {"document_id": str(n.document_id), "parent_id": str(n.id), "body": body}
             return _proposal(proposals.propose(session, p, "note", payload))

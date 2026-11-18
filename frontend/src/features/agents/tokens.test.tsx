@@ -80,6 +80,19 @@ describe("access tokens", () => {
     expect(within(again).getByLabelText("Name")).toHaveValue("");
   });
 
+  it("posts all three scopes for the manage option", async () => {
+    const user = userEvent.setup();
+    await renderApp("/settings");
+    await user.click(await screen.findByRole("button", { name: "New token" }));
+    const dlg = await screen.findByRole("dialog");
+    await user.type(within(dlg).getByLabelText("Name"), "boss");
+    await user.click(within(dlg).getByLabelText(/Read, write and manage/));
+    await user.click(within(dlg).getByRole("button", { name: "Create token" }));
+    await within(dlg).findByLabelText("Your new token");
+    expect(await sent("POST", /\/me\/tokens$/)[0].json()).toEqual({ name: "boss", scopes: ["read", "write", "manage"], expires_in_days: 30 });
+    expect(within(dlg).getByText(/It can read, write and manage/)).toBeInTheDocument();
+  });
+
   it("defaults to read-only for 30 days", async () => {
     const user = userEvent.setup();
     await renderApp("/settings");

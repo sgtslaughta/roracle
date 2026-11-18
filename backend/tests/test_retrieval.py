@@ -84,7 +84,7 @@ def test_rerank_failure_keeps_order():
 def test_filters_shape():
     from types import SimpleNamespace
 
-    p = SimpleNamespace(user_id="u", is_admin=True, groups=(), via="jwt")
+    p = SimpleNamespace(user_id="u", is_admin=True, groups=(), via="jwt", is_agent=False)
     f = _filters(p, Policy([]), {"author": ["A"], "year": [2020, 2021], "tags": []}, ["d1"], False)
     assert f[1] == {"term": {"is_latest": True}}
     assert "unit" in str(f[2])  # chunks only unless units are requested

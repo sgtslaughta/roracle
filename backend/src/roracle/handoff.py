@@ -15,10 +15,10 @@ from sqlalchemy.orm import Session
 
 from roracle.access import agent_visible, org_units, readable_documents
 from roracle.audit import audit
-from roracle.auth import Principal
+from roracle.auth import MANAGE, Principal, require_scope
 from roracle.chat.access import readable_chat, recheck, visible_versions
 from roracle.labels.policy import Policy, label_json
-from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withhold_messages
+from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withheld_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
 from roracle.onboarding import mark
 
@@ -26,6 +26,7 @@ from roracle.onboarding import mark
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 PAGE = 20
 MAX_NOTES = 200
+UNAVAILABLE = "unavailable"
 KINDS = ("chat", "collection", "search", "document", "agent")
 _CODE = re.compile(f"[{ALPHABET}]{{8}}")
 NF = HTTPException(404, "not found")
@@ -138,6 +139,8 @@ def create(
     if kind not in KINDS:
         raise HTTPException(422, "invalid kind")
     _check(audience, expires_in_days)
+    if audience != "creator":
+        require_scope(session, p, MANAGE)
     source: dict = {}
     transcript: list = []
     passages: list = []
@@ -317,8 +320,13 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
             }
             for m in items
         ]
-        withhold_messages(items, gated, lambda m: m["_docs"])
+        seen = set(_visible_doc_ids(session, p, {d for m in items for d in m["_docs"]}))
+        # Invisible papers must not leak even a label name: label withholding sees readable docs only,
+        # and "unavailable" then overrides any reply that depends on an unreadable one.
+        withhold_messages(items, {d: n for d, n in gated.items() if d in seen}, lambda m: m["_docs"])
         for m in items:
+            if m.get("role") == "assistant" and m["_docs"] - seen:
+                m["content"] = withheld_text(UNAVAILABLE)
             del m["_docs"]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
     return {"part": part, "items": items, "page": page, "pages": pages}
@@ -326,8 +334,7 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
 
 def append_note(session: Session, p: Principal, code: str, text: str, via: str = "ui") -> dict:
     h = _loadable(session, p, code)
-    if "write" not in p.scopes:
-        raise HTTPException(403, "insufficient scope")
+    require_scope(session, p, "write")
     if not 1 <= len(text) <= 10000:
         raise HTTPException(422, "note must be 1-10000 characters")
     note = {"at": datetime.now(UTC).isoformat(), "by": p.username, "text": text, "via": via}
@@ -368,6 +375,8 @@ def update(session: Session, p: Principal, code: str, **f) -> Handoff:
     audience = f.get("audience", h.audience)
     days = f.get("expires_in_days", 1)
     _check(audience, days)
+    if audience != "creator":
+        require_scope(session, p, MANAGE)
     if f.get("shares") and audience != "shared":
         raise HTTPException(422, "shares need audience shared")
     for k in ("title", "goal", "brief"):

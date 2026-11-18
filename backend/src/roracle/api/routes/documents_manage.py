@@ -18,6 +18,7 @@ from roracle.api.routes.documents_read import Session_, Who, detail, privileged,
 from roracle.api.routes.documents_write import ACL_JOB_DELAY_S, recover
 from roracle.api.routes.library import get_es, get_session_factory
 from roracle.audit import audit
+from roracle.auth import MANAGE, require_scope
 from roracle.models import Document, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.notify import emit
@@ -57,8 +58,9 @@ def delete_document(
     session: Session_,
     es: Annotated[Elasticsearch, Depends(get_es)],
 ) -> Response:
-    """Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now (best effort), and
+    """Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now, or via the retried acl_sync job, and
     the retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`."""
+    require_scope(session, p, MANAGE)
     doc = _owned(session, p, doc_id)
     doc.deleted_at = datetime.now(UTC)
     audit(session, p, "document.delete", str(doc_id), {"title": doc.title, "owner_id": str(doc.owner_id)})
@@ -67,14 +69,9 @@ def delete_document(
     enqueue(session, "acl_sync", {"doc_id": str(doc_id)})
     session.commit()
     try:
-        es.delete_by_query(
-            index=search_index.MUTATE_ALIAS,
-            query={"term": {"doc_id": str(doc_id)}},
-            refresh=True,
-            conflicts="proceed",
-        )
+        search_index.delete_doc_chunks(es, doc_id)
     except Exception:
-        log.exception("ES chunk delete failed for %s; the retention purge will remove them", doc_id)
+        log.exception("ES chunk delete failed for %s; the queued acl_sync job retries it", doc_id)
     return Response(status_code=204)
 
 
@@ -87,6 +84,7 @@ def transfer_document(
     es: Annotated[Elasticsearch, Depends(get_es)],
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
+    require_scope(session, p, MANAGE)
     doc = _owned(session, p, doc_id)
     if session.get(User, body.user_id) is None:
         raise HTTPException(422, "unknown user")

@@ -12,7 +12,7 @@ def acl_filter(p: Principal, policy: Policy) -> dict[str, Any]:
     (and deleted docs have no chunks: deletion removes them from the index).
     PAT principals also get gate (b): `must_not label_id in block_agents` (admins too). Gate sets resolve at query time."""
     base = _visibility(p)
-    blocked = sorted(policy.ids("block_agents")) if p.via == "pat" else []
+    blocked = sorted(policy.ids("block_agents")) if p.is_agent else []
     if not blocked:
         return base
     return {"bool": {"filter": [base], "must_not": [{"terms": {"label_id": blocked}}]}}

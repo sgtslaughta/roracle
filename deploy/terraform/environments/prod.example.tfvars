@@ -9,7 +9,7 @@ charts = {
   cnpg                  = { repository = "oci://registry.internal.example/charts", version = "0.26.0" }
   barman                = { repository = "oci://registry.internal.example/charts", version = "0.9.0" }
   cert_manager          = { repository = "oci://registry.internal.example/charts", version = "v1.17.0" }
-  eck                   = { repository = "oci://registry.internal.example/charts", version = "2.16.0" }
+  eck                   = { repository = "oci://registry.internal.example/charts", version = "3.3.2" }
   rook_ceph             = { repository = "oci://registry.internal.example/charts", version = "v1.18.0" }
   rook_ceph_cluster     = { repository = "oci://registry.internal.example/charts", version = "v1.18.0" }
   kube_prometheus_stack = { enabled = true, repository = "oci://registry.internal.example/charts", version = "70.0.0" }
@@ -29,7 +29,7 @@ operator_images = {
   cnpg         = { tag = "1.26.0" }
   barman       = { tag = "v0.16.0", sidecar_tag = "v0.16.0" } # chart 0.9.0 ships v0.16.0
   cert_manager = { tag = "v1.17.0" }
-  eck          = { tag = "2.16.0" }
+  eck          = { tag = "3.3.2" }
   rook_ceph    = { tag = "v1.18.0" } # docker.io/rook/ceph mirrored as <mirror>/rook/ceph
 }
 

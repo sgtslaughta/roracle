@@ -233,6 +233,6 @@ The decision is recorded in [ADR-0015](../adr/0015-retrieval-quality.md).
 The MCP mount at `/mcp` wraps the same resolver in a pure ASGI layer (`mcp/auth.py`): it resolves the bearer
 token, applies the rate limit, and answers 401 with a `WWW-Authenticate` header that points at
 `/.well-known/oauth-protected-resource`. Tools then run as that principal, so visibility, the ACL
-filter and the R19 re-check apply. The PAT-only gates (`block_agents` hiding, `exclude_llm` text withholding) do not apply to OAuth/JWT callers, see [known limits](../enterprise/security/known-limits.md#agents-and-the-mcp-mount). Two things differ from REST: the mount skips
+filter and the R19 re-check apply. Every caller on this mount is an agent, and so is any OAuth token whose client is in `ROR_OIDC_AGENT_CLIENTS` (default `roracle-mcp`) on REST too: the agent gates (`block_agents` hiding, `exclude_llm` text withholding) apply, see [known limits](../enterprise/security/known-limits.md#agents-and-the-mcp-mount). Two things differ from REST: the mount skips
 `current_principal`, so there is no `pat.use` audit row (each tool audits `mcp.<tool>` instead), and the `write`
 scope is enforced per tool (`tools_write._need_write`) rather than by HTTP method.

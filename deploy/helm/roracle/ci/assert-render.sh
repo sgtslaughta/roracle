@@ -58,5 +58,19 @@ dns = [d for d in nps if d["metadata"]["name"].endswith("-allow-dns")][0]["spec"
 need(dns["operator"] == "NotIn", "allow-dns must use NotIn")
 need(set(dns["values"]) == ({"gotenberg", "draftgotenberg", "docling", "grobid"} if mirror else {"gotenberg", "draftgotenberg", "docling", "grobid", "clamav"}),
      "allow-dns NotIn must cover all parsers (clamav excepted only with a mirror): %s" % dns["values"])
+pm = [d for d in docs if d["kind"] == "PodMonitor"]
+need(pm, "PodMonitor missing")
+need([e["port"] for e in pm[0]["spec"]["podMetricsEndpoints"]] == ["http", "health"], "PodMonitor ports must be http (api), health (worker)")
+wk = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-worker")][0]["spec"]["template"]["spec"]["containers"][0]
+need({p["name"]: p["containerPort"] for p in wk["ports"]}.get("health") == 8001, "worker needs a port named health = worker.healthPort")
+for d in docs:
+    if d["kind"] == "Deployment":
+        for c in d["spec"]["template"]["spec"]["containers"]:
+            cp = [p["containerPort"] for p in c.get("ports", [])]
+            need(len(cp) == len(set(cp)), "duplicate containerPort in " + d["metadata"]["name"])
+pr = [d for d in docs if d["kind"] == "PrometheusRule"]
+need(pr, "PrometheusRule missing")
+alerts = [r["alert"] for g in pr[0]["spec"]["groups"] for r in g["rules"]]
+need(sorted(alerts) == sorted(["RoracleApi5xxHigh", "RoracleAuthFailuresBurst", "RoracleRateLimitedBurst", "RoracleForbiddenBurst", "RoracleJobsFailing", "RoracleQueueBacklog", "RoracleAuditWriteFailures"]), "PrometheusRule alert names: %s" % alerts)
 print("assert-render OK: %d NetworkPolicies, clamd limits %s" % (len(nps), lims))
 '

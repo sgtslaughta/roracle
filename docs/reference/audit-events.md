@@ -18,10 +18,11 @@ Every action rOracle writes to the `audit_log` table, taken from the `audit()` c
 **Where visible.** Every row is shown in **Admin, Audit** (`GET /api/admin/audit`, admin JWT only) and is in the
 `audit_log` table for operators. "Viewer" below means that page. There is no per-user view of one's own audit rows.
 
-**Success only.** Rows share the request transaction. A request that fails after its row was added rolls the row
-back, so the log records completed actions. Exceptions are called out: `admin.denied`, `label.export_blocked` and
-`mcp.<tool>` rows with `error` are written outside the failed transaction. Rate-limited (429) and read-only-token
-(403 `insufficient scope`) REST requests write nothing.
+**Follows the transaction, except durable rows.** Rows share the request transaction, so a request that fails after
+its row was added rolls the row back. Durable rows (`pat.use`, `auth.rate_limited`, `auth.scope_denied`,
+`admin.denied`, `admin.<handler>`) are replayed after the rollback with `user_id` null, the user in `detail.user_id`
+and the HTTP status in `detail.failed`. `label.export_blocked` and `mcp.<tool>` rows with `error` are written outside
+the failed transaction.
 
 ## Access tokens and agents
 
@@ -30,7 +31,10 @@ back, so the log records completed actions. Exceptions are called out: `admin.de
 | `pat.create` | The token's owner (JWT) | Token id | `scopes` | `POST /api/me/tokens` |
 | `pat.revoke` | The token's owner (JWT) | Token id | none | `DELETE /api/me/tokens/{id}`, only when it was not already revoked |
 | `admin.revoke_pats` | Admin | The user id whose tokens were revoked | none | `DELETE /api/admin/users/{id}/pats` |
-| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A **successful** REST request authenticated with a PAT. Not written for 429, 403 `insufficient scope`, handler errors, or MCP calls. Exception: when a handler commits before failing (the `block_export` 403 commits its audit row), the `pat.use` row is kept too |
+| `pat.use` | The PAT's owner | `METHOD /path`, cut at 200 characters | none | A REST request authenticated with a PAT. Not written for MCP calls. When the request fails, the row is replayed after the rollback with `user_id` null and `detail`: `user_id`, `failed` (the HTTP status) |
+| `auth.rate_limited` | The caller (replayed: none) | `METHOD /path` | `via`, `failed` | 429 on a REST request; at most one per principal per minute |
+| `auth.scope_denied` | The caller (replayed: none) | `METHOD /path` for the write check, empty for `manage` | `need` (`write` or `manage`), `via`, `failed` | 403 `insufficient scope` or `insufficient scope: manage` |
+| `mcp.rate_limited` | The caller | `/mcp` | `via` | 429 on `/mcp`; at most one per principal per minute, written from its own session |
 | `mcp.<tool>` | The token's user (PAT or OAuth access token) | Tool-specific, cut at 200 characters (below) | `{"error": true}` on an HTTP-style error, `{"error": "internal"}` on an unexpected exception (best effort) | Every MCP tool call, resource read and prompt that passes authentication and argument validation |
 | `proposal.approve` | The human who approved | Proposal id | `annotation_id`, `client` (the agent's client name) | A person approves an agent's note proposal |
 | `proposal.reject` | The human who rejected | Proposal id | `client` | A person rejects it |
@@ -45,8 +49,8 @@ Tool list: [MCP tools](mcp-tools.md). MCP audit rules: [MCP](mcp.md#audit).
 
 | Action | Actor | Target | Detail | Written when |
 |---|---|---|---|---|
-| `admin.<handler>` | Admin (JWT) | The request path | `query`: the query parameters | **Every** successful admin request, reads included. `<handler>` is the route function name, for example `admin.list_users`, `admin.list_audit`. Mutating admin routes also write the specific row below |
-| `admin.denied` | none (the user is in `detail`) | The request path | `user_id`, `username` | A non-admin, or any PAT, calls an admin route (403). Written from its own session, best effort |
+| `admin.<handler>` | Admin (JWT) | The request path | `params`: the sorted query parameter names, never the values | **Every** admin request, reads included; when the handler fails the row is replayed with `detail.failed`. `<handler>` is the route function name, for example `admin.list_users`, `admin.list_audit`. Mutating admin routes also write the specific row below |
+| `admin.denied` | none (the user is in `detail`) | The request path | `user_id`, `username` | A non-admin, or any PAT, calls an admin route (403). Replayed after the rollback, so `user_id` is null and `detail.failed` is 403 |
 | `admin.connector_create` | Admin | Connector id | `connector`: the connector as returned by the API (secrets masked `***`) | Connector created |
 | `admin.connector_update` | Admin | Connector id | `before`, `after` (same shape) | Connector changed |
 | `admin.connector_delete` | Admin | Connector id | `connector` | Connector deleted |
@@ -93,6 +97,9 @@ Details never contain document or note text. Query: `GET /api/admin/audit?action
 
 | Action | Actor | Target | Detail | Written when |
 |---|---|---|---|---|
+| `document.upload` | The uploader | Document id | `version_id`, `size` (bytes; never the file name) | `POST /api/documents` and the MCP `upload` tool, in the request transaction |
+| `document.acl` | Owner or admin | Document id | `fields` (sorted names changed: `visibility`, `org_unit`, `share_users`, `share_groups`, `coauthors`), `visibility`, `org_unit`, `share_users`, `share_groups` (counts, never ids) | `PATCH /api/documents/{id}` setting any of those fields, and `PUT /api/drafts/{id}/coauthors` (`fields: ["coauthors"]`). A title-only change writes nothing. Rolled back with the request, so a failed (503) change leaves no row |
+| `chat.share` | Chat owner | Chat id | `users`, `groups` (counts) | `PUT /api/chats/{id}/shares` |
 | `document.delete` | Owner or admin | Document id | `title`, `owner_id` | Soft delete |
 | `document.transfer` | Owner or admin | Document id | `from`, `to` (user ids) | Ownership transferred |
 | `annotation.hide`, `annotation.unhide` | Admin or the document owner | Note id | none | Note hidden or restored |

@@ -27,6 +27,10 @@ RERANK_FALLBACK = Counter(
     "roracle_rerank_fallback_total", "Rerank failures that kept the fused order", ["reason"]
 )
 
+AUDIT_WRITE_FAILURES = Counter(
+    "roracle_audit_write_failures_total", "Audit rows that could not be written", ["path"]
+)
+
 _DEPTH_SQL = text(
     "SELECT kind, status, count(*), "
     "COALESCE(EXTRACT(EPOCH FROM now() - min(run_after) FILTER (WHERE status = 'queued')), 0) "

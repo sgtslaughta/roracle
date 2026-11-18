@@ -2336,7 +2336,8 @@
             "items": {
               "enum": [
                 "read",
-                "write"
+                "write",
+                "manage"
               ],
               "type": "string"
             },
@@ -2892,7 +2893,7 @@
   },
   "info": {
     "title": "rOracle",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -8101,7 +8102,7 @@
     },
     "/documents/{doc_id}": {
       "delete": {
-        "description": "Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now (best effort), and\nthe retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`.",
+        "description": "Soft delete: Postgres hides it everywhere at once (R19); chunks leave ES now, or via the retried acl_sync job, and\nthe retention purge (maintenance.purge) hard-deletes it after `retention_deleted_days`.",
         "operationId": "delete_document_documents__doc_id__delete",
         "parameters": [
           {

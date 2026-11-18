@@ -23,6 +23,7 @@ button.avatar { border: 0; padding: 0; cursor: pointer; }
 .agent-form input:not([type="radio"]), .tok-secret input { border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 13.5px; font-weight: 400; }
 .agent-form fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .agent-form legend { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+.agent-form .foot { position: sticky; bottom: 0; background: var(--surface); }
 .agent-form .ck { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
 .agent-row { display: flex; flex-wrap: wrap; gap: 12px; }
 .ta { width: 100%; min-height: 120px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--bg); padding: 8px 10px; font: 14px/1.5 var(--f-read); font-weight: 400; resize: vertical; }

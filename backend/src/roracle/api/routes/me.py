@@ -66,7 +66,7 @@ def my_uploads(
     owned = (
         Document.owner_id == p.user_id,
         Document.deleted_at.is_(None),
-        *((agent_visible(),) if p.via == "pat" else ()),
+        *((agent_visible(),) if p.is_agent else ()),
     )  # gate (b)
     has_ver = exists().where(DocumentVersion.document_id == Document.id)  # drafts have none
     total = session.scalar(

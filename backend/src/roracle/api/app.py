@@ -175,5 +175,5 @@ def _mount_mcp(app: FastAPI) -> None:
             "resource": f"{(s.public_base_url or str(request.base_url)).rstrip('/')}/mcp",
             "authorization_servers": [s.oidc_issuer],
             "bearer_methods_supported": ["header"],
-            "scopes_supported": ["read", "write"],
+            "scopes_supported": ["read", "write", "manage"],
         }

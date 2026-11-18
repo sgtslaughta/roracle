@@ -106,7 +106,7 @@ def default_rank(
 
     def search(p: Principal, q: str, raw: list[Passage]) -> list[Passage]:
         hits = rank_for_search(session, es, llm, settings, p, q, raw=raw)
-        if p.via != "pat":
+        if not p.is_agent:
             return hits
         gated = gated_docs(session, p, {x.doc_id for x in hits})  # /search withholds their text from PATs
         return [x for x in hits if x.doc_id not in gated]
@@ -175,7 +175,7 @@ def run_set(
                         pairs.append((r, ranked, found[:k], principals[key], q.text))
             judged: dict[tuple[str, str], dict] = {}
             if judge:
-                eligible = [x for x in pairs if x[0].scores is not None and x[3].via != "pat"]
+                eligible = [x for x in pairs if x[0].scores is not None and not x[3].is_agent]
                 eligible.sort(
                     key=lambda x: hashlib.sha1(f"{x[0].query_key}|{x[0].principal}".encode()).digest()
                 )

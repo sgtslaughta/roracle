@@ -24,6 +24,21 @@ variable "mirror_registry" {
   default     = "MIRROR.example.com"
 }
 
+# ---- Pod Security Admission (app namespace) ----
+variable "pod_security" {
+  description = "Pod Security Admission levels on the app namespace. \"\" = label not set. Default enforces nothing; warn/audit surface violations."
+  type = object({
+    enforce = optional(string, "")
+    warn    = optional(string, "restricted")
+    audit   = optional(string, "restricted")
+  })
+  default = {}
+  validation {
+    condition     = alltrue([for v in values(var.pod_security) : contains(["", "privileged", "baseline", "restricted"], v)])
+    error_message = "pod_security levels must each be one of: \"\", privileged, baseline, restricted."
+  }
+}
+
 # ---- Namespaces, quota, pull secret ----
 variable "namespaces" {
   description = "Namespace names. app = rOracle release namespace (created here). Operator namespaces are created by Terraform (modules/operators) and MUST match the chart's networkPolicy.operatorNamespaces."

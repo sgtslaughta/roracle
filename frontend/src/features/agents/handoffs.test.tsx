@@ -119,6 +119,19 @@ describe("continue in agent", () => {
     expect(await posted()).toMatchObject({ kind: "document", source_id: D1, doc_ids: [D1] });
   });
 
+  it("document and collection summaries state exactly what is handed over", async () => {
+    const user = userEvent.setup();
+    await renderApp(`/d/${D1}`);
+    const reader = await screen.findByRole("complementary", { name: "Reader" });
+    await within(reader).findByRole("heading", { level: 2 });
+    const dlg = await openDialog(user, () => reader);
+    expect(within(dlg).getByText("Hands this document to an agent. The agent reads it, and any notes on it, with its own access.")).toBeInTheDocument();
+    cleanup();
+    await renderApp("/library?collection=c1");
+    const d2 = await openDialog(user);
+    expect(within(d2).getByText("Hands this collection to an agent: its documents as of now.")).toBeInTheDocument();
+  });
+
   it("library search: kind search with the query as goal", async () => {
     const user = userEvent.setup();
     await renderApp("/library?q=spectral");

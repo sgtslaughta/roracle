@@ -135,12 +135,14 @@ def test_handoff_transcript_withheld_per_loader(client, as_ana, as_bob, ana, bob
     code = make_handoff(client, as_ana, c.id)
     url = f"/handoffs/{code}/parts/transcript"
     agent = client.get(url, headers=pat(db_session, bob, ["read"])).json()
-    assert [m["content"] for m in agent["items"]] == ["q", "[withheld: Sec]"]
+    # block_agents docs are invisible to agent loaders: no label name, just "unavailable"
+    want = "[withheld: unavailable]" if gate == "block_agents" else "[withheld: Sec]"
+    assert [m["content"] for m in agent["items"]] == ["q", want]
     assert "SECRET" not in json.dumps(agent) and "doc_ids" not in json.dumps(agent)
     human = client.get(url, headers=as_bob).json()
-    # R10: block_agents sources are withheld from every loader; exclude_llm text only from agents
+    # R10: block_agents sources are invisible to every loader (handoff gate b), so humans get "unavailable" too
     assert human["items"][1]["content"] == (
-        "[withheld: Sec]" if gate == "block_agents" else "SECRET-ANSWER [1]"
+        "[withheld: unavailable]" if gate == "block_agents" else "SECRET-ANSWER [1]"
     )
     assert "doc_ids" not in json.dumps(human)
     man = client.get(f"/handoffs/{code}", headers=pat(db_session, bob, ["read"])).json()

@@ -37,7 +37,19 @@ Metrics come from `/metrics` on the api (also the database-backed `roracle_jobs*
 
 ## 2. Suggested alerts
 
-The chart ships a Grafana dashboard but no Prometheus alert rules: there is no `PrometheusRule` in `deploy/`. Define these in your Alertmanager setup ([observability](observability.md), section 4):
+The chart ships a Grafana dashboard and, with `observability.prometheusRule.enabled`, the seven alerts below ([observability](observability.md), section 4). Define the remaining conditions in your Alertmanager setup:
+
+| Alert (shipped) | Expression, for, severity | Meaning |
+|---|---|---|
+| `RoracleApi5xxHigh` | 5xx share of requests above 5%, 10m, warning | API or dependency fault |
+| `RoracleAuthFailuresBurst` | 401 above 30/min, 5m, warning | credential stuffing or a broken client |
+| `RoracleRateLimitedBurst` | 429 above 60/min, 5m, warning | a client hammering the API |
+| `RoracleForbiddenBurst` | 403 above 30/min, 10m, warning | probing for access or a scope misconfiguration |
+| `RoracleJobsFailing` | more than 5 failed jobs in 15m, immediate, warning | a handler fails persistently |
+| `RoracleQueueBacklog` | `roracle_jobs_oldest_queued_seconds` above 1800, 10m, warning | queue stuck or workers down |
+| `RoracleAuditWriteFailures` | any `roracle_audit_write_failures_total` increase in 10m, immediate, critical | audit trail is losing rows |
+
+Not shipped:
 
 | Condition | Meaning |
 |---|---|

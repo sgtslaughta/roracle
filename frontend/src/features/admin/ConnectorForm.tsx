@@ -14,7 +14,7 @@ export function ConnectorDialog({ connector, open, onOpenChange }: { connector?:
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Radix unmounts closed content, so the form (including a typed secret) is dropped on close */}
-      <DialogContent className="w-[min(560px,calc(100vw-32px))]">
+      <DialogContent className="w-[min(560px,calc(100vw-32px))] max-h-[calc(100dvh-32px)] overflow-y-auto">
         <ConnectorForm connector={connector} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>

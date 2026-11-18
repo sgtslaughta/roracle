@@ -17,7 +17,7 @@ The agent acts as you. It sees what you see, minus papers labelled **Block agent
 
 Open the avatar menu, choose **Settings**, then **Access tokens**, then **New token**. Give it a name such as "Laptop agent".
 
-Pick **Read only** if the agent should only search and read. Pick **Read and write** if it should also add handoff notes and propose changes. Choose an expiry from 1 to 365 days. Copy the token before you close the dialog. You cannot see it again.
+Pick **Read only** if the agent should only search and read. Pick **Read and write** if it should also add handoff notes and propose changes. Pick **Read, write and manage** only if it must also change sharing, delete, transfer or submit drafts. If your administrators have turned access tokens off, **New token** is refused with a 403 and you need to ask them to enable it. Choose an expiry from 1 to 365 days. Copy the token before you close the dialog. You cannot see it again.
 
 ![The New access token dialog with read and write selected](../assets/screens/tokens-create.png)
 

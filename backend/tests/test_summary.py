@@ -21,7 +21,7 @@ def test_summarize_returns_stripped_text_and_truncates_input():
     kw = c.calls[0]
     assert kw["model"] == "m" and kw["temperature"] == 0
     assert kw["messages"][0]["role"] == "system"
-    assert len(kw["messages"][1]["content"]) == len("Title\n\n") + 6000
+    assert kw["messages"][1]["content"] == f"<title>\nTitle\n</title>\n<document>\n{'x' * 6000}\n</document>"
 
 
 def test_summarize_empty_and_cap():

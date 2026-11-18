@@ -203,6 +203,8 @@ def route_question(
     """(prep or None, answer meta). Cheap and pre-response: classify + admission + candidates only; the caller
     commits the session, then runs the map phase inside its stream. `eligible` is False for tab/selection/collection
     turns (always fact). The reported route is the one taken; busy or a failed attempt falls back to `fact`."""
+    if eligible and settings.router_llm and query_router.heuristic(question) is None:
+        release_before_io(session)  # the router LLM call must not hold a DB transaction
     route = query_router.classify(llm, settings, question) if eligible else "fact"
     if route != "global":
         return None, {"route": route}

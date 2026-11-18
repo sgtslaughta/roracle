@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from roracle import pats
 from roracle.audit import audit
-from roracle.auth import Principal, require_jwt
+from roracle.auth import Principal, get_app_settings, require_jwt
+from roracle.config import Settings
 from roracle.db import get_session
 from roracle.models import PersonalAccessToken
 from roracle.onboarding import mark
@@ -19,11 +20,12 @@ from roracle.onboarding import mark
 router = APIRouter()
 Who = Annotated[Principal, Depends(require_jwt)]
 Session_ = Annotated[Session, Depends(get_session)]
+Cfg = Annotated[Settings, Depends(get_app_settings)]
 
 
 class TokenBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scopes: list[Literal["read", "write"]] = Field(default=["read"], min_length=1)
+    scopes: list[Literal["read", "write", "manage"]] = Field(default=["read"], min_length=1)
     expires_in_days: int = Field(default=30, ge=1, le=365)
 
 
@@ -52,8 +54,16 @@ def list_tokens(p: Who, session: Session_) -> list[dict]:
 
 
 @router.post("/me/tokens", status_code=201)
-def create_token(body: TokenBody, p: Who, session: Session_) -> dict:
-    scopes = ["read", "write"] if "write" in body.scopes else ["read"]
+def create_token(body: TokenBody, p: Who, session: Session_, cfg: Cfg) -> dict:
+    if not cfg.pats_enabled:
+        raise HTTPException(403, "personal access tokens are disabled")
+    scopes = (
+        ["manage", "read", "write"]
+        if "manage" in body.scopes
+        else ["read", "write"]
+        if "write" in body.scopes
+        else ["read"]
+    )
     row, token = pats.create(session, p.user_id, body.name, scopes, body.expires_in_days)
     audit(session, p, "pat.create", str(row.id), {"scopes": scopes})
     mark(session, p.user_id, "token")

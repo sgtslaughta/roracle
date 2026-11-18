@@ -163,9 +163,8 @@ def test_handoff_roundtrip_mcp_rest_and_uri(mc, client, as_ana, as_bob, ana, bob
 
 def test_withheld_counts_doc_hidden_from_loader(mc, as_ana, as_bob, ana, bob, db_session, fes):
     d, _ = seed(db_session, bob, title="Secret", visibility="everyone")
-    out = call(
-        mc, as_bob, "create_handoff", title="t", brief="b", doc_ids=[str(d.id)], audience="authenticated"
-    )
+    h = pat(db_session, bob, ["read", "write", "manage"])  # audience != creator needs manage
+    out = call(mc, h, "create_handoff", title="t", brief="b", doc_ids=[str(d.id)], audience="authenticated")
     assert out[1]["dropped"] == 0
     code = out[1]["code"]
     assert call(mc, as_ana, "load_handoff", code=code)[1]["doc_ids"] == [str(d.id)]

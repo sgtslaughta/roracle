@@ -51,7 +51,7 @@ Same audience and group mappers. Redirect URIs per supported agent clients (loop
 `http://127.0.0.1/*` for desktop CLIs). rOracle's `/mcp` publishes protected-resource metadata
 pointing at this realm.
 
-> **Warning:** tokens from this client are the interactive user on `/mcp` and bypass the PAT-only label gates (`block_agents`, `exclude_llm` text withholding). See [known limits](security/known-limits.md#agents-and-the-mcp-mount).
+> **Note:** every token issued to this client is an agent everywhere, on `/mcp` and on `/api`: never admin, no `manage`, and `block_agents` and `exclude_llm` apply. It cannot mint PATs. The client ids treated this way are listed in `ROR_OIDC_AGENT_CLIENTS` (default `roracle-mcp`). See [known limits](security/known-limits.md#agents-and-the-mcp-mount).
 
 ## 5. Roles and groups
 

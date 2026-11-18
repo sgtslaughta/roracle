@@ -84,7 +84,7 @@ Delivery is at least once: a handler may run again after a crash, so every handl
 ### `acl_sync`
 
 - **Payload:** `doc_id`.
-- **Does:** reads the document's ACL fields, label, title and tags from Postgres and pushes them to every chunk in Elasticsearch through an `update_by_query` on the mutation alias `chunks-all`. Postgres is re-read on every try, so a concurrent revocation is never overwritten with older data. A missing or deleted document is a no-op.
+- **Does:** reads the document's ACL fields, label, title and tags from Postgres and pushes them to every chunk in Elasticsearch through an `update_by_query` on the mutation alias `chunks-all`. Postgres is re-read on every try, so a concurrent revocation is never overwritten with older data. A deleted document has its chunks removed instead (`delete_by_query`; an Elasticsearch error retries); a purged (missing) document is a no-op.
 - **Retries:** generic (an Elasticsearch outage retries with backoff). Until it converges the Postgres post-filter enforces the current visibility.
 - **Idempotent:** yes; unchanged documents update nothing. Some producers delay it by 30 s (a durable second try after the request's own best-effort sync).
 

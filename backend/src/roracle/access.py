@@ -85,7 +85,7 @@ def llm_allowed() -> ColumnElement[bool]:
 
 def visible_documents(p: Principal) -> ColumnElement[bool]:
     live = Document.deleted_at.is_(None)
-    if p.via == "pat":
+    if p.is_agent:
         live = and_(
             live, agent_visible()
         )  # PAT/agent principals: label-blocked docs behave as invisible (admins too)

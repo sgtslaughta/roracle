@@ -27,7 +27,7 @@ def gated_docs(
 
     PAT: `block_agents` or `exclude_llm`. `llm=True` (LLM replay): `exclude_llm` for everyone.
     `handoff=True` (transcripts, R10): `block_agents` sources are withheld from every loader."""
-    agent = p.via == "pat"
+    agent = p.is_agent
     if not (agent or llm or handoff):
         return {}
     ids = []
@@ -54,7 +54,7 @@ def gated_refs(
     (a note label can exceed its document's). Keys are doc ids and note ids."""
     items = [x for x in items if isinstance(x, dict)]
     out = gated_docs(session, p, doc_ids_of(items), llm=llm, handoff=handoff)
-    agent = p.via == "pat"
+    agent = p.is_agent
     nids = []
     for x in items:
         try:
@@ -97,7 +97,7 @@ def strip_text(items: list[dict], gated: dict[str, str]) -> list[dict]:
 
 def require_text(session: Session, p: Principal, doc: Document) -> None:
     """403 for a PAT reading raw document bytes/layout of an `exclude_llm` document (R: agents get no text)."""
-    if p.via != "pat":
+    if not p.is_agent:
         return
     lab = Policy.load(session).get(doc.label_id)
     if lab.exclude_llm:

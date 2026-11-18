@@ -11,7 +11,7 @@ charts = {
   cnpg         = { repository = "oci://localhost:5055/charts", version = "0.26.0" }
   barman       = { repository = "oci://localhost:5055/charts", version = "0.9.0" }
   cert_manager = { repository = "oci://localhost:5055/charts", version = "v1.17.0" }
-  eck          = { repository = "oci://localhost:5055/charts", version = "2.16.0" }
+  eck          = { repository = "oci://localhost:5055/charts", version = "3.3.2" }
   rook_ceph    = { repository = "oci://localhost:5055/charts", version = "v1.18.0", values = "allowLoopDevices: true\n" } # test only: OSDs on loop devices
   rook_ceph_cluster = {
     repository = "oci://localhost:5055/charts", version = "v1.18.0"
@@ -24,7 +24,7 @@ operator_images = {
   cnpg         = { tag = "1.26.0" }
   barman       = { tag = "v0.16.0", sidecar_tag = "v0.16.0" }
   cert_manager = { tag = "v1.17.0" }
-  eck          = { tag = "2.16.0" }
+  eck          = { tag = "3.3.2" }
   rook_ceph    = { tag = "v1.18.0" }
 }
 

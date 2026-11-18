@@ -99,6 +99,7 @@ Every setting is an environment variable with the `ROR_` prefix (`roracle.config
 | `ROR_MUTATE_ALIAS` | `str` | `'chunks-all'` |  | Elasticsearch alias used for ACL update_by_query and writes |
 | `ROR_NEAR_DUP_SUMMARY_THRESHOLD` | `float` | `0.97` | yes | Summary-similarity threshold for near-duplicate detection |
 | `ROR_NEAR_DUP_THRESHOLD` | `float` | `0.85` | yes | Similarity at or above which a new upload is flagged a near-duplicate |
+| `ROR_OIDC_AGENT_CLIENTS` | `list[str]` | `['roracle-mcp']` |  | OIDC client ids whose tokens are agents everywhere (never admin, no `manage`; JSON list or comma-separated) |
 | `ROR_OIDC_ALLOWED_CLIENTS` | `list[str]` | `['roracle-web', 'roracle-mcp']` |  | Accepted OIDC client ids (JSON list or comma-separated) |
 | `ROR_OIDC_AUDIENCE` | `str` | `'roracle'` |  | Expected token audience (`aud`) |
 | `ROR_OIDC_ISSUER` | `str` | (required) |  | OIDC issuer URL (token `iss` claim) |

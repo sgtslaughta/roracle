@@ -26,6 +26,7 @@ module "platform" {
   source              = "./modules/platform"
   app_namespace       = var.namespaces.app
   quota               = var.quota
+  pod_security        = var.pod_security
   pull_secret         = var.pull_secret
   pull_secret_enabled = nonsensitive(var.pull_secret != null)
   extra_namespaces = (

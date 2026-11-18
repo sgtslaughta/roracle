@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from roracle.access import readable_documents
 from roracle.api.routes import documents_read, library
 from roracle.api.routes import search as search_routes
-from roracle.audit import audit
+from roracle.audit import audit, replay_durable
 from roracle.auth import Principal, get_app_settings
 from roracle.chat.access import visible_versions
 from roracle.labels.policy import Policy, brief_labels, label_json
@@ -56,11 +56,13 @@ def _run(app: FastAPI, tool: str, fn: Callable[[Session, Principal], Any], targe
             return out
         except (HTTPException, BadInput) as e:
             session.rollback()
+            replay_durable(session, e.status_code if isinstance(e, HTTPException) else 422)
             audit(session, p, f"mcp.{tool}", target[:200], {"error": True})
             session.commit()
             raise ToolError(_msg(e.detail) if isinstance(e, HTTPException) else str(e)) from None
         except Exception:
             session.rollback()
+            replay_durable(session, 500)
             try:
                 audit(session, p, f"mcp.{tool}", target[:200], {"error": "internal"})
                 session.commit()

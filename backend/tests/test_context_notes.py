@@ -168,7 +168,7 @@ def test_bm25_includes_context():
             seen.append(kw)
             return {"hits": {"hits": []}}
 
-    p = SimpleNamespace(user_id="u", groups=(), is_admin=True, via="jwt")
+    p = SimpleNamespace(user_id="u", groups=(), is_admin=True, via="jwt", is_agent=False)
     retrieval.search_chunks(
         E(), FakeLLM(2), Settings(embed_dims=2), p, "q", policy=Policy([]), filters={}, qvec=[0.0, 0.0]
     )
