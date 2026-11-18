@@ -49,12 +49,22 @@ function many(n: number): Proposal[] {
 }
 
 describe("proposals inbox", () => {
+  it("token clients read as 'your token' and a no-op label change can't be approved", async () => {
+    state.proposals = [{ id: "p-noop", kind: "label", client: "pat:test", status: "pending", annotation_id: null, created_at: "2026-11-15T09:00:00Z", decided_at: null,
+      payload: { document_id: DOCS[0].id, body: "", label_id: "l-internal" }, document: { id: DOCS[0].id, title: DOCS[0].title } }];
+    await renderApp();
+    expect(await screen.findByRole("region", { name: "From your token “test”" })).toBeInTheDocument();
+    expect(await screen.findByText(/approving changes nothing/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+  });
+
   it("groups pending proposals by client, marks them agent-assisted and shows payload text as plain text", async () => {
     await renderApp();
     const group = await screen.findByRole("region", { name: "From claude-code" });
     expect(within(group).getByText("4 waiting")).toBeInTheDocument();
     const f = await card(/Finding proposed by claude-code/);
-    expect(within(f).getByText("Agent-assisted")).toBeInTheDocument();
+    expect(within(f).getByText(/Agent-assisted, from claude-code/)).toBeInTheDocument();
+    expect(within(f).getByText("Add a finding to")).toBeInTheDocument();
     expect(within(f).getByText(/<b>Raw<\/b> numbers/)).toBeInTheDocument();
     expect(f.querySelector(".ptext b")).toBeNull();
     expect(f.querySelector("blockquote")).not.toBeNull();
@@ -106,7 +116,8 @@ describe("proposals inbox", () => {
     const user = userEvent.setup();
     await renderApp();
     await screen.findByRole("region", { name: "From cursor" });
-    await user.click(screen.getByRole("button", { name: "Approve all" }));
+    await user.click(screen.getByRole("button", { name: "Approve all…" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Approve all" }));
     await waitFor(() => expect(posts("/bulk-approve")).toHaveLength(2));
     const sizes = await Promise.all(posts("/bulk-approve").map(async (r) => ((await r.json()) as { ids: string[] }).ids.length));
     expect(sizes).toEqual([100, 50]);
@@ -127,7 +138,7 @@ describe("proposals inbox", () => {
     state.proposals = [{ ...first, document: null }, { ...many(2)[1], id: "done", status: "approved", annotation_id: "n-finding", decided_at: "2026-11-15T10:00:00Z" }];
     const user = userEvent.setup();
     await renderApp();
-    expect(await screen.findByText("Document no longer available")).toBeInTheDocument();
+    expect(await screen.findByText("a document that is no longer available")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Approved" }));
     await user.click(await screen.findByRole("button", { name: "Open note" }));
     expect(await screen.findByRole("complementary", { name: "Reader" })).toBeInTheDocument();
@@ -167,7 +178,8 @@ describe("proposals inbox", () => {
     const user = userEvent.setup();
     await renderApp();
     await screen.findByRole("region", { name: "From claude-code" });
-    await user.click(screen.getByRole("button", { name: "Approve all" }));
+    await user.click(screen.getByRole("button", { name: "Approve all…" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Approve all" }));
     expect(await screen.findByText("Approved 0. 4 couldn't be approved: The request failed. Try again.")).toBeInTheDocument();
   });
 

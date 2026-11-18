@@ -10,17 +10,22 @@ import { invalidText } from "@/features/agents/api";
 import { ChipInput } from "@/features/ask/ChipInput";
 import { showNote } from "@/features/notes/api";
 import { KIND_LABEL, VIS_LABEL } from "@/features/notes/labels";
-import { KindPill } from "@/features/notes/NoteCard";
 import { useDoc } from "@/features/reader/api";
 import { openDoc } from "@/features/reader/useReaderStore";
 import { isDocId } from "@/lib/ids";
-import { useApprove, useReject, type ApproveBody, type Proposal } from "./api";
+import { clientName, useApprove, useReject, type ApproveBody, type Proposal } from "./api";
 import { LabelProposal } from "./LabelProposal";
 
 const tooLong = (v: string) => (v.length > PRINCIPAL_MAX ? `Keep each entry under ${PRINCIPAL_MAX} characters.` : null);
 const groupError = (v: string) => tooLong(v) ?? (v.startsWith("/") ? null : "Group paths start with “/”.");
 const errText = (e: unknown, what: string) =>
   e instanceof ApiError && (e.status === 422 || e.status === 409) ? invalidText(e) : `The proposal couldn't be ${what}. Try again.`;
+
+/** What the agent wants, as the start of a sentence ending in the document title. */
+export const proposalVerb = (p: Proposal) =>
+  p.kind === "label" ? (p.payload.annotation_id ? "Change a note's label on" : "Change the label of")
+    : p.payload.parent_id ? "Reply to a note on"
+    : `Add a ${KIND_LABEL[p.payload.kind ?? "comment"].toLowerCase()} to`;
 
 export const proposalLabel = (p: Proposal) => (p.kind === "label" ? "Label change" : p.payload.parent_id ? "Reply" : KIND_LABEL[p.payload.kind ?? "comment"]);
 
@@ -103,21 +108,19 @@ function NoteProposal({ p, selected, onSelect }: Props) {
   const label = proposalLabel(p);
   const busy = approve.isPending || reject.isPending;
   return (
-    <article className="prop" aria-label={`${label} proposed by ${p.client}`}>
+    <article className="prop" aria-label={`${label} proposed by ${clientName(p.client)}`}>
       <div className="prop-main">
-        <div className="nhead">
+        <div className="psent">
           {onSelect && <Checkbox checked={!!selected} onCheckedChange={(c) => onSelect(c === true)} aria-label={`Select ${label} on ${doc?.title || "missing document"}`} />}
-          {pl.parent_id ? <span className="tpill t-comment">Reply</span> : <KindPill kind={pl.kind ?? "comment"} />}
-          <span>on</span>
-          {doc
-            ? <button className="badge-o" title={doc.title || "Untitled"} onClick={() => openDoc(doc.id, { page: pl.anchor?.page ?? undefined })}>
-                <span className="t">{doc.title || "Untitled"}</span>{pl.anchor?.page != null && <>, page {pl.anchor.page}</>}<ArrowUpRight aria-hidden />
-              </button>
-            : <span className="badge-o">Document no longer available</span>}
-          <span className="badge-o"><Bot aria-hidden />Agent-assisted</span>
-          <span className="badge-o" title="Agent client">{p.client}</span>
-          {!pl.parent_id && <span className="badge-o">{VIS_LABEL[pl.visibility ?? "private"]}</span>}
+          <span><b>{proposalVerb(p)}</b>{" "}
+            {doc
+              ? <button className="plink" title={doc.title || "Untitled"} onClick={() => openDoc(doc.id, { page: pl.anchor?.page ?? undefined })}>
+                  {doc.title || "Untitled"}{pl.anchor?.page != null && <>, page {pl.anchor.page}</>}<ArrowUpRight aria-hidden />
+                </button>
+              : <span className="sub">a document that is no longer available</span>}
+          </span>
         </div>
+        <p className="pmeta"><Bot aria-hidden />Agent-assisted, from {clientName(p.client)}{!pl.parent_id && <>. Visible to: {VIS_LABEL[pl.visibility ?? "private"]}</>}. Proposed {fmtDate(p.created_at)}.</p>
         {pl.anchor?.quote && <blockquote className="nquote">{pl.anchor.quote}</blockquote>}
         {pl.relation && isDocId(pl.relation.target_document_id) && <div className="nhead nrel"><span>{pl.relation.type} →</span><Target id={pl.relation.target_document_id} /></div>}
         {editing ? <EditForm p={p} onDone={() => setEditing(false)} /> : <div className="ntext ptext">{pl.body}</div>}
