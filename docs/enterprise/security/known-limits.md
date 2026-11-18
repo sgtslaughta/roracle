@@ -42,7 +42,7 @@ are limits of the design, not a list of open defects. For what the controls do g
 
 - **Chat handoffs carry transcript text verbatim**, except assistant replies that cite label-gated papers (withheld per loader as
   described in [access control](access-control.md#deterrent-not-drm)). Replies that drew on papers the loader cannot see
-  (ACL, not label) are shown verbatim and only those citations are dropped. User messages and the handoff **brief, goal and
+  (ACL, or `block_agents`) are withheld as `[withheld: unavailable]` and those citations are dropped. User messages and the handoff **brief, goal and
   notes are free text and are not label-gated**: anything typed or pasted there is visible to every loader in the audience
   until the handoff expires or is revoked. Expired handoffs stay in the database.
 - **`block_export` is a deterrent, not DRM.** It blocks download and export routes for non-owners and non-admins (PATs
