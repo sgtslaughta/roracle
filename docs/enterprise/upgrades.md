@@ -149,7 +149,16 @@ Journal and has-identifier results are only correct for papers written by that r
 
 ## Release notes
 
-### Unreleased (0.4.1)
+### 0.5.0
+
+Upgrade as in section 1. One migration runs in the `migrate` hook: 0024 adds the nullable `chat_messages.error` column (no backfill, no reindex, no worker drain needed). New optional settings: `ROR_LATEX_BUILDER` (URL), `ROR_WRITING_STYLE_TIMEOUT_S` (default 30). Operator step: set Helm `rerank.url` to turn the reranker on (below).
+
+- Published drafts: deleting a draft that already has a published version is refused (409) at any token scope, because the draft and the paper share one document; delete the paper from the Library instead. The Drafts menu hides **Delete draft** for such drafts.
+- Chat: a failed or timed-out answer shows "The answer could not be generated: *reason*." with **Retry** instead of an empty message, and the reason is kept (migration 0024). Progress shows as "Searching your library…" and "Writing the answer…". Citations written as `[Passage 2]` or `[Sources 1, 3]` are linked like `[2]`.
+- Drafts: **Insert citation** (or typing `[@`) searches your papers and inserts `[@doc:<id>]`; the preview shows the cited title. A new draft's title is written into its front matter. The AI style check gives up after `ROR_WRITING_STYLE_TIMEOUT_S` and reports "style check unavailable".
+- Sharing and co-author dialogs pick people by name (new `GET /api/directory/users/lookup?ids=` resolves ids already on a list); the app no longer shows raw user ids.
+- Polish: layouts fixed at 1024 px, the chat column no longer collapses beside the reader, plain-language upload errors, unsupported files (for example `.exe`) refused at upload, text previews for CSV, JSON, XML and LaTeX, sentence-case admin pages and formatted numbers.
+- Evaluation: `roracle eval generate --kind fact|multihop|global` and `roracle eval curate` build an LLM-curated reference set over your own corpus ([own-corpus-v1](../eval/own-corpus-v1.md)); the Eval page gets the same kinds. The LLM judge is version 2: an uncited sentence is checked against every passage the model saw instead of counting as unfaithful, list lead-ins are skipped, and `citation_coverage` is reported (not gated). Judge scores from before 0.5.0 are not comparable; compare runs judged by the same version.
 
 - Retrieval-quality gates (own-corpus-v1, [eval reports](../eval/README.md)): the TEI reranker PASSED (chat nDCG@10 +0.044, p95 +440 ms; confirmed on human-labelled SciFact, chat nDCG@10 +0.055). Operator step: set Helm `rerank.url` to your site's TEI endpoint (the chart now defaults to `api: tei`, `model: bge-reranker-v2-m3`; an empty url keeps it off). The router, context notes, RAPTOR and agentic retrieval stay off and are PENDING: run their gates on your corpus first ([how](../eval/README.md#run-the-pending-gates-in-the-target-network)); context notes and RAPTOR need a full rebuild of the active index after a PASS (no live cutover in this release).
 
@@ -157,7 +166,7 @@ Journal and has-identifier results are only correct for papers written by that r
 
 - Wider file types: images (OCR), JATS and other XML, LaTeX (single files and arXiv source archives), EPUB, CSV, TSV and JSON are ingested ([supported file types](../user/uploads.md#supported-file-types)). The website connector accepts them too, and decides by file extension when a server sends `application/octet-stream`.
 - Archives: uploaded and connector ZIP, tar and tar.gz files are unpacked into one paper per file, with limits (500 files, the upload limit per file, 10 times the upload limit in total); LaTeX source archives stay one paper ([connectors](../admin/connectors.md#archives)). `POST /api/documents` and the MCP `upload` tool answer an unpacked archive with `{"archive": true, "documents": [...], "skipped": [...]}`.
-- The reader shows image originals. No migration and no new settings; a patch upgrade. Docling needs its OCR models for images and scans: in an air-gapped install mirror them as described in the [deployment guide](deployment-guide.md) (Configuration, OCR models).
+- The reader shows image originals. Docling needs its OCR models for images and scans: in an air-gapped install mirror them as described in the [deployment guide](deployment-guide.md) (Configuration, OCR models).
 
 ### 0.4.0
 
