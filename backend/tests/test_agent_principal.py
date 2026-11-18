@@ -75,7 +75,9 @@ def test_no_raw_pat_checks_left():
 
 @pytest.fixture
 def as_agent_jwt(make_token):
-    return bearer(make_token(sub="ana", username="ana", groups=("/Mathematics/Spectral Theory",), azp="roracle-mcp"))
+    return bearer(
+        make_token(sub="ana", username="ana", groups=("/Mathematics/Spectral Theory",), azp="roracle-mcp")
+    )
 
 
 @pytest.fixture
@@ -83,7 +85,9 @@ def agent_admin(make_token):
     return bearer(make_token(sub="root", username="root", roles=("roracle-admin",), azp="roracle-mcp"))
 
 
-def test_agent_client_jwt_search_hides_block_agents(client, as_agent_jwt, as_ana, ana, admin, db_session, fes):
+def test_agent_client_jwt_search_hides_block_agents(
+    client, as_agent_jwt, as_ana, ana, admin, db_session, fes
+):
     sec = mk(client, admin, "NoAg", 3, block_agents=True)
     d, v = seed(db_session, ana, title="Hidden")
     label(db_session, d, sec)

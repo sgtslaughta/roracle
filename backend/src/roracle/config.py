@@ -308,7 +308,11 @@ class Settings(AliasConfig):
         return v
 
     @field_validator(
-        "oidc_allowed_clients", "oidc_agent_clients", "connector_fs_roots", "connector_http_allow_cidrs", mode="before"
+        "oidc_allowed_clients",
+        "oidc_agent_clients",
+        "connector_fs_roots",
+        "connector_http_allow_cidrs",
+        mode="before",
     )
     @classmethod
     def _parse_clients(cls, v):

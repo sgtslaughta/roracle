@@ -53,7 +53,7 @@ def require_scope(session: Session, p: Principal, scope: str) -> None:
     """403 unless the principal holds `scope`. Call before any lookup so nothing leaks."""
     if scope not in p.scopes:
         audit(session, p, "auth.scope_denied", detail={"need": scope, "via": p.via}, durable=True)
-        raise HTTPException(403, f"insufficient scope: {scope}")
+        raise HTTPException(403, "insufficient scope" if scope == "write" else f"insufficient scope: {scope}")
 
 
 def as_agent(p: Principal) -> Principal:

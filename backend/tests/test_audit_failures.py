@@ -174,3 +174,14 @@ def test_mcp_429_audited(app, db_session, settings, ana):
     assert codes[0] == 200 and codes[1:] == [429, 429]
     (row,) = rows(db_session, "mcp.rate_limited")
     assert row.target == "/mcp" and row.user_id == ana
+
+
+def test_mcp_write_scope_denied_audited(app, db_session, ana):
+    from mcp_helpers import call
+
+    h = bearer(new_pat(db_session, ana, ["read"]))
+    with TestClient(app) as mc:
+        err, text = call(mc, h, "create_handoff", title="t", brief="b")
+    assert err and "insufficient scope" in text
+    (row,) = rows(db_session, "auth.scope_denied")
+    assert row.detail["need"] == "write" and row.detail["via"] == "pat"

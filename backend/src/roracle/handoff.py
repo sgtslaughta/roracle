@@ -332,8 +332,7 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
 
 def append_note(session: Session, p: Principal, code: str, text: str, via: str = "ui") -> dict:
     h = _loadable(session, p, code)
-    if "write" not in p.scopes:
-        raise HTTPException(403, "insufficient scope")
+    require_scope(session, p, "write")
     if not 1 <= len(text) <= 10000:
         raise HTTPException(422, "note must be 1-10000 characters")
     note = {"at": datetime.now(UTC).isoformat(), "by": p.username, "text": text, "via": via}

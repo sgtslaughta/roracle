@@ -45,9 +45,8 @@ NO_PASSAGES = "No accessible passages matched."
 Run = Callable[..., Any]
 
 
-def _need_write(p: Principal) -> None:
-    if "write" not in p.scopes:
-        raise HTTPException(403, "insufficient scope")
+def _need_write(session: Session, p: Principal) -> None:
+    require_scope(session, p, "write")
 
 
 def _abs(app: FastAPI, m: dict) -> dict:
@@ -130,7 +129,7 @@ def _ask(app: FastAPI, session: Session, p: Principal, question: str, collection
 
 
 def _upload(app, session, p, filename, b64, title, visibility, label_id=None) -> dict:
-    _need_write(p)
+    _need_write(session, p)
     s = dep(app, get_app_settings, session)
     if len(b64) * 3 // 4 > s.mcp_max_upload_bytes + 3:
         raise HTTPException(413, "file too large for MCP upload; use POST /documents")
@@ -179,7 +178,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)  # scope error before any label lookup
+            _need_write(session, p)  # scope error before any label lookup
             if visibility != "private":
                 require_scope(session, p, MANAGE)
             lid = label_by_name(session, label).id if label else None
@@ -217,7 +216,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         url, uri, dropped."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             h = handoff.create(
                 session, p, "agent", title=title, goal=goal, brief=brief, doc_ids=doc_ids or [],
                 audience=audience, expires_in_days=expires_in_days, via="mcp",
@@ -236,7 +235,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         """Append a note to a handoff you can load (needs a write token)."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             return handoff.append_note(session, p, code, note, via="mcp")
 
         return run(app, "append_to_handoff", go, code)
