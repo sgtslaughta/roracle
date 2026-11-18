@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from roracle.access import agent_visible, group_path, org_units
 from roracle.api.routes.search import get_llm
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import Policy
@@ -157,6 +157,7 @@ def save_content(doc_id: UUID, body: SaveIn, p: Who, session: Db, cfg: Cfg) -> d
 
 @router.put("/drafts/{doc_id}/coauthors")
 def put_coauthors(doc_id: UUID, body: CoauthorsIn, p: Who, session: Db) -> dict:
+    require_scope(session, p, MANAGE)
     d = svc.set_coauthors(session, p, doc_id, body.users, body.groups)
     return {"coauthors": d.coauthors}
 

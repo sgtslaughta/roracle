@@ -1,12 +1,15 @@
 """`manage` PAT scope: sharing, delete, transfer, submit drafts, wide handoffs (P15 task 3)."""
 
+import base64
 import importlib.util
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from api_seed import seed
 from conftest import bearer
+from fastapi.testclient import TestClient
+from mcp_helpers import call
 from sqlalchemy import text
 
 from roracle import pats
@@ -136,3 +139,73 @@ def test_mcp_principal_has_no_manage():
     p = Principal(user_id=uuid4(), sub="s", username="u", groups=(), is_admin=False)
     assert "manage" in p.scopes
     assert as_agent(p).scopes == {"read", "write"}
+
+
+B64 = base64.b64encode(b"%PDF-1 hello").decode()
+PDF = {"file": ("a.pdf", b"%PDF-1 hello", "application/pdf")}
+
+
+@pytest.fixture
+def mc(app):
+    with TestClient(app) as c:
+        yield c
+
+
+def test_write_pat_cannot_reshare_draft(client, as_ana, db_session, ana):
+    draft = client.post("/drafts", headers=as_ana, json={"title": "T"}).json()["id"]
+    before = client.get(f"/drafts/{draft}", headers=as_ana).json()["coauthors"]
+    h = new_pat(db_session, ana, ["read", "write"])
+    r = client.put(f"/drafts/{draft}/coauthors", headers=h, json={"users": [], "groups": ["/Chem"]})
+    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"
+    assert client.get(f"/drafts/{draft}", headers=as_ana).json()["coauthors"] == before
+
+
+def test_manage_pat_can_patch_visibility(client, db_session, ana, doc):
+    h = new_pat(db_session, ana, ["read", "write", "manage"])
+    r = client.patch(f"/documents/{doc.id}", json={"visibility": "everyone"}, headers=h)
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("data", [{"visibility": "everyone"}, {"visibility": "shared"}])
+def test_rest_upload_sharing_needs_manage(client, db_session, ana, data):
+    w = new_pat(db_session, ana, ["read", "write"])
+    r = client.post("/documents", headers=w, files=PDF, data=data)
+    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"
+
+
+def test_rest_upload_private_ok_for_write_and_everyone_for_manage(client, db_session, ana):
+    w = new_pat(db_session, ana, ["read", "write"])
+    r = client.post("/documents", headers=w, files=PDF, data={"visibility": "private"})
+    assert r.status_code in (200, 201, 202), r.text
+    m = new_pat(db_session, ana, ["read", "write", "manage"])
+    files = {"file": ("b.pdf", b"%PDF-1 other", "application/pdf")}
+    r = client.post("/documents", headers=m, files=files, data={"visibility": "everyone"})
+    assert r.status_code in (200, 201, 202), r.text
+
+
+def test_mcp_upload_sharing_needs_manage(mc, db_session, ana):
+    w = new_pat(db_session, ana, ["read", "write"])
+    err, text = call(mc, w, "upload", filename="a.pdf", content_base64=B64, visibility="everyone")
+    assert err and "insufficient scope: manage" in text
+    assert not call(mc, w, "upload", filename="a.pdf", content_base64=B64)[0]  # private default
+    m = new_pat(db_session, ana, ["read", "write", "manage"])
+    b = base64.b64encode(b"%PDF-1 other").decode()
+    assert not call(mc, m, "upload", filename="b.pdf", content_base64=b, visibility="everyone")[0]
+
+
+def test_jwt_on_mcp_cannot_create_wide_handoff(mc, as_ana, ana):
+    err, text = call(mc, as_ana, "create_handoff", title="t", brief="b", audience="authenticated")
+    assert err and "insufficient scope: manage" in text
+
+
+def test_rest_upload_default_visibility(client, as_ana, db_session, ana):
+    from roracle.models import Document
+
+    r = client.post("/documents", headers=new_pat(db_session, ana, ["read", "write"]), files=PDF)
+    assert r.status_code in (200, 201, 202), r.text
+    assert db_session.get(Document, UUID(r.json()["document_id"])).visibility == "private"
+    for h, name in ((new_pat(db_session, ana, ["read", "write", "manage"]), "m"), (as_ana, "j")):
+        files = {"file": (f"{name}.pdf", f"%PDF-1 {name}".encode(), "application/pdf")}
+        r = client.post("/documents", headers=h, files=files)
+        assert r.status_code in (200, 201, 202), r.text
+        assert db_session.get(Document, UUID(r.json()["document_id"])).visibility == "everyone"

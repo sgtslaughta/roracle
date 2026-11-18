@@ -20,7 +20,7 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   - A PAT is **never admin**, even for an admin owner.
   - `manage` gates sharing and ownership: `PATCH /api/documents/{id}` touching `visibility`, `org_unit`,
     `share_users`, `share_groups` or `coauthors`; `DELETE /api/documents/{id}`; `POST /api/documents/{id}/transfer`;
-    `POST /api/drafts/{id}/submit`; `PUT /api/chats/{id}/shares`; and handoff create or update with an audience other
+    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors`; `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private`; and handoff create or update with an audience other
     than `creator` (REST and MCP). Without it: 403 `insufficient scope: manage`, checked before any document lookup.
     Sessions (JWT) hold it. MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
     migration 0021; new `write` tokens do not get it.

@@ -25,7 +25,7 @@ from starlette.datastructures import Headers, UploadFile
 from roracle import handoff
 from roracle.api.routes import documents, library
 from roracle.api.routes import search as search_routes
-from roracle.auth import Principal, get_app_settings
+from roracle.auth import MANAGE, Principal, get_app_settings, require_scope
 from roracle.chat import agentic
 from roracle.chat.answer import build_messages, citation_item, parse_citations, split_notes
 from roracle.chat.global_answer import answer_sync, route_question
@@ -180,6 +180,8 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
 
         def go(session: Session, p: Principal) -> dict:
             _need_write(p)  # scope error before any label lookup
+            if visibility != "private":
+                require_scope(session, p, MANAGE)
             lid = label_by_name(session, label).id if label else None
             return _upload(app, session, p, filename, content_base64, title, visibility, lid)
 
