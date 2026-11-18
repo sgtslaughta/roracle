@@ -81,7 +81,7 @@ def _touch(d: Draft) -> None:
     d.updated_at = datetime.now(UTC)
 
 
-_EMPTY_TITLE = re.compile(r'^title: ""$', re.M)
+_EMPTY_TITLE = re.compile(r'^title: ""$', re.MULTILINE)
 
 
 def _titled(template: str, title: str) -> str:
@@ -91,7 +91,9 @@ def _titled(template: str, title: str) -> str:
     end = template.find("\n---", 3)
     if end < 0:
         return template
-    head = _EMPTY_TITLE.sub(lambda _: "title: " + json.dumps(title.strip(), ensure_ascii=False), template[:end], count=1)
+    head = _EMPTY_TITLE.sub(
+        lambda _: "title: " + json.dumps(title.strip(), ensure_ascii=False), template[:end], count=1
+    )
     return head + template[end:]
 
 
