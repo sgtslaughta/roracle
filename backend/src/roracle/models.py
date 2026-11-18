@@ -141,7 +141,7 @@ class DocumentCoauthor(Base):
 # Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
 # claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
 # (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
-BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs")
+BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs", "auto_tags")
 
 
 def bulk_sql(*, bulk: bool) -> str:
@@ -242,6 +242,7 @@ class Tag(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
     )
     tag: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(String(8), default="user", server_default="user")  # user | llm
 
 
 class Collection(Base):
