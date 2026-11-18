@@ -123,3 +123,28 @@ Total before generation with rewrite ~0.5-1.0 s; leaves room for the answer mode
 8. LLM-generated contextual chunk headers at ingest (one-off GPU cost, offline).
 9. ES `diversify` MMR (needs your minor version >= 9.3/9.4 [S see section 6]).
 10. HyDE/Query2doc as an opt-in "deep search", never default (hallucination risk on unfamiliar queries [S https://arxiv.org/abs/2505.12694]).
+
+## 11. Status and next steps (2026-11-17)
+
+Done (Tier 1, items 1-3; no reindex):
+
+- `chat/intent.py` `lexical_query`: closed English filler list for the chat BM25 leg only; kNN and the reranker keep
+  the raw question; empty result falls back to raw. Non-English words are never in the list, so never stripped.
+- `chat/lexical.py`: chat BM25 over `title^3`, `abstract^2` (head chunk), `text`/`headings`/`context` (1, tie-breaker
+  0.3) plus tag clauses (exact term boost 3; prefix of the de-pluralised word, 5+ chars, boost 1.5).
+- `ROR_CHAT_CHUNKS_PER_DOC` (default 3): per-document cap on the fused list before the rerank; not applied when the
+  scope is too few documents to fill the context (open tabs, tiny collections). 3 rather than the suggested 2 keeps
+  the best paper's second and third passages for the answer while still leaving 60+ documents in a 200-chunk window.
+- Eval: `backend/tests/eval/query_recall.yaml` (43 queries: bare / filler / follow-up / tag-only) and
+  `tests/test_eval_query_recall.py` (doc-level recall@8 on the chat path, seeded ES, hash embedder, kNN floor 0, no
+  reranker). Before: bare 1.000, filler 0.911, follow-up 0.974, tag-only 0.500; the three robots filler variants
+  cited only the toddler papers. After: 1.000 on all four.
+
+Next steps (out of scope here):
+
+- Measure on the live corpus with the TEI reranker on: the offline eval has no cross-encoder, so a filler-sensitive
+  reranker could still demote the long paper (`rerank_blend` 0.3 limits the damage).
+- Second BM25 list with the raw question at low RRF weight (item 2's "raw 0.5, cleaned 1.0").
+- Tier 2: title + tags prefix on chunk text at index time (reindex), doc-level vector as an extra RRF list, LLM
+  condense/rewrite only when history exists (real follow-ups carry the topic in earlier turns; the eval's
+  "follow-up" variants are single-turn).
