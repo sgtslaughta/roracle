@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from roracle import quota
 from roracle.api.routes.documents import get_blob_store
 from roracle.audit import audit
 from roracle.auth import Principal, current_principal, get_app_settings, require_human
@@ -80,7 +81,9 @@ async def _received(
         ["meta"],
     ),
 )
-def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depends(_received)]) -> dict:
+def create(
+    session: Session_, p: Human, store: Store, settings: Cfg, got: Annotated[tuple, Depends(_received)]
+) -> dict:
     note, rec = got
     staged = rec.staged
     try:
@@ -94,6 +97,7 @@ def create(session: Session_, p: Human, store: Store, got: Annotated[tuple, Depe
             raise HTTPException(422, "provide either a file or a uri, not both")
         e = Evidence(annotation_id=note.id, creator_id=p.user_id, stance=m.stance, crate=ev.crate(m))
         if staged is not None:
+            quota.check(session, settings, p.user_id, staged.size)  # same quota as document uploads
             ref_blob(session, staged.sha256, staged.size)  # row lock before the S3 copy (blob GC safety)
             store.promote(staged, "application/octet-stream")
             e.blob_sha256, e.size, e.scan_status = staged.sha256, staged.size, "pending"

@@ -16,6 +16,7 @@ Operations and security documentation. Back to the [documentation index](../READ
 | [Security: network](security/network.md) | Security reviewers, platform engineers | Every NetworkPolicy, web headers, pod baseline |
 | [Security: data retention](security/data-retention.md) | Security reviewers, operators | Deletion cascade, blob GC, tmp lifecycle, handoff expiry, audit retention |
 | [Security: known limits](security/known-limits.md) | Security reviewers / ISSO | Behaviours to know before relying on a control |
+| [Security review 2026-11](security/review-2026-11.md) | Security reviewers / ISSO | 0.4.0 review: scope, method, findings with status, coverage checklist |
 | [Keycloak setup](keycloak-setup.md) | IAM administrators | X.509 flow, clients, mappers, roles, groups as org units |
 | [Air-gap mirror manifest](airgap-mirror-manifest.md) | Mirror maintainers | Every image (checked against `deploy/**` in CI), operator images, charts, packages, models, SciFact |
 | [Operations runbook](operations-runbook.md) | On-call operators | Index of the runbooks below and where the old sections went |

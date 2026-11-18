@@ -11,3 +11,6 @@ docs/developer/local-dev.md|ROR_PG_PORT  # compose variable for the Postgres hos
 docs/developer/testing.md|ROR_E2E  # test-only switch read by tests/e2e_support.py, not a Settings field
 docs/developer/local-dev.md|ROR_GOTENBERG_PORT  # compose-only variable in deploy/dev/compose.yaml, not a Settings field
 docs/developer/local-dev.md|ROR_GOTENBERG_DRAFTS_PORT  # compose-only variable in deploy/dev/compose.yaml, not a Settings field
+/api/openapi.json  # FastAPI's own schema route (not in its own schema), documented as public in security docs
+/api/docs  # FastAPI's Swagger UI route, documented as public in security docs
+/api/redoc  # FastAPI's ReDoc route, documented as public in security docs

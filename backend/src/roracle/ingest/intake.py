@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from roracle.models import Blob, Document, DocumentVersion
+from roracle.models import Blob, Document, DocumentVersion, Job
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, StagedBlob, StagedFile
 
@@ -37,6 +37,7 @@ def _version(
     number: int,
     filename: str,
     content_type: str,
+    agent: dict | None = None,
 ) -> DocumentVersion:
     version = DocumentVersion(
         document_id=doc_id,
@@ -49,8 +50,24 @@ def _version(
     )
     session.add(version)
     session.flush()
-    enqueue(session, "ingest", {"version_id": str(version.id)})
+    enqueue(session, "ingest", ingest_payload(version.id, agent))
     return version
+
+
+def ingest_payload(version_id: UUID, agent: dict | None) -> dict:
+    """`agent` (auth.agent_marker) makes ingest-time checks (near-dup) run with the agent uploader's view."""
+    return {"version_id": str(version_id), **({"agent": agent} if agent else {})}
+
+
+def prior_agent(session: Session, version_id: UUID) -> dict | None:
+    """The agent marker of the version's latest ingest job, to carry over when ingest is restarted."""
+    payload = session.scalar(
+        select(Job.payload)
+        .where(Job.kind == "ingest", Job.payload["version_id"].astext == str(version_id))
+        .order_by(Job.id.desc())
+        .limit(1)
+    )
+    return (payload or {}).get("agent")
 
 
 def add_document(
@@ -66,6 +83,7 @@ def add_document(
     title: str | None = None,
     connector_id: UUID | None = None,
     label_id: UUID | None = None,
+    agent: dict | None = None,
 ) -> tuple[Document, DocumentVersion]:
     _put(session, store, staged, content_type)
     extra = {"label_id": label_id} if label_id else {}  # else the column default (global default label)
@@ -79,7 +97,7 @@ def add_document(
     )
     session.add(doc)
     session.flush()
-    return doc, _version(session, staged, doc.id, 1, filename, content_type)
+    return doc, _version(session, staged, doc.id, 1, filename, content_type, agent)
 
 
 def add_version(
@@ -90,6 +108,7 @@ def add_version(
     *,
     filename: str,
     content_type: str,
+    agent: dict | None = None,
 ) -> DocumentVersion:
     """Next version of `doc`; the ingest pipeline demotes older versions' `is_latest`."""
     session.get(Document, doc.id, with_for_update=True)  # serialize concurrent version numbering
@@ -97,4 +116,4 @@ def add_version(
         select(func.max(DocumentVersion.version)).where(DocumentVersion.document_id == doc.id)
     )
     _put(session, store, staged, content_type)
-    return _version(session, staged, doc.id, (top or 0) + 1, filename, content_type)
+    return _version(session, staged, doc.id, (top or 0) + 1, filename, content_type, agent)

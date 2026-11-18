@@ -50,8 +50,8 @@ function AnswerTextImpl({ text, citations, streaming, hot, onHot }: AnswerTextPr
         </sup>
       );
     },
-    // model output is untrusted: never fetch images (exfiltration via URL), only render safe links
-    ...safeComponents("noopener noreferrer"),
+    // model output is untrusted: never fetch images, never make external URLs clickable (exfiltration via URL)
+    ...safeComponents("noopener noreferrer", true),
   } as Components), [citations, streaming, onHot]);
 
   return (

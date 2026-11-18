@@ -22,9 +22,14 @@ def admin(make_token):
     return bearer(make_token(sub="root", username="root", roles=("roracle-admin",)))
 
 
+class UES(FakeES):
+    def update_by_query(self, **kw):  # label approvals sync ES synchronously (F4)
+        return {}
+
+
 @pytest.fixture(autouse=True)
 def fes(app):
-    f = FakeES()
+    f = UES()
     app.dependency_overrides[get_es] = lambda: f
     return f
 
