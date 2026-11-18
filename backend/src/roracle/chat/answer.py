@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 from roracle.models import Chat, ChatMessage
 from roracle.prompt_quote import meta, quote
-from roracle.prompt_quote import quote as _quote  # noqa: F401  (re-export for existing importers)
 from roracle.retrieval import Passage
 
 log = logging.getLogger(__name__)
+_quote = quote  # alias kept for existing importers
 
 SYSTEM_PROMPT = (
     "You are rOracle, a research assistant. Answer only from the numbered passages. "

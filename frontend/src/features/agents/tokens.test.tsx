@@ -8,6 +8,7 @@ import { server } from "@/mocks/server";
 import { state } from "@/mocks/state";
 import { ApiError } from "@/api/client";
 import { invalidText } from "./api";
+import { CreateTokenDialog } from "./CreateTokenDialog";
 
 let qc: QueryClient;
 async function renderApp(path: string) {
@@ -91,6 +92,17 @@ describe("access tokens", () => {
     await within(dlg).findByLabelText("Your new token");
     expect(await sent("POST", /\/me\/tokens$/)[0].json()).toEqual({ name: "boss", scopes: ["read", "write", "manage"], expires_in_days: 30 });
     expect(within(dlg).getByText(/It can read, write and manage/)).toBeInTheDocument();
+  });
+
+  it("help 'Try it' preset is read+write and never grants manage", async () => {
+    const user = userEvent.setup();
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={qc}><CreateTokenDialog open initialWrite onOpenChange={() => {}} /></QueryClientProvider>);
+    const dlg = await screen.findByRole("dialog");
+    await user.type(within(dlg).getByLabelText("Name"), "help");
+    await user.click(within(dlg).getByRole("button", { name: "Create token" }));
+    await within(dlg).findByLabelText("Your new token");
+    expect((await sent("POST", /\/me\/tokens$/)[0].json()).scopes).toEqual(["read", "write"]);
   });
 
   it("defaults to read-only for 30 days", async () => {

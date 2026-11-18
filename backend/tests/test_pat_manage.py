@@ -227,3 +227,20 @@ def test_write_pat_deletes_unpublished_draft(client, db_session, ana):
     h = new_pat(db_session, ana, ["read", "write"])
     i = client.post("/drafts", headers=h, json={"title": "T"}).json()["id"]
     assert client.delete(f"/drafts/{i}", headers=h).status_code == 204
+
+
+def test_nonprivate_upload_refused_before_staging(client, db_session, ana, monkeypatch):
+    from roracle import upload_stream
+
+    def boom(*a, **k):
+        raise AssertionError("body was staged")
+
+    monkeypatch.setattr(upload_stream, "TmpUpload", boom)
+    h = new_pat(db_session, ana, ["read", "write"])
+    r = client.post(
+        "/documents",
+        headers=h,
+        data={"visibility": "everyone"},  # form fields precede the file part
+        files={"file": ("a.pdf", b"a", "application/pdf")},
+    )
+    assert r.status_code == 403 and r.json()["detail"] == "insufficient scope: manage"

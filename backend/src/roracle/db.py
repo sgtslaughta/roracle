@@ -1,12 +1,13 @@
 import time
 from collections.abc import Callable, Iterator
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 RELEASE_BEFORE_IO = "release_before_io"
 
@@ -91,7 +92,7 @@ def heartbeat_session_factory(settings) -> sessionmaker[Session]:
 
 def failure_status(e: Exception) -> int:
     """The HTTP status the app's exception handlers will send for `e` (500 when none applies)."""
-    if isinstance(e, HTTPException):
+    if isinstance(e, StarletteHTTPException):  # FastAPI's HTTPException subclasses it
         return e.status_code
     from sqlalchemy.exc import DataError
 

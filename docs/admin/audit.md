@@ -15,7 +15,7 @@ Entries come newest first, 50 at a time. **Load older entries** fetches the next
 | Time, User, Action, Target, Details | One row per event. Details is the event's JSON, cut at 160 characters with **More** and **Less** |
 | Row menu | **Copy details** and **Copy target** |
 
-The **User** column shows a dash when the row has no user. That is the case for refused admin calls (below). Rows replayed after a failed request keep the user; if the user row is gone, the id is in `detail.user_id` and the User ID filter matches that too.
+The **User** column shows a dash when the row has no user, as for refused admin calls (below), and also for a replayed row whose user row is gone. Rows replayed after a failed request keep the user; if the user row is gone, the id is in `detail.user_id` and the User ID filter matches that too.
 
 The API is `GET /api/admin/audit` with `action`, `user_id`, `before_id` and `limit` (1 to 200, default 50). It returns `items` and `next_before_id`, which is the `before_id` for the next page, or `null` at the end. Each item has `id`, `at`, `user_id`, `username`, `action`, `target`, `client` and `detail`.
 
@@ -40,7 +40,7 @@ Rows share one shape: when, who (user id), an action, a target (usually an id or
 | `label.export_blocked` | A download or export was refused by a label | The document id; the route |
 | `label.view` | A non-owner non-admin read a no-export paper in the reader | The document id; at most one row per user, document and day |
 | `pat.create`, `pat.revoke` | A user made or revoked an access token | The token id; scopes on create |
-| `pat.use` | A REST request made with an access token, successful or not | `METHOD /path` (cut at 200 characters); the client is `pat:<token name>`. A failed handler is replayed after the rollback with the status in `detail.failed`. Rate limits and scope refusals are separate rows: `auth.rate_limited` (at most one per token per minute) and `auth.scope_denied` |
+| `pat.use` | A REST request made with an access token, successful or not | `METHOD /path` (cut at 200 characters); the client is `pat:<token name>`. A failed handler is replayed after the rollback with the status in `detail.failed`. Rate limits and scope refusals are separate rows: `auth.rate_limited` (at most one per principal per minute) and `auth.scope_denied` |
 | `mcp.<tool>` | An agent called an MCP tool | The tool's target; `error` in the detail when it failed |
 | `document.delete`, `document.transfer` | A paper deleted or given to another owner | The document id; title and owner, or old and new owner |
 | `annotation.hide`, `annotation.unhide`, `annotation.remove` | Note moderation | The note id |
