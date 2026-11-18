@@ -237,7 +237,10 @@ def test_merge_page_ids_stamp_only_first_page_grobid_wins():
         ("see arXiv:1111.2222 [cs.CL]", 2),
         ("doi:10.1234/x", 1),
     )
-    assert merge_page_ids({"ids": {}}, doc) == {"ids": {"arxiv": "2611.20773"}}  # no page-1 DOI
+    assert merge_page_ids({"ids": {}}, doc) == {
+        "ids": {"arxiv": "2611.20773"},
+        "arxiv_category": "cs.MA",
+    }  # no page-1 DOI
     assert merge_page_ids({"ids": {"arxiv": "9999.00001"}}, doc)["ids"]["arxiv"] == "9999.00001"
     assert merge_page_ids({"ids": {}}, _doc(("BERT (arXiv:1810.04805)", 1), ("arXiv:2611.20773 [cs.MA]", 1)))[
         "ids"
@@ -256,3 +259,22 @@ def test_parse_tei_header_ambiguous_scheme_dropped_issne_and_isbn_kept_as_meta()
     )
     meta, _ = parse_tei(xml)
     assert meta["ids"] == {"eissn": "2049-3630", "isbn": "9780306406157", "arxiv": "1706.03762"}
+
+
+def test_parse_tei_keywords_captured_only_when_declared():
+    head = b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><profileDesc><textClass><keywords>'
+    tail = b"</keywords></textClass></profileDesc></teiHeader></TEI>"
+    meta, _ = parse_tei(head + b"<term>Graph  Neural Networks</term><term> </term><term>RAG</term>" + tail)
+    assert meta["keywords"] == ["Graph Neural Networks", "RAG"]
+    meta, _ = parse_tei(head + b"".join(b"<term>k%d</term>" % i for i in range(30)) + tail)
+    assert len(meta["keywords"]) == 20
+    meta, _ = parse_tei(b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader/></TEI>')
+    assert "keywords" not in meta
+
+
+def test_merge_page_ids_captures_arxiv_category_outside_ids():
+    from roracle.ingest.parse import merge_page_ids
+
+    got = merge_page_ids({"ids": {}}, _doc(("arXiv:2611.20773v1 [cs.DC] 20 Nov 2026", 1)))
+    assert got == {"ids": {"arxiv": "2611.20773"}, "arxiv_category": "cs.DC"}
+    assert merge_page_ids({"ids": {}}, _doc(("nothing", 1))) == {"ids": {}}
