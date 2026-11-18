@@ -247,7 +247,7 @@ def to_json(session: Session, p: Principal, notes: list[Annotation]) -> list[dic
         eff = policy.effective(
             doc_label[n.document_id], root_label.get(n.parent_id) if n.parent_id else n.label_id
         )
-        hide = p.via == "pat" and eff.exclude_llm  # agents: the note exists, its text does not
+        hide = p.is_agent and eff.exclude_llm  # agents: the note exists, its text does not
         out.append(
             {
                 "id": str(n.id),

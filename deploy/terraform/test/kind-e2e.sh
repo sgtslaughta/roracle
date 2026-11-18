@@ -51,7 +51,7 @@ CHARTS=(
   "cloudnative-pg https://cloudnative-pg.github.io/charts 0.26.0"
   "plugin-barman-cloud https://cloudnative-pg.github.io/charts 0.9.0"
   "cert-manager https://charts.jetstack.io v1.17.0"
-  "eck-operator https://helm.elastic.co 2.16.0"
+  "eck-operator https://helm.elastic.co 3.3.2"
 )
 # Images: "<upstream ref> <path in mirror>". Object storage is external here (Rook-Ceph needs raw disks, kind has none). Terraform values render <mirror>/<path>; chart images keep the upstream
 # path under global.imageRegistry. Keep in sync with the tag pins in kind.tfvars and chart values.
@@ -63,9 +63,9 @@ IMAGES=(
   "quay.io/jetstack/cert-manager-webhook:v1.17.0 jetstack/cert-manager-webhook:v1.17.0"
   "quay.io/jetstack/cert-manager-cainjector:v1.17.0 jetstack/cert-manager-cainjector:v1.17.0"
   "quay.io/jetstack/cert-manager-startupapicheck:v1.17.0 jetstack/cert-manager-startupapicheck:v1.17.0"
-  "docker.elastic.co/eck/eck-operator:2.16.0 eck/eck-operator:2.16.0"
+  "docker.elastic.co/eck/eck-operator:3.3.2 eck/eck-operator:3.3.2"
   "ghcr.io/cloudnative-pg/postgresql:16.6 ghcr.io/cloudnative-pg/postgresql:16.6"
-  "docker.elastic.co/elasticsearch/elasticsearch:8.15.3 docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
+  "docker.elastic.co/elasticsearch/elasticsearch:9.5.6 docker.elastic.co/elasticsearch/elasticsearch:9.5.6"
   "curlimages/curl:8.10.1 curlimages/curl:8.10.1"
   "gotenberg/gotenberg:8.20.1 gotenberg/gotenberg:8.20.1"
 )

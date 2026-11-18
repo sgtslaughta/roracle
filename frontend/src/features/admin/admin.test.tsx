@@ -66,6 +66,14 @@ describe("connectors", () => {
     expect(within(screen.getByText("Server folder").closest("tr")!).getByText("Manual")).toBeInTheDocument();
   });
 
+  it("new connector dialog scrolls inside the viewport so Save stays reachable", async () => {
+    const user = userEvent.setup();
+    await renderAdmin("/admin/connectors", "Group share");
+    await user.click(screen.getByRole("button", { name: "New connector" }));
+    const dlg = await screen.findByRole("dialog");
+    expect(dlg).toHaveClass("max-h-[calc(100dvh-32px)]", "overflow-y-auto");
+  });
+
   it("creates an s3 connector (secret sent, empty optional keys omitted)", async () => {
     const user = userEvent.setup();
     await renderAdmin("/admin/connectors", "Group share");

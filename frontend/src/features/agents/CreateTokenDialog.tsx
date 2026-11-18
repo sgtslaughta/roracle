@@ -4,10 +4,19 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
-import type { CreatedToken } from "@/api/agents";
+import type { CreatedToken, TokenScopes } from "@/api/agents";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { createToken, invalidText } from "./api";
+
+type Level = "read" | "write" | "manage";
+const SCOPES: Record<Level, TokenScopes> = { read: ["read"], write: ["read", "write"], manage: ["read", "write", "manage"] };
+const LABEL: Record<Level, string> = {
+  read: "Read only: search, ask, load handoffs",
+  write: "Read and write: also add handoff notes and propose changes",
+  manage: "Read, write and manage: also change sharing, delete, transfer and submit drafts",
+};
+const HELP: Record<Level, string> = { read: "only read", write: "read and write", manage: "read, write and manage" };
 
 export function CreateTokenDialog({ open, onOpenChange, initialWrite = false }: { open: boolean; onOpenChange: (o: boolean) => void; initialWrite?: boolean }) {
   const [shown, setShown] = useState(false);
@@ -26,7 +35,7 @@ export function CreateTokenDialog({ open, onOpenChange, initialWrite = false }: 
 function TokenForm({ onDone, onCreated, initialWrite }: { onDone: () => void; onCreated: () => void; initialWrite: boolean }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
-  const [write, setWrite] = useState(initialWrite);
+  const [level, setLevel] = useState<Level>(initialWrite ? "write" : "read");
   const [days, setDays] = useState("30");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedToken | null>(null);
@@ -37,7 +46,7 @@ function TokenForm({ onDone, onCreated, initialWrite }: { onDone: () => void; on
   const submit = async () => {
     setBusy(true);
     try {
-      const t = await createToken({ name: name.trim(), scopes: write ? ["read", "write"] : ["read"], expires_in_days: n });
+      const t = await createToken({ name: name.trim(), scopes: SCOPES[level], expires_in_days: n });
       setCreated(t);
       onCreated();
       void qc.invalidateQueries({ queryKey: ["tokens"] });
@@ -58,7 +67,7 @@ function TokenForm({ onDone, onCreated, initialWrite }: { onDone: () => void; on
           <input aria-label="Your new token" readOnly value={created.token} onFocus={(e) => e.currentTarget.select()} />
           <Button onClick={() => void copy()} aria-label="Copy token"><Copy aria-hidden />Copy</Button>
         </div>
-        <p className="chipin-help">Give it to your agent as a bearer token for the rOracle MCP server. It can {write ? "read and write" : "only read"}, and stops working {fmtDate(created.expires_at)}.</p>
+        <p className="chipin-help">Give it to your agent as a bearer token for the rOracle MCP server. It can {HELP[level]}, and stops working {fmtDate(created.expires_at)}.</p>
         <div className="foot"><Button variant="primary" onClick={onDone}>Done</Button></div>
       </>
     );
@@ -71,8 +80,9 @@ function TokenForm({ onDone, onCreated, initialWrite }: { onDone: () => void; on
       <label>Name<input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="Laptop agent" /></label>
       <fieldset>
         <legend>Access</legend>
-        <label className="ck"><input type="radio" name="scope" checked={!write} onChange={() => setWrite(false)} />Read only: search, ask, load handoffs</label>
-        <label className="ck"><input type="radio" name="scope" checked={write} onChange={() => setWrite(true)} />Read and write: also add handoff notes and propose changes</label>
+        {(Object.keys(LABEL) as Level[]).map((l) => (
+          <label key={l} className="ck"><input type="radio" name="scope" checked={level === l} onChange={() => setLevel(l)} />{LABEL[l]}</label>
+        ))}
       </fieldset>
       <label>Expires after (days)
         <input type="number" min={1} max={365} value={days} onChange={(e) => setDays(e.target.value)} aria-invalid={!daysOk} aria-describedby="tok-days-h" />

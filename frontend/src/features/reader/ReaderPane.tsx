@@ -76,7 +76,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <ContinueInAgent source={() => ({
             kind: "document", sourceId: d.id, docIds: [d.id], title: title.slice(0, 200), goal: `Work with “${title}”`,
             brief: `Goal: work with “${title}”. I'm reading page ${tab.page} of version ${version}.`,
-            summary: "Hands this document to an agent, with its notes, references and cited-by links.",
+            summary: "Hands this document to an agent. The agent reads it, and any notes on it, with its own access.",
           })} />
           <Button title="Add to collection" onClick={() => setCollecting(true)}><FolderPlus aria-hidden /><span className="tlbl">Add to collection</span></Button>
           {canManage && <Button title="Sharing" onClick={() => setSharing(true)}><Share2 aria-hidden /><span className="tlbl">Sharing</span></Button>}

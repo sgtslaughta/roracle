@@ -91,6 +91,16 @@ def test_failures_are_uniform_401(client, as_ana, db_session, app, settings):
     assert all(b == bodies[0] for b in bodies)
 
 
+def test_create_refused_while_pats_disabled(client, as_ana, db_session, app, settings):
+    app.dependency_overrides[get_app_settings] = lambda: settings.model_copy(update={"pats_enabled": False})
+    r = client.post("/me/tokens", json={"name": "cli"}, headers=as_ana)
+    assert r.status_code == 403
+    assert r.json()["detail"] == "personal access tokens are disabled"
+    assert db_session.query(PersonalAccessToken).count() == 0
+    app.dependency_overrides[get_app_settings] = lambda: settings.model_copy(update={"pats_enabled": True})
+    assert client.post("/me/tokens", json={"name": "cli"}, headers=as_ana).status_code == 201
+
+
 def test_pat_cannot_manage_tokens(client, as_ana):
     tok = bearer(mint(client, as_ana, scopes=["read", "write"])["token"])
     for call in (

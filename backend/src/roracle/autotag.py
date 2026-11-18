@@ -22,6 +22,8 @@ from roracle.access import agent_visible, llm_allowed
 from roracle.api.routes.library import MAX_TAGS, normalize_tag
 from roracle.labels.policy import Policy
 from roracle.models import Document, DocumentVersion, Job, Tag
+from roracle.prompt_quote import meta as _meta
+from roracle.prompt_quote import quote as _quote
 from roracle.queue import LeaseLost, enqueue, fence, payload_uuid
 
 log = logging.getLogger(__name__)
@@ -62,11 +64,9 @@ def suggest(
     keywords: Sequence[str] = (), category: str | None = None, vocab: Sequence[str] = (),
 ) -> list[str]:  # fmt: skip
     """No summary, no call. Hint lines only when the hint exists."""
-    from roracle.chat.answer import _quote  # lazy: chat -> retrieval -> ingest -> pipeline -> autotag cycle
-
     if not (summary or "").strip():
         return []
-    paper = [f"Title: {title}", f"Summary: {summary.strip()}"]
+    paper = [f"Title: {_meta(title)}", f"Summary: {summary.strip()}"]
     if kw := [k for k in keywords if isinstance(k, str) and k.strip()]:
         paper.append("Author keywords: " + "; ".join(kw))
     if category:

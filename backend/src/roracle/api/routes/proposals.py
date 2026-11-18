@@ -27,8 +27,8 @@ class BulkIn(BaseModel):
 
 
 def _agent_scope(p: Principal):
-    """PAT callers see only proposals on documents visible to agents (ids of hidden ones would leak)."""
-    if p.via != "pat":
+    """Agent callers see only proposals on documents visible to agents (ids of hidden ones would leak)."""
+    if not p.is_agent:
         return ()
     return (
         Proposal.payload["document_id"].astext.in_(

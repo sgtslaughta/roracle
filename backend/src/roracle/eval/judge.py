@@ -17,6 +17,7 @@ from roracle.auth import Principal
 from roracle.chat.answer import build_messages
 from roracle.config import Settings
 from roracle.labels.textgate import gated_docs
+from roracle.prompt_quote import quote
 from roracle.retrieval import Passage
 
 _MARKERS = r"(?:\s*\[\d{1,3}(?:\s*,\s*\d{1,3})*\])*"
@@ -77,15 +78,14 @@ def claims(answer_text: str) -> list[Claim]:
 
 
 def _supported(llm, model: str, claim: str, passage: Passage) -> bool:
-    def esc(t: str) -> str:
-        return re.sub(r"(?i)</(passage|claim)", lambda m: "<\\/" + m.group(1).lower(), t)
-
-    text, claim = esc(passage.text), esc(claim)
     r = llm.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": JUDGE_SYSTEM},
-            {"role": "user", "content": f"<passage>\n{text}\n</passage>\n<claim>\n{claim}\n</claim>"},
+            {
+                "role": "user",
+                "content": f"<passage>\n{quote(passage.text)}\n</passage>\n<claim>\n{quote(claim)}\n</claim>",
+            },
         ],
         stream=False,
         temperature=0,

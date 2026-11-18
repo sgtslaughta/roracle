@@ -1,6 +1,7 @@
 # rOracle chart values. No secret values here: credentials come from an existing Secret.
 global:
   imageRegistry: ""        # prefix for every image, e.g. registry.internal.example
+  requireDigests: false    # true: render fails unless every image.digest (backend, web, postgres, elasticsearch, parsers, snapshot curl) is set
 imagePullSecrets: []       # [{name: regcred}]
 nameOverride: ""
 fullnameOverride: ""
@@ -82,6 +83,9 @@ observability:
     endpoint: ""           # e.g. http://otel-collector.observability:4318
   # Grafana sidecar-provisioned dashboard (backend /metrics + CNPG panels). `label` = sidecar label key.
   grafanaDashboard: {enabled: false, label: grafana_dashboard}
+  # Both need prometheus-operator CRDs and metrics.enabled. PodMonitor scrapes api (http) and worker (metrics) /metrics.
+  podMonitor: {enabled: false, interval: 30s, labels: {}}
+  prometheusRule: {enabled: false, labels: {}}   # seven alerts, group roracle
 
 podSecurityContext:
   runAsNonRoot: true

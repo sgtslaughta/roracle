@@ -39,7 +39,7 @@ def test_every_admin_call_audited(client, adm, db_session):
         by
     )
     assert by["admin.get_settings"].target == "/admin/settings"
-    assert by["admin.get_settings"].detail == {"query": {"x": "1"}}
+    assert by["admin.get_settings"].detail == {"params": ["x"]}
     assert by["admin.settings_update"].detail == {"changes": {"rerank_depth": {"old": 200, "new": 20}}}
 
 
@@ -218,7 +218,7 @@ def test_quota_lock_taken_before_sum(client, adm, as_ana, db_session):
 
 
 @pytest.mark.usefixtures("_blob_store_override")
-def test_quota_counts_trash_not_rejected_or_cancelled(client, adm, as_ana, db_session):
+def test_quota_ignores_trash_rejected_or_cancelled(client, adm, as_ana, db_session):
     up = lambda data: client.post(
         "/documents", headers=as_ana, files={"file": ("a.pdf", data, "application/pdf")}
     )
@@ -226,7 +226,8 @@ def test_quota_counts_trash_not_rejected_or_cancelled(client, adm, as_ana, db_se
     did = up(b"12345678").json()
     db_session.execute(text("UPDATE documents SET deleted_at = now()"))
     db_session.flush()
-    assert up(b"abc").status_code == 413  # trash still counts
+    assert up(b"abc").status_code == 201  # deleted (trash) papers no longer count (P15)
+    db_session.execute(text("UPDATE documents SET deleted_at = NULL"))
     db_session.execute(text("UPDATE document_versions SET stage = 'rejected'"))
     db_session.flush()
     assert up(b"abc").status_code == 201

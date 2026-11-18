@@ -45,7 +45,7 @@ export const agentHandlers = [
     if (!(b.expires_in_days >= 1 && b.expires_in_days <= 365)) return err(422, "expires_in_days must be 1-365");
     const prefix = `ror_${rand(4, "abcdefghijkmnpqrstuvwxyz23456789")}`;
     const t: AccessToken = {
-      id: `tok-${Date.now()}-${rand(3)}`, name, prefix, scopes: (b.scopes as string[] | undefined)?.includes("write") ? ["read", "write"] : ["read"],
+      id: `tok-${Date.now()}-${rand(3)}`, name, prefix, scopes: (b.scopes as string[] | undefined)?.includes("manage") ? ["manage", "read", "write"] : (b.scopes as string[] | undefined)?.includes("write") ? ["read", "write"] : ["read"],
       expires_at: iso(b.expires_in_days * DAY), revoked_at: null, last_used_at: null, created_at: iso(),
     };
     tokens().unshift(t);

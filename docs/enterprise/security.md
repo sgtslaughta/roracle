@@ -38,7 +38,7 @@ Keycloak RS256 JWTs behind an mTLS proxy; services never trust identity headers.
 ## 3. Authorization
 
 One SQL visibility function, mirrored by the Elasticsearch filter and re-checked in Postgres (R19); unreadable is 404.
-Agents only propose notes and labels, but a write-scope PAT can use every route that has no human-only guard: submit drafts, change a document's visibility or shares, delete or transfer it, upload, tag, share chats ([known limits](security/known-limits.md#agents-and-the-mcp-mount)). Handoffs are frozen at
+Agents only propose notes and labels. PATs carry `read`, `write` or `manage` scopes: sharing, visibility, delete, transfer, draft submit and chat shares need `manage`, and every `/mcp` caller is a non-admin agent without it ([access control](security/access-control.md#2-authentication)). Handoffs are frozen at
 creation and re-checked on every load. [Details](security/access-control.md#3-authorization).
 
 ## 4. Untrusted content handling
@@ -54,8 +54,8 @@ TLS and encryption at rest come from the platform; the inference endpoint gets o
 
 ## 6. Audit
 
-An insert-only (by application code) `audit_log` table. Not database-immutable, no retention, and rows roll back with
-a failed request; sign-in and search are not audited. [Details](security/audit.md#6-audit) and the
+An insert-only (by application code) `audit_log` table. Not database-immutable and no retention; failed requests, scope
+denials and rate limits are replayed as durable rows. Sign-in and search are not audited. [Details](security/audit.md#6-audit) and the
 [event list](../reference/audit-events.md).
 
 ## 7. Platform hardening

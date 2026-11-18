@@ -1,0 +1,18 @@
+{{- if and .Values.observability.podMonitor.enabled .Values.metrics.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "roracle.fullname" . }}
+  labels:
+    {{- include "roracle.labels" . | nindent 4 }}
+    {{- with .Values.observability.podMonitor.labels }}{{ toYaml . | nindent 4 }}{{ end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: In, values: [api, worker]}
+  podMetricsEndpoints:
+    - {port: http, path: /metrics, interval: {{ .Values.observability.podMonitor.interval }}}
+    - {port: health, path: /metrics, interval: {{ .Values.observability.podMonitor.interval }}}
+{{- end }}

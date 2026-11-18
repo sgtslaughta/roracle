@@ -9,15 +9,21 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
 - Users present client certificates to the org proxy; Keycloak's X.509 authenticator maps the cert
   to a user and issues an RS256 JWT (<= 5 min access token lifetime recommended).
 - rOracle accepts only RS256 access tokens (`typ` Bearer) and validates `iss`, `aud` (`ROR_OIDC_AUDIENCE`), `exp` and `sub`,
-  the signature against the Keycloak JWKS, and that `azp` is one of `ROR_OIDC_ALLOWED_CLIENTS`. An unknown `kid` or a
+  the signature against the Keycloak JWKS, and that `azp` is one of `ROR_OIDC_ALLOWED_CLIENTS`. A token whose `azp` is in `ROR_OIDC_AGENT_CLIENTS` (default `roracle-mcp`) is an agent on REST as well as `/mcp`: never admin, no `manage`, label gates apply, no token minting. An unknown `kid` or a
   key set older than 10 minutes triggers a JWKS reload, at most once per 60 s (failed loads count), so key rotation
   works without refetch amplification. If reloads keep failing, cached keys serve for up to 1 hour and then the
   API fails closed (401).
 - rOracle services **never** trust identity headers; only tokens.
 - PATs (agents): `ror_pat_` + 32 random bytes, shown once, stored only as an unsalted SHA-256 hash (no pepper or
-  other server secret is involved), mandatory expiry (default 30 days, max 365), scopes `read` / `write`, revocable,
+  other server secret is involved), mandatory expiry (default 30 days, max 365), scopes `read` / `write` / `manage` (each includes the ones before it), revocable,
   globally disableable (`ROR_PATS_ENABLED`). Token management requires an interactive JWT (a PAT cannot mint PATs).
   - A PAT is **never admin**, even for an admin owner.
+  - `manage` gates sharing and ownership: `PATCH /api/documents/{id}` touching `visibility`, `org_unit`,
+    `share_users`, `share_groups` or `coauthors`; `DELETE /api/documents/{id}`; `POST /api/documents/{id}/transfer`;
+    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors` (draft co-authors); `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private` (a caller without `manage` that omits visibility gets `private`; the owner may widen it later with a manage session); and handoff create or update with an audience other
+    than `creator` (REST and MCP). Without it: 403 `insufficient scope: manage`, checked before any document lookup.
+    Sessions (JWT) hold it. MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
+    migration 0023; new `write` tokens do not get it.
   - Groups = snapshot at creation intersected with the groups stored on the owner's user row. That row is
     rewritten on every request the owner makes with a Keycloak JWT, so access can narrow but never widen after
     minting, and **a group removal reaches the PAT only after the owner's next JWT-authenticated request** (in
@@ -64,9 +70,9 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   `reply_to_annotation`, which create pending proposals (default `private`; a requested visibility applies
   only after a human approves). At most 50 proposals per user and client can be pending (429 `too many pending proposals`).
   This is not a blanket "PATs cannot write": routes that depend on `current_principal` rather than
-  `require_human` accept a write-scope PAT. In particular **a write-scope PAT can submit its owner's drafts through the
-  REST API** (`POST /api/drafts/{id}/submit`); MCP has no submit tool. The admin review step still applies where
-  the writing profile requires one.
+  `require_human` accept a write-scope PAT. In particular **a `manage`-scope PAT can submit its owner's drafts through the
+  REST API** (`POST /api/drafts/{id}/submit`; a `write` PAT gets 403 `insufficient scope: manage`); MCP has no submit
+  tool. The admin review step still applies where the writing profile requires one.
 - **Handoffs are frozen, not live.** Contents (transcript, passages, document ids, brief, goal) are fixed at
   creation. Who may load one (audience: creator, shared users/groups, any authenticated user), its expiry and
   revocation, and what is redacted for the loader are re-evaluated on **every** load. Only the creator can
@@ -88,15 +94,16 @@ visibility; labels never grant access.
 
 | Gate | Effect | Applies to |
 |---|---|---|
-| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
-| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary, auto-tag suggestions. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
+| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every agent principal (PAT and every `/mcp` caller), admins included; also every handoff loader (human or agent) |
+| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary, auto-tag suggestions. Agent principals also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; agent principals additionally for text |
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner (JWT or PAT) and admins on an interactive JWT. Admin PATs are not exempt (a PAT is never admin) |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
-**Which callers are gated.** The `block_agents` filter and the PAT text withholding key on the credential type
-(`p.via == "pat"`), not on who the human is. A caller on `/mcp` who authenticates with an OAuth/Keycloak access token is the
-interactive user and is not subject to them (see [known limits](known-limits.md#agents-and-the-mcp-mount)). The LLM gate
-(`exclude_llm` in `ask`, chat and the ingest paths) and the handoff gates apply to every caller.
+**Which callers are gated.** Every agent: PAT callers and every caller on `/mcp`, including an OAuth/Keycloak
+access token (`Principal.is_agent`, `via != "jwt"`). On `/mcp` a JWT principal is rewritten to `via="mcp"` and is never
+admin, so an admin's token there sees only what a non-admin agent would. The `block_agents` filter and the agent text
+withholding apply to all of them; only web-app (REST, `via="jwt"`) users are exempt. The LLM gate (`exclude_llm` in
+`ask`, chat and the ingest paths) and the handoff gates apply to every caller.
 
 **Ruling (cross-encoder reranker):** `exclude_llm` text may be scored by the site-hosted cross-encoder reranker (`ROR_RERANK_URL`). It is non-generative and returns only scores, like the embedding model, so it is not an "LLM" for this gate. Keep the endpoint on a trusted network (loopback/mesh). It receives only passages that passed the Elasticsearch ACL filter for the caller, but rerank runs **before** the Postgres re-check, so during the `acl_sync` window after a revocation it can still score text the caller may no longer read (see [known limits](known-limits.md#retrieval-and-label-timing)).
 
@@ -126,9 +133,10 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
 - A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
   job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak to the caller).
 - **Handoff transcripts of chats carry text verbatim, with limited redaction.** Assistant message text derived from
-  `block_agents` sources is withheld (`[withheld: <label>]`) for **every** loader, humans included; text derived
-  from `exclude_llm` sources is withheld for PAT loaders. Assistant replies that drew on papers the loader cannot see (ACL, not label) are shown verbatim; only those citations
-  are dropped (`handoff.py` `get_part`). Passages that came from notes are always dropped from
+  `block_agents` sources is withheld (`[withheld: unavailable]`, the label name is not revealed) for **every** loader, humans included; text derived
+  from `exclude_llm` sources is withheld (`[withheld: <label>]`) for agent loaders (PAT and `/mcp`). Assistant replies that drew on (cited or retrieved) papers the loader cannot see (ACL, not label) are
+  withheld as `[withheld: unavailable]`, and those citations are reduced to `{n, available: false}`
+  (`handoff.py` `get_part`); the creator sees them only if they can still see every paper. Passages that came from notes are always dropped from
   handoff manifests. User messages, the handoff **brief, goal and notes are free text** written by people or
   agents and are **not label-gated**: whatever is typed there is stored and shown to every loader in the audience.
   Documents behind `block_agents` are dropped from a handoff for every loader (PAT or human, admins included).

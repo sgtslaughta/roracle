@@ -15,14 +15,14 @@ from typing import Any
 from uuid import UUID
 
 from botocore.exceptions import ClientError
-from elasticsearch import Elasticsearch, NotFoundError
+from elasticsearch import Elasticsearch
 from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle.acl_sync import drifted, read_acl_many
 from roracle.models import Annotation, Blob, Document, DocumentShare, DocumentVersion, Evidence, Job
 from roracle.queue import enqueue, payload_uuid
-from roracle.search_index import ALIAS, MUTATE_ALIAS
+from roracle.search_index import delete_doc_chunks
 from roracle.storage import BlobStore
 
 log = logging.getLogger(__name__)
@@ -75,17 +75,7 @@ def prune_jobs(session: Session, *, done_days: int = 7, failed_days: int = 30, b
 
 
 def _purge_doc(session: Session, es: Elasticsearch, store: BlobStore, doc_id: UUID) -> None:
-    try:  # chunks first: a retry after a later failure finds nothing left to delete
-        r = es.delete_by_query(
-            index=MUTATE_ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
-        )
-        if r and r.get("failures"):
-            raise RuntimeError(f"delete_by_query failures: {r['failures'][:1]}")
-    except NotFoundError:
-        # only "no index at all" means nothing was indexed; a missing `chunks-all` alias with a live
-        # `chunks` index would orphan the ES chunks, so raise (savepoint skips the doc, retried next run)
-        if es.indices.exists_alias(name=MUTATE_ALIAS) or es.indices.exists(index=ALIAS):
-            raise
+    delete_doc_chunks(es, doc_id)  # chunks first: a retry after a later failure finds nothing left to delete
     versions = session.execute(
         select(DocumentVersion.id, DocumentVersion.blob_sha256).where(DocumentVersion.document_id == doc_id)
     ).all()

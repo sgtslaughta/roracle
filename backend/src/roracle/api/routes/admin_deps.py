@@ -1,6 +1,5 @@
 """Admin guard: admins only (never PATs), one audit row per admin request (R11)."""
 
-import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -9,9 +8,6 @@ from sqlalchemy.orm import Session
 from roracle.audit import audit
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
-from roracle.models import AuditLog
-
-log = logging.getLogger(__name__)
 
 
 def require_admin(
@@ -20,23 +16,19 @@ def require_admin(
     session: Annotated[Session, Depends(get_session)],
 ) -> Principal:
     if not p.is_admin or p.via != "jwt":
-        try:
-            with request.app.state.session_factory() as s:  # own session: the 403 rolls back the request's
-                # user_id=None: the principal's user row may not be committed yet (first login)
-                s.add(
-                    AuditLog(
-                        action="admin.denied",
-                        target=request.url.path,
-                        client=p.client,
-                        detail={"user_id": str(p.user_id), "username": p.username},
-                    )
-                )
-                s.commit()
-        except Exception:
-            log.exception("admin.denied audit write failed")
+        audit(
+            session,
+            p,
+            "admin.denied",
+            request.url.path,
+            {"user_id": str(p.user_id), "username": p.username},
+            durable=True,
+        )
         raise HTTPException(403, "admin only")
     name = getattr(request.scope.get("endpoint"), "__name__", "unknown")
-    audit(session, p, f"admin.{name}", request.url.path, {"query": dict(request.query_params)})
+    audit(
+        session, p, f"admin.{name}", request.url.path, {"params": sorted(request.query_params)}, durable=True
+    )
     return p
 
 

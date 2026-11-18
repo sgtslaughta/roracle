@@ -4,7 +4,7 @@ import contextlib
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -16,9 +16,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import ratelimit, runtime
+from roracle.audit import audit
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.models import AuditLog, User
+from roracle.models import User
 
 ADMIN_ROLE = "roracle-admin"
 LEEWAY_S = 30
@@ -35,10 +36,31 @@ class Principal:
     username: str
     groups: tuple[str, ...]
     is_admin: bool
-    scopes: frozenset[str] = frozenset({"read", "write"})
+    scopes: frozenset[str] = frozenset({"read", "write", "manage"})
     client: str = ""
-    via: Literal["jwt", "pat"] = "jwt"
+    via: Literal["jwt", "pat", "mcp"] = "jwt"
     pat_id: str = ""
+
+    @property
+    def is_agent(self) -> bool:
+        return self.via != "jwt"
+
+
+MANAGE = "manage"
+
+
+def require_scope(session: Session, p: Principal, scope: str) -> None:
+    """403 unless the principal holds `scope`. Call before any lookup so nothing leaks."""
+    if scope not in p.scopes:
+        audit(session, p, "auth.scope_denied", detail={"need": scope, "via": p.via}, durable=True)
+        raise HTTPException(403, "insufficient scope" if scope == "write" else f"insufficient scope: {scope}")
+
+
+def as_agent(p: Principal) -> Principal:
+    """Every non-PAT caller reaching a tool through /mcp is an agent: never admin, never `manage`."""
+    if p.via == "pat":
+        return p
+    return replace(p, via="mcp", is_admin=False, scopes=p.scopes - {"manage"})
 
 
 def httpx_fetch(url: str) -> dict:
@@ -188,18 +210,18 @@ def current_principal(
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
     p = resolve_principal(session, jwks, settings, authorization, request.app.state.session_factory)
-    ratelimit.check(p, settings.rate_limit_per_minute)
+    target = f"{request.method} {request.url.path}"[:200]
+    try:
+        ratelimit.check(p, settings.rate_limit_per_minute)
+    except HTTPException:
+        if ratelimit.audit_due(ratelimit.principal_key(p)):
+            audit(session, p, "auth.rate_limited", target, {"via": p.via}, durable=True)
+        raise
     if "write" not in p.scopes and request.method not in ("GET", "HEAD", "OPTIONS"):
+        audit(session, p, "auth.scope_denied", target, {"need": "write", "via": p.via}, durable=True)
         raise HTTPException(403, "insufficient scope")
-    if p.via == "pat":
-        session.add(
-            AuditLog(
-                user_id=p.user_id,
-                action="pat.use",
-                target=f"{request.method} {request.url.path}"[:200],
-                client=p.client,
-            )
-        )
+    if p.is_agent:
+        audit(session, p, "pat.use", target, durable=True)
     return p
 
 
@@ -248,7 +270,9 @@ def _jwt_principal(session: Session, jwks: JwksCache, settings: Settings, token:
         },
     ).returning(User.id)
     user_id = session.execute(stmt).scalar_one()
-    return Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=str(claims.get("azp", "")))
+    azp = str(claims.get("azp", ""))
+    p = Principal(user_id, sub, username, groups, ADMIN_ROLE in roles, client=azp)
+    return as_agent(p) if azp in settings.oidc_agent_clients else p
 
 
 def principal_for_user(session: Session, user_id: UUID) -> Principal:

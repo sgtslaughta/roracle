@@ -32,7 +32,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         version you last read) to refuse overwriting a newer save. Returns {draft_id, version, url}."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)
+            _need_write(session, p)
             cap = dep(app, get_app_settings, session).draft_max_bytes
             if draft_id is None:
                 if not title or not title.strip():
@@ -62,7 +62,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         blocking, warnings}; each finding is {rule, message, line}. Blocking findings must be fixed."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)  # stores a report
+            _need_write(session, p)  # stores a report
             try:
                 doc_id = UUID(draft_id)
             except ValueError:
@@ -80,7 +80,7 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
         acknowledged}. Unresolved keys do not exist or are not readable by you (indistinguishable)."""
 
         def go(session: Session, p: Principal) -> dict:
-            _need_write(p)  # stores a report
+            _need_write(session, p)  # stores a report
             try:
                 doc_id = UUID(draft_id)
             except ValueError:

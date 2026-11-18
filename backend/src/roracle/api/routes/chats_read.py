@@ -16,7 +16,7 @@ from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
 from roracle.audit import audit
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, visible_versions
 from roracle.config import Settings
 from roracle.db import get_session
@@ -68,8 +68,8 @@ def list_chats(
 
 
 def _agent_chat(session: Session, p: Principal, out: dict) -> dict:
-    """PAT callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
-    if p.via != "pat":
+    """Agent callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
+    if not p.is_agent:
         return out
     ids = [i for i in (*out["pins"], *out["excludes"]) if isinstance(i, str)]
     ok = set()
@@ -124,7 +124,7 @@ def _messages(session: Session, p: Principal, chat: Chat) -> list[dict]:
                 "model": m.model,
                 "created_at": m.created_at,
                 "viewer": m.viewer
-                if m.role == "user" and owner and p.via != "pat"
+                if m.role == "user" and owner and not p.is_agent
                 else None,  # agents: no selection text
                 "citations": strip_text(recheck(m.citations, ok, drop=False, notes=notes), gated),
                 "retrieved": strip_text(recheck(m.retrieved, ok, drop=True, notes=notes), gated),
@@ -216,6 +216,7 @@ def get_shares(chat_id: UUID, p: Who, session: Db) -> dict:
 
 @router.put("/chats/{chat_id}/shares")
 def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
+    require_scope(session, p, MANAGE)
     chat = owned_chat(session, p, chat_id)
     try:
         users = {UUID(u) for u in body.users} - {p.user_id}
@@ -227,6 +228,7 @@ def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
     session.execute(delete(ChatShare).where(ChatShare.chat_id == chat.id))
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="user", principal=str(u)) for u in users)
     session.add_all(ChatShare(chat_id=chat.id, principal_kind="group", principal=g) for g in groups)
+    audit(session, p, "chat.share", str(chat.id), {"users": len(users), "groups": len(groups)})
     session.commit()
     return _shares(session, chat.id)
 

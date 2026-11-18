@@ -41,6 +41,28 @@ class TokenBucket:
 LIMITER = TokenBucket()
 
 
+AUDIT_EVERY_S = 60.0
+_audited: dict[str, float] = {}
+_audited_lock = threading.Lock()
+_audited_swept = 0.0
+
+
+def audit_due(key: str, now: float | None = None) -> bool:
+    """True at most once per AUDIT_EVERY_S per key, so a flood of 429s writes one audit row a minute."""
+    global _audited_swept
+    now = time.monotonic() if now is None else now
+    with _audited_lock:
+        if now - _audited_swept >= SWEEP_EVERY_S:
+            _audited_swept = now
+            for k in [k for k, v in _audited.items() if now - v >= AUDIT_EVERY_S]:
+                del _audited[k]
+        last = _audited.get(key)
+        if last is not None and now - last < AUDIT_EVERY_S:
+            return False
+        _audited[key] = now
+        return True
+
+
 def principal_key(p) -> str:
     return f"pat:{p.pat_id}" if p.via == "pat" else f"user:{p.user_id}"
 

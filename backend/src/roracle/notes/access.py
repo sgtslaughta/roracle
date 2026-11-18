@@ -61,7 +61,7 @@ def readable_notes(p: Principal) -> ColumnElement[bool]:
             ),
         )
     )
-    agent_ok = gate_ok(root.label_id, "block_agents") if p.via == "pat" else true()
+    agent_ok = gate_ok(root.label_id, "block_agents") if p.is_agent else true()
     root_ok = exists(
         select(1).where(
             root.id == func.coalesce(Annotation.parent_id, Annotation.id),
@@ -77,7 +77,7 @@ def readable_notes(p: Principal) -> ColumnElement[bool]:
             ),
         )
     )
-    own_ok = gate_ok(Annotation.label_id, "block_agents") if p.via == "pat" else true()
+    own_ok = gate_ok(Annotation.label_id, "block_agents") if p.is_agent else true()
     return and_(_status_ok(Annotation, p), root_ok, own_ok)
 
 

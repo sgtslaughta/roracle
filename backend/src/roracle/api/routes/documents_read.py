@@ -66,7 +66,7 @@ def _gate(session: Session, p: Principal, doc_id: UUID, route: str, *, download:
     viewing (reader) stays allowed. 404 came first, so naming the label leaks nothing."""
     doc = visible_doc(session, p, doc_id)
     require_text(session, p, doc)
-    if download or p.via == "pat":  # inline viewing is the human reader only; agents always download
+    if download or p.is_agent:  # inline viewing is the human reader only; agents always download
         require_exportable(session, p, doc, route)
 
 
@@ -119,7 +119,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
     owner = session.get(User, doc.owner_id)
     draft = session.get(Draft, doc_id)
     lab = Policy.load(session).get(doc.label_id)
-    hide = p.via == "pat" and lab.exclude_llm  # agents: metadata yes, text no
+    hide = p.is_agent and lab.exclude_llm  # agents: metadata yes, text no
     return {
         **(_sharing(session, doc) if privileged(doc, p) else {}),
         "id": str(doc.id),

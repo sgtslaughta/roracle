@@ -459,6 +459,7 @@ from roracle.search_index_acl import (  # noqa: F401 - re-exported: callers keep
     _acl_request,
     acl_hash,
     acl_payload,
+    delete_doc_chunks,
     run_update_by_query,
     sync_acl,
     sync_acl_many,

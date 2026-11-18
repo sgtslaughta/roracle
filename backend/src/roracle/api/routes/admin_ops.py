@@ -100,7 +100,7 @@ def _reset_ingest(session: Session, version_ids: list) -> None:
         session.execute(update(DocumentVersion).where(DocumentVersion.id.in_(ids)).values(ingest_attempts=0))
 
 
-_REQUEUE = {"status": "queued", "attempts": 0, "run_after": func.now(), "last_error": None}
+_REQUEUE = {"status": "queued", "attempts": 0, "released": 0, "run_after": func.now(), "last_error": None}
 
 
 @router.post("/admin/jobs/{job_id}/retry")

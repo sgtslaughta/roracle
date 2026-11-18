@@ -6,12 +6,14 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Any
+from uuid import UUID
 
 from elasticsearch import Elasticsearch, NotFoundError
 
 from roracle.config import AliasConfig
 from roracle.search_fields import sort_key
 
+READ_ALIAS = AliasConfig().read_alias
 MUTATE_ALIAS = AliasConfig().mutate_alias  # same value search_index exposes (both or neither override)
 
 
@@ -144,3 +146,18 @@ def sync_acl(
 
     _ensure_acl_mapping(es)
     run_update_by_query(es, build)
+
+
+def delete_doc_chunks(es: Elasticsearch, doc_id: UUID) -> None:
+    """Remove every chunk and summary unit of the document from the index; raises on failure.
+    A 404 is a no-op only when no chunk index exists at all (a missing mutate alias beside a live
+    index would orphan chunks)."""
+    try:
+        r = es.delete_by_query(
+            index=MUTATE_ALIAS, query={"term": {"doc_id": str(doc_id)}}, refresh=True, conflicts="proceed"
+        )
+        if r and r.get("failures"):
+            raise RuntimeError(f"delete_by_query failures: {r['failures'][:1]}")
+    except NotFoundError:
+        if es.indices.exists_alias(name=MUTATE_ALIAS) or es.indices.exists(index=READ_ALIAS):
+            raise

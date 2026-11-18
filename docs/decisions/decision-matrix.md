@@ -81,9 +81,6 @@ not something this repository checks: confirm them with your legal team.
 
 These caveats lower ratings or set triggers in several areas:
 
-- **ECK pin.** All four Terraform tfvars profiles pin ECK 2.16.0, while the chart defaults to Elasticsearch 9.5.6,
-  which needs an ECK 3.x release ([known limits](../enterprise/security/known-limits.md#platform-and-supply-chain),
-  [upgrades](../enterprise/upgrades.md)). Areas 2 and 17.
 - **No shipped alert rules or api/worker `PodMonitor`** ([observability](../enterprise/observability.md)). Areas 18 and 19.
 - **Known security limits** ([known limits](../enterprise/security/known-limits.md)): the reranker sees candidate text
   before the R19 re-check, OAuth callers on `/mcp` are not PAT-gated, write-scope PATs act with full owner rights, and

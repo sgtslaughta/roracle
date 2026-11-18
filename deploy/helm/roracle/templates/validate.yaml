@@ -2,3 +2,11 @@
 {{- if .Values.minio }}{{ fail "values.minio.* was removed in 0.2.0 (no bundled MinIO tenant): set config.ROR_S3_ENDPOINT, postgres.backup.endpointURL, elasticsearch.snapshot.endpoint and use an external S3 / Rook-Ceph. If you ran the bundled tenant (minio.mode=tenant), copy the data out BEFORE upgrading (deployment guide: Upgrading to 0.2.0)." }}{{ end }}
 {{- if hasKey .Values.networkPolicy "s3Cidrs" }}{{ fail "networkPolicy.s3Cidrs was replaced by networkPolicy.s3.cidrs (+ ports, namespaceSelector, podSelector) in 0.2.0: move the value (an unmigrated value would silently drop S3 egress)." }}{{ end }}
 {{- if hasKey .Values.caBundle "kubeRootCa" }}{{ fail "caBundle.kubeRootCa was removed in 0.2.0 (it only served the MinIO operator certificate): add any CA you still need through caBundle.extraSecrets." }}{{ end }}
+{{- if .Values.global.requireDigests }}
+{{- $imgs := dict "image.backend" .Values.image.backend "image.web" .Values.image.web }}
+{{- if eq .Values.postgres.mode "cnpg" }}{{ $_ := set $imgs "postgres.image" .Values.postgres.image }}{{ end }}
+{{- if eq .Values.elasticsearch.mode "eck" }}{{ $_ := set $imgs "elasticsearch.image" .Values.elasticsearch.image }}
+{{- if .Values.elasticsearch.snapshot.enabled }}{{ $_ := set $imgs "elasticsearch.snapshot.job.image" .Values.elasticsearch.snapshot.job.image }}{{ end }}{{ end }}
+{{- range $k, $v := .Values.parsers }}{{ if and (kindIs "map" $v) $v.enabled $v.image }}{{ $_ := set $imgs (printf "parsers.%s.image" $k) $v.image }}{{ end }}{{ end }}
+{{- range $k := keys $imgs | sortAlpha }}{{ if not (get (get $imgs $k) "digest") }}{{ fail (printf "global.requireDigests: %s has no digest" $k) }}{{ end }}{{ end }}
+{{- end }}

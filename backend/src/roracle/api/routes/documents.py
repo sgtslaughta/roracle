@@ -8,7 +8,8 @@ from sqlalchemy import false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
 from roracle.access import org_unit_error, org_units, readable_documents
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.audit import audit
+from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.ingest.intake import add_document
@@ -32,7 +33,9 @@ def get_blob_store(request: Request) -> BlobStore:
 
 class UploadForm(BaseModel):
     title: Annotated[str | None, Field(max_length=500)] = None
-    visibility: Literal["private", "shared", "org_unit", "everyone"] = "everyone"
+    visibility: Literal["private", "shared", "org_unit", "everyone"] | None = (
+        None  # None: "everyone", or "private" without manage
+    )
     force: bool = False
     label_id: UUID | None = None
 
@@ -138,8 +141,13 @@ def accept(
     filename: str,
     content_type: str,
 ) -> dict:
+    vis = form.visibility
+    if vis is None:  # omitted: callers without manage get a private document
+        vis = "everyone" if MANAGE in p.scopes else "private"
+    elif vis != "private":  # asking for sharing at creation is a manage action
+        require_scope(session, p, MANAGE)
     units = org_units(list(p.groups))
-    if err := org_unit_error(form.visibility, units[0] if units else ""):
+    if err := org_unit_error(vis, units[0] if units else ""):
         raise HTTPException(422, err)
     if settings.upload_quota_bytes > 0:
         # serialize per user until commit so concurrent uploads cannot overshoot the quota
@@ -150,6 +158,7 @@ def accept(
             .where(
                 Document.owner_id == p.user_id,
                 Document.connector_id.is_(None),  # connector documents are exempt
+                Document.deleted_at.is_(None),  # deleted papers free their quota
                 DocumentVersion.stage.not_in(("rejected", "cancelled")),
             )
         )
@@ -181,12 +190,13 @@ def accept(
         staged,
         owner_id=p.user_id,
         org_unit=units[0] if units else "",  # "" matches no ancestor (fail closed)
-        visibility=form.visibility,
+        visibility=vis,
         filename=filename,
         content_type=content_type,
         title=form.title or None,
         label_id=label_id,
     )
+    audit(session, p, "document.upload", str(doc.id), {"version_id": str(version.id), "size": staged.size})
     mark(session, p.user_id, "upload")
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}

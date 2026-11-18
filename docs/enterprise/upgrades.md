@@ -56,7 +56,7 @@ The chart default is `elasticsearch.version: 9.5.6` with ECK; external Elasticse
 
 Plan for double vector storage during a re-embed. Details: [search index lifecycle](../architecture/search-index-lifecycle.md).
 
-**ECK pin warning.** All four tfvars profiles pin ECK 2.16.0 (chart and image): `environments/example.tfvars:15,23`, `prod.example.tfvars:12,32`, `kind.tfvars:14,21` and `kind-ceph.tfvars:14,27`. The chart's default Elasticsearch 9.5.6 needs an ECK 3.x release whose support matrix lists 9.5 (`values.yaml:204`, [mirror manifest](airgap-mirror-manifest.md)). Raise the ECK chart and image pins to such a release before mirroring and installing.
+**ECK 3.x and older clusters.** ECK refuses a 9.x version on a cluster below 8.18.0; upgrade the cluster to ≥ 8.18 first or create a new one.
 
 ## 4. Alembic migrations
 
@@ -90,6 +90,7 @@ Plan for double vector storage during a re-embed. Details: [search index lifecyc
 | 0020 `0020_saved_searches.py` | `saved_searches` (owner-only saved library searches, unique name per owner) | none; 0.3.0 also needs the search reindex in section 6 |
 | 0021 `0021_tag_source.py` | `tags.source`, `documents.rejected_tags`; `auto_tags` becomes a bulk kind (claim indexes recreated) | **drain workers first**: same concurrent swap as 0019 |
 | 0022 `0022_onboarding.py` | `onboarding_progress` (Get started checklist) | none |
+| 0023 `0023_pat_manage_scope.py` | adds the `manage` scope and backfills it onto every token that holds `write` | none; see section 7 |
 
 Concurrent index migrations cannot run inside a transaction, so they use Alembic's autocommit block. If one is interrupted it can leave an invalid index; the migrations drop an invalid leftover and verify validity, so fixing the cause and re-running `roracle migrate` is safe. A migration that waits does so on long-running transactions: drain the workers (step 4 of section 1) and check `pg_stat_activity` for long transactions on the primary.
 
@@ -133,7 +134,25 @@ Until the cutover:
 
 Journal and has-identifier results are only correct for papers written by that reindex or ingested after it. Papers ingested before identifiers were extracted get them from `roracle reparse-refs` (section 4, "After 0019"); run it **before** the reindex, or run another same-model reindex after it, so their journals and identifiers reach the index. The same holds for any later `reparse-refs`: it refreshes citation counts in the index at once, but a paper's journal ISSNs (`issn`), identifier filters (`ids_present`, `has_doi`) and `has_refs` only change in the index after the next same-model reindex.
 
+## 7. 0.3.x to 0.4.0: agent hardening
+
+0.4.0 is the security-hardening release. There is no reindex. Upgrade as in section 1; three migrations run in the `migrate` hook: 0021 `tag_source` (auto-tags; recreates the claim indexes, so **drain workers first**, as for 0019), 0022 `onboarding` (the Get started checklist table) and 0023 `pat_manage_scope` (the `manage` backfill below).
+
+- **Auto-tags.** 0021 adds `tags.source` and `documents.rejected_tags`; new papers are tagged at ingest. Tag papers already in the library with `roracle auto-tags` (see [index maintenance](../admin/index-maintenance.md)); it is optional and resumable.
+
+- **`manage` scope.** Token scopes are now `read` ⊂ `write` ⊂ `manage`. `manage` gates sharing and ownership: changing a document's visibility, org unit, shares or co-authors, deleting or transferring it, submitting a draft, changing draft co-authors (`PUT /api/drafts/{id}/coauthors`), sharing a chat, and handoffs for anyone but the creator. Without it the API answers 403 `insufficient scope: manage`. Migration 0023 **backfills `manage` onto every existing token that holds `write`**, so nothing breaks on upgrade; tokens minted afterwards with Read and write do not have it. Review your agents' tokens and mint narrower ones where manage is not needed.
+- **Upload default.** An upload (REST or MCP) by a token without `manage` that omits visibility is now `private`; an explicit non-private visibility needs `manage`. Write-only tokens that relied on the old `everyone` default for REST uploads need a token with manage, or their owner can share the papers afterwards.
+- **OAuth agent clients are agents everywhere.** New setting `ROR_OIDC_AGENT_CLIENTS` (default `roracle-mcp`): a token whose `azp` is listed is an agent on `/mcp` and on REST (`/api`), never admin, without `manage`, and it cannot mint PATs. If you named your agent client differently, add it here; the web client must not be listed. A Keycloak/OAuth token on `/mcp` is also treated as a non-admin agent: `block_agents` and `exclude_llm` apply to it, it never has admin or `manage`, and handoff loads redact for it like a PAT. Admin-only tools stop working through `/mcp`; use the web app or REST with a JWT.
+- **Audit.** Scope denials, rate-limit denials, failed PAT requests and admin 403s now leave durable rows (see [audit](security/audit.md#what-is-and-is-not-audited)). `admin.<endpoint>` rows keep only query parameter names.
+- **Helm values (all off by default).** `observability.podMonitor.enabled` and `observability.prometheusRule.enabled` (both need the prometheus-operator CRDs). The worker is scraped on its `health` port.
+- **ECK 3.3.2.** The ECK operator is pinned to 3.3.2 (its support matrix lists Elasticsearch 9.5). Mirror `docker.elastic.co/eck/eck-operator:3.3.2` and Elasticsearch 9.5.6 before upgrading the Terraform operators module ([mirror manifest](airgap-mirror-manifest.md)).
+
 ## Release notes
+
+### 0.4.0
+
+- Security hardening: one agent principal for PATs and `/mcp`, the `manage` token scope, quoted prompt metadata, durable audit rows for denials and failures, handoff redaction of papers a loader cannot see, a shorter [known limits](security/known-limits.md).
+- Upgrade: migrations 0021 `tag_source` (**drain workers first**; then optionally run `roracle auto-tags` to backfill tags), 0022 `onboarding` and 0023 (backfills `manage` onto `write` tokens); notes in section 7.
 
 ### 0.3.0
 

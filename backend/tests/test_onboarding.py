@@ -74,4 +74,4 @@ def test_set_dismissed_roundtrip(db_session, uid):
 
 
 def test_migration_single_head():
-    assert ScriptDirectory.from_config(_alembic_config()).get_heads() == ["0022"]
+    assert len(ScriptDirectory.from_config(_alembic_config()).get_heads()) == 1
