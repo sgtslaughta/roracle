@@ -31,7 +31,7 @@ Interactive clients can use OAuth instead. They read the discovery metadata and 
 
 A token acts as its user, never as an admin, and sees only what that user may see.
 
-> **Warning:** OAuth sign-in on `/mcp` bypasses the PAT-only label gates (`block_agents`, `exclude_llm` text withholding). Use PATs for agents when labels must restrict them: [known limits](security/known-limits.md#agents-and-the-mcp-mount). See [authentication](../reference/mcp.md#authentication).
+> **Note:** OAuth tokens of an agent client (`roracle-mcp`, see `ROR_OIDC_AGENT_CLIENTS`) are agents everywhere: label gates (`block_agents`, `exclude_llm`) apply, they are never admin and hold no `manage`: [known limits](security/known-limits.md#agents-and-the-mcp-mount). See [authentication](../reference/mcp.md#authentication).
 
 ## Recipes
 

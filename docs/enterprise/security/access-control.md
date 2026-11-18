@@ -9,7 +9,7 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
 - Users present client certificates to the org proxy; Keycloak's X.509 authenticator maps the cert
   to a user and issues an RS256 JWT (<= 5 min access token lifetime recommended).
 - rOracle accepts only RS256 access tokens (`typ` Bearer) and validates `iss`, `aud` (`ROR_OIDC_AUDIENCE`), `exp` and `sub`,
-  the signature against the Keycloak JWKS, and that `azp` is one of `ROR_OIDC_ALLOWED_CLIENTS`. An unknown `kid` or a
+  the signature against the Keycloak JWKS, and that `azp` is one of `ROR_OIDC_ALLOWED_CLIENTS`. A token whose `azp` is in `ROR_OIDC_AGENT_CLIENTS` (default `roracle-mcp`) is an agent on REST as well as `/mcp`: never admin, no `manage`, label gates apply, no token minting. An unknown `kid` or a
   key set older than 10 minutes triggers a JWKS reload, at most once per 60 s (failed loads count), so key rotation
   works without refetch amplification. If reloads keep failing, cached keys serve for up to 1 hour and then the
   API fails closed (401).

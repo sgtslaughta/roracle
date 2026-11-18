@@ -68,7 +68,7 @@ def list_chats(
 
 
 def _agent_chat(session: Session, p: Principal, out: dict) -> dict:
-    """PAT callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
+    """Agent callers: drop pinned/excluded ids of documents hidden from agents (existence leak)."""
     if not p.is_agent:
         return out
     ids = [i for i in (*out["pins"], *out["excludes"]) if isinstance(i, str)]

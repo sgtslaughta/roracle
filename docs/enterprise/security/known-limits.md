@@ -10,8 +10,7 @@ are behaviours of the shipped design, not open defects. For what the controls gu
   write-once storage and retention belongs to your database and SIEM. ([Audit](audit.md), [data retention](data-retention.md#audit-log).)
 - **401 responses are counted and alerted, not audited per row**, so unauthenticated traffic cannot fill the log.
 - **Rate-limit denial rows are throttled to one per principal per minute**, for the same reason.
-- **Audit replay rows store the user id in `detail`, not `user_id`**, because the replay runs outside the request's
-  transaction and its user row may be gone.
+- **Audit replay rows keep `user_id` only while the user row exists**; otherwise the id is in `detail.user_id` (the admin User ID filter matches both).
 - **Sign-in, search, general document views and downloads, and chat questions are not audited**: volume and privacy
   cost outweigh the value; only `label.view` on `block_export` documents is recorded.
 

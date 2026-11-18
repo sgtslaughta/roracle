@@ -25,7 +25,7 @@ _NOTE_KEYS = ("note_id", "annotation_id")
 
 
 def _agent_hidden(session: Session, p: Principal, page: list[Notification]) -> set[int]:
-    """PAT callers: ids of notifications that name a document hidden from agents (titles/ids would leak)."""
+    """Agent callers: ids of notifications that name a document hidden from agents (titles/ids would leak)."""
     if not p.is_agent:
         return set()
     refs: dict[int, set[UUID]] = {}

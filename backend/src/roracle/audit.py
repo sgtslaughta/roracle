@@ -55,7 +55,9 @@ def replay_durable(session: Session, status: int) -> None:
         for r in rows:
             detail = {**r["detail"], "failed": status}
             uid = r["user_id"]
-            if uid is not None and session.get(User, uid) is None:  # user row gone: keep the id in detail only
+            if (
+                uid is not None and session.get(User, uid) is None
+            ):  # user row gone: keep the id in detail only
                 detail["user_id"] = str(uid)
                 uid = None
             session.add(AuditLog(**{**r, "user_id": uid, "detail": detail}))

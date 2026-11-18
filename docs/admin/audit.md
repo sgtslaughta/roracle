@@ -15,7 +15,7 @@ Entries come newest first, 50 at a time. **Load older entries** fetches the next
 | Time, User, Action, Target, Details | One row per event. Details is the event's JSON, cut at 160 characters with **More** and **Less** |
 | Row menu | **Copy details** and **Copy target** |
 
-The **User** column shows a dash when the row has no user. That is the case for refused admin calls (below).
+The **User** column shows a dash when the row has no user. That is the case for refused admin calls (below). Rows replayed after a failed request keep the user; if the user row is gone, the id is in `detail.user_id` and the User ID filter matches that too.
 
 The API is `GET /api/admin/audit` with `action`, `user_id`, `before_id` and `limit` (1 to 200, default 50). It returns `items` and `next_before_id`, which is the `before_id` for the next page, or `null` at the end. Each item has `id`, `at`, `user_id`, `username`, `action`, `target`, `client` and `detail`.
 
