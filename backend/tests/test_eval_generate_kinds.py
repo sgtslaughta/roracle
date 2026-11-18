@@ -118,6 +118,7 @@ def test_curate_verifies_dedupes_widens(client, adm, kw, db_session, settings, a
         ("a", "What is alpha fact zero?"),
         ("b", "What is alpha fact zero ?"),
         ("c", "Bad one?"),
+        ("e", "What does the first study report about alpha?"),
     ):
         db_session.add(EvalQuery(
             set_id=uuid.UUID(s["id"]), key=key, text=text, kind="fact", principals=[w.ana.id],
@@ -129,15 +130,16 @@ def test_curate_verifies_dedupes_widens(client, adm, kw, db_session, settings, a
         status="draft",
     ))  # fmt: skip
     db_session.flush()
-    verdict = {"answerable": True, "unambiguous": True, "uses_all": False}
+    verdict = {"answerable": True, "needs_context": False, "single_passage": True}
     llm = ScriptLLM(lambda t: json.dumps({**verdict, "answerable": "Bad" not in t}))
     out = curate.curate(
         db_session, llm=llm, es=kw.es, settings=settings, set_id=uuid.UUID(s["id"]), widen=[bob.id]
     )
     assert out == {
-        "fact": {"drafts": 3, "kept": 1, "dups": 1, "failed": 1},
+        "fact": {"drafts": 4, "kept": 1, "dups": 1, "failed": 2},
         "multihop": {"drafts": 1, "failed": 1},
     }
     (kept,) = _rows(db_session, s["id"])
     assert kept.key == "a" and kept.status == "active" and kept.principals == [w.ana.id, bob.id]
     assert "topic alpha fact 0" in llm.prompts[0]  # the judge saw the anchor chunk
+    assert len(llm.prompts) == 3  # no judge call for the duplicate or the deictic question
