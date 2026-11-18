@@ -45,9 +45,15 @@ export const TOPICS: Topic[] = [
   u("keyboard-shortcuts", "Reference"),
   { id: "glossary", group: "Reference", file: "glossary.md" },
   a("README", { routes: ["/admin"] }),
-  a("labels"),
-  a("runtime-settings"),
-  a("users-groups"),
+  a("labels", { routes: ["/admin/labels"] }),
+  a("runtime-settings", { routes: ["/admin/settings"] }),
+  a("users-groups", { routes: ["/admin/users"] }),
+  a("connectors", { routes: ["/admin/connectors"] }),
+  a("audit", { routes: ["/admin/audit"] }),
+  a("eval", { routes: ["/admin/eval"] }),
+  a("index-maintenance", { routes: ["/admin/jobs", "/admin/health"] }),
+  a("quotas-limits"),
+  a("writing-profiles"),
 ];
 
 const DEFAULT_TOPIC = "getting-started";

@@ -234,7 +234,9 @@ def health(
         queue = dict.fromkeys(("queued", "running", "failed"), 0)
         queue.update(dict(session.execute(select(Job.status, func.count()).group_by(Job.status)).all()))
         oldest = session.scalar(
-            select(extract("epoch", func.now() - func.min(Job.created_at))).where(Job.status == "queued")
+            select(extract("epoch", func.now() - func.min(Job.created_at))).where(
+                Job.status == "queued", Job.run_after <= func.now()
+            )
         )
         ticking = session.scalar(
             select(

@@ -18,6 +18,14 @@ describe("help manifest", () => {
     expect(topicForPath("/d/x/v/2")).toBe("reader");
     expect(topicForPath("/zzz")).toBe("getting-started");
   });
+  it("exposes every admin guide and maps admin routes", () => {
+    const ids = TOPICS.filter((t) => t.group === "Admin").map((t) => t.id);
+    for (const n of ["connectors", "audit", "eval", "index-maintenance", "quotas-limits", "writing-profiles"]) expect(ids).toContain(`admin-${n}`);
+    expect(topicForPath("/admin/connectors/3")).toBe("admin-connectors");
+    expect(topicForPath("/admin/audit")).toBe("admin-audit");
+    expect(topicForPath("/admin/users")).toBe("admin-users-groups");
+    expect(topicForPath("/admin/tags")).toBe("admin-README");
+  });
   it("findTopic respects visibility", () => {
     expect(findTopic("admin-README", false, true)).toBeUndefined();
     expect(findTopic("admin-README", true, true)?.id).toBe("admin-README");

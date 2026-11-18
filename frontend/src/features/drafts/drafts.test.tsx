@@ -275,6 +275,23 @@ describe("submit", () => {
     expect(await within(dlg).findByText(/Submitted for review/)).toBeInTheDocument();
   });
 
+  it("only offers labels at or above the current one, even for admins", async () => {
+    const user = userEvent.setup();
+    const { state } = await import("@/mocks/state");
+    state.admin = true;
+    state.docLabels[D1] = "l-internal";
+    await open(`/drafts/${D1}`);
+    await editor();
+    await user.click(screen.getByRole("button", { name: "Submit…" }));
+    const dlg = await screen.findByRole("dialog");
+    const sel = await within(dlg).findByLabelText(/Sensitivity label/);
+    await within(dlg).findByRole("option", { name: /Keep the draft's label \(\w+\)/ });
+    const names = within(sel).getAllByRole("option").map((o) => o.textContent);
+    expect(names).not.toContain("General");
+    expect(names).toContain("Internal");
+    expect(names).toContain("Confidential");
+  });
+
   it("offers the visibility picker with sharing fields", async () => {
     const user = userEvent.setup();
     await open(`/drafts/${D1}`);
