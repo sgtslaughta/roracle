@@ -46,3 +46,11 @@ Use a scratch database (the command only touches a rolled-back transaction, but 
 ## When to run an A/B
 
 A change that alters ranking or context (reranker, contextual notes, RAPTOR, router, agentic planning) is gated by a report in `docs/eval/`. Index-time features are built into a shadow index (`roracle rebuild --what ... --into chunks-<slug>-shadow`) and compared with `--candidate-index`; see [index maintenance](../admin/index-maintenance.md). A default flips on only when the report says PASS.
+
+## Query-handling recall
+
+`backend/tests/test_eval_query_recall.py` (integration) seeds `tests/eval/query_recall.yaml` (21 documents, 43 queries:
+each need asked bare, wrapped in request filler, as a single-turn follow-up, and by tag) into a throwaway index and
+checks doc-level recall@8 on the chat path (`rank_for_chat`) with the hash embedder, the kNN floor at 0 and no
+reranker. It seeds the "find things on robots" failure: every filler variant must cite the robotics paper when the
+bare query does. Run with `-s` to see the robots rankings.

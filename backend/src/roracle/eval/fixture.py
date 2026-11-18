@@ -63,7 +63,7 @@ def seed(session: Session, es, llm, settings: Settings, fx: FixtureSet) -> GoldS
         ver = DocumentVersion(
             document_id=doc.id, version=1, blob_sha256=sha, filename=f"{d.key}.pdf",
             content_type="application/pdf", size=1, stage="searchable", is_latest=True,
-            page_count=max(max(c.pages) for c in d.chunks), meta={"authors": [], "year": 2024},
+            page_count=max(max(c.pages) for c in d.chunks), meta={"authors": [], "year": 2024, **({"abstract": d.abstract} if d.abstract else {})},
         )  # fmt: skip
         session.add(ver)
         session.flush()
@@ -71,7 +71,7 @@ def seed(session: Session, es, llm, settings: Settings, fx: FixtureSet) -> GoldS
         prompts = [doc_prompt(d.title, c.text) for c in chunks]
         index_chunks(
             es, ver, doc, chunks, embed(llm, settings.embed_model, prompts, settings.embed_dims),
-            acl_fields(session, doc), settings.embed_model, title=d.title,
+            acl_fields(session, doc), settings.embed_model, title=d.title, tags=d.tags,
             prompt_shas=[prompt_sha(x) for x in prompts], index=settings.embed_index,
         )  # fmt: skip
         docs[d.key] = doc

@@ -72,6 +72,8 @@ class FixDoc(_Strict):
     org_unit: str | None = None
     shares: list[str] = []
     label: str | None = None
+    tags: list[str] = []  # denormalized onto every chunk (normalized tag names)
+    abstract: str | None = None  # version meta: lands on the head chunk's `abstract` field
     chunks: list[FixChunk] = Field(min_length=1)
 
 
