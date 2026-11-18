@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from roracle import ratelimit
 from roracle.auth import Principal, get_app_settings, get_jwks, resolve_principal
 from roracle.db import get_session
+from roracle.onboarding import mark
 
 _current: ContextVar[Principal | None] = ContextVar("mcp_principal", default=None)
 
@@ -60,6 +61,8 @@ def _resolve(app: FastAPI, authorization: str | None) -> Principal:
             p = resolve_principal(
                 session, dep(app, get_jwks), settings, authorization, app.state.session_factory
             )
+            if p.via == "pat":
+                mark(session, p.user_id, "mcp")
             session.commit()
             ratelimit.check(p, settings.rate_limit_per_minute)
             return p

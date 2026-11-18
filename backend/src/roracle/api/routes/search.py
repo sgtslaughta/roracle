@@ -26,6 +26,7 @@ from roracle.auth import Principal, current_principal, get_app_settings
 from roracle.config import Settings
 from roracle.db import get_session, release_before_io
 from roracle.labels.policy import Policy, label_json
+from roracle.onboarding import mark
 from roracle.retrieval import Passage, embed_query
 from roracle.search_acl import acl_filter
 from roracle.search_browse import browse, decorate, empty_body, find_values
@@ -152,6 +153,8 @@ def search(
         if not f.q.strip():
             return _quick_empty()
         return _quick(session, es, settings, p, f.q.strip())
+    if f.q.strip():
+        mark(session, p.user_id, "search")
     if not fields_ready(es, settings):
         if uses_new_params(f):
             raise HTTPException(503, UPGRADING)
