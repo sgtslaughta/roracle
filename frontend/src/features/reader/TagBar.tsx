@@ -1,15 +1,14 @@
 import { Tag } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { OverflowList } from "@/components/OverflowList";
-import { normTag, useAddTag } from "@/features/library/api";
+import { useSubmitTag } from "@/features/library/api";
 import { TagChip } from "@/features/library/TagChip";
 import { useOwnerOrAdmin } from "@/features/library/useMe";
 import { useLibraryNav } from "@/features/library/useLibraryNav";
 
 export function TagBar({ docId, tags, autoTags = [], ownerId }: { docId: string; tags: string[]; autoTags?: string[]; ownerId?: string }) {
   const canRemove = useOwnerOrAdmin(ownerId);
-  const add = useAddTag(docId);
+  const submit = useSubmitTag(docId);
   const nav = useLibraryNav();
   const [v, setV] = useState("");
   return (
@@ -22,9 +21,7 @@ export function TagBar({ docId, tags, autoTags = [], ownerId }: { docId: string;
       <input
         placeholder="Add a tag" aria-label="Add tag" value={v} onChange={(e) => setV(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key !== "Enter" || !v.trim()) return;
-          add.mutate(v.trim(), { onSuccess: () => toast(`Tagged #${normTag(v)}`) });
-          setV("");
+          if (e.key === "Enter" && submit(v)) setV("");
         }}
       />
     </div>

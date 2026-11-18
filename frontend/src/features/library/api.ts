@@ -26,7 +26,25 @@ export function useCollectionName() {
 type Patch = { votes?: Votes; tags?: string[]; auto_tags?: string[] };
 
 /** Client mirror of the server's tag normalisation (for optimistic updates and toasts). */
-export const normTag = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+export const normTag = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+export const TAG_MAX = 40; // tags.tag column size; the server rejects longer tags (it never truncates)
+/** Why the server would reject this typed tag, or null when it is fine. */
+export function tagError(s: string): string | null {
+  const n = normTag(s).length;
+  return n === 0 ? "A tag needs at least one letter or digit." : n > TAG_MAX ? `Tags are at most ${TAG_MAX} characters.` : null;
+}
+
+/** Submit a typed tag (card "+ tag" and reader TagBar): an invalid one shows an error and is not sent. Returns whether it was sent. */
+export function useSubmitTag(docId: string) {
+  const add = useAddTag(docId);
+  return (v: string) => {
+    if (!v.trim()) return false;
+    const err = tagError(v);
+    if (err) { toast.error(err); return false; }
+    add.mutate(v.trim(), { onSuccess: () => toast(`Tagged #${normTag(v)}`) });
+    return true;
+  };
+}
 
 /** Optimistic: patch the document in every cached search page and its detail; the returned snapshot rolls it back. */
 async function patchDoc(qc: QueryClient, docId: string, fn: (d: Patch) => Patch) {

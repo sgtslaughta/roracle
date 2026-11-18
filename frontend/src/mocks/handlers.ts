@@ -115,7 +115,8 @@ export const handlers = [
   http.post(url("/documents/:id/tags"), async ({ params, request }) => {
     const d = docById(String(params.id));
     if (!d) return notFound();
-    const tag = String(((await request.json()) as { tag: string }).tag).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+    const tag = String(((await request.json()) as { tag: string }).tag).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+    if (!tag || tag.length > 40) return HttpResponse.json({ detail: "tag must be 1-40 characters after normalization" }, { status: 422 });
     if (tag && (!tagsOf(d).includes(tag) || autoTagsOf(d).includes(tag))) (state.extraTags[d.id] ??= []).push(tag); // adds or adopts
     return HttpResponse.json({ tag, tags: tagsOf(d), auto_tags: autoTagsOf(d) });
   }),

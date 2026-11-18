@@ -145,6 +145,20 @@ describe("library search", () => {
     server.events.removeAllListeners();
   });
 
+  it("+ tag rejects an over-long tag with a message and sends nothing", async () => {
+    let posts = 0;
+    server.events.on("request:start", ({ request }) => { if (request.method === "POST" && /\/tags$/.test(new URL(request.url).pathname)) posts++; });
+    await renderLibrary();
+    await screen.findByText(/of 7 papers/);
+    const card = results()[0];
+    await userEvent.click(within(card).getByRole("button", { name: "Add tag" }));
+    await userEvent.type(within(card).getByLabelText("New tag"), `${"x".repeat(45)}{Enter}`);
+    expect(await screen.findByText("Tags are at most 40 characters.")).toBeInTheDocument();
+    expect(within(card).getByLabelText("New tag")).toBeInTheDocument(); // stays open for editing
+    expect(posts).toBe(0);
+    server.events.removeAllListeners();
+  });
+
   it("caps tags on a result card at 4", async () => {
     await renderLibrary();
     await screen.findByText(/of 7 papers/);

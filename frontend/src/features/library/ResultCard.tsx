@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { toast } from "sonner";
 import { copyAction, RowMenu } from "@/components/RowMenu";
 import { BookOpen, CalendarPlus, Clock, FileText, FileType2, History, ListTree, MessageSquareQuote, Quote, Sparkles, TextQuote } from "lucide-react";
 import type { CommunityNote } from "@/api/notes";
@@ -15,7 +14,7 @@ import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
 import { docTitle } from "@/lib/docTitle";
 import { useOwnerOrAdmin } from "./useMe";
-import { normTag, useAddTag, useRemoveFromCollection } from "./api";
+import { useRemoveFromCollection, useSubmitTag } from "./api";
 import { AddToCollectionDialog } from "./AddToCollection";
 import { Identifiers } from "@/features/reader/Identifiers";
 import { useLabelById } from "@/features/labels/api";
@@ -85,7 +84,7 @@ export function ResultCard({ hit, terms, onOpen, onTag, collectionId }: ResultCa
 
 /** Inline "+ tag": a small button that opens an input; Enter adds (same normalisation as the reader TagBar). */
 function AddTag({ docId }: { docId: string }) {
-  const add = useAddTag(docId);
+  const submit = useSubmitTag(docId);
   const [v, setV] = useState<string | null>(null);
   if (v === null) return <button className="badge-o add-tag" aria-label="Add tag" onClick={() => setV("")}>+ tag</button>;
   return (
@@ -93,9 +92,7 @@ function AddTag({ docId }: { docId: string }) {
       className="add-tag" autoFocus placeholder="tag" aria-label="New tag" value={v} onChange={(e) => setV(e.target.value)} onBlur={() => setV(null)}
       onKeyDown={(e) => {
         if (e.key === "Escape") setV(null);
-        if (e.key !== "Enter" || !normTag(v)) return;
-        add.mutate(v.trim(), { onSuccess: () => toast(`Tagged #${normTag(v)}`) });
-        setV(null);
+        if (e.key === "Enter" && submit(v)) setV(null); // invalid: stays open for editing
       }}
     />
   );
