@@ -1,7 +1,7 @@
 import type { Label } from "./types";
 /** P7 contract: personal access tokens (JWT-only management) and agent handoffs. */
 
-export type TokenScopes = ["read"] | ["read", "write"];
+export type TokenScopes = ["read"] | ["read", "write"] | ["read", "write", "manage"];
 
 export interface AccessToken {
   id: string;

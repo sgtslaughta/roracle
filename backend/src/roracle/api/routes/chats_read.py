@@ -16,7 +16,7 @@ from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.chats import SCOPE, _check_model, chat_json, check_scope
 from roracle.api.routes.documents_write import Path_
 from roracle.audit import audit
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.chat.access import note_ids, owned_chat, readable_chat, recheck, visible_versions
 from roracle.config import Settings
 from roracle.db import get_session
@@ -216,6 +216,7 @@ def get_shares(chat_id: UUID, p: Who, session: Db) -> dict:
 
 @router.put("/chats/{chat_id}/shares")
 def put_shares(chat_id: UUID, body: SharesIn, p: Who, session: Db) -> dict:
+    require_scope(session, p, MANAGE)
     chat = owned_chat(session, p, chat_id)
     try:
         users = {UUID(u) for u in body.users} - {p.user_id}

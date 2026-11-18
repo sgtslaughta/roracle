@@ -22,7 +22,7 @@ Session_ = Annotated[Session, Depends(get_session)]
 
 class TokenBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scopes: list[Literal["read", "write"]] = Field(default=["read"], min_length=1)
+    scopes: list[Literal["read", "write", "manage"]] = Field(default=["read"], min_length=1)
     expires_in_days: int = Field(default=30, ge=1, le=365)
 
 
@@ -52,7 +52,13 @@ def list_tokens(p: Who, session: Session_) -> list[dict]:
 
 @router.post("/me/tokens", status_code=201)
 def create_token(body: TokenBody, p: Who, session: Session_) -> dict:
-    scopes = ["read", "write"] if "write" in body.scopes else ["read"]
+    scopes = (
+        ["manage", "read", "write"]
+        if "manage" in body.scopes
+        else ["read", "write"]
+        if "write" in body.scopes
+        else ["read"]
+    )
     row, token = pats.create(session, p.user_id, body.name, scopes, body.expires_in_days)
     audit(session, p, "pat.create", str(row.id), {"scopes": scopes})
     session.commit()

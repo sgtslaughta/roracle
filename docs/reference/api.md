@@ -20,14 +20,14 @@ Send `Authorization: Bearer <token>` on every request. The API is stateless and 
 | Looks like | RS256 access token | `ror_pat_` followed by a random string |
 | Used by | The web app and people | Agents, scripts, MCP clients |
 | Identity | The signed-in user | The user who minted it, as an agent |
-| Scopes | Always `read` and `write` (implicit, not taken from token claims) | `read`, or `read` and `write`, set at creation |
+| Scopes | Always `read`, `write` and `manage` (implicit, not taken from token claims) | `read`; `read` and `write`; or `read`, `write` and `manage`, set at creation |
 | Admin | Yes, with the `roracle-admin` realm role | Never, even for an admin owner |
 
 **JWT checks.** The signature is verified against the identity provider's signing keys. The `exp`, `iss`, `aud` and `sub` claims are required. `iss` must equal `ROR_OIDC_ISSUER`, `aud` must equal `ROR_OIDC_AUDIENCE` (default `roracle`), the token type must be `Bearer`, and the `azp` client must be in `ROR_OIDC_ALLOWED_CLIENTS` (default `roracle-web`, `roracle-mcp`). Clock skew of 30 seconds is tolerated. Groups and the admin flag are read from the token on every request. Any failure is the same `401`. Identity provider setup is in [Keycloak setup](../enterprise/keycloak-setup.md).
 
 **PAT checks.** A PAT works only while `ROR_PATS_ENABLED` is on. It must be unexpired and not revoked. Its owner must have signed in within `ROR_PAT_MAX_IDENTITY_AGE_DAYS` (default 30), otherwise the call fails with `401 token owner session stale`. A PAT carries a snapshot of the owner's groups from creation, intersected with the groups stored at the owner's last JWT request (sign-in or app use); a group removal reaches the token only then. The secret is shown once, at creation, and only its hash is stored. Each successful REST call made with a PAT is recorded in the audit log as `pat.use`. Rejected or failed calls (rate limited, insufficient scope, handler errors) are not, because the row is committed only with a successful request. Calls to `/mcp` are audited as `mcp.<tool>` instead.
 
-**Scopes.** A PAT without `write` is limited to GET, HEAD and OPTIONS. Anything else gives `403 insufficient scope`. A JWT always has both scopes.
+**Scopes.** A PAT without `write` is limited to GET, HEAD and OPTIONS. Anything else gives `403 insufficient scope`. `manage` is also needed to change sharing (`visibility`, `org_unit`, `share_users`, `share_groups`, `coauthors`), delete or transfer a document, submit a draft, share a chat, or create or widen a handoff beyond `creator`; without it: `403 insufficient scope: manage`. A JWT always has all three scopes.
 
 **What a PAT cannot do.**
 
@@ -261,7 +261,7 @@ Pass `next` back as `after` until `next` is `null`. The browse list works the sa
 
 ### 5. Create a personal access token
 
-This needs a JWT, not a PAT. `scopes` is `["read"]` (default) or includes `"write"`. `expires_in_days` is 1 to 365 (default 30).
+This needs a JWT, not a PAT. `scopes` is `["read"]` (default) or includes `"write"` or `"manage"` (each implies the scopes before it). `expires_in_days` is 1 to 365 (default 30).
 
 ```bash
 curl -sS -X POST "https://roracle.example.internal/api/me/tokens" \

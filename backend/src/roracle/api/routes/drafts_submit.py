@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from roracle.access import group_path
 from roracle.api.routes.admin_deps import Admin
 from roracle.api.routes.documents import get_blob_store
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
 from roracle.db import get_session
 from roracle.labels.policy import Policy
@@ -43,6 +43,7 @@ class ReviewIn(BaseModel):
 
 @router.post("/drafts/{doc_id}/submit")
 def submit_draft(doc_id: UUID, body: SubmitIn, p: Who, session: Db, cfg: Cfg, store: Store) -> dict:
+    require_scope(session, p, MANAGE)
     out = submit.submit(session, store, cfg, p, doc_id, body.model_dump())
     session.commit()
     return out

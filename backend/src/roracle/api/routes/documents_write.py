@@ -16,6 +16,7 @@ from roracle.acl_sync import durable_job as _durable_job
 from roracle.acl_sync import read_acl
 from roracle.api.routes.documents_read import Session_, Who, detail, privileged, visible_doc
 from roracle.api.routes.library import get_es, get_session_factory
+from roracle.auth import MANAGE, require_scope
 from roracle.models import Document, DocumentCoauthor, DocumentShare, DocumentVersion, User
 from roracle.models_writing import Draft
 from roracle.queue import enqueue
@@ -23,6 +24,7 @@ from roracle.queue import enqueue
 router = APIRouter()
 log = logging.getLogger(__name__)
 ACL_JOB_DELAY_S = 30
+MANAGE_FIELDS = frozenset({"visibility", "org_unit", "share_users", "share_groups", "coauthors"})
 
 
 Path_ = Annotated[str, Field(min_length=1, max_length=500), AfterValidator(normalize_path)]
@@ -101,6 +103,8 @@ def patch_document(
     es: Annotated[Elasticsearch, Depends(get_es)],
     sf: Annotated[object, Depends(get_session_factory)],
 ) -> dict:
+    if any(getattr(body, f) is not None for f in body.model_fields_set & MANAGE_FIELDS):
+        require_scope(session, p, MANAGE)
     doc = visible_doc(session, p, doc_id)
     # Serialize concurrent PATCHes per document (flush -> ES -> commit runs under this row lock) and
     # authorize against the LOCKED owner: a transfer committing between load and lock must win.

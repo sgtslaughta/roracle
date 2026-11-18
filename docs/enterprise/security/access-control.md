@@ -15,9 +15,15 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   API fails closed (401).
 - rOracle services **never** trust identity headers; only tokens.
 - PATs (agents): `ror_pat_` + 32 random bytes, shown once, stored only as an unsalted SHA-256 hash (no pepper or
-  other server secret is involved), mandatory expiry (default 30 days, max 365), scopes `read` / `write`, revocable,
+  other server secret is involved), mandatory expiry (default 30 days, max 365), scopes `read` / `write` / `manage` (each includes the ones before it), revocable,
   globally disableable (`ROR_PATS_ENABLED`). Token management requires an interactive JWT (a PAT cannot mint PATs).
   - A PAT is **never admin**, even for an admin owner.
+  - `manage` gates sharing and ownership: `PATCH /api/documents/{id}` touching `visibility`, `org_unit`,
+    `share_users`, `share_groups` or `coauthors`; `DELETE /api/documents/{id}`; `POST /api/documents/{id}/transfer`;
+    `POST /api/drafts/{id}/submit`; `PUT /api/chats/{id}/shares`; and handoff create or update with an audience other
+    than `creator` (REST and MCP). Without it: 403 `insufficient scope: manage`, checked before any document lookup.
+    Sessions (JWT) hold it. MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
+    migration 0021; new `write` tokens do not get it.
   - Groups = snapshot at creation intersected with the groups stored on the owner's user row. That row is
     rewritten on every request the owner makes with a Keycloak JWT, so access can narrow but never widen after
     minting, and **a group removal reaches the PAT only after the owner's next JWT-authenticated request** (in
@@ -64,9 +70,9 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   `reply_to_annotation`, which create pending proposals (default `private`; a requested visibility applies
   only after a human approves). At most 50 proposals per user and client can be pending (429 `too many pending proposals`).
   This is not a blanket "PATs cannot write": routes that depend on `current_principal` rather than
-  `require_human` accept a write-scope PAT. In particular **a write-scope PAT can submit its owner's drafts through the
-  REST API** (`POST /api/drafts/{id}/submit`); MCP has no submit tool. The admin review step still applies where
-  the writing profile requires one.
+  `require_human` accept a write-scope PAT. In particular **a `manage`-scope PAT can submit its owner's drafts through the
+  REST API** (`POST /api/drafts/{id}/submit`; a `write` PAT gets 403 `insufficient scope: manage`); MCP has no submit
+  tool. The admin review step still applies where the writing profile requires one.
 - **Handoffs are frozen, not live.** Contents (transcript, passages, document ids, brief, goal) are fixed at
   creation. Who may load one (audience: creator, shared users/groups, any authenticated user), its expiry and
   revocation, and what is redacted for the loader are re-evaluated on **every** load. Only the creator can

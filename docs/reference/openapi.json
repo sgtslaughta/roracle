@@ -2323,7 +2323,8 @@
             "items": {
               "enum": [
                 "read",
-                "write"
+                "write",
+                "manage"
               ],
               "type": "string"
             },

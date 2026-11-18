@@ -35,7 +35,7 @@ class Principal:
     username: str
     groups: tuple[str, ...]
     is_admin: bool
-    scopes: frozenset[str] = frozenset({"read", "write"})
+    scopes: frozenset[str] = frozenset({"read", "write", "manage"})
     client: str = ""
     via: Literal["jwt", "pat", "mcp"] = "jwt"
     pat_id: str = ""
@@ -43,6 +43,15 @@ class Principal:
     @property
     def is_agent(self) -> bool:
         return self.via != "jwt"
+
+
+MANAGE = "manage"
+
+
+def require_scope(session: Session, p: Principal, scope: str) -> None:
+    """403 unless the principal holds `scope`. Call before any lookup so nothing leaks."""
+    if scope not in p.scopes:
+        raise HTTPException(403, f"insufficient scope: {scope}")
 
 
 def as_agent(p: Principal) -> Principal:

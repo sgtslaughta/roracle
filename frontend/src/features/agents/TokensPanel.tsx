@@ -47,7 +47,7 @@ export function TokensPanel() {
                   <tr key={t.id} className={st !== "Active" ? "dim" : undefined}>
                     <td className="trunc" title={t.name}>{t.name}</td>
                     <td><code>{t.prefix}…</code></td>
-                    <td>{t.scopes.includes("write") ? "Read and write" : "Read"}</td>
+                    <td>{t.scopes.includes("manage") ? "Read, write and manage" : t.scopes.includes("write") ? "Read and write" : "Read"}</td>
                     <td>{fmtDate(t.expires_at)}</td>
                     <td>{fmtDate(t.last_used_at)}</td>
                     <td>{st}</td>
