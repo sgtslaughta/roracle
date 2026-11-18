@@ -13,6 +13,7 @@ from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.cursor import make_cursor
 from roracle.identifiers import public_ids
+from roracle.labels.policy import Policy
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.retrieval import Passage
 from roracle.search_index import file_type as ext_of
@@ -184,9 +185,12 @@ def _load(
     rows = {d.id: Row(d, v) for d, v in session.execute(stmt).all()}
     if rows:
         keys = list(rows)
+        gated = Policy.load(session).ids("exclude_llm") if p.is_agent else frozenset()  # agents: no LLM tags
         for doc_id, tag, src in session.execute(
             select(Tag.document_id, Tag.tag, Tag.source).where(Tag.document_id.in_(keys))
         ):
+            if src != "user" and str(rows[doc_id].doc.label_id) in gated:
+                continue
             rows[doc_id].tags.append(tag)
             if src != "user":
                 rows[doc_id].auto_tags.append(tag)

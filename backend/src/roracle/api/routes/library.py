@@ -118,8 +118,9 @@ class TagBody(BaseModel):
         return self
 
 
-def tags_of(session: Session, doc_id: UUID) -> list[str]:
-    return list(session.scalars(select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)))
+def tags_of(session: Session, doc_id: UUID, *, user_only: bool = False) -> list[str]:
+    q = select(Tag.tag).where(Tag.document_id == doc_id).order_by(Tag.tag)
+    return list(session.scalars(q.where(Tag.source == "user") if user_only else q))
 
 
 def auto_tags_of(session: Session, doc_id: UUID) -> list[str]:
