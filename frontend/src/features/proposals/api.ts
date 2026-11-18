@@ -37,6 +37,9 @@ export interface BulkResult { approved: { proposal_id: string; annotation_id: st
 
 export const BULK_MAX = 100;
 
+/** "pat:test" (an access token's name) reads as: your token “test”; OAuth clients keep their own name. */
+export const clientName = (c: string) => (c.startsWith("pat:") ? `your token “${c.slice(4)}”` : c);
+
 /** Unpaged, newest first, at most 200 rows; `total` counts them all. */
 export const useProposals = (status: ProposalStatus) =>
   useQuery({
