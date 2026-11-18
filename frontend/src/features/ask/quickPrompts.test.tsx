@@ -63,10 +63,10 @@ describe("quick prompts", () => {
   it("a template fills the composer, focuses it and selects the placeholder", async () => {
     await renderApp();
     const area = await box();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Compare … and …" }));
-    expect(area).toHaveValue("Compare … and …");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Compare [A] and [B]" }));
+    expect(area).toHaveValue("Compare [A] and [B]");
     expect(area).toHaveFocus();
-    expect([area.selectionStart, area.selectionEnd]).toEqual([8, 9]);
+    expect([area.selectionStart, area.selectionEnd]).toEqual([8, 11]);
     expect(posts()).toHaveLength(0);
     expect(names()).toEqual([]); // hidden once the composer has text
   });

@@ -42,7 +42,7 @@ Calls a token makes are recorded in the audit log under its name, so your admins
 
 ## The token list
 
-**Settings, Access tokens** shows each token's **Name**, **Prefix** (the first characters, so you can tell tokens apart), **Access** (Read or Read and write), **Expires**, **Last used** (updated at most once a minute) and **State** (Active, Expired or Revoked). The row menu has **Copy prefix** and **Revoke**.
+**Settings, Access tokens** shows each token's **Name**, **Prefix** (the first characters, so you can tell tokens apart), **Access** (Read or Read and write), **Expires**, **Last used** (updated at most once a minute) and **State** (Active, Expired or Revoked). The row menu has **Copy prefix**, plus **Revoke** while the token is active.
 
 **Revoke** stops the token at once: agents using it are signed out. It cannot be undone; create a new token instead.
 

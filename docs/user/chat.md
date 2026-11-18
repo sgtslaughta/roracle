@@ -60,7 +60,7 @@ Other things to know:
 
 Ask "summarize this paper", "key findings", "what is this paper about?" or "tl;dr" while a paper is open in the reader, and the answer covers **that paper only**: the library is not searched. With several tabs open, the active tab is used; with a passage selected, the question is about the selection instead.
 
-- **Quick prompts.** With a paper open, chips under the question box send *Summarize this paper*, *Key findings*, *Methods used*, *Limitations* or *Explain for a non-specialist* in one click. With no paper open, chips such as *Summarize research on …* fill the question box for you to finish. Chips hide while an answer is written and once you start typing.
+- **Quick prompts.** With a paper open, chips under the question box send *Summarize this paper*, *Key findings*, *Methods used*, *Limitations* or *Explain for a non-specialist* in one click. With no paper open, chips such as *Summarize research on [topic]* fill the question box with the first [slot] selected, so you type over it. Chips hide while an answer is written and once you start typing.
 - **How it reads the paper.** A short paper is read in full, in page order, and cited by page. A long paper is read in parts ("Reading part 2 of 5…") and the parts are combined. If a part cannot be read in time, the note above the answer says the summary is partial.
 - **Without an open paper.** "Give me a summary" on its own gets "Summary of what?" instead of a library search. Add a topic ("summarize research on statins") to search the library.
 - **Limits.** One long-paper summary per person runs at a time; a second one gets a "wait for it to finish" message. Papers kept away from AI are never summarized.

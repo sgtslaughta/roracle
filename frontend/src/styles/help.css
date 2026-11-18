@@ -104,3 +104,6 @@
     .pager { grid-template-columns: 1fr; } .pager button.next { grid-column: 1; }
   }
 }
+.prose-skel { display: grid; gap: 10px; padding: 6px 0; }
+.prose-skel i { display: block; height: 12px; border-radius: 6px; background: var(--muted-bg); }
+.prose-skel i:last-child { width: 60%; }

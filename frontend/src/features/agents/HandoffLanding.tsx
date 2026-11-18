@@ -25,8 +25,8 @@ function LabelledDoc({ d }: { d: NonNullable<HandoffManifest["documents"]>[numbe
     <li>
       <button className="hdoc" onClick={() => openDoc(d.id)} title={d.title}>
         <FileText aria-hidden /><span className="trunc">{d.title || "Untitled document"}</span>
+        <SensitivityBadge label={d.label} className="hdoc-lbl" />
       </button>
-      <SensitivityBadge label={d.label} />
       {d.text_withheld && <small className="sub"> Text withheld by its label</small>}
     </li>
   );

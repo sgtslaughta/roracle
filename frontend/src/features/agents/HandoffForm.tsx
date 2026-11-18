@@ -80,7 +80,7 @@ export function HandoffForm({ initial, mode, titlePlaceholder, busy, submitLabel
       )}
       <p className="chipin-help">Agents still sign in, and see only the documents their user can see.</p>
       <div className="foot">
-        <Button variant="ghost" onClick={onCancel}>{mode === "create" ? "Close" : "Cancel"}</Button>
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy || needShares || tooMany}>{submitLabel}</Button>
       </div>
     </div>

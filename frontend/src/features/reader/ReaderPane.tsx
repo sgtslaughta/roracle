@@ -70,16 +70,16 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <select className="sel" aria-label="Version" value={version} onChange={(e) => setVersion(d.id, Number(e.target.value))}>
             {d.versions.map((v) => <option key={v.id} value={v.version}>Version {v.version}{v.is_latest ? " (latest)" : ""}</option>)}
           </select>
-          <Button onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast("Link copied. People without access will be asked to request it."), () => toast(link)); }}>
-            <LinkIcon aria-hidden />Copy link
+          <Button title="Copy link" onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast("Link copied. People without access will be asked to request it."), () => toast(link)); }}>
+            <LinkIcon aria-hidden /><span className="tlbl">Copy link</span>
           </Button>
           <ContinueInAgent source={() => ({
             kind: "document", sourceId: d.id, docIds: [d.id], title: title.slice(0, 200), goal: `Work with “${title}”`,
             brief: `Goal: work with “${title}”. I'm reading page ${tab.page} of version ${version}.`,
             summary: "Hands this document to an agent, with its notes, references and cited-by links.",
           })} />
-          <Button onClick={() => setCollecting(true)}><FolderPlus aria-hidden />Add to collection</Button>
-          {canManage && <Button onClick={() => setSharing(true)}><Share2 aria-hidden />Sharing</Button>}
+          <Button title="Add to collection" onClick={() => setCollecting(true)}><FolderPlus aria-hidden /><span className="tlbl">Add to collection</span></Button>
+          {canManage && <Button title="Sharing" onClick={() => setSharing(true)}><Share2 aria-hidden /><span className="tlbl">Sharing</span></Button>}
           <Button
             aria-pressed={adding} disabled={!adding && version !== latest}
             title={version !== latest ? "Switch to the latest version to anchor a note" : "Then click a passage on the page"} onClick={() => {

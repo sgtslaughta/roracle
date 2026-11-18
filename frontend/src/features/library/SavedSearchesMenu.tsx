@@ -65,7 +65,7 @@ export function SavedSearchesMenu({ search }: { search: LibrarySearch }) {
   };
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild><Button><Bookmark aria-hidden />Saved searches</Button></PopoverTrigger>
+      <PopoverTrigger asChild><Button title="Saved searches"><Bookmark aria-hidden /><span className="tlbl">Saved searches</span></Button></PopoverTrigger>
       <PopoverContent className="ssmenu" role="dialog" aria-label="Saved searches">
         <form onSubmit={submit} className="ssform">
           <label>Name<input aria-label="Name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
