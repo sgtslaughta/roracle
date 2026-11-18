@@ -179,3 +179,9 @@ def test_agent_pat_does_not_tick_human_steps(client, ana, db_session, fes):
     assert client.get("/search", headers=h, params={"q": "alpha"}).status_code == 200
     assert client.post("/collections", json={"name": "c"}, headers=h).status_code in (200, 201)
     assert onboarding.state(db_session, ana)["steps"] == []
+
+
+def test_agent_handoff_does_not_tick_handoff(client, ana, db_session):
+    h = pat(db_session, ana, ["write"])
+    assert client.post("/handoffs", json={"kind": "agent"}, headers=h).status_code == 201
+    assert onboarding.state(db_session, ana)["steps"] == []

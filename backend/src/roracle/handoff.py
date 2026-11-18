@@ -20,7 +20,7 @@ from roracle.chat.access import readable_chat, recheck, visible_versions
 from roracle.labels.policy import Policy, label_json
 from roracle.labels.textgate import doc_ids_of, gated_docs, strip_text, withheld_text, withhold_messages
 from roracle.models import ChatMessage, Collection, CollectionItem, Document, Handoff, HandoffShare, User
-from roracle.onboarding import mark
+from roracle.onboarding import mark_human
 
 # R9: note citations fail closed in handoffs (recheck notes=frozenset()).
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
@@ -190,7 +190,7 @@ def create(
         raise HTTPException(500, "could not allocate handoff code")
     _put_shares(session, h.code, audience, shares if audience == "shared" else [])
     audit(session, p, "handoff.create", h.code, {"kind": kind})
-    mark(session, p.user_id, "handoff")
+    mark_human(session, p, "handoff")
     session.flush()
     return h
 
