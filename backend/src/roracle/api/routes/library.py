@@ -19,7 +19,7 @@ from roracle.acl_sync import durable_job
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
 from roracle.models import Collection, CollectionItem, Document, Tag, Vote
-from roracle.onboarding import mark
+from roracle.onboarding import mark_human
 from roracle.search_index import MUTATE_ALIAS, run_update_by_query
 from roracle.search_signals import enqueue_signals
 
@@ -253,7 +253,7 @@ def list_collections(p: Who, session: Session_) -> list[dict]:
 def create_collection(body: CollectionBody, p: Who, session: Session_) -> dict:
     c = Collection(owner_id=p.user_id, name=body.name)
     session.add(c)
-    mark(session, p.user_id, "collect")
+    mark_human(session, p, "collect")
     session.commit()
     return {"id": str(c.id), "name": c.name, "count": 0}
 

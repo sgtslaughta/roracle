@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from roracle import onboarding
-from roracle.auth import Principal, current_principal, get_app_settings
+from roracle.auth import Principal, current_principal, get_app_settings, require_human
 from roracle.config import Settings
 from roracle.db import get_session
 
@@ -31,7 +31,7 @@ def get_onboarding(p: Who, session: Session_, settings: Cfg) -> dict:
 
 
 @router.put("/me/onboarding")
-def put_onboarding(body: Body, p: Who, session: Session_, settings: Cfg) -> dict:
+def put_onboarding(body: Body, p: Annotated[Principal, Depends(require_human)], session: Session_, settings: Cfg) -> dict:
     onboarding.set_dismissed(session, p.user_id, body.dismissed)
     session.commit()
     return _out(session, p, settings)
