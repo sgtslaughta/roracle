@@ -65,8 +65,8 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   `everyone` root notes on the document's latest searchable version only (score >= 0.4, < 3 reports,
   <= 2 per document, <= 6 per response). Notes stored with a chat answer are re-checked per reader on every
   read (fail closed; handoffs show them as unavailable).
-- **Agents only propose**: every notes/proposal/evidence write REST route requires a Keycloak JWT
-  (PATs get 403 `agents must propose`). PATs reach notes only through MCP `propose_annotation` and
+- **Agents only propose**: every notes/proposal/evidence write REST route requires an interactive (non-agent)
+  Keycloak JWT (PATs and OAuth agent tokens get 403 `agents must propose`). PATs reach notes only through MCP `propose_annotation` and
   `reply_to_annotation`, which create pending proposals (default `private`; a requested visibility applies
   only after a human approves). At most 50 proposals per user and client can be pending (429 `too many pending proposals`).
   This is not a blanket "PATs cannot write": routes that depend on `current_principal` rather than
@@ -130,8 +130,11 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
 - `exclude_llm` binds LLM *context*, not embeddings: chunks are still embedded, and summaries written before
   a label was raised are not deleted. Past chat answers are not redacted for their owner, but replaying an
   old turn into an LLM drops it.
-- A raised label gates the document immediately in Postgres; Elasticsearch converges through the `acl_sync`
-  job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak to the caller).
+- A raised label gates the document immediately in Postgres. Direct label changes and proposal approvals write the
+  Elasticsearch ACL before they return (the `acl_sync` job is the retry); other paths (a near-duplicate merge raising
+  the target's label, recovery after an ES error) converge through `acl_sync`. Rows are re-checked in Postgres;
+  totals and facet counts come from Elasticsearch and can include a just-hidden document until `acl_sync` runs
+  ([known limits](known-limits.md#retrieval-and-label-timing)).
 - **Handoff transcripts of chats carry text verbatim, with limited redaction.** Assistant message text derived from
   `block_agents` sources is withheld (`[withheld: unavailable]`, the label name is not revealed) for **every** loader, humans included; text derived
   from `exclude_llm` sources is withheld (`[withheld: <label>]`) for agent loaders (PAT and `/mcp`). Assistant replies that drew on (cited or retrieved) papers the loader cannot see (ACL, not label) are
@@ -173,7 +176,7 @@ Label audit events: [audit events](../../reference/audit-events.md#labels).
 Chunks carry `label_id` (keyword) via `search_index.acl_fields`. Gate sets resolve at query time from the
 current labels, so reorder and gate edits need no reindex; only a document's label change needs `acl_sync`.
 Migration `0012` enqueues one `acl_sync` job per non-deleted document to backfill the field (see the
-[runbook](../runbook-routine.md#sensitivity-labels)). `search_acl.acl_filter` adds `must_not terms label_id` for PAT principals.
+[runbook](../runbook-routine.md#sensitivity-labels)). `search_acl.acl_filter` adds `must_not terms label_id` for agent principals (PAT, every `/mcp` caller, OAuth clients in `ROR_OIDC_AGENT_CLIENTS`).
 
 ## 14. Retrieval-quality surfaces and the LLM gate
 

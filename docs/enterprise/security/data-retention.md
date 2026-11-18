@@ -28,7 +28,8 @@ The maintenance job runs every `ROR_MAINTENANCE_INTERVAL_S` (default 86400 secon
    document id). If that ES call fails it is logged and the queued `acl_sync` job removes the chunks instead: for a deleted document it runs the same `delete_by_query`, and an ES error makes the queue retry it with backoff. The action is audited as
    `document.delete`.
 2. **Quota.** The per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES`) does not count soft-deleted documents,
-   so deleting a paper frees quota at once.
+   so deleting a paper frees quota at once, while its blobs stay until the purge below (an upload/delete loop can
+   exceed the quota in storage for `ROR_RETENTION_DELETED_DAYS`; [known limits](known-limits.md#platform-and-supply-chain)).
 3. **Purge** (only when `ROR_RETENTION_DELETED_DAYS` > 0): up to 100 documents per run whose `deleted_at` is older
    than the cutoff. Per document, in one savepoint (a failing document is skipped and retried next run):
    - **Elasticsearch:** delete every chunk and summary unit of the document (units are ES documents with the same
@@ -51,8 +52,8 @@ summaries written by an LLM before a label was raised are not deleted by relabel
 
 `POST /api/documents` and evidence uploads are streamed from the request body into object storage
 (S3 multipart, 8 MiB parts, SHA-256 computed on the fly) under `tmp/<uuid>`; nothing is spooled to the pod's disk.
-The size cap is enforced while streaming (413, upload aborted); after authorisation, quota and duplicate checks the
-object is server-side copied to `blobs/<sha[:2]>/<sha>` (skipped when that content already exists) and `tmp/` is
+The size cap is enforced while streaming (413, upload aborted); after authorisation, quota (document versions plus evidence files) and
+duplicate checks (documents only) the object is server-side copied to `blobs/<sha[:2]>/<sha>` (skipped when that content already exists) and `tmp/` is
 deleted. Any error aborts the multipart upload.
 
 Orphans from a crashed pod are expired by the bucket lifecycle rule `roracle-tmp-expire` on `tmp/` (1 day) and by

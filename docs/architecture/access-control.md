@@ -100,7 +100,7 @@ re-checked per reader (section 4).
 `search_acl.acl_filter(principal, policy)` mirrors the visibility rule as an Elasticsearch filter on fields
 copied onto every chunk: `visibility`, `owner_id`, `coauthor_users`, `share_users`, `share_groups`, `org_unit`
 and `label_id`. Admins get `match_all`. Callers put it in filter context and always add `is_latest: true`. For
-PAT principals it adds `must_not label_id in <block_agents labels>`, admins included. The gate sets are read at
+agent principals (PAT, every `/mcp` caller, OAuth clients in `ROR_OIDC_AGENT_CLIENTS`) it adds `must_not label_id in <block_agents labels>`, admins included. The gate sets are read at
 query time from the current label policy.
 
 ```mermaid
@@ -172,7 +172,7 @@ gate.
 label, never below its document's. The **effective label** is the higher-ranked of the document label and the
 note label (`Policy.effective`), and gates on note text use it. Replies have no label of their own.
 
-**Who may set a label** (`labels/service.py`): PAT principals cannot (403 `agents must propose`). The owner or an
+**Who may set a label** (`labels/service.py`): agent principals (PATs, `/mcp` callers, OAuth agent tokens) cannot (403 `agents must propose`). The owner or an
 admin may keep or raise a document label. **Lowering is admin only.** When the label being left has
 `reason_on_lower`, a reason of 3 to 500 characters is required, otherwise 422. Uploads choose a label that ranks
 at or above the default unless the caller is an admin acting by JWT. Every change writes a `document.label` (or
