@@ -3,11 +3,11 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { isArchive, isDuplicate, UPLOADS_PAGE, useUploads, useUpload } from "./api";
-import { ArchiveRow, type ArchiveResult } from "./ArchiveRow";
+import { archiveSummary, ArchiveRow, type ArchiveResult } from "./ArchiveRow";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { DEFAULT_OPTS, UploadOptions } from "./UploadOptions";
-import { FILTERS, inFilter, MAX_UPLOAD_BYTES, type FilterKey } from "./status";
+import { FILTERS, inFilter, MAX_UPLOAD_BYTES, SUPPORTED, VIS_LABEL, type FilterKey } from "./status";
 import { UploadRow } from "./UploadRow";
 
 const PAGE = 25;
@@ -30,7 +30,7 @@ export function UploadsPage() {
       const res = await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined, label_id: opts.label_id || undefined });
       if (isArchive(res)) {
         setArchives((a) => [{ name: file.name, result: res }, ...a]);
-        toast(`${file.name}: ${res.documents.length} added, ${res.skipped.length} skipped.`);
+        toast(`${file.name}: ${archiveSummary(res.documents.length, res.skipped.length)}.`);
       } else toast(`${file.name} uploaded. Processing has started.`);
     } catch (e) {
       if (isDuplicate(e)) setDups((d) => [...d, file]);
@@ -40,7 +40,8 @@ export function UploadsPage() {
   const onFiles = (files: File[]) => {
     setFilter("all");
     for (const f of files) {
-      if (f.size > MAX_UPLOAD_BYTES) toast(`${f.name} is over the 500 MB limit. Split it, or ask an admin to raise the limit.`);
+      if (!SUPPORTED.test(f.name)) toast(`${f.name} isn't a file type rOracle can read. Help lists the supported types.`);
+      else if (f.size > MAX_UPLOAD_BYTES) toast(`${f.name} is over the 500 MB limit. Split it, or ask an admin to raise the limit.`);
       else void send(f, false, files.length === 1);
     }
   };
@@ -59,7 +60,7 @@ export function UploadsPage() {
         </div>
       </div>
       <UploadOptions value={opts} onChange={setOpts} />
-      <DropZone onFiles={onFiles} />
+      <DropZone onFiles={onFiles} visibleTo={VIS_LABEL[opts.visibility]} />
       <div className="tbl">
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>
         {archives.map((a, i) => <ArchiveRow key={i} {...a} />)}

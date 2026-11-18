@@ -92,6 +92,22 @@ describe("my uploads", () => {
     expect(posts).toBe(0);
   });
 
+  it("refuses a file type it can't read before any request", async () => {
+    let posts = 0;
+    server.use(http.post(`${API_BASE}/documents`, () => { posts++; return HttpResponse.json({}, { status: 201 }); }));
+    await renderUploads();
+    await userEvent.upload(screen.getByLabelText(/Drop files here or choose files/), file("setup.exe"));
+    expect(await screen.findByText(/setup\.exe isn't a file type rOracle can read/)).toBeInTheDocument();
+    expect(posts).toBe(0);
+  });
+
+  it("the drop area names the visibility chosen above", async () => {
+    await renderUploads();
+    expect(screen.getByText(/Visible to: Everyone\./)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Visible to"), "private");
+    expect(screen.getByText(/Visible to: Only me\./)).toBeInTheDocument();
+  });
+
   it("uploads a file and lists it", async () => {
     await renderUploads();
     await userEvent.upload(screen.getByLabelText(/Drop files here or choose files/), file("fresh-paper.pdf"));

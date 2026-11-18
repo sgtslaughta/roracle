@@ -34,6 +34,8 @@ export const inFilter = (u: Pick<UploadItem, "stage" | "status">, k: FilterKey) 
 export const VIS_ORDER: Visibility[] = ["everyone", "org_unit", "private", "shared"];
 export const VIS_LABEL: Record<Visibility, string> = { everyone: "Everyone", org_unit: "My org unit", private: "Only me", shared: "Shared" };
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+/** File types rOracle can read (docs/user/uploads.md); anything else is refused before upload. */
+export const SUPPORTED = /\.(pdf|docx?|pptx?|xlsx?|od[tps]|rtf|html?|md|markdown|txt|png|jpe?g|tiff?|webp|bmp|xml|nxml|tex|epub|csv|tsv|json|zip|tar|tgz|gz)$/i;
 
 
 /** Known ingest failure reasons, in plain words; anything else gets a capital and a full stop. */
