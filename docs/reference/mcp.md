@@ -131,7 +131,7 @@ Setting names and defaults are in [settings](settings.md).
 - MCP calls never write `pat.use`. That row is a REST-only audit for successful PAT calls.
 - A tool that raises an HTTP-style error (`insufficient scope`, `not found`, bad input) is still audited: the transaction is rolled back, then one `mcp.<tool>` row is written with `detail` `{"error": true}`.
 - An unexpected exception is audited, best effort, with `{"error": "internal"}` and the SDK returns a generic tool error.
-- Not audited as `mcp.<tool>`: requests rejected before a tool runs, namely authentication failures and `429` rate limits (HTTP level), bodies over the size cap (`413`), and calls whose arguments fail schema validation (wrong types or over-length strings).
+- Not audited as `mcp.<tool>`: requests rejected before a tool runs, namely authentication failures (counted, not audited per row) and `429` rate limits (HTTP level; these write a throttled rate-limit row instead, see the audit events reference), bodies over the size cap (`413`), and calls whose arguments fail schema validation (wrong types or over-length strings).
 
 Admin audit viewing is in [admin audit](../admin/audit.md).
 

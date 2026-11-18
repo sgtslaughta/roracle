@@ -6,7 +6,7 @@ Audience: operators and SRE. Back to the [enterprise index](README.md) and the [
 
 | Signal | Source | How it leaves the pod |
 |---|---|---|
-| Prometheus metrics | api `GET /metrics` (port 8000) and worker `GET /metrics` (`ROR_WORKER_HEALTH_PORT`, 8001) | pull, but **nothing scrapes them out of the box**: with `metrics.enabled` (default true) the pods carry `prometheus.io/*` annotations, which the bundled kube-prometheus-stack (Prometheus Operator) ignores. You must add a `PodMonitor` (section 6) |
+| Prometheus metrics | api `GET /metrics` (port 8000) and worker `GET /metrics` (`ROR_WORKER_HEALTH_PORT`, 8001) | pull, but **nothing scrapes them out of the box unless you enable `observability.podMonitor`**: with `metrics.enabled` (default true) the pods carry `prometheus.io/*` annotations, which the bundled kube-prometheus-stack (Prometheus Operator) ignores. Enable the chart's `PodMonitor` or add your own (section 6) |
 | Postgres metrics | CloudNativePG instance managers, a `PodMonitor`, and two custom queries | pull through the `PodMonitor` when `postgres.monitoring.enabled` (default true; needs the prometheus-operator CRDs) |
 | OTLP traces and metrics | the api and worker, under `opentelemetry-instrument` | push, OTLP over HTTP (`http/protobuf`) to `observability.otel.endpoint`, empty by default |
 | Logs | stdout and stderr of every pod | nothing in this repo collects them; the collector values have a logs pipeline (OTLP in, Loki out), and the chart sets only the OTLP endpoint, protocol, service name and resource attributes on the pods |
