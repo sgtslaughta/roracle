@@ -154,6 +154,9 @@ def test_failure_status_map():
     assert failure_status(EmbedUnavailable("x")) == 503
     assert failure_status(ExportBlocked("L")) == 403
     assert failure_status(RuntimeError()) == 500
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    assert failure_status(StarletteHTTPException(404)) == 404
 
 
 def test_mcp_scope_denied_replayed(app, db_session, ana, as_ana):
