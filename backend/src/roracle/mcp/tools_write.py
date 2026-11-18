@@ -175,7 +175,9 @@ def register(mcp: MCPServer, app: FastAPI, run: Run) -> None:
     ) -> dict:
         """Upload a document (base64 content; needs a write token; size-capped, larger files use
         POST /documents). `label` is a sensitivity label name (default: the library default; choosing a
-        lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}."""
+        lower one than the default is refused). Returns document_id/version_id, or {"duplicate_of": id}. A ZIP/tar/
+        tar.gz that is not LaTeX source is unpacked: {"archive": true, "documents": [{document_id, version_id,
+        sha256, filename}], "skipped": [{name, reason}]}."""
 
         def go(session: Session, p: Principal) -> dict:
             _need_write(session, p)  # scope error before any label lookup

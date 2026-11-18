@@ -13,11 +13,30 @@
    - **Visible to**: Everyone (the default), My org unit, Only me or Shared. With Shared, add the people and groups afterwards from the reader's **Sharing** button; until then only you can see the paper ([collections and sharing](collections-sharing.md)).
    - **Sensitivity label**: the default is preselected. You can choose a more sensitive label; labels below the default are greyed out unless you are an admin ([labels](labels.md)).
    - **Title (optional, single file)**: used only when you add exactly one file.
-3. Drop files on the drop area, or choose files. You can add several at once. PDF, Word, PowerPoint, HTML, Markdown and more are accepted.
+3. Drop files on the drop area, or choose files. You can add several at once. The [supported file types](#supported-file-types) are listed below.
 
 Each file can be up to 500 MB: the app refuses larger files before sending them ("Split it, or ask an admin to raise the limit"), and the server may enforce its own limit and say so. If your admin set a per-user storage quota, an upload over it fails with "upload quota exceeded".
 
 You see "uploaded. Processing has started" when a file is accepted.
+
+## Supported file types
+
+| Type | Extensions | Notes |
+|---|---|---|
+| PDF | `.pdf` | Read directly |
+| Word, PowerPoint, Excel, OpenDocument, RTF | `.doc` `.docx` `.ppt` `.pptx` `.xls` `.xlsx` `.odt` `.odp` `.ods` `.rtf` | Shown in the reader as a PDF copy |
+| Web and text | `.html` `.md` `.txt` | Markdown and plain text also show as text in the reader |
+| Images | `.png` `.jpg` `.jpeg` `.tif` `.tiff` `.webp` `.bmp` | The text is read with OCR; the reader shows the picture (not TIFF). Scans of small or faint print read poorly |
+| Scholarly XML | `.xml` `.nxml` | JATS articles such as PubMed Central |
+| LaTeX | `.tex` | Source file; `\input` is not followed for a single file |
+| Ebooks | `.epub` | |
+| Tables | `.csv` `.tsv` | Rows become a table; TSV is converted to CSV first |
+| JSON | `.json` | Shown as formatted JSON text. A file that is not valid JSON fails with "invalid JSON" |
+| Archives | `.zip` `.tar` `.tar.gz` `.tgz` `.gz` | See below |
+
+A ZIP or tar archive is unpacked when you upload it and every file inside becomes its own paper, with the options you set above (the single-file title is not used). The archive itself is not kept. Files that cannot be added are listed on the page under the archive with the reason: an unsafe path, a symbolic link, an archive inside the archive, a file over the size limit, one you already have, or going over your quota. Limits: 500 files per archive (the rest are skipped), each file within the upload limit, and everything together no more than 10 times the upload limit once unpacked. Hidden files and `__MACOSX` entries are ignored.
+
+A **LaTeX source archive** (the `.tar.gz`, `.tar`, `.zip` or `.gz` that arXiv gives for an e-print) is the exception: it becomes one paper. rOracle finds the main `.tex` file (the one with `\documentclass`; `main.tex` or `ms.tex` if there are several, else the largest) and inlines the files it pulls in with `\input` and `\include`. Figures in the archive are not read.
 
 ## Following progress
 

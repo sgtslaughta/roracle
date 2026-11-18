@@ -494,3 +494,60 @@ def test_http_run_ingests_and_blocked_run_fails(db_session, session_factory, set
     assert r2.status == "partial" and r2.stats["ingested"] == 0 and r2.stats["unchanged"] >= 1, r2.stats
     bad = run(mk("web-blocked"), settings.model_copy(update={"connector_http_allow_cidrs": []}))
     assert bad.status == "failed" and "publicly routable" in bad.log
+
+
+@pytest.mark.parametrize(
+    "ct",
+    [
+        "image/png", "image/jpeg", "image/tiff", "image/webp", "image/bmp",
+        "application/xml", "text/xml", "application/jats+xml",
+        "application/x-tex", "text/x-tex", "application/x-latex",
+        "text/csv", "text/tab-separated-values", "application/json", "application/epub+zip",
+        "application/zip", "application/x-zip-compressed", "application/gzip", "application/x-gzip",
+        "application/x-tar", "application/x-gtar",
+    ],
+)  # fmt: skip
+def test_new_content_types_are_documents(ct):
+    assert crawl.is_document(ct, False)
+
+
+@pytest.mark.parametrize("ct", ["image/gif", "image/svg+xml", "video/mp4", "application/octet-stream"])
+def test_other_types_are_not_documents(ct):
+    assert not crawl.is_document(ct, False)
+
+
+@pytest.mark.parametrize("ct", ["application/octet-stream", ""])
+@pytest.mark.parametrize(
+    ("url", "ok"),
+    [
+        ("http://h/a/x.PNG", True), ("http://h/x.jpg?v=1", True), ("http://h/x.jpeg", True),
+        ("http://h/x.tif", True), ("http://h/x.tiff", True), ("http://h/x.webp", True),
+        ("http://h/x.bmp", True), ("http://h/x.xml", True), ("http://h/x.nxml", True),
+        ("http://h/x.tex", True), ("http://h/x.csv", True), ("http://h/x.tsv", True),
+        ("http://h/x.json", True), ("http://h/x.epub", True), ("http://h/x.zip", True),
+        ("http://h/x.tar", True), ("http://h/x.tgz", True), ("http://h/x.tar.gz", True),
+        ("http://h/x.gz", True), ("http://h/x.pdf", True), ("http://h/x.docx", True),
+        ("http://h/x.txt", True), ("http://h/x.md", True),
+        ("http://h/x.exe", False), ("http://h/x.gif", False), ("http://h/noext", False),
+    ],
+)  # fmt: skip
+def test_octet_stream_decided_by_url_extension(ct, url, ok):
+    assert crawl.is_document(ct, False, url) is ok
+
+
+def test_octet_stream_png_is_crawled_with_guessed_type(srv, cfg):
+    PAGES["/img.png"] = b"\x89PNG"
+    PAGES["/dl.bin"] = b"data"
+    TYPES[".png"] = "application/octet-stream"
+    TYPES[".bin"] = "application/octet-stream"
+    index = PAGES["/index.html"]
+    PAGES["/index.html"] = b'<a href="/img.png">i</a><a href="/dl.bin">b</a>'
+    try:
+        items = crawl_items(srv, cfg)
+    finally:
+        PAGES["/index.html"] = index
+        for k in ("/img.png", "/dl.bin"):
+            PAGES.pop(k)
+        TYPES.pop(".png"), TYPES.pop(".bin")
+    assert "/img.png" in items and "/dl.bin" not in items
+    assert items["/img.png"].content_type == "image/png"

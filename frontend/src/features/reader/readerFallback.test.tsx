@@ -67,6 +67,25 @@ describe("reader rendition", () => {
     expect(await screen.findByText(/Preview not available/)).toBeInTheDocument();
   });
 
+  it("404 on an image shows it as an <img> of the original file", async () => {
+    noPdf(); named("scan.png");
+    const urls: string[] = [];
+    URL.createObjectURL = vi.fn(() => "blob:scan");
+    URL.revokeObjectURL = vi.fn();
+    server.use(http.get(`${API_BASE}/documents/:id/versions/:n/file`, ({ request }) => { urls.push(request.url); return HttpResponse.arrayBuffer(new ArrayBuffer(8), { headers: { "Content-Type": "image/png" } }); }));
+    await open();
+    const img = await screen.findByRole("img", { name: "scan.png" });
+    expect(img).toHaveAttribute("src", "blob:scan");
+    expect(urls[0]).toContain("inline=true");
+    expect(screen.queryByText(/Preview not available/)).toBeNull();
+  });
+
+  it("tiff is not previewed", async () => {
+    noPdf(); named("scan.tiff");
+    await open();
+    expect(await screen.findByText(/Preview not available/)).toBeInTheDocument();
+  });
+
   it("404 on anything else shows Preview not available and downloads on demand", async () => {
     noPdf(); named("data.bin");
     let fetched = 0;

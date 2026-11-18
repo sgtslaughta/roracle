@@ -30,13 +30,29 @@ DOC_TYPES = {
     "text/markdown",
     "text/x-markdown",
 }
+DOC_TYPES |= {
+    "image/png", "image/jpeg", "image/tiff", "image/webp", "image/bmp",
+    "application/xml", "text/xml", "application/jats+xml",
+    "application/x-tex", "text/x-tex", "application/x-latex",
+    "text/csv", "text/tab-separated-values", "application/json", "application/epub+zip",
+    "application/zip", "application/x-zip-compressed", "application/gzip", "application/x-gzip",
+    "application/x-tar", "application/x-gtar",
+}  # fmt: skip
+DOC_EXTS = (
+    ".pdf", ".doc", ".docx", ".rtf", ".odt", ".ppt", ".pptx", ".odp", ".xls", ".xlsx", ".ods",
+    ".txt", ".md", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".bmp", ".xml", ".nxml",
+    ".tex", ".csv", ".tsv", ".json", ".epub", ".zip", ".tar", ".tgz", ".tar.gz", ".gz",
+)  # fmt: skip
 DOC_PREFIXES = ("application/vnd.openxmlformats-officedocument.", "application/vnd.oasis.opendocument.")
 DOC_PREFIXES += ("application/vnd.ms-",)
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 Origin = tuple[str, str, int]
 
 
-def is_document(ct: str, ingest_html: bool) -> bool:
+def is_document(ct: str, ingest_html: bool, url: str = "") -> bool:
+    """`application/octet-stream` (or no type) falls back to the URL's file extension."""
+    if ct in ("", "application/octet-stream"):
+        return urlsplit(url).path.lower().endswith(DOC_EXTS)
     return ct in DOC_TYPES or ct.startswith(DOC_PREFIXES) or (ingest_html and ct in HTML_TYPES)
 
 
@@ -180,16 +196,19 @@ class Crawl:
                             seen.add(u)
                             queue.append((u, depth + 1))
                         self.max_queue = max(self.max_queue, len(queue))
-                    if is_document(ct, ingest_html):
+                    if is_document(ct, ingest_html, r.url):
                         yield self.item(r, ct)
                 finally:
                     os.unlink(r.path)
 
     def item(self, r: netguard.Fetched, ct: str) -> Item:
+        name = filename_for(r.url, ct)
+        if ct in ("", "application/octet-stream"):
+            ct = mimetypes.guess_type(name)[0] or ct or "application/octet-stream"
         return Item(
             key=r.url,
             etag=r.etag,
-            filename=filename_for(r.url, ct),
+            filename=name,
             content_type=ct,
             size=os.path.getsize(r.path),
             open=lambda p=r.path: open(p, "rb"),

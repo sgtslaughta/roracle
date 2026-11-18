@@ -176,6 +176,11 @@ _TYPES = {
 
 
 _INLINE_TEXT = {"md", "txt"}
+# reader <img>: extension -> (content type, magic prefix); only when the bytes really are that image
+_INLINE_IMAGE = {
+    "png": ("image/png", b"\x89PNG"), "jpg": ("image/jpeg", b"\xff\xd8\xff"), "jpeg": ("image/jpeg", b"\xff\xd8\xff"),
+    "webp": ("image/webp", b"RIFF"), "gif": ("image/gif", b"GIF8"), "bmp": ("image/bmp", b"BM"),
+}  # fmt: skip
 
 
 def _stream(body, head: bytes):
@@ -210,9 +215,13 @@ def download(
     is_pdf = head == b"%PDF-" and (stored_pdf or ext == "pdf")
     ctype = "application/pdf" if is_pdf else _TYPES.get(ext, "application/octet-stream")
     as_text = inline and p.via == "jwt" and ext in _INLINE_TEXT  # reader view; agents always download
-    kind = "inline" if inline and (is_pdf and stored_pdf or as_text) else "attachment"
+    img = _INLINE_IMAGE.get(ext) if inline and p.via == "jwt" else None
+    as_image = img is not None and head.startswith(img[1])
+    kind = "inline" if inline and (is_pdf and stored_pdf or as_text or as_image) else "attachment"
     if kind == "inline" and as_text:
         ctype = "text/plain; charset=utf-8"  # never rendered as markup
+    if kind == "inline" and as_image and img:
+        ctype = img[0]
     if kind == "inline":
         audit_inline_view(session, p, visible_doc(session, p, doc_id), "document.file")
     if kind == "attachment":  # gate (c): only downloads are blocked, not in-app viewing

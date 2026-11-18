@@ -99,6 +99,19 @@ describe("my uploads", () => {
     expect(rows()).toHaveLength(6);
   });
 
+  it("an unpacked archive shows how many papers were added and why files were skipped", async () => {
+    server.use(http.post(`${API_BASE}/documents`, () => HttpResponse.json({
+      archive: true,
+      documents: [{ document_id: "a", version_id: "b", sha256: "0", filename: "a.txt" }, { document_id: "c", version_id: "d", sha256: "1", filename: "b.txt" }],
+      skipped: [{ name: "../evil", reason: "unsafe path" }],
+    }, { status: 201 })));
+    await renderUploads();
+    await userEvent.upload(screen.getByLabelText(/Drop files here or choose files/), file("bundle.zip", 10, "application/zip"));
+    const row = await screen.findByTestId("archive-row");
+    expect(row).toHaveTextContent("bundle.zip: 2 papers added, 1 skipped");
+    expect(within(row).getByText(/\.\.\/evil: unsafe path/)).toBeInTheDocument();
+  });
+
   it("409 duplicate asks, then retries with force=true on confirm", async () => {
     const seen: (string | null)[] = [];
     server.use(http.post(`${API_BASE}/documents`, async ({ request }) => {

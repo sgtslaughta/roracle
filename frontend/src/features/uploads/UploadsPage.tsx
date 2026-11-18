@@ -2,7 +2,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { isDuplicate, UPLOADS_PAGE, useUploads, useUpload } from "./api";
+import { isArchive, isDuplicate, UPLOADS_PAGE, useUploads, useUpload } from "./api";
+import { ArchiveRow, type ArchiveResult } from "./ArchiveRow";
 import { DropZone } from "./DropZone";
 import { DuplicateDialog } from "./DuplicateDialog";
 import { DEFAULT_OPTS, UploadOptions } from "./UploadOptions";
@@ -18,6 +19,7 @@ export function UploadsPage() {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [shown, setShown] = useState(PAGE);
   const [opts, setOpts] = useState(DEFAULT_OPTS);
+  const [archives, setArchives] = useState<ArchiveResult[]>([]);
   const [dups, setDups] = useState<File[]>([]);
   const items = data?.items ?? [];
   const count = (k: FilterKey) => items.filter((u) => inFilter(u, k)).length;
@@ -25,8 +27,11 @@ export function UploadsPage() {
 
   const send = async (file: File, force = false, single = false) => {
     try {
-      await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined, label_id: opts.label_id || undefined });
-      toast(`${file.name} uploaded. Processing has started.`);
+      const res = await upload.mutateAsync({ file, force, visibility: opts.visibility, title: single ? opts.title : undefined, label_id: opts.label_id || undefined });
+      if (isArchive(res)) {
+        setArchives((a) => [{ name: file.name, result: res }, ...a]);
+        toast(`${file.name}: ${res.documents.length} added, ${res.skipped.length} skipped.`);
+      } else toast(`${file.name} uploaded. Processing has started.`);
     } catch (e) {
       if (isDuplicate(e)) setDups((d) => [...d, file]);
       else toast(e instanceof ApiError ? `${file.name}: ${e.message}` : `${file.name} couldn't be uploaded. Try again.`);
@@ -57,6 +62,7 @@ export function UploadsPage() {
       <DropZone onFiles={onFiles} />
       <div className="tbl">
         <div className="trow h"><span>File</span><span>Progress</span><span>Status</span><span>Visible to</span></div>
+        {archives.map((a, i) => <ArchiveRow key={i} {...a} />)}
         {rows.slice(0, shown).map((u) => <UploadRow key={u.version_id} u={u} />)}
         {!rows.length && <div className="trow"><span className="vis">No uploads in this view.</span></div>}
         {data && data.total > items.length && (

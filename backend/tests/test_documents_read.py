@@ -105,6 +105,35 @@ def test_inline_non_pdf_is_attachment(client, as_ana, ana, db_session, store):
     assert r.headers["content-type"] == "application/octet-stream"
 
 
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+
+
+def test_inline_image_served_with_image_type(client, as_ana, ana, db_session, store):
+    d, v = seed(db_session, ana, filename="scan.PNG", content_type="image/png")
+    put(store, v, PNG)
+    r = client.get(f"/documents/{d.id}/versions/1/file?inline=1", headers=as_ana)
+    assert r.headers["content-disposition"].startswith("inline;")
+    assert r.headers["content-type"] == "image/png"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["content-security-policy"] == "sandbox; default-src 'none'"
+    assert r.content == PNG
+
+
+def test_inline_image_extension_must_match_bytes(client, as_ana, ana, db_session, store):
+    d, v = seed(db_session, ana, filename="evil.png", content_type="image/png")
+    put(store, v, b"<html><script>1</script></html>")
+    r = client.get(f"/documents/{d.id}/versions/1/file?inline=1", headers=as_ana)
+    assert r.headers["content-disposition"].startswith("attachment;")
+    assert r.headers["content-type"] == "application/octet-stream"
+
+
+def test_image_without_inline_flag_is_attachment(client, as_ana, ana, db_session, store):
+    d, v = seed(db_session, ana, filename="scan.png", content_type="image/png")
+    put(store, v, PNG)
+    r = client.get(f"/documents/{d.id}/versions/1/file", headers=as_ana)
+    assert r.headers["content-disposition"].startswith("attachment;")
+
+
 def test_html_labelled_pdf_is_sniffed(client, as_ana, ana, db_session, store):
     d, v = seed(db_session, ana, filename="evil.pdf", content_type="application/pdf")
     put(store, v, b"<html><script>1</script></html>")

@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, errorText, seg, QUIET } from "@/api/client";
-import type { DuplicateDetail, Visibility, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadCreated, UploadsResponse } from "@/api/types";
+import type { DuplicateDetail, Visibility, NearDupAction, NearDupResult, NeedsTitleItem, TitleResult, UploadArchive, UploadCreated, UploadsResponse } from "@/api/types";
 
 const TERMINAL_STAGES = ["searchable", "review", "needs_title", "rejected", "cancelled"];
 /** An upload is terminal when it has finished, failed, or waits on the user. */
@@ -23,6 +23,8 @@ export function useUploadAttention() {
   return (data?.items ?? []).filter((u) => u.status === "failed" || u.stage === "review" || u.stage === "needs_title" || u.stage === "rejected").length;
 }
 
+export const isArchive = (r: UploadCreated | UploadArchive): r is UploadArchive => "archive" in r;
+
 export const isDuplicate = (e: unknown): e is ApiError & { detail: DuplicateDetail } =>
   e instanceof ApiError && e.status === 409 && (e.detail as DuplicateDetail | undefined)?.code === "duplicate";
 
@@ -37,7 +39,7 @@ export function useUpload() {
       if (title?.trim()) form.append("title", title.trim());
       if (label_id) form.append("label_id", label_id);
       if (force) form.append("force", "true");
-      return apiFetch<UploadCreated>("/documents", { method: "POST", body: form });
+      return apiFetch<UploadCreated | UploadArchive>("/documents", { method: "POST", body: form });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["uploads"] }),
   });

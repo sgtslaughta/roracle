@@ -29,16 +29,21 @@ def source_for(
     warn: Callable[[str], None] | None = None,
 ) -> Iterator[Item]:
     """`warn(msg)` receives non-fatal per-item problems (the run turns `partial`). Validates eagerly (so a bad config fails the run at once), then returns the lazy item iterator."""
+    from roracle.connectors.archives import expand
+
+    def wrapped(inner: Iterator[Item]) -> Iterator[Item]:
+        return expand(inner, settings.max_upload_bytes, warn or (lambda msg: None))
+
     if connector.kind == "s3":
         from roracle.connectors import s3
 
-        return s3.items(connector.config, settings.connector_http_timeout_s)
+        return wrapped(s3.items(connector.config, settings.connector_http_timeout_s))
     if connector.kind == "fs":
         from roracle.connectors import fs
 
-        return fs.items(connector.config, settings.connector_fs_roots, deadline)
+        return wrapped(fs.items(connector.config, settings.connector_fs_roots, deadline))
     if connector.kind == "http":
         from roracle.connectors import http
 
-        return http.items(connector.config, settings, deadline, warn)
+        return wrapped(http.items(connector.config, settings, deadline, warn))
     raise ValueError(f"unsupported connector kind: {connector.kind}")

@@ -53,9 +53,15 @@ The path must be equal to or inside one of the roots the operator allows with `R
 | Respect robots.txt | On by default. A missing or unreachable `robots.txt` does not stop the crawl; a server error on it blocks the origin |
 | Ingest HTML pages too | Off by default: pages are only followed for links. On: HTML pages are ingested as documents |
 
-The crawler stays on the origin of each start URL, follows links in HTML pages and ingests PDF, Word, RTF, plain text, Markdown, OpenOffice and Office files. Redirects are followed up to 5 times and a redirect to another origin is skipped.
+The crawler stays on the origin of each start URL, follows links in HTML pages and ingests PDF, Word, RTF, plain text, Markdown, OpenOffice and Office files, images (PNG, JPEG, TIFF, WebP, BMP), JATS and other XML, LaTeX, CSV, TSV, JSON, EPUB and archives. When a server sends `application/octet-stream` or no type, the file extension in the URL decides. Redirects are followed up to 5 times and a redirect to another origin is skipped.
 
 **Network guard.** The crawler only connects to publicly routable addresses. A private, loopback or otherwise non-public address is blocked unless the operator listed its range in `ROR_CONNECTOR_HTTP_ALLOW_CIDRS` (a setting of the deployment, not of the Settings screen). Link-local and multicast addresses and the known cloud metadata addresses are never allowed, even when listed. Every address a name resolves to is checked at connect time, on every request and redirect. If an internal site is blocked, the run log says the address "is not publicly routable and not in ROR_CONNECTOR_HTTP_ALLOW_CIDRS": ask the operator to add the smallest range that covers it.
+
+## Archives
+
+All three kinds unpack archives. A ZIP, tar, tar.gz or tgz item is replaced by one item per file inside it, keyed `<archive key>!<path in archive>` and named after the file, so each file is a paper of its own and a changed archive only re-ingests the files that changed. A bare `.gz` that is not LaTeX becomes one file. LaTeX source archives (a main `.tex` with `\documentclass`) stay one item and become one paper.
+
+Limits, all enforced while reading and not by trusting the archive's headers: the archive is capped at `ROR_MAX_UPLOAD_BYTES` (larger ones count as too large), at most 500 files per archive (the rest are skipped and reported in the run log), each file at most `ROR_MAX_UPLOAD_BYTES` (larger ones count as too large), and at most 10 times that in total once unpacked. Directories, symbolic and hard links, devices, names with `..` or an absolute path, `__MACOSX` entries and dotfiles are skipped, and an archive inside an archive is skipped with a log line. A skipped file turns the run `partial`. Nothing is extracted to disk by member name.
 
 ## Credentials handling
 
