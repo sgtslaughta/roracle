@@ -2,7 +2,8 @@ import { Clock, GitCompare, ThumbsDown, ThumbsUp, TriangleAlert } from "lucide-r
 import { useState } from "react";
 import { toast } from "sonner";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import type { DownvoteReason, Votes } from "@/api/types";
+import { useQueryClient } from "@tanstack/react-query";
+import type { DownvoteReason, SearchResponse, Votes } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { useVote } from "./api";
 
@@ -12,6 +13,15 @@ const REASONS: { id: DownvoteReason; label: string; icon: typeof Clock }[] = [
   { id: "low_quality", label: "Low quality", icon: ThumbsDown },
   { id: "superseded", label: "Superseded by a newer document", icon: GitCompare },
 ];
+
+/** Documents from the library's cached result pages, minus `docId`: the "superseded by" choices. */
+export function useSupersedeCandidates(docId: string) {
+  const qc = useQueryClient();
+  const seen = new Map<string, string>();
+  for (const [, d] of qc.getQueriesData<SearchResponse>({ queryKey: ["search"] }))
+    for (const r of d?.results ?? []) if (r.doc_id !== docId && seen.size < 50) seen.set(r.doc_id, r.title);
+  return [...seen].map(([id, title]) => ({ id, title }));
+}
 
 /** Up/down vote with a reason menu on downvote. `candidates` = documents that could supersede this one. */
 export function VoteControl({ docId, votes, row, candidates = [] }: { docId: string; votes: Votes; row?: boolean; candidates?: { id: string; title: string }[] }) {

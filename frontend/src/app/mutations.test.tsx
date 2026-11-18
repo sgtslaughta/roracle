@@ -25,7 +25,10 @@ async function renderApp(path: string) {
   render(<QueryClientProvider client={createQueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
   await screen.findByRole("navigation", { name: "Main" });
 }
-const pressed = () => within(screen.getAllByRole("listitem").find((li) => li.classList.contains("result"))!).getByRole("button", { name: "Upvote" }).getAttribute("aria-pressed");
+/** Votes live in the reader drawer (not on library cards). */
+const DOC = "/d/00000000-0000-4000-8000-000000000001";
+const vote = (name: "Upvote" | "Downvote") => screen.findByRole("button", { name });
+const pressed = () => screen.getByRole("button", { name: "Upvote" }).getAttribute("aria-pressed");
 const card = async (i = 0) => (await screen.findAllByRole("listitem")).filter((li) => li.classList.contains("result"))[i];
 
 describe("global mutation errors", () => {
@@ -48,8 +51,8 @@ describe("global mutation errors", () => {
 describe("votes", () => {
   it("a failed upvote rolls back and toasts the error", async () => {
     fail("/documents/:id/vote", "put");
-    await renderApp("/library");
-    await userEvent.click(within(await card()).getByRole("button", { name: "Upvote" }));
+    await renderApp(DOC);
+    await userEvent.click(await vote("Upvote"));
     await waitFor(() => expect(toasts()).toContain("Not allowed"));
     await waitFor(() => expect(pressed()).toBe("false"));
   });
@@ -57,23 +60,23 @@ describe("votes", () => {
   it("an optimistic upvote shows at once", async () => {
     let release = () => {};
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async () => { await new Promise<void>((r) => { release = r; }); return HttpResponse.json({ up: 1, down: 0, mine: 1 }); }));
-    await renderApp("/library");
-    await userEvent.click(within(await card()).getByRole("button", { name: "Upvote" }));
+    await renderApp(DOC);
+    await userEvent.click(await vote("Upvote"));
     await waitFor(() => expect(pressed()).toBe("true"));
     release();
   });
 
   it("'Thanks' appears only after the server accepts the downvote", async () => {
     fail("/documents/:id/vote", "put");
-    await renderApp("/library");
-    await userEvent.click(within(await card()).getByRole("button", { name: "Downvote" }));
+    await renderApp(DOC);
+    await userEvent.click(await vote("Downvote"));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Outdated/ }));
     await waitFor(() => expect(toasts()).toContain("Not allowed"));
     expect(toasts().some((t) => t.includes("Thanks"))).toBe(false);
 
     vi.mocked(toast).mockClear();
     server.resetHandlers();
-    await userEvent.click(within(await card()).getByRole("button", { name: "Downvote" }));
+    await userEvent.click(await vote("Downvote"));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Outdated/ }));
     await waitFor(() => expect(toasts()).toContain("Marked “Outdated”. Thanks."));
   });

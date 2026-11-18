@@ -171,3 +171,12 @@ def extract_arxiv_stamp(text: str) -> dict[str, str]:
     holds no stamp or several different ones."""
     found = {n for m in _ARX_STAMP.finditer(text or "") if (n := normalize("arxiv", m[1]))}
     return {"arxiv": found.pop()} if len(found) == 1 else {}
+
+
+def public_ids(meta: dict) -> dict[str, str]:
+    """A version's identifiers for clients: `meta.ids` strings plus a legacy top-level `meta.doi`."""
+    raw = meta.get("ids") if isinstance(meta.get("ids"), dict) else {}
+    out = {k: v for k, v in raw.items() if isinstance(v, str) and v}
+    if isinstance(meta.get("doi"), str) and meta["doi"] and "doi" not in out:
+        out["doi"] = meta["doi"]
+    return out

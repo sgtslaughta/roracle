@@ -18,6 +18,7 @@ from roracle.api.routes.documents import get_blob_store
 from roracle.api.routes.library import get_es, tags_of, vote_summary
 from roracle.auth import Principal, current_principal
 from roracle.db import get_session
+from roracle.identifiers import public_ids
 from roracle.ingest.office import rendition_key
 from roracle.labels.policy import Policy, audit_inline_view, label_json, require_exportable
 from roracle.labels.textgate import require_text
@@ -31,14 +32,6 @@ Who = Annotated[Principal, Depends(current_principal)]
 Session_ = Annotated[Session, Depends(get_session)]
 HIDDEN_STAGES = {"rejected", "cancelled"}  # R5
 MAX_CHUNKS = 10_000  # ES search size cap: chunks beyond this get no passage box in the reader
-
-
-def _public_ids(meta: dict) -> dict[str, str]:
-    raw = meta.get("ids") if isinstance(meta.get("ids"), dict) else {}
-    out = {k: v for k, v in raw.items() if isinstance(v, str) and v}
-    if isinstance(meta.get("doi"), str) and meta["doi"] and "doi" not in out:
-        out["doi"] = meta["doi"]
-    return out
 
 
 def visible_doc(session: Session, p: Principal, doc_id: UUID) -> Document:
@@ -134,7 +127,7 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "authors": list(meta.get("authors") or []),
         "year": meta.get("year"),
         "venue": meta.get("venue"),
-        "ids": _public_ids(meta),
+        "ids": public_ids(meta),
         "org_unit": doc.org_unit,
         "visibility": doc.visibility,
         "label": label_json(Policy.load(session).get(doc.label_id)),
