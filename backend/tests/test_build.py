@@ -205,6 +205,7 @@ def test_pandoc_timeout_and_failure():
 
 # ---- Gotenberg (MockTransport) ----
 class Cfg:
+    latex_builder = "disabled"
     draft_gotenberg_url = "http://g:3000"
     build_timeout_s = 5.0
     build_max_pdf_bytes = 100
@@ -363,3 +364,85 @@ def test_busy_is_503(monkeypatch):
     with pytest.raises(build.BuildError) as e:
         build.PandocBuilder(Cfg()).build("x", [], PROFILE)
     assert (e.value.status, e.value.message) == (503, "build service busy")
+
+
+# ---- LaTeX client ----
+class LCfg(Cfg):
+    latex_builder = "http://latex:8080/"
+    build_timeout_s = 200.0
+
+
+def lbuild(handler, src="---\nformat: latex\n---\n\\documentclass{article}", refs=(), cfg=LCfg):
+    from roracle.writing.latex import LatexBuilder
+
+    return LatexBuilder(cfg(), httpx.MockTransport(handler)).build(src, list(refs), PROFILE)
+
+
+def test_latex_get_builder_selects_client():
+    from roracle.writing.latex import LatexBuilder
+
+    assert isinstance(build.get_builder(LCfg(), "latex"), LatexBuilder)
+    assert isinstance(build.get_builder(Cfg(), "latex"), build.DisabledLatexBuilder)
+
+
+def test_latex_ok_request_shape():
+    seen = {}
+
+    def h(r):
+        seen["u"], seen["j"] = str(r.url), json.loads(r.content)
+        return httpx.Response(200, content=b"%PDF-1.5 x")
+
+    out = lbuild(h, refs=[Ref("k1", "A & B_c", ["Ana Q"], 2020)])
+    assert out.startswith(b"%PDF-") and seen["u"] == "http://latex:8080/build"
+    assert seen["j"]["source"].strip() == "\\documentclass{article}" and seen["j"]["timeout_s"] == 120
+    bib = seen["j"]["files"]["refs.bib"]
+    assert "@misc{k1" in bib and r"A \& B\_c" in bib and "year = {2020}" in bib
+
+
+def test_latex_compile_error_is_422_with_excerpt():
+    msg = "! Undefined control sequence.\nl.3 \\foo"
+    with pytest.raises(build.BuildError) as e:
+        lbuild(lambda r: httpx.Response(422, json={"detail": msg + "x" * 600}))
+    assert e.value.status == 422 and e.value.message.startswith(msg) and len(e.value.message) == 500
+
+
+@pytest.mark.parametrize(
+    "resp", [httpx.Response(503), httpx.Response(500), httpx.Response(200, content=b"nope")]
+)
+def test_latex_unavailable_503(resp):
+    with pytest.raises(build.BuildError) as e:
+        lbuild(lambda r: resp)
+    assert e.value.status == 503
+
+
+def test_latex_timeout_and_down_503():
+    def t(r):
+        raise httpx.ReadTimeout("slow")
+
+    def c(r):
+        raise httpx.ConnectError("down")
+
+    for h in (t, c):
+        with pytest.raises(build.BuildError) as e:
+            lbuild(h)
+        assert e.value.status == 503
+
+
+def test_latex_oversize_pdf_422():
+    with pytest.raises(build.BuildError) as e:
+        lbuild(lambda r: httpx.Response(200, content=b"%PDF-" + b"x" * 200))
+    assert (e.value.status, e.value.message) == (422, "built PDF is too large")
+
+
+def test_route_latex_builds_through_service(client, as_ana, ana, settings, monkeypatch):
+    s = settings.model_copy(update={"latex_builder": "http://latex:8080"})
+    client.app.dependency_overrides[get_app_settings] = lambda: s
+    monkeypatch.setattr(
+        build, "_transport", httpx.MockTransport(lambda r: httpx.Response(200, content=b"%PDF-1.5 tex"))
+    )
+    try:
+        i = mk(client, as_ana, "---\nformat: latex\n---\n\\documentclass{article}\n")
+        r = client.post(f"/drafts/{i}/build", headers=as_ana)
+        assert r.status_code == 200 and r.content == b"%PDF-1.5 tex"
+    finally:
+        client.app.dependency_overrides.pop(get_app_settings, None)

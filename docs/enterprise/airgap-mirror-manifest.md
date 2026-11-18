@@ -55,12 +55,13 @@ CSI (including the ceph-csi-operator subchart: `csi.rookUseCsiOperator=false`), 
 | `anchore/syft` | pin a tag, shell-capable `:debug` variant (GitLab `script:` jobs need a shell) | CI `sbom` job (`SYFT_IMAGE`, optional) | not pinned in repo |
 | `sigstore/cosign` | pin a tag, shell-capable `-dev` variant (GitLab `script:` jobs need a shell) | CI `sign` job (`COSIGN_IMAGE`, optional; tags only) | not pinned in repo |
 | `quay.io/keycloak/keycloak` | `26.0` | dev compose only | not pinned in repo |
+| `roracle/latex-builder` (built from `deploy/latex-builder/`; dev compose tag `roracle-latex-builder`) | your tag; base `texlive/texlive:latest-small` pinned by digest | optional LaTeX builder (`parsers.latexbuilder`, compose profile `latex`) | base digest pinned in `deploy/latex-builder/Dockerfile` |
 | `docker` (service `docker:27-dind`) | `27-dind` | CI `iac-kind-e2e` job (manual) | not pinned in repo |
 
 Dev only (`deploy/dev/compose.yaml`, all through `${REGISTRY_MIRROR}`; Keycloak is in the table above): `postgres` `16`, `bitnamilegacy/minio` `2025.5.24`, `docker.elastic.co/elasticsearch/elasticsearch` `9.5.6`, `lfoppiano/grobid` `0.8.1`, `gotenberg/gotenberg` `8.20.1`, `clamav/clamav` `1.4`, and `quay.io/docling-project/docling-serve-cpu` `latest` (use the chart tag `v1.38.2` instead). Digest: not pinned in repo.
 
 **`bitnamilegacy/minio` is dev and CI only.** It is the S3 stand-in of the dev compose file, the CI test services and the kind rehearsal (`deploy/terraform/test/s3-stub.yaml`). No production path deploys it.
-Planned, not referenced by the chart yet: `texlive/texlive` (latex-builder, ~5 GB). Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
+Required only when the LaTeX builder is enabled (`parsers.latexbuilder.enabled`, dev compose profile `latex`): `texlive/texlive` `latest-small@sha256:c572bf2d14631545769e5a8f8d315e7b8f8896b14720b1c7a063917d503fd46a` (about 2.3 GB; the full image is about 5 GB) as the base of the image built from `deploy/latex-builder/` (`--build-arg BASE=<mirror>/texlive/texlive:...`); the chart deploys the resulting image `roracle/latex-builder` (`parsers.latexbuilder.image`; compose builds it locally as `roracle-latex-builder`), so mirror that, not the base. Not needed otherwise. Draft PDF builds (P9) use a second, Chromium-enabled instance of the same `gotenberg/gotenberg` image (`ROR_DRAFT_GOTENBERG_URL`); pandoc ships inside the backend image via the hash-pinned `pypandoc-binary` wheel (PyPI mirror).
 
 ### Operator images (set through `operator_images` in Terraform)
 

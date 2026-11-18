@@ -288,6 +288,17 @@ Parser services: optional in-chart Deployments. Only the worker calls them (inge
 | `parsers.draftgotenberg.env` | `{}` |  |
 | `parsers.draftgotenberg.resources.requests` | `{"cpu": "1", "memory": "2Gi"}` |  |
 | `parsers.draftgotenberg.resources.limits` | `{"memory": "4Gi"}` |  |
+| `parsers.latexbuilder.enabled` | `false` |  |
+| `parsers.latexbuilder.image` | `{"repository": "roracle/latex-builder", "tag": "", "digest": "", "pullPolicy": "IfNotPresent"}` |  |
+| `parsers.latexbuilder.port` | `8080` |  |
+| `parsers.latexbuilder.replicas` | `1` |  |
+| `parsers.latexbuilder.runAsUser` | `1001` |  |
+| `parsers.latexbuilder.readOnlyRootFilesystem` | `true` |  |
+| `parsers.latexbuilder.writableDirs` | `[{"path": "/tmp", "size": "1Gi"}]` |  |
+| `parsers.latexbuilder.probe` | `{"path": "/health"}` |  |
+| `parsers.latexbuilder.env` | `{"LATEX_CONCURRENCY": "2"}` |  |
+| `parsers.latexbuilder.resources.requests` | `{"cpu": "1", "memory": "1Gi"}` |  |
+| `parsers.latexbuilder.resources.limits` | `{"memory": "3Gi"}` |  |
 | `parsers.docling.enabled` | `true` |  |
 | `parsers.docling.image` | `{"repository": "quay.io/docling-project/docling-serve-cpu", "tag": "v1.38.2", "digest": "", "pullPolicy": "IfNotPresent"}` | Upstream is unversioned in dev compose (latest); pin in mirror: verify the tag and prefer a digest. |
 | `parsers.docling.port` | `5001` |  |

@@ -28,6 +28,7 @@ elasticsearch:
 parsers:
   gotenberg: {enabled: true}
   draftgotenberg: {enabled: true}
+  latexbuilder: {enabled: true, image: {tag: "1.0.0"}}
   docling: {enabled: true}
   grobid: {enabled: true}
   clamav: {enabled: true, mirrorUrl: "https://clamav-mirror.example.internal", mirrorCIDRs: ["10.20.30.0/24"]}

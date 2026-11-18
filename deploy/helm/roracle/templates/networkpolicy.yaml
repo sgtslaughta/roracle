@@ -55,7 +55,7 @@ metadata:
 {{- $api := include "roracle.npPods" (dict "root" . "comps" (list "api")) }}
 {{- $web := include "roracle.npPods" (dict "root" . "comps" (list "web")) }}
 {{- /* DNS for everything except parsers (zero egress). clamav gets DNS only when it must resolve the freshclam mirror. */}}
-{{- $noDns := list "gotenberg" "draftgotenberg" "docling" "grobid" }}
+{{- $noDns := list "gotenberg" "draftgotenberg" "latexbuilder" "docling" "grobid" }}
 {{- if not .Values.parsers.clamav.mirrorUrl }}{{ $noDns = append $noDns "clamav" }}{{ end }}
 {{ include "roracle.npMeta" (dict "root" . "name" "default-deny") }}
 spec:
@@ -149,14 +149,24 @@ spec:
     - to: [{ {{- include "roracle.npPods" (dict "root" . "comps" (list "draftgotenberg")) -}} }]
       ports: [{port: {{ .Values.parsers.draftgotenberg.port }}, protocol: TCP}]
 {{- end }}
-{{- range $p := list "gotenberg" "draftgotenberg" "docling" "grobid" "clamav" }}{{ $v := get $.Values.parsers $p }}{{ if $v.enabled }}
+{{- if .Values.parsers.latexbuilder.enabled }}
+---
+{{ include "roracle.npMeta" (dict "root" . "name" "api-egress-latex") }}
+spec:
+  {{ $api }}
+  policyTypes: [Egress]
+  egress:
+    - to: [{ {{- include "roracle.npPods" (dict "root" . "comps" (list "latexbuilder")) -}} }]
+      ports: [{port: {{ .Values.parsers.latexbuilder.port }}, protocol: TCP}]
+{{- end }}
+{{- range $p := list "gotenberg" "draftgotenberg" "latexbuilder" "docling" "grobid" "clamav" }}{{ $v := get $.Values.parsers $p }}{{ if $v.enabled }}
 ---
 {{ include "roracle.npMeta" (dict "root" $root "name" (printf "parser-%s" $p)) }}
 spec:
   {{ include "roracle.npPods" (dict "root" $root "comps" (list $p)) }}
   policyTypes: [Ingress, Egress]
   ingress:
-    - from: [{ {{- ternary $api $w (eq $p "draftgotenberg") -}} }]
+    - from: [{ {{- ternary $api $w (or (eq $p "draftgotenberg") (eq $p "latexbuilder")) -}} }]
       ports: [{port: {{ $v.port }}, protocol: TCP}]
   {{- if and (eq $p "clamav") $v.mirrorUrl }}
   {{- with include "roracle.npCidrRule" (dict "cidrs" $v.mirrorCIDRs "ports" (list 443 80)) | trim }}
