@@ -70,12 +70,14 @@ describe("library search", () => {
     await waitFor(() => expect(router.state.location.search.tags).toHaveLength(1));
   });
 
-  it("vote down opens reasons, then records the vote", async () => {
+  it("vote down in the drawer opens reasons, then records the vote", async () => {
     let body: unknown;
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
     await screen.findByText(/of 7 papers/);
-    await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
+    expect(within(results()[0]).queryByRole("button", { name: "Downvote" })).toBeNull(); // votes live in the drawer
+    await userEvent.click(within(results()[0]).getAllByRole("button")[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "Downvote" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("Outdated")).toBeInTheDocument();
     expect(within(menu).getByText("Wrong or misleading")).toBeInTheDocument();
@@ -84,12 +86,14 @@ describe("library search", () => {
     await waitFor(() => expect(body).toEqual({ value: -1, reason: "outdated" }));
   });
 
-  it("superseded asks which document replaces it", async () => {
+  it("superseded (drawer) asks which library document replaces it", async () => {
     let body: unknown;
     server.use(http.put(`${API_BASE}/documents/:id/vote`, async ({ request }) => { body = await request.json(); return HttpResponse.json({ up: 1, down: 1, mine: -1 }); }));
     await renderLibrary();
     await screen.findByText(/of 7 papers/);
-    await userEvent.click(within(results()[0]).getByRole("button", { name: "Downvote" }));
+    expect(within(results()[0]).queryByRole("button", { name: "Downvote" })).toBeNull(); // votes live in the drawer
+    await userEvent.click(within(results()[0]).getAllByRole("button")[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "Downvote" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Superseded/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Confirm" }));
     await waitFor(() => expect(body).toMatchObject({ value: -1, reason: "superseded", superseded_by: expect.any(String) }));

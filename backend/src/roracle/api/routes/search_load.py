@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, load_only
 from roracle.access import visible_documents
 from roracle.auth import Principal
 from roracle.cursor import make_cursor
+from roracle.identifiers import public_ids
 from roracle.models import Collection, CollectionItem, Document, DocumentVersion, Tag, Vote
 from roracle.retrieval import Passage
 from roracle.search_index import file_type as ext_of
@@ -243,4 +244,5 @@ def _hit(r: Row) -> dict:
         "cited_by_count": 0,  # filled by the route in one batched query
         "page_count": r.ver.page_count,
         "added_at": r.doc.created_at.isoformat() if r.doc.created_at else None,
+        "ids": public_ids(r.meta),
     }

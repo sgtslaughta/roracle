@@ -42,6 +42,11 @@ export interface SearchHit {
   cited_by_count: number;
   page_count: number | null;
   added_at: string;
+  /** AI summary and extracted abstract: null for agents on exclude_llm docs */
+  summary?: string | null;
+  abstract?: string | null;
+  ids?: Record<string, string>;
+  ref_count?: number;
   owner_id: string;
   label?: Label;
   /** community notes (search with notes=true); absent in older responses */

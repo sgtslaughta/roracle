@@ -9,7 +9,7 @@ import { Identifiers } from "./Identifiers";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddToCollectionDialog } from "@/features/library/AddToCollection";
-import { VoteControl } from "@/features/library/VoteControl";
+import { useSupersedeCandidates, VoteControl } from "@/features/library/VoteControl";
 import { useOwnerOrAdmin } from "@/features/library/useMe";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
@@ -30,6 +30,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
   const { data: d, isError } = useDoc(tab.docId);
   const refs = useReferences(tab.docId).data;
   const cited = useCitedBy(tab.docId).data;
+  const candidates = useSupersedeCandidates(tab.docId);
   const notes = useNotes(tab.docId).data;
   const adding = notesUi.use((s) => s.adding === tab.docId);
   const [collecting, setCollecting] = useState(false);
@@ -64,7 +65,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
             <Sparkles aria-hidden />Ask about this
           </Button>
-          <VoteControl docId={d.id} votes={d.votes} row />
+          <VoteControl docId={d.id} votes={d.votes} row candidates={candidates} />
           <select className="sel" aria-label="Version" value={version} onChange={(e) => setVersion(d.id, Number(e.target.value))}>
             {d.versions.map((v) => <option key={v.id} value={v.version}>Version {v.version}{v.is_latest ? " (latest)" : ""}</option>)}
           </select>

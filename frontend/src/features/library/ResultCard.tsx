@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { copyAction, RowMenu } from "@/components/RowMenu";
-import { Clock, FileText, FileType2, History, MessageSquareQuote, Quote, TextQuote } from "lucide-react";
+import { BookOpen, CalendarPlus, Clock, FileText, FileType2, History, ListTree, MessageSquareQuote, Quote, Sparkles, TextQuote } from "lucide-react";
 import type { CommunityNote } from "@/api/notes";
 import type { Bbox, SearchHit } from "@/api/types";
 import { OverflowList } from "@/components/OverflowList";
@@ -16,27 +16,27 @@ import { docTitle } from "@/lib/docTitle";
 import { useOwnerOrAdmin } from "./useMe";
 import { useRemoveFromCollection } from "./api";
 import { AddToCollectionDialog } from "./AddToCollection";
-import { VoteControl } from "./VoteControl";
+import { Identifiers } from "@/features/reader/Identifiers";
+import { useLabelById } from "@/features/labels/api";
 
 export interface ResultCardProps {
   hit: SearchHit;
   terms: string[];
-  others: { id: string; title: string }[];
   onOpen: (docId: string, opts?: { page?: number; chunkId?: string; bbox?: Bbox | null }) => void;
   onTag: (tag: string) => void;
   /** set when the library is filtered to exactly one collection */
   collectionId?: string;
 }
 
-export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: ResultCardProps) {
+export function ResultCard({ hit, terms, onOpen, onTag, collectionId }: ResultCardProps) {
   const removeFrom = useRemoveFromCollection();
   const canRemove = useOwnerOrAdmin(hit.owner_id);
   const [adding, setAdding] = useState(false);
   const title = docTitle(hit);
   const TypeIcon = hit.file_type === "PDF" ? FileText : FileType2;
+  const isDefaultLabel = useLabelById(hit.label?.id)?.is_default;
   return (
     <li className="result" tabIndex={0} data-doc={hit.doc_id}>
-      <VoteControl docId={hit.doc_id} votes={hit.votes} candidates={others.filter((o) => o.id !== hit.doc_id)} />
       <div style={{ minWidth: 0 }}>
         <div className="rtop">
           <div style={{ minWidth: 0 }}>
@@ -51,6 +51,8 @@ export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: 
             copyAction("Copy title", title),
           ]} />
         </div>
+        <Synopsis summary={hit.summary} abstract={hit.abstract} />
+        <Identifiers ids={hit.ids} />
         <div className="hits">
           {hit.passages.map((p) => (
             <button key={p.chunk_id} className="hit" onClick={() => onOpen(hit.doc_id, { page: p.page, chunkId: p.chunk_id, bbox: p.bbox })}>
@@ -61,9 +63,12 @@ export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: 
           <CommunityNotes docId={hit.doc_id} notes={hit.notes ?? []} />
         </div>
         <div className="rmeta">
-          {hit.label && <SensitivityBadge label={hit.label} />}
+          {hit.label && !isDefaultLabel && <SensitivityBadge label={hit.label} />}
           <Badge kind="type"><TypeIcon aria-hidden />{hit.file_type}</Badge>
           <Badge><History aria-hidden />v{hit.version}</Badge>
+          {hit.page_count != null && <Badge><BookOpen aria-hidden />{hit.page_count} pages</Badge>}
+          {!!hit.ref_count && <Badge><ListTree aria-hidden />{hit.ref_count} references</Badge>}
+          <Badge title={new Date(hit.added_at).toLocaleString()}><CalendarPlus aria-hidden />Added {new Date(hit.added_at).toLocaleDateString()}</Badge>
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}
           <OverflowList
             items={hit.tags} max={4} menuLabel="More tags" getLabel={(t) => t} className="ovl-tags"
@@ -73,6 +78,21 @@ export function ResultCard({ hit, terms, others, onOpen, onTag, collectionId }: 
       </div>
       {adding && <AddToCollectionDialog docId={hit.doc_id} open onOpenChange={setAdding} />}
     </li>
+  );
+}
+
+/** AI summary, clamped to 3 lines; "More" expands it and shows the extracted abstract under it. */
+function Synopsis({ summary, abstract }: { summary?: string | null; abstract?: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!summary && !abstract) return null;
+  return (
+    <div className={open ? "synopsis open" : "synopsis"}>
+      {summary && <p className="syn-sum"><Sparkles aria-hidden /><span className="sr-only">AI summary: </span>{summary}</p>}
+      {open && abstract && <p className="syn-abs"><strong>Abstract.</strong> {abstract}</p>}
+      <button type="button" className="btn-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? "Less" : abstract ? "More and abstract" : "More"}
+      </button>
+    </div>
   );
 }
 

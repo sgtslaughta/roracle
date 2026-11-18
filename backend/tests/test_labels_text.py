@@ -159,11 +159,16 @@ def locked(client, ana, admin, db_session, store):
 
 def test_pat_rest_search_and_detail_hide_text(client, as_ana, ana, db_session, fes, locked):
     d, v = locked
+    v.meta = {**v.meta, "abstract": "SECRET-ABSTRACT", "ids": {"arxiv": "2401.00001"}}
+    db_session.commit()
     fes.hits = [hit(d, v, "SECRET-TEXT")]
     tok = pat(db_session, ana, ["read"])
     h = client.get("/search", params={"q": "alpha"}, headers=tok).json()["results"][0]
     assert h["title"] == "Locked" and h["passages"] == [] and h["withheld"] == "NoLLM"
-    assert client.get("/search", params={"q": "alpha"}, headers=as_ana).json()["results"][0]["passages"]
+    assert h["summary"] is None and h["abstract"] is None and h["ids"] == {"arxiv": "2401.00001"}
+    human = client.get("/search", params={"q": "alpha"}, headers=as_ana).json()["results"][0]
+    assert human["passages"] and human["summary"] == "sum" and human["abstract"] == "SECRET-ABSTRACT"
+    assert human["ref_count"] == 0
     det = client.get(f"/documents/{d.id}", headers=tok).json()
     assert det["summary"] is None and det["title"] == "Locked"
     assert client.get(f"/documents/{d.id}", headers=as_ana).json()["summary"] == "sum"

@@ -100,7 +100,7 @@ export function SearchPage() {
           <ol className={view === "compact" ? "results compact" : "results"} hidden={view === "table" && !!data?.results.length}>
             {view === "compact" && data?.results.map((hit) => <CompactRow key={hit.doc_id} hit={hit} onOpen={openDoc} />)}
             {view === "list" && data?.results.map((hit) => (
-              <ResultCard key={hit.doc_id} hit={hit} terms={terms} others={others} onOpen={openDoc} onTag={(t) => nav.patch({ tags: [...new Set([...(search.tags ?? []), t])], tags_not: undefined })} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
+              <ResultCard key={hit.doc_id} hit={hit} terms={terms} onOpen={openDoc} onTag={(t) => nav.patch({ tags: [...new Set([...(search.tags ?? []), t])], tags_not: undefined })} collectionId={search.collection?.length === 1 ? search.collection[0] : undefined} />
             ))}
             {data && !data.results.length && (
               <li className="empty">
