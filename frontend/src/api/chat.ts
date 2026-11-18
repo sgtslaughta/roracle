@@ -37,6 +37,8 @@ export interface ChatMessage {
   citations: Citation[];
   retrieved: RetrievedPassage[];
   status: MessageStatus;
+  /** failed answers: plain reason ("the language model took too long to respond") */
+  error?: string | null;
   model: string | null;
   created_at: string;
   rating?: Rating | null;

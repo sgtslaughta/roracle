@@ -141,9 +141,8 @@ class DocumentCoauthor(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
 
 
-# Kinds claimed only when no user job is due. Single source for the claim SQL (queue.py) and the partial
-# claim indexes below; adding one needs a migration recreating ix_jobs_due_user/ix_jobs_due_bulk
-# (tests/test_queue_claim.py fails until the DB index predicates cover every bulk kind).
+# Kinds claimed only when no user job is due: single source for the claim SQL (queue.py) and the partial
+# claim indexes below. Adding one needs a migration recreating ix_jobs_due_user/_bulk (test_queue_claim.py).
 BULK_KINDS = ("rebuild_units", "reconcile_tags", "reparse_refs", "auto_tags")
 
 
@@ -319,6 +318,7 @@ class ChatMessage(Base):
     retrieved: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     status: Mapped[str] = mapped_column(String, default="complete", server_default="complete")
     model: Mapped[str | None] = mapped_column(String)
+    error: Mapped[str | None] = mapped_column(String)  # failed answers: plain-language reason
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 

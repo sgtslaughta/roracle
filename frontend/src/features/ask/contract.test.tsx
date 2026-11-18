@@ -177,7 +177,6 @@ describe("pre-stream errors restore the draft", () => {
   it.each([
     [403, { detail: "read-only" }, "This chat is read-only."],
     [422, { detail: "bad scope" }, "bad scope"],
-    [503, { detail: "search unavailable" }, "Answering is unavailable right now. Try again shortly."],
   ])("%i", async (status, body, copy) => {
     server.use(http.post(`${API_BASE}/chats/c1/messages`, () => HttpResponse.json(body, { status })));
     await renderApp("/ask/c1");
@@ -193,10 +192,12 @@ describe("pre-stream errors restore the draft", () => {
     expect(await screen.findByText(/This chat isn't available/)).toBeInTheDocument();
     await waitFor(() => expect(getAskContext().quote?.text).toBe("quoted"));
   });
-  it("the mock's magic question triggers the 503 path", async () => {
+  it("503 (the mock's magic question) fails inside the turn with a reason and Retry", async () => {
     await renderApp("/ask/c1");
     await ask("please trigger 503");
-    expect((await screen.findAllByText("Answering is unavailable right now. Try again shortly.")).length).toBeGreaterThan(0);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The answer could not be generated: answering is unavailable right now (the search or the language model is down).");
+    expect(within(alert).getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });
 
@@ -217,7 +218,7 @@ describe("SSE inference failure", () => {
     const h = { onToken: vi.fn(), onCitations: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
     await streamMessage("c1", { content: "q", viewer: { tabs: [], ignored: [], selection: null } }, h);
     expect(h.onError).toHaveBeenCalledTimes(1);
-    expect(h.onError).toHaveBeenCalledWith("The model couldn't finish this answer.");
+    expect(h.onError).toHaveBeenCalledWith("the language model could not finish it");
     expect(h.onDone).not.toHaveBeenCalled();
   });
 });

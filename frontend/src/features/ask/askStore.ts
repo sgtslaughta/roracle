@@ -15,7 +15,7 @@ export interface PendingTurn {
   text: string;
   citations: Citation[];
   excluded?: ExcludedByLabel[];
-  /** status line while the library is searched (agentic retrieval), cleared by the first token */
+  /** status line until the first token: "Searching your library…", agentic progress, then "Writing the answer…" */
   progress?: string;
   /** "Summarizing <title> (v<n>)": which paper a whole-document summary reads */
   note?: string;
@@ -57,6 +57,10 @@ export function attachChat(chatId: string) {
   };
 }
 
+export const SEARCHING = "Searching your library…";
+export const WRITING = "Writing the answer…";
+const UNAVAILABLE = "answering is unavailable right now (the search or the language model is down)";
+
 export interface StartOpts { question: string; viewer: Viewer; model?: string }
 
 export function startTurn(qc: QueryClient, chatId: string, { question, viewer, model }: StartOpts) {
@@ -64,7 +68,7 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
   const ctrl = new AbortController();
   ctrls.set(chatId, ctrl);
   const base = qc.getQueryData<ChatDetail>(["chat", chatId])?.messages.length ?? 0;
-  put(chatId, { question, selection: viewer.selection, base, text: "", citations: [], status: "streaming" });
+  put(chatId, { question, selection: viewer.selection, base, text: "", citations: [], status: "streaming", progress: SEARCHING });
 
   let buf = "";
   let timer: ReturnType<typeof setTimeout> | number = 0;
@@ -99,6 +103,7 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
     onToken: (t) => { buf += t; schedule(); },
     onProgress: (g) => patch(chatId, (p) => ({ ...p, progress: `Searching sub-question ${Math.min(g.done + 1, g.of)}/${g.of} (round ${g.step})…` })),
     onCitations: (items) => { flush(); patch(chatId, (p) => ({ ...p, citations: items })); },
+    onWriting: () => patch(chatId, (p) => ({ ...p, progress: WRITING })),
     onReading: (part, of) => patch(chatId, (p) => ({ ...p, progress: `Reading part ${part} of ${of}…` })),
     onSummarizing: (s) => patch(chatId, (p) => ({ ...p, note: `Summarizing ${s.title} (v${s.version})${s.partial ? `: read ${s.partial.read} of ${s.partial.of} parts, so the summary is partial` : ""}` })),
     onExcluded: (items) => patch(chatId, (p) => ({ ...p, excluded: items })),
@@ -109,19 +114,20 @@ export function startTurn(qc: QueryClient, chatId: string, { question, viewer, m
       if (note) noteByMessage.set(messageId, note);
       finish({ status: "done", messageId });
     },
-    onError: (detail) => finish({ status: "failed", detail }),
+    onError: (reason) => finish({ status: "failed", detail: reason }),
   }, ctrl.signal).catch((e: unknown) => {
     if (stale()) return;
     if (ctrl.signal.aborted) return finish({ status: "interrupted" });
     if (e instanceof ApiError) { // rejected before streaming: nothing was saved
+      if (e.status >= 500) return finish({ status: "failed", detail: e.status === 503 ? UNAVAILABLE : "the server ran into a problem" }); // the turn stays, with Retry
       put(chatId, null);
       if (e.status === 404) gone.set((s) => ({ ...s, [chatId]: true }));
       else if (e.status === 403) { toast("This chat is read-only."); void qc.invalidateQueries({ queryKey: ["chat", chatId] }); }
-      else toast(e.status === 503 ? "Answering is unavailable right now. Try again shortly." : e.message);
+      else toast(e.message);
       setDraft(question);
       setQuote(viewer.selection);
       return;
     }
-    finish({ status: "failed", detail: "The connection was lost." });
+    finish({ status: "failed", detail: "the connection to the server was lost" });
   }).finally(() => { if (ctrls.get(chatId) === ctrl) ctrls.delete(chatId); });
 }

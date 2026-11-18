@@ -64,6 +64,8 @@ function exportMd(c: ChatDetail): string {
   return `# ${c.title}\n\n${body.join("\n\n")}\n\n## References\n\n${refs.join("\n")}\n`;
 }
 
+const TIMEOUT = "the language model took too long to respond";
+
 function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): Response {
   const enc = new TextEncoder();
   const ev = (e: string, d: unknown) => enc.encode(`event: ${e}\ndata: ${JSON.stringify(d)}\n\n`);
@@ -89,6 +91,15 @@ function stream(chat: ChatDetail, body: SendMessageBody, signal: AbortSignal): R
       const excluded = [...new Set([...chat.pins, ...body.viewer.tabs.map((t) => t.doc_id)])].filter((id) => docLabel(id).gates.exclude_llm)
         .map((doc_id) => ({ doc_id, label: docLabel(doc_id).name }));
       if (excluded.length) ctrl.enqueue(ev("meta", { excluded_by_label: excluded }));
+      await tick();
+      ctrl.enqueue(ev("status", { stage: "writing" }));
+      if (/trigger timeout/i.test(body.content)) { // the model never answered: a failed row with its reason
+        saved = true;
+        chat.messages.push({ id: aid, role: "assistant", content: "", citations: [], retrieved: [], status: "failed", error: TIMEOUT, model, created_at: now(), rating: null });
+        ctrl.enqueue(ev("error", { detail: TIMEOUT }));
+        ctrl.close();
+        return;
+      }
       for (let i = 0; i < text.length; i += 12) {
         await tick();
         if (signal.aborted || saved) { save("interrupted"); return; }

@@ -12,6 +12,13 @@ export interface AnswerData {
 export interface TurnData { key: string; question: string; quote: string | null; answer: AnswerData | null }
 
 const quoteOf = (m: ChatMessage): string | null => m.viewer?.selection?.text ?? null;
+export const EMPTY_ANSWER = "the language model returned an empty answer";
+
+/** A saved assistant row as shown: an empty "complete" row (older servers) is a failure, not a blank answer. */
+function savedStatus(m: ChatMessage): Pick<AnswerData, "status" | "detail"> {
+  if (m.status === "complete" && !m.content.trim()) return { status: "failed", detail: EMPTY_ANSWER };
+  return { status: m.status, detail: m.error ?? undefined };
+}
 
 /** True when the server history already holds the turn this pending one stood in for. */
 export function isSettled(p: PendingTurn, messages: ChatMessage[]) {
@@ -28,7 +35,7 @@ function settledTurns(all: ChatMessage[], n: number): TurnData[] {
   for (const m of all.slice(0, n)) {
     if (m.role === "user") turns.push({ key: `t${turns.length}`, question: m.content, quote: quoteOf(m), answer: null });
     else if (turns.length && !turns[turns.length - 1].answer)
-      turns[turns.length - 1].answer = { text: m.content, citations: m.citations, status: m.status, id: m.id, retrieved: m.retrieved, rating: m.rating, excluded: excludedByMessage.get(m.id), note: noteByMessage.get(m.id) };
+      turns[turns.length - 1].answer = { text: m.content, citations: m.citations, ...savedStatus(m), id: m.id, retrieved: m.retrieved, rating: m.rating, excluded: excludedByMessage.get(m.id), note: noteByMessage.get(m.id) };
   }
   memo = { all, n, turns };
   return turns;

@@ -244,7 +244,30 @@ describe("ask view", () => {
     await waitFor(() => expect(within(screen.getByRole("log")).getAllByText(Q)).toHaveLength(1));
   });
 
-  it("shows a failed answer with Try again that re-sends the question", async () => {
+  it("shows progress at once: searching, then writing, then the answer", async () => {
+    const user = userEvent.setup();
+    const s = hold();
+    await renderApp();
+    await user.type(await box(), `${Q}{Enter}`);
+    expect(await screen.findByText("Searching your library…", { selector: "[role=status]" })).toBeInTheDocument();
+    await act(async () => { s.push("status", { stage: "writing" }); });
+    expect(await screen.findByText("Writing the answer…", { selector: "[role=status]" })).toBeInTheDocument();
+    await act(async () => { s.push("token", { text: "Hello" }); });
+    await waitFor(() => expect(screen.queryByText("Writing the answer…")).not.toBeInTheDocument());
+  });
+
+  it("a timed-out answer keeps its reason after the chat reloads", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.type(await box(), "please trigger timeout{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The answer could not be generated: the language model took too long to respond.");
+    await waitFor(() => expect(sent("GET", /\/chats\/[^/]+$/).length).toBeGreaterThan(0));
+    expect(await screen.findByRole("alert")).toHaveTextContent("took too long to respond.");
+    expect(within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("shows a failed answer with Retry that re-sends the question", async () => {
     const user = userEvent.setup();
     const s = hold();
     await renderApp();
@@ -252,9 +275,9 @@ describe("ask view", () => {
     await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(1));
     await act(async () => { s.push("error", { detail: "The model timed out." }); });
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("The answer couldn't be completed. The model timed out.");
+    expect(alert).toHaveTextContent("The answer could not be generated: The model timed out.");
     server.resetHandlers();
-    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(sent("POST", /\/messages$/)).toHaveLength(2));
     expect((await sent("POST", /\/messages$/)[1].json()).content).toBe(Q);
   });
