@@ -178,7 +178,7 @@ Grouped by domain. Each group's request and response schemas are in [openapi.jso
 | `GET`, `PUT /api/me/onboarding` | Get-started checklist state (PUT sets `dismissed`); GET also returns `pats_enabled` |
 | `GET /api/me/notifications`, `POST /api/me/notifications/read` | Inbox |
 | `GET`, `POST /api/me/tokens`, `DELETE /api/me/tokens/{token_id}` | Personal access tokens (JWT only) |
-| `GET /api/directory/users`, `GET /api/directory/groups` | Look up people and groups for sharing |
+| `GET /api/directory/users`, `GET /api/directory/users/lookup`, `GET /api/directory/groups` | Look up people and groups for sharing; resolve user ids already on a list to names |
 
 ### Admin
 

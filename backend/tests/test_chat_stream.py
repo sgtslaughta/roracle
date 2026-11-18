@@ -483,3 +483,9 @@ def test_new_message_unhides_chat(client, as_ana, ana, db_session, setup):
     assert client.get("/chats", headers=as_ana).json()["items"] == []
     assert client.post(f"/chats/{cid}/messages", headers=as_ana, json={"content": "again"}).status_code == 200
     assert [c["id"] for c in client.get("/chats", headers=as_ana).json()["items"]] == [cid]
+
+
+def test_parse_citations_accepts_passage_wording():
+    from roracle.chat.answer import parse_citations
+
+    assert parse_citations("A [Passage 2]. B [passages 1, 3]. C [Source 2][4]. D [9].", 4) == [2, 1, 3, 4]

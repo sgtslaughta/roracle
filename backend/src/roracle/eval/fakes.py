@@ -52,11 +52,12 @@ class OverlapJudge:
     def _chat(self, model: str, messages: list[dict], **_):
         body = messages[-1]["content"]
         if "<claim>" in body:
-            passage = re.search(r"<passage>\n(.*?)\n</passage>", body, re.DOTALL)
+            passages = re.findall(r"<passage[^>]*>\n(.*?)\n</passage>", body, re.DOTALL)
             claim = re.search(r"<claim>\n(.*?)\n</claim>", body, re.DOTALL)
             words = {w for w in _WORD.findall(claim.group(1).casefold()) if len(w) > 3} if claim else set()
-            have = set(_WORD.findall(passage.group(1).casefold())) if passage else set()
-            ok = bool(words) and len(words & have) / len(words) >= self.THRESHOLD
+            ok = bool(words) and any(
+                len(words & set(_WORD.findall(t.casefold()))) / len(words) >= self.THRESHOLD for t in passages
+            )
             return _reply(json.dumps({"supported": ok}))
         parts = re.findall(r'<passage n="(\d+)">\n(.*?)\n</passage>', body, re.DOTALL)[:3]
         first = lambda t: re.split(r"(?<=[.!?])\s", " ".join(t.split()), maxsplit=1)[0]

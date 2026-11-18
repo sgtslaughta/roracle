@@ -1,5 +1,5 @@
 /** Remark plugin: turns `[3]`, `[2,3]`, `[2][3]` in text into `cite-ref` nodes. */
-const RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+const RE = /\[(?:(?:passage|source)s?\s+)?(\d+(?:\s*,\s*\d+)*)\]/gi; // models sometimes write [Passage 2]
 const SKIP = new Set(["code", "inlineCode", "math", "inlineMath", "link", "linkReference"]);
 
 interface MNode { type: string; value?: string; children?: MNode[]; data?: Record<string, unknown> }

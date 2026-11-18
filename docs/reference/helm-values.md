@@ -47,13 +47,13 @@ Chart `deploy/helm/roracle` (generated from values.yaml). One row per key: block
 
 ## rerank
 
-Reranker (cross-encoder; deploy/game-01). Empty url = off. Allow its CIDR/port in networkPolicy.egressCIDRs.llm.
+Reranker (cross-encoder; deploy/game-01). Empty url = off. Allow its CIDR/port in networkPolicy.egressCIDRs.llm. Recommended on (own-corpus-v1 PASS, docs/eval/2026-11-16-rerank.md): set url to your site's TEI endpoint.
 
 | Key | Default | Description |
 |---|---|---|
-| `rerank.url` | `""` | TEI binds 127.0.0.1 on game-01: use a TLS proxy/mesh URL, e.g. https://rerank.internal/rerank |
-| `rerank.api` | `cohere` | cohere \| tei |
-| `rerank.model` | `""` | cohere-style servers only (bge-reranker-v2-m3) |
+| `rerank.url` | `""` | site-specific; TEI binds 127.0.0.1 on game-01: use a TLS proxy/mesh URL, e.g. https://rerank.internal/rerank |
+| `rerank.api` | `tei` | cohere \| tei (deploy/game-01 serves TEI) |
+| `rerank.model` | `bge-reranker-v2-m3` | sent to cohere-style servers; TEI ignores it |
 
 ## config
 

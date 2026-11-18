@@ -38,9 +38,73 @@ uv run roracle eval compare --set <reference set> --path chat --scope <all|fact|
   (**PASS** / **FAIL** / **INSUFFICIENT**) and its reasons, the latency check, and `acl_violations` (any hit the principal may not
   see: Postgres `visible_documents`, plus `llm_allowed` on the chat path) which fails the run. `--judge` answers and judges a
   deterministic sample of non-PAT chat pairs (`ROR_EVAL_JUDGE_SAMPLE`, model `ROR_EVAL_JUDGE_MODEL`) for faithfulness and citation support.
+- **Judge v2** (`eval/judge.py`, `judge_version` 2 in every judged result and run summary). The answer is split into sentence
+  claims (list lead-ins ending in `:` and questions are skipped); each claim carries the preceding sentence as context only.
+  - `citation_support`: share of (claim, cited passage) pairs where that passage supports the claim (one call per pair).
+  - `faithfulness`: share of claims supported by the passages the model saw. A claim no cite supports (uncited, out-of-range or
+    unsupporting cites) gets one more call against all passages. The judge sees exactly the text the model saw (chat passages are
+    clipped to `chat/retrieve.py::MAX_CHARS` before the answer, so judging unclipped text would credit content the model never read).
+  - `citation_coverage`: share of claims carrying at least one `[n]` (reported, not gated).
+  - The rubric counts paraphrase, number formatting and faithful summary as supported; added facts, causal links, attributions or
+    generalizations are not. A refusal (no claims) still scores 0.
+  - Why: judge v1 scored every uncited sentence as unfaithful without checking it. On own-corpus-v1 (runs `93a71318`, `3762cb28`,
+    30 judged answers each) 135 of 148 "unfaithful" claims were uncited sentences, about two thirds of them plainly supported by the
+    passages; v1 faithfulness (~0.5 micro, ~0.58 macro) measured citation density, not grounding. **v1 and v2 numbers are not
+    comparable**: compare runs judged with the same `judge_version` only.
 - Gate constants (`eval/gate.py`): `MIN_QUERIES` 200, `MIN_SCOPE_QUERIES` 50, `MIN_PRINCIPALS` 3, passage nDCG@10 gain 0.02 **or**
   Recall@10 gain 0.02 (either gain counts only with a CI lower bound > 0), Recall@100 loss <= 0.005 (the `global` scope guards document Recall@40 instead), judge loss <= 0.02; `global` scope: document-level
   Recall@10 gain 0.05 and `fact` nDCG@10 loss <= 0.005.
+
+## Run the pending gates in the target network
+
+Context notes, RAPTOR, the router and agentic retrieval are **PENDING**: on 2026-11-18 the only GPU here (one RTX 4090 on game-01, shared by
+the LLM, the reranker and the shadow builds) was too slow, so these gates run where there is more capacity. Steps:
+
+1. **Reference set over your corpus.** Create an empty set on Admin -> Eval, then (as in [own-corpus-v1](own-corpus-v1.md)):
+
+   ```text
+   uv run roracle eval generate --set <ref> --principal <non-admin owner> --kind fact -n 15      # repeat per kind
+   uv run roracle eval generate --set <ref> --principal <non-admin owner> --kind multihop -n 15  # until each kind
+   uv run roracle eval generate --set <ref> --principal <non-admin owner> --kind global -n 15    # keeps >= 50
+   uv run roracle eval curate --set <ref> --principals <user2>,<user3>
+   ```
+
+   Need >= 200 active queries, >= 50 per scope and >= 3 principals (>= 1 non-admin); review the set and mark it `is_reference`
+   (`PATCH /api/admin/eval/sets/{id}`). Expect about 45-70 % of generated multihop and global drafts to be rejected.
+2. **One model name for every LLM call.** Ollama reloads the model on every switch between names (here: 150 s timeouts).
+   Set the same name in `ROR_CHAT_MODELS`, `ROR_SUMMARY_MODEL`, `ROR_EVAL_JUDGE_MODEL`, `ROR_CONTEXT_MODEL`,
+   `ROR_RAPTOR_MODEL`, `ROR_ROUTER_MODEL` and `ROR_AGENTIC_PLANNER_MODEL` for the CLI process. In `config.py` RAPTOR and the router fall back to `summary_model`
+   (`qwen2.5:3b`); the runs recorded here used `qwen2.5-14b-ctx16k`. Pick the model you will run in production and record
+   it in the report. Context notes need a variant with `num_ctx >= 16384`.
+3. **Shadow indices** (the live index is untouched; [runbook](../enterprise/runbook-routine.md#rebuild-derived-index-fields-and-shadow-indices)):
+
+   ```text
+   uv run roracle rebuild --what context --into chunks-<slug>-shadow-ctx
+   uv run roracle rebuild --what raptor  --into chunks-<slug>-shadow-raptor
+   ```
+
+   Measured here: about 0.5-1 document version per second on one RTX 4090 (LLM-bound; Ollama saturates near 1/s, so two
+   workers are enough). 5,190 versions took about 2.5-3 h per index.
+4. **Compares** (one compare per feature; both arms run the whole set, the scope only picks the verdict). The reranker
+   passed, so keep it on in both arms (`R="rerank_url=<url>,rerank_api=tei,rerank_model=bge-reranker-v2-m3"`):
+
+   ```text
+   uv run roracle eval compare --set <ref> --path chat --scope all --judge --baseline "$R" \
+     --candidate "$R" --candidate-index chunks-<slug>-shadow-ctx --out docs/eval/2026-11-16-context-notes.md
+   uv run roracle eval compare --set <ref> --path chat --scope all --judge --baseline "$R" \
+     --candidate "$R,raptor=true" --candidate-index chunks-<slug>-shadow-raptor \
+     --latency-budget-ms <baseline p95 + 300> --out docs/eval/2026-11-16-raptor.md
+   uv run roracle eval compare --set <ref> --path chat --scope global --judge --baseline "$R,router=false" \
+     --candidate "$R,router=true" --latency-budget-ms <baseline p95 + 1500> --out docs/eval/2026-11-16-router.md
+   uv run roracle eval compare --set <ref> --path chat --scope multihop --judge --baseline "$R" \
+     --candidate "$R,agentic_retrieval=true" --out docs/eval/2026-11-17-agentic.md
+   ```
+
+   Agentic also needs the `all` scope `p_ndcg@10` delta >= -0.005 on the same two runs, and its planner p95 recorded
+   (budget: added p95 <= 1.0 s per round). Use a bigger judge sample than here (`ROR_EVAL_JUDGE_SAMPLE`, default 100):
+   with 10-30 judged pairs the judge intervals are very wide. The router compare timed out here during its map-reduce answers: raise `ROR_LLM_TIMEOUT_S` (here 120 s) or use an unshared GPU. Timing here (one 4090): a retrieval-only arm of 924 pairs
+   took about 3-8 min, 30 judged pairs about 5 min more, router map-reduce answers longer.
+5. On a PASS follow the feature report's "On PASS" section; afterwards `roracle rebuild --drop chunks-<slug>-shadow-...`.
 
 ## Reading the files
 
