@@ -1,0 +1,48 @@
+{{- if and .Values.observability.prometheusRule.enabled .Values.metrics.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "roracle.fullname" . }}
+  labels:
+    {{- include "roracle.labels" . | nindent 4 }}
+    {{- with .Values.observability.prometheusRule.labels }}{{ toYaml . | nindent 4 }}{{ end }}
+spec:
+  groups:
+    - name: roracle
+      rules:
+        - alert: RoracleApi5xxHigh
+          expr: 'sum(rate(roracle_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(roracle_http_requests_total[5m])), 1e-9) > 0.05'
+          for: 10m
+          labels: {severity: warning}
+          annotations: {summary: "More than 5% of API requests return 5xx"}
+        - alert: RoracleAuthFailuresBurst
+          expr: 'sum(rate(roracle_http_requests_total{status="401"}[5m])) * 60 > 30'
+          for: 5m
+          labels: {severity: warning}
+          annotations: {summary: "More than 30 authentication failures (401) per minute"}
+        - alert: RoracleRateLimitedBurst
+          expr: 'sum(rate(roracle_http_requests_total{status="429"}[5m])) * 60 > 60'
+          for: 5m
+          labels: {severity: warning}
+          annotations: {summary: "More than 60 rate-limited requests (429) per minute"}
+        - alert: RoracleForbiddenBurst
+          expr: 'sum(rate(roracle_http_requests_total{status="403"}[5m])) * 60 > 30'
+          for: 10m
+          labels: {severity: warning}
+          annotations: {summary: "More than 30 forbidden responses (403) per minute"}
+        - alert: RoracleJobsFailing
+          expr: 'sum(increase(roracle_job_runs_total{outcome="failed"}[15m])) > 5'
+          for: 0m
+          labels: {severity: warning}
+          annotations: {summary: "More than 5 jobs failed in 15 minutes"}
+        - alert: RoracleQueueBacklog
+          expr: 'max(roracle_jobs_oldest_queued_seconds) > 1800'
+          for: 10m
+          labels: {severity: warning}
+          annotations: {summary: "Oldest queued job is older than 30 minutes"}
+        - alert: RoracleAuditWriteFailures
+          expr: 'sum(increase(roracle_audit_write_failures_total[10m])) > 0'
+          for: 0m
+          labels: {severity: critical}
+          annotations: {summary: "Audit rows could not be written"}
+{{- end }}

@@ -11,7 +11,7 @@ Audience: operators and SRE. Back to the [enterprise index](README.md) and the [
 | OTLP traces and metrics | the api and worker, under `opentelemetry-instrument` | push, OTLP over HTTP (`http/protobuf`) to `observability.otel.endpoint`, empty by default |
 | Logs | stdout and stderr of every pod | nothing in this repo collects them; the collector values have a logs pipeline (OTLP in, Loki out), and the chart sets only the OTLP endpoint, protocol, service name and resource attributes on the pods |
 
-Health probes (`/healthz`, `/readyz`, the worker's `/healthz`) are described in the [health runbook](runbook-health-alerts.md). **The repo ships no `PodMonitor`, `ServiceMonitor` or scrape job for the api and worker** (only CNPG's own `PodMonitor` for Postgres). Until you add one, every `roracle_*` panel on the dashboard is empty. The `/metrics` endpoints are never routed through the ingress. With the application NetworkPolicy on (`networkPolicy.enabled`), `networkPolicy.scrape` (ports 8000 and 8001) allows only the namespace in `networkPolicy.monitoringNamespace` (default `monitoring`) to reach them; if your worker `healthPort` differs, change `networkPolicy.scrape.ports`. OTLP egress to the collector needs `networkPolicy.egressCIDRs.otel` (port 4318).
+Health probes (`/healthz`, `/readyz`, the worker's `/healthz`) are described in the [health runbook](runbook-health-alerts.md). The chart can create a `PodMonitor` for the api and worker (`observability.podMonitor.enabled`, default false; needs the prometheus-operator CRDs and `metrics.enabled`; scrapes `http` on the api and `metrics` on the worker, `interval` default 30s, extra `labels` for your Prometheus selector). Until you enable it or add your own scrape job, every `roracle_*` panel on the dashboard is empty. The `/metrics` endpoints are never routed through the ingress. With the application NetworkPolicy on (`networkPolicy.enabled`), `networkPolicy.scrape` (ports 8000 and 8001) allows only the namespace in `networkPolicy.monitoringNamespace` (default `monitoring`) to reach them; if your worker `healthPort` differs, change `networkPolicy.scrape.ports`. OTLP egress to the collector needs `networkPolicy.egressCIDRs.otel` (port 4318).
 
 ## 2. The optional stack (`deploy/observability/`)
 
@@ -52,7 +52,9 @@ Not on the dashboard: Elasticsearch health (no exporter is bundled, a deliberate
 
 ## 4. Alert rules
 
-**The repo ships no alert rules**: there is no `PrometheusRule` in the chart or in `deploy/observability/`. Alertmanager is enabled by the stack values but has no rules from rOracle. The conditions to start from are in the [health runbook](runbook-health-alerts.md#2-suggested-alerts); implement them as a `PrometheusRule` in your monitoring release.
+Set `observability.prometheusRule.enabled=true` (needs the prometheus-operator CRDs and `metrics.enabled`; `labels` for your rule selector) to ship a `PrometheusRule` named `<fullname>` with group `roracle` and the seven alerts in the [health runbook](runbook-health-alerts.md#2-suggested-alerts). Other conditions from that section remain yours to define in your monitoring release.
+
+Set `global.requireDigests=true` to make the render fail unless every image (backend, web, postgres, elasticsearch, enabled parsers, snapshot curl) has a `digest`.
 
 ## 5. Custom Postgres queries
 

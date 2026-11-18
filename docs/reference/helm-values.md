@@ -18,6 +18,7 @@ Chart `deploy/helm/roracle` (generated from values.yaml). One row per key: block
 | Key | Default | Description |
 |---|---|---|
 | `global.imageRegistry` | `""` | prefix for every image, e.g. registry.internal.example |
+| `global.requireDigests` | `false` | true: render fails unless every image.digest (backend, web, postgres, elasticsearch, parsers, snapshot curl) is set |
 
 ## image
 
@@ -107,6 +108,8 @@ OTel: env is emitted when endpoint is set; the image then runs api/worker under 
 |---|---|---|
 | `observability.otel.endpoint` | `""` | e.g. http://otel-collector.observability:4318 |
 | `observability.grafanaDashboard` | `{"enabled": false, "label": "grafana_dashboard"}` | Grafana sidecar-provisioned dashboard (backend /metrics + CNPG panels). `label` = sidecar label key. |
+| `observability.podMonitor` | `{"enabled": false, "interval": "30s", "labels": {}}` | Both need prometheus-operator CRDs and metrics.enabled. PodMonitor scrapes api (http) and worker (metrics) /metrics. |
+| `observability.prometheusRule` | `{"enabled": false, "labels": {}}` | seven alerts, group roracle |
 
 ## podSecurityContext
 

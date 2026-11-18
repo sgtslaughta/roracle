@@ -9,7 +9,10 @@ config:
   ROR_OIDC_ISSUER: https://kc.example.internal/realms/research
   ROR_OIDC_JWKS_URL: https://kc.example.internal/realms/research/protocol/openid-connect/certs
   ROR_LLM_BASE_URL: https://llm.example.internal/v1
-observability: {otel: {endpoint: "http://otel-collector.observability:4318"}}
+observability:
+  otel: {endpoint: "http://otel-collector.observability:4318"}
+  podMonitor: {enabled: true}
+  prometheusRule: {enabled: true}
 web: {autoscaling: {enabled: true}}
 ingress:
   enabled: true
