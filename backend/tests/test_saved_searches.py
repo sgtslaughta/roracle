@@ -91,5 +91,5 @@ def test_user_delete_cascades(client, as_ana, db_session):
     assert db_session.get(User, owner) is None
 
 
-def test_single_head_is_0020():
-    assert ScriptDirectory.from_config(_alembic_config()).get_heads() == ["0020"]
+def test_single_head_is_0021():  # 0021_tag_source
+    assert ScriptDirectory.from_config(_alembic_config()).get_heads() == ["0021"]
