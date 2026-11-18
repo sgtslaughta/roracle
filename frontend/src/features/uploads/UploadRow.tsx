@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { SensitivityBadge } from "@/components/SensitivityBadge";
 import { NearDupPrompt } from "./NearDupPrompt";
 import { AddTitle, TitlePrompt } from "./TitlePrompt";
-import { pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
+import { failureText, pipelineDone, PILL, STAGE_LABELS, viewStatus, VIS_LABEL } from "./status";
 
 const PILL_ICON = { done: Check, running: Loader, failed: CircleAlert, review: GitCompare, title: Pencil } as const;
 const VIS_ICON = { everyone: Globe, private: Lock, org_unit: Users, shared: Users } as const;
@@ -45,7 +45,7 @@ export function UploadRow({ u }: { u: UploadItem }) {
         ]} />
       </span>
       {st === "failed" && (
-        <div className="tdet failed"><span className="msg"><CircleAlert aria-hidden />{u.error ?? "Processing failed."}</span></div>
+        <div className="tdet failed"><span className="msg"><CircleAlert aria-hidden />{failureText(u.error)}</span></div>
       )}
       {st === "review" && <NearDupPrompt u={u} />}
       {st === "title" && <TitlePrompt u={u} />}

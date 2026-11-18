@@ -55,6 +55,12 @@ group("describe: notes and proposals", () => {
   it("proposal.new names the client and links to the inbox", () => {
     expect(describe("proposal.new", { proposal_id: N, kind: "note", client: "claude-code" })).toEqual({ text: "claude-code proposed a note.", to: "/proposals" });
     expect(describe("proposal.new", {}).text).toBe("An agent proposed a note.");
+    // token clients are named like the inbox does, never as the internal "pat:" id; the kind is named
+    expect(describe("proposal.new", { kind: "label", client: "pat:laptop" }).text).toBe("Your token “laptop” proposed a label change.");
+    expect(describe("proposal.new", { kind: "relation", client: "cursor" }).text).toBe("cursor proposed a link between papers.");
+  });
+  it("upload.failed explains the reason in plain words", () => {
+    expect(describe("upload.failed", { filename: "x.md", error: "no text extracted" }).text).toMatch(/^“x\.md” couldn't be processed\. No text could be read/);
   });
   it("note.reply opens the reply in the document's notes", () => {
     expect(describe("note.reply", { document_id: D, note_id: "x", reply_id: N })).toEqual({ text: "Someone replied to your note.", to: `/d/${D}`, note: { docId: D, noteId: N } });

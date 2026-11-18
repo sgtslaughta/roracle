@@ -35,3 +35,23 @@ export const VIS_ORDER: Visibility[] = ["everyone", "org_unit", "private", "shar
 export const VIS_LABEL: Record<Visibility, string> = { everyone: "Everyone", org_unit: "My org unit", private: "Only me", shared: "Shared" };
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
+
+/** Known ingest failure reasons, in plain words; anything else gets a capital and a full stop. */
+const FAILURES: [RegExp, string][] = [
+  [/^no text extracted$/i, "No text could be read from this file. For a scan or photo, try a sharper copy."],
+  [/^document could not be converted/i, "This file couldn't be read. It may be damaged, or its type isn't supported."],
+  [/^invalid (json|tsv)$/i, "This file isn't valid $1."],
+  [/^archive (was not unpacked|could not be read)/i, "This archive couldn't be unpacked. Check that it isn't damaged."],
+  [/^(file exceeds the malware scanner|converted PDF exceeds)/i, "This file is too large to process."],
+  [/^ingest crashed repeatedly$/i, "Processing kept failing. Try uploading the file again."],
+];
+export function failureText(raw: string | null | undefined): string {
+  const t = (raw ?? "").trim();
+  if (!t) return "Processing failed.";
+  for (const [re, text] of FAILURES) {
+    const m = t.match(re);
+    if (m) return text.replace("$1", (m[1] ?? "").toUpperCase());
+  }
+  const s = t[0].toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(s) ? s : `${s}.`;
+}
