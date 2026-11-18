@@ -316,14 +316,12 @@ def get_part(session: Session, p: Principal, code: str, part: str, page: int = 1
             }
             for m in items
         ]
-        withhold_messages(items, gated, lambda m: m["_docs"])
         seen = set(_visible_doc_ids(session, p, {d for m in items for d in m["_docs"]}))
+        # Invisible papers must not leak even a label name: label withholding sees readable docs only,
+        # and "unavailable" then overrides any reply that depends on an unreadable one.
+        withhold_messages(items, {d: n for d, n in gated.items() if d in seen}, lambda m: m["_docs"])
         for m in items:
-            if (
-                m.get("role") == "assistant"
-                and m["_docs"] - seen
-                and not m["content"].startswith("[withheld: ")
-            ):
+            if m.get("role") == "assistant" and m["_docs"] - seen:
                 m["content"] = withheld_text(UNAVAILABLE)
             del m["_docs"]
     audit(session, p, "handoff.load", h.code, {"part": part, "page": page})
