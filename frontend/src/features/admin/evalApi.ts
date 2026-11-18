@@ -35,5 +35,5 @@ export const usePatchSet = () => useEvalMutation(({ id, ...b }: { id: string; is
 export const useDeleteSet = () => useEvalMutation((id: string) => apiFetch<void>(`/admin/eval/sets/${seg(id)}`, { method: "DELETE" }));
 export const usePatchQuery = () => useEvalMutation(({ id, ...b }: { id: string; status?: "draft" | "active" }) => apiFetch<EvalQuery>(`/admin/eval/queries/${seg(id)}`, { method: "PATCH", json: b }));
 export const useDeleteQuery = () => useEvalMutation((id: string) => apiFetch<void>(`/admin/eval/queries/${seg(id)}`, { method: "DELETE" }));
-export const useGenerate = () => useEvalMutation(({ id, ...b }: { id: string; n: number; principal: string }) => apiFetch<{ job_id: number }>(`/admin/eval/sets/${seg(id)}/generate`, { method: "POST", json: b }));
+export const useGenerate = () => useEvalMutation(({ id, ...b }: { id: string; n: number; principal: string; kind?: EvalKind }) => apiFetch<{ job_id: number }>(`/admin/eval/sets/${seg(id)}/generate`, { method: "POST", json: b }));
 export const useStartRun = () => useEvalMutation((b: { set_id: string; path: EvalPath; judge: boolean }) => apiFetch<{ job_id: number }>("/admin/eval/runs", { method: "POST", json: b }));
