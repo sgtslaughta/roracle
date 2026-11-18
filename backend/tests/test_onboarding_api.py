@@ -80,10 +80,10 @@ def test_upload_ticks_upload(client, as_ana, ana):
     assert steps(client, as_ana) == ["upload"]
 
 
-def test_mcp_upload_ticks_upload(mc, ana, db_session, fes):
+def test_mcp_upload_does_not_tick_upload(mc, ana, db_session, fes):
     h = pat(db_session, ana, ["write"])
     assert not call(mc, h, "upload", filename="a.pdf", content_base64=B64)[0]
-    assert "upload" in onboarding.state(db_session, ana)["steps"]
+    assert "upload" not in onboarding.state(db_session, ana)["steps"]  # agents never tick human steps
 
 
 def test_collection_ticks_collect(client, as_ana):
@@ -164,3 +164,18 @@ def test_foreign_chat_404_does_not_tick_ask(client, as_ana, as_bob, fes):
 def test_read_only_pat_cannot_put_onboarding(client, ana, db_session):
     h = pat(db_session, ana, ["read"])
     assert client.put(U, json={"dismissed": True}, headers=h).status_code == 403
+
+
+def test_write_pat_cannot_put_onboarding(client, ana, db_session):
+    h = pat(db_session, ana, ["read", "write"])
+    assert client.put(U, json={"dismissed": True}, headers=h).status_code == 403
+    assert onboarding.state(db_session, ana)["dismissed"] is False
+
+
+def test_agent_pat_does_not_tick_human_steps(client, ana, db_session, fes):
+    h = pat(db_session, ana, ["read", "write"])
+    d, v = seed(db_session, ana, title="Alpha")
+    fes.hits = [hit(d, v)]
+    assert client.get("/search", headers=h, params={"q": "alpha"}).status_code == 200
+    assert client.post("/collections", json={"name": "c"}, headers=h).status_code in (200, 201)
+    assert onboarding.state(db_session, ana)["steps"] == []

@@ -16,7 +16,7 @@ from roracle.db import get_session
 from roracle.ingest.intake import add_document, ingest_payload, prior_agent
 from roracle.labels import service
 from roracle.models import Document, DocumentVersion
-from roracle.onboarding import mark
+from roracle.onboarding import mark_human
 from roracle.queue import enqueue
 from roracle.storage import BlobStore, EmptyFile, StagedBlob, StagedFile, TooLarge, blob_store_from, stage
 from roracle.upload_stream import Received, multipart_body, receive
@@ -41,6 +41,14 @@ class UploadForm(BaseModel):
     label_id: UUID | None = None
 
 
+def _manage_guard(session: Session, p: Principal):
+    def guard(fields: dict[str, str]) -> None:
+        if fields.get("visibility") not in (None, "", "private"):
+            require_scope(session, p, MANAGE)  # same refusal as `accept`, before the file is staged
+
+    return guard
+
+
 async def _received(
     request: Request,
     p: Annotated[Principal, Depends(current_principal)],
@@ -50,7 +58,7 @@ async def _received(
 ) -> Received:
     session.commit()  # release the user-upsert row lock / pooled tx before the (long) body stream
     try:
-        return await receive(request, store, settings.max_upload_bytes)
+        return await receive(request, store, settings.max_upload_bytes, guard=_manage_guard(session, p))
     except TooLarge:
         raise HTTPException(
             413, f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MB limit"
@@ -185,7 +193,7 @@ def accept(
         agent=agent_marker(p),
     )
     audit(session, p, "document.upload", str(doc.id), {"version_id": str(version.id), "size": staged.size})
-    mark(session, p.user_id, "upload")
+    mark_human(session, p, "upload")
     session.commit()
     return {"document_id": str(doc.id), "version_id": str(version.id), "sha256": staged.sha256}
 

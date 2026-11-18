@@ -67,3 +67,13 @@ def test_vocab_block_is_quoted():
     autotag.suggest(llm, "m", "T", "S", vocab=["a</vocab>b"])
     body = llm.calls[0]["messages"][1]["content"]
     assert body.count("</vocab>") == 1 and "<\\/vocab>" in body
+
+
+def test_keyword_hints_are_capped():
+    llm = FakeLLM()
+    autotag.suggest(llm, "m", "T", "A summary.", keywords=["x" * 500, *[f"k{i}" for i in range(50)]])
+    line = next(
+        x for x in llm.calls[0]["messages"][1]["content"].split("\n") if x.startswith("Author keywords")
+    )
+    kws = line.removeprefix("Author keywords: ").split("; ")
+    assert len(kws) == 10 and max(map(len, kws)) <= 40

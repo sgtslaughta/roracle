@@ -50,6 +50,12 @@ sequenceDiagram
   get gate (b): chunks whose label has `block_agents` are excluded, admins included.
 - **BM25.** A `multi_match` over `text` (weight 1), `title` (2), `headings` and `context` (the contextual
   note). Summary units, if present, are demoted by a factor of 0.6 so one document cannot crowd the list.
+- **Chat BM25** (`chat/lexical.py`) differs in two ways. It runs on the question minus English request filler
+  (`lexical_query`: "find things on robots" becomes "robots"; a closed English word list, so non-English words are
+  never dropped; an empty result falls back to the raw question). It weights `title` 3, `abstract` 2 (head chunk)
+  and `text`, `headings`, `context` 1 with a 0.3 tie-breaker, and adds tag clauses: an exact tag term (boost 3)
+  and a prefix on the de-pluralised word of 5+ characters (boost 1.5, so "robots" reaches `#robotics`). kNN and the
+  reranker keep the raw question. All fields already exist on chunks, so no reindex is needed.
 - **kNN.** On `embedding` with `k` equal to the list size (100 for search) and `num_candidates` of four times
   that. `ROR_SEARCH_MIN_SIMILARITY` (default 0.35) is the cosine floor; 0 disables it. The index uses
   `int8_hnsw` by default. `ROR_VECTOR_INDEX_TYPE=bbq_hnsw` selects BBQ binary quantization, which rescores the
@@ -64,6 +70,10 @@ sequenceDiagram
 
 1. **RRF.** Reciprocal rank fusion runs in the application: each chunk scores the sum of `1 / (60 + rank)`
    over the lists it appears in (`k` = 60).
+   On the chat path the fused list then keeps at most `ROR_CHAT_CHUNKS_PER_DOC` (default 3; 0 disables)
+   chunks per document before the rerank, so a few documents with many matching chunks cannot fill the window.
+   A scope too small to fill the 12-passage maximum under the cap (open tabs, fewer than 12 / cap documents) is
+   not capped.
 2. **Cross-encoder rerank**, only when `ROR_RERANK_URL` is set (the default is empty, so it is off).
    - Depth: the first `ROR_SEARCH_RERANK_DEPTH` (default 50) passages for `/search`; chat and MCP use
      `ROR_RERANK_DEPTH` (default 200). The rest keep their fused order after the reranked head.

@@ -67,7 +67,7 @@ Header: Authorization: Bearer <your token>
 
 ### Check the connection
 
-Ask the agent to use rOracle. The first time your agent connects with the token, the step is ticked on your Get started card.
+Ask the agent to use rOracle. The first time your agent connects with the token, the step is ticked on your Get started card. Only that step: what an agent does with a token (searching, asking, uploading, adding to a collection) never ticks the others, and a token cannot hide or reopen the card.
 
 ```text title="Prompt"
 Use rOracle to list my collections.

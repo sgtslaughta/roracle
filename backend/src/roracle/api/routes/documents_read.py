@@ -138,8 +138,8 @@ def detail(doc_id: UUID, p: Who, session: Session_) -> dict:
         "references_count": len(latest.references or []) if latest else 0,
         "withheld": lab.name if hide else None,
         "stage": latest.stage if latest else "uploaded",
-        "tags": tags_of(session, doc_id),
-        "auto_tags": auto_tags_of(session, doc_id),  # subset of `tags` suggested by the LLM
+        "tags": tags_of(session, doc_id, user_only=hide),  # agents: no LLM tags of exclude_llm docs
+        "auto_tags": [] if hide else auto_tags_of(session, doc_id),  # subset of `tags` suggested by the LLM
         "votes": vote_summary(session, doc_id, p.user_id),
         "file_type": file_type(latest.filename) if latest else "other",
         "versions": [

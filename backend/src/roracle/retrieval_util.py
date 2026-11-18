@@ -81,3 +81,17 @@ def _msearch(es, index: str, bodies: list[dict]) -> list[dict | ApiError]:
         else:
             out.append(r)
     return out
+
+
+def cap_per_doc(passages: list, n: int | None) -> list:
+    """At most `n` passages per `doc_id`, best-first order kept (None/0: unchanged). Applied before the rerank so a
+    few documents with many matching chunks cannot crowd every other document out of the reranked window."""
+    if not n:
+        return passages
+    seen: dict[str, int] = {}
+    out = []
+    for x in passages:
+        seen[x.doc_id] = seen.get(x.doc_id, 0) + 1
+        if seen[x.doc_id] <= n:
+            out.append(x)
+    return out

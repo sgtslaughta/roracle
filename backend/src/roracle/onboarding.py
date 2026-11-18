@@ -32,6 +32,12 @@ def mark(session: Session, user_id: UUID, step: str) -> None:
     session.info.setdefault("onb_pending", set()).add(key)
 
 
+def mark_human(session: Session, p, step: str) -> None:
+    """Steps that stand for a human's web action: an agent token (PAT or /mcp) never ticks them."""
+    if not p.is_agent:
+        mark(session, p.user_id, step)
+
+
 def state(session: Session, user_id: UUID) -> dict:
     row = session.execute(
         text("SELECT steps, dismissed FROM onboarding_progress WHERE user_id = :u"), {"u": user_id}

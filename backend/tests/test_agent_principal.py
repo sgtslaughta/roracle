@@ -44,6 +44,23 @@ def test_mcp_jwt_exclude_llm_text_withheld(client, mc, as_ana, ana, admin, db_se
     assert "SECRET" not in json.dumps(out) and "NoLLM" in json.dumps(out)
 
 
+def test_mcp_exclude_llm_hides_llm_tags_keeps_user_tags(client, mc, as_ana, ana, admin, db_session, fes):
+    from roracle.models import Tag
+
+    nl = mk(client, admin, "NoLLM", 2, exclude_llm=True)
+    d, v = seed(db_session, ana, title="T")
+    label(db_session, d, nl)
+    db_session.add_all([Tag(document_id=d.id, tag="mine"), Tag(document_id=d.id, tag="robot", source="llm")])
+    db_session.flush()
+    doc = call(mc, as_ana, "get_document", doc_id=str(d.id))[1]
+    assert doc["tags"] == ["mine"] and doc["auto_tags"] == []
+    fes.hits = [hit(d, v, "SECRET")]
+    res = call(mc, as_ana, "search", query="alpha")[1]
+    assert "robot" not in json.dumps(res)
+    web = client.get(f"/documents/{d.id}", headers=as_ana).json()  # humans unchanged
+    assert web["tags"] == ["mine", "robot"] and web["auto_tags"] == ["robot"]
+
+
 def test_mcp_admin_jwt_is_not_admin(client, mc, admin, ana, db_session, fes):
     d, _ = seed(db_session, ana, title="Private", visibility="private")
     assert client.get(f"/documents/{d.id}", headers=admin).status_code == 200  # web admin sees it
