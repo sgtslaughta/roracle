@@ -107,7 +107,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} latest={latest} />}
-      <TagBar docId={d.id} tags={d.tags} ownerId={d.owner.id} />
+      <TagBar docId={d.id} tags={d.tags} autoTags={d.auto_tags} ownerId={d.owner.id} />
     </>
   );
 }

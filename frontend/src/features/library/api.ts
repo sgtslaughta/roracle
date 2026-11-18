@@ -23,7 +23,10 @@ export function useCollectionName() {
   return (id: string) => data?.find((c) => c.id === id)?.name ?? id;
 }
 
-type Patch = { votes?: Votes; tags?: string[] };
+type Patch = { votes?: Votes; tags?: string[]; auto_tags?: string[] };
+
+/** Client mirror of the server's tag normalisation (for optimistic updates and toasts). */
+export const normTag = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
 /** Optimistic: patch the document in every cached search page and its detail; the returned snapshot rolls it back. */
 async function patchDoc(qc: QueryClient, docId: string, fn: (d: Patch) => Patch) {
@@ -63,8 +66,8 @@ export function useAddTag(docId: string) {
   return useMutation({
     mutationFn: (tag: string) => apiFetch<TagsResponse>(`/documents/${seg(docId)}/tags`, { method: "POST", json: { tag } }),
     onMutate: (tag) => {
-      const t = tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-      return patchDoc(qc, docId, (d) => ({ tags: d.tags && (!t || d.tags.includes(t) ? d.tags : [...d.tags, t]) }));
+      const t = normTag(tag);  // adding an auto tag adopts it
+      return patchDoc(qc, docId, (d) => ({ tags: d.tags && (!t || d.tags.includes(t) ? d.tags : [...d.tags, t]), auto_tags: d.auto_tags?.filter((x) => x !== t) }));
     },
     onError: (_e, _t, snap) => rollback(qc, docId, snap),
     onSettled: () => refresh(qc, docId),
@@ -75,7 +78,7 @@ export function useRemoveTag(docId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (tag: string) => apiFetch<{ tags: string[] }>(`/documents/${seg(docId)}/tags/${seg(tag)}`, { method: "DELETE" }),
-    onMutate: (tag) => patchDoc(qc, docId, (d) => ({ tags: d.tags?.filter((x) => x !== tag) })),
+    onMutate: (tag) => patchDoc(qc, docId, (d) => ({ tags: d.tags?.filter((x) => x !== tag), auto_tags: d.auto_tags?.filter((x) => x !== tag) })),
     onError: (_e, _t, snap) => rollback(qc, docId, snap),
     onSettled: () => refresh(qc, docId),
   });

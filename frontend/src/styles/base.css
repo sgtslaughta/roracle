@@ -26,6 +26,9 @@ button.badge-o:hover { border-color: var(--apricot); color: var(--primary); }
 .badge-o.k-type { background: var(--t-type); border-color: transparent; color: var(--ink); }
 .badge-o.k-cite { background: var(--t-cite); border-color: transparent; color: var(--ink); }
 .badge-o.tag { background: var(--t-tag); border-color: transparent; color: var(--t-tag-ink); }
+.badge-o.auto { background: none; border: 1px dashed var(--t-tag-ink); color: var(--t-tag-ink); } /* suggested by AI */
+.badge-o.add-tag { border-style: dashed; cursor: pointer; }
+input.add-tag { height: 22px; width: 110px; border: 1px dashed var(--border); border-radius: 6px; padding: 0 7px; font-size: 12px; background: none; }
 .flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; border-radius: 6px; padding: 1px 7px; color: var(--terra); background: color-mix(in srgb, var(--terra) 12%, transparent); }
 .citeline { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
 .citeline i { font-family: var(--f-read); }
