@@ -42,6 +42,11 @@ export interface SearchHit {
   cited_by_count: number;
   page_count: number | null;
   added_at: string;
+  /** AI summary and extracted abstract: null for agents on exclude_llm docs */
+  summary?: string | null;
+  abstract?: string | null;
+  ids?: Record<string, string>;
+  ref_count?: number;
   owner_id: string;
   label?: Label;
   /** community notes (search with notes=true); absent in older responses */
@@ -74,6 +79,10 @@ export interface DocumentDetail {
   label?: Label;
   owner: { id: string; username: string };
   summary: string | null;
+  /** extracted abstract; null for agents on exclude_llm docs */
+  abstract?: string | null;
+  added_at?: string | null;
+  references_count?: number;
   stage: string;
   tags: string[];
   votes: Votes;

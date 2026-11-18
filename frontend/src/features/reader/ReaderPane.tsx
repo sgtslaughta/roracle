@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { BookOpen, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
+import { BookOpen, FileSearch, FolderPlus, Share2, Download, Link as LinkIcon, ListOrdered, MessageSquarePlus, MessageSquareQuote, Quote, Sparkles } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { docTitle } from "@/lib/docTitle";
@@ -9,7 +9,7 @@ import { Identifiers } from "./Identifiers";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddToCollectionDialog } from "@/features/library/AddToCollection";
-import { VoteControl } from "@/features/library/VoteControl";
+import { useSupersedeCandidates, VoteControl } from "@/features/library/VoteControl";
 import { useOwnerOrAdmin } from "@/features/library/useMe";
 import { focusComposer, unignore } from "@/features/ask/useAskContext";
 import { addRecent } from "@/features/palette/recent";
@@ -24,12 +24,14 @@ import { NotesTab } from "@/features/notes/NotesTab";
 import { notesUi, useNotes } from "@/features/notes/api";
 import { CitedByTab, ReferencesTab } from "./ReferencesTab";
 import { TagBar } from "./TagBar";
+import { DetailsTab, SummaryTab } from "./DocInfo";
 import { setVersion, setView, type ReaderTab, type ReaderView } from "./useReaderStore";
 
 export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) {
   const { data: d, isError } = useDoc(tab.docId);
   const refs = useReferences(tab.docId).data;
   const cited = useCitedBy(tab.docId).data;
+  const candidates = useSupersedeCandidates(tab.docId);
   const notes = useNotes(tab.docId).data;
   const adding = notesUi.use((s) => s.adding === tab.docId);
   const [collecting, setCollecting] = useState(false);
@@ -64,7 +66,7 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <Button variant="primary" onClick={() => { unignore(d.id); if (!onAskRoute) void navigate({ to: "/ask" }); focusComposer(); }}>
             <Sparkles aria-hidden />Ask about this
           </Button>
-          <VoteControl docId={d.id} votes={d.votes} row />
+          <VoteControl docId={d.id} votes={d.votes} row candidates={candidates} />
           <select className="sel" aria-label="Version" value={version} onChange={(e) => setVersion(d.id, Number(e.target.value))}>
             {d.versions.map((v) => <option key={v.id} value={v.version}>Version {v.version}{v.is_latest ? " (latest)" : ""}</option>)}
           </select>
@@ -89,10 +91,12 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
         </div>
         <Tabs value={view} onValueChange={(v) => setView(v as ReaderView)}>
           <TabsList aria-label="Document sections">
-            <TabsTrigger value="doc"><BookOpen aria-hidden />Document</TabsTrigger>
-            <TabsTrigger value="refs"><ListOrdered aria-hidden />References{refs && <span className="n">{refs.length}</span>}</TabsTrigger>
-            <TabsTrigger value="cited"><Quote aria-hidden />Cited by{cited && <span className="n">{cited.length}</span>}</TabsTrigger>
-            <TabsTrigger value="notes"><MessageSquareQuote aria-hidden />Notes{notes && <span className="n">{notes.filter((n) => !n.parent_id).length}</span>}</TabsTrigger>
+            <TabsTrigger value="doc" aria-label="Document" title="Document"><BookOpen aria-hidden /><span className="tl">Document</span></TabsTrigger>
+            <TabsTrigger value="summary" aria-label="Summary" title="Summary"><Sparkles aria-hidden /><span className="tl">Summary</span></TabsTrigger>
+            <TabsTrigger value="details" aria-label="Details" title="Details"><FileSearch aria-hidden /><span className="tl">Details</span></TabsTrigger>
+            <TabsTrigger value="refs" aria-label="References" title="References"><ListOrdered aria-hidden /><span className="tl">References</span>{refs && <span className="n">{refs.length}</span>}</TabsTrigger>
+            <TabsTrigger value="cited" aria-label="Cited by" title="Cited by"><Quote aria-hidden /><span className="tl">Cited by</span>{cited && <span className="n">{cited.length}</span>}</TabsTrigger>
+            <TabsTrigger value="notes" aria-label="Notes" title="Notes"><MessageSquareQuote aria-hidden /><span className="tl">Notes</span>{notes && <span className="n">{notes.filter((n) => !n.parent_id).length}</span>}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -103,6 +107,8 @@ export function ReaderPane({ tab, view }: { tab: ReaderTab; view: ReaderView }) 
           <PdfView key={`${d.id}:${version}`} tab={tab} version={version} filename={filename} onDownload={download} blocked={blocked} />
         </Suspense>
       )}
+      {view === "summary" && <SummaryTab d={d} />}
+      {view === "details" && <DetailsTab d={d} />}
       {view === "refs" && <ReferencesTab docId={d.id} />}
       {view === "cited" && <CitedByTab docId={d.id} />}
       {view === "notes" && <NotesTab docId={d.id} docOwnerId={d.owner.id} version={version} latest={latest} />}

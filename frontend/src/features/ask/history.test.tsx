@@ -99,7 +99,7 @@ describe("remove chat from my list", () => {
     const nav = await screen.findByRole("navigation", { name: "Recent chats" });
     await user.click(await within(nav).findByRole("button", { name: /Actions for chat Spectral gap/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Remove from my chats" }));
-    expect(await screen.findByText("Remove this chat from your list? Shared links keep working.")).toBeInTheDocument();
+    expect(await screen.findByRole("alertdialog", { name: "Remove from my chats?" })).toBeInTheDocument();
     expect(seen.filter((r) => r.method === "DELETE")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(seen.filter((r) => r.method === "DELETE" && new URL(r.url).pathname.endsWith("/chats/c1"))).toHaveLength(1));

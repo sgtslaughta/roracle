@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Bbox } from "@/api/types";
 
 export type Focus = "split" | "three-quarter" | "full";
-export type ReaderView = "doc" | "refs" | "cited" | "notes";
+export type ReaderView = "doc" | "summary" | "details" | "refs" | "cited" | "notes";
 export const FOCUS_KEY = "roracle-reader-focus";
 const FOCUS_ORDER: Focus[] = ["split", "three-quarter", "full"];
 export const MAX_TABS = 3;
