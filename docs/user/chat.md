@@ -8,7 +8,7 @@
 
 ## Asking a question
 
-Type in the question box and press `Enter` (or choose **Ask**). A question can be up to 4000 characters. The chat gets a title from your first question (its first 80 characters); **Rename** in the chat header changes it. Follow-up questions in the same chat can build on the last few messages (the most recent six).
+Type in the question box and press `Enter` (or choose **Ask**). A question can be up to 4000 characters. The chat gets a title from your first question (its first 80 characters); **Rename** in the chat header (owners only) changes it. Follow-up questions in the same chat can build on the last few messages (the most recent six).
 
 Under the box you can set:
 

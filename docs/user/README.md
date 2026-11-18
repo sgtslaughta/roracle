@@ -7,7 +7,7 @@ For researchers: how to find, read, annotate, label, upload and ask about papers
 - [Welcome to rOracle](getting-started.md): signing in, the layout, theme and the command menu
 - [Your first hour](first-hour.md): a short checklist to get going
 - [Keyboard shortcuts](keyboard-shortcuts.md): every key in one place
-- [Finding papers](library-search.md)(library-search.md): searching, filters, sorting, votes
+- [Finding papers](library-search.md): searching, filters, sorting, votes
 - [Reading a paper](reader.md): the reader, focus mode, references, cited-by, identifiers
 - [Notes and annotations](notes-annotations.md): note kinds, anchoring to a passage, community notes
 - [Sensitivity labels](labels.md): what a label means to you and how to change one

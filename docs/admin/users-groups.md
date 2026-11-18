@@ -41,8 +41,8 @@ The terms are in the [glossary](../glossary.md#access).
 ![The Users table with the search box](../assets/screens/admin-users.png)
 
 - **Search users** matches the user name or the email.
-- The table shows the user, their groups (the first two, with the rest in a menu), whether they are an admin and their last sign-in, 20 users per page.
-- **Groups** lists the group paths found across all users with the number of members, the first 50 alphabetically. The API pages through the rest.
+- The table shows the user, their groups (the first two, with the rest in a menu), whether they are an admin and when they last used the web app (the "Last login" column, updated on every signed-in request, not only at sign-in), 20 users per page.
+- **Groups** lists the raw group names found in users' tokens (not normalised, so `/A` and `A` show separately) with the number of members, the first 50 alphabetically. The API pages through the rest.
 - Names and groups are read-only here. Change them in Keycloak.
 
 The matching API calls are `GET /api/admin/users` (`q`, `page`, `limit` up to 200) and `GET /api/admin/groups` (`q`, `limit`, `offset`). The API returns two extra fields per user, `documents` and `bytes`: the user's live documents (connector documents included) and their size. This is a usage view, not the figure the [upload quota](quotas-limits.md#per-user-upload-quota) checks.

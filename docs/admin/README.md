@@ -24,17 +24,19 @@ Admins see an **Admin** entry in the web app. It opens `/admin` with one tab per
 | Tab | What it is for | Where it is covered |
 |---|---|---|
 | Connectors | Sources rOracle pulls papers from | [Connectors](connectors.md) |
-| Jobs | The processing queue; retry failed jobs | Jobs and queue: see [architecture](../architecture/README.md) |
-| Review | Uploads and connector items that look like papers already in the library, oldest first; filter by All, Uploads or Connectors | [Uploads](../user/uploads.md#near-duplicates) (the researcher's side) |
-| Needs title | Versions waiting for a title | [Uploads](../user/uploads.md) |
+| Jobs | The processing queue; retry failed jobs | [Index maintenance](index-maintenance.md) (the Jobs screen: counts, status and kind filters, **Retry**, **Retry all failed**, **Load older jobs**); see also [architecture](../architecture/README.md) |
+| Review | Uploads and connector items that look like papers already in the library, oldest first; filter by All, Uploads or Connectors | Admins decide each item with **New version**, **Keep separate** or **Cancel upload**, and page through them. Connector items have no uploader, so only admins can decide them. [Uploads](../user/uploads.md#near-duplicates) describes the researcher's side |
+| Needs title | Versions waiting for a title: everyone's untitled uploads, oldest first (up to 200), where an admin can title any of them or **Copy filename** / **Copy owner** | [Uploads](../user/uploads.md#needs-a-title) |
 | Settings | Runtime overrides of selected settings | [Runtime settings](runtime-settings.md); the limit settings are also in [Quotas and limits](quotas-limits.md) |
 | Tags | Merge tags | [Labels](labels.md#tags-and-index-drift) |
 | Labels | Sensitivity labels | [Labels](labels.md) |
 | Eval | Retrieval-quality evaluation | [Evaluation](eval.md) |
 | Audit | The audit log | [Audit log](audit.md) |
 | Users | Users, groups, revoking tokens | [Users and groups](users-groups.md) |
-| Stats | Document, version, blob and user counts and the top uploaders | [Quotas and limits](quotas-limits.md#watching-usage) |
-| Health | Database, Elasticsearch and storage checks, queue depth | [Operations runbook](../enterprise/operations-runbook.md) |
+| Stats | Document, version, blob, user, chat and connector counts and the top 10 uploaders | [Quotas and limits](quotas-limits.md#watching-usage) |
+| Health | Database, Elasticsearch and storage checks, queue counts (including failed) and the age of the oldest queued job, and a **Scheduler tick** card showing whether the connector scheduler tick is queued or idle | [Operations runbook](../enterprise/operations-runbook.md) |
+
+Admins can also **Remove (admin)** any note from its three-dot menu (`DELETE /api/admin/annotations/{note_id}`, audited as `annotation.remove`); see [notes](../user/notes-annotations.md#replies-votes-and-moderation).
 
 ## Rules that apply to every admin call
 
