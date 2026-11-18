@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session
 
 from roracle.access import org_unit_error, org_units, readable_documents
 from roracle.audit import audit
-from roracle.auth import MANAGE, Principal, current_principal, get_app_settings, require_scope
+from roracle.auth import MANAGE, Principal, agent_marker, current_principal, get_app_settings, require_scope
 from roracle.config import Settings
 from roracle.db import get_session
-from roracle.ingest.intake import add_document
+from roracle.ingest.intake import add_document, ingest_payload, prior_agent
 from roracle.labels import service
 from roracle.models import Document, DocumentVersion
 from roracle.onboarding import mark
@@ -195,6 +195,7 @@ def accept(
         content_type=content_type,
         title=form.title or None,
         label_id=label_id,
+        agent=agent_marker(p),
     )
     audit(session, p, "document.upload", str(doc.id), {"version_id": str(version.id), "size": staged.size})
     mark(session, p.user_id, "upload")
@@ -231,6 +232,6 @@ def set_title(
     doc.title = body.title
     v.stage = "parsed"
     v.ingest_attempts = 0  # R17: a user decision restarts the crash budget
-    enqueue(session, "ingest", {"version_id": str(v.id)})
+    enqueue(session, "ingest", ingest_payload(v.id, prior_agent(session, v.id) or agent_marker(p)))
     session.commit()
     return {"version_id": str(v.id), "document_id": str(doc.id), "stage": v.stage}

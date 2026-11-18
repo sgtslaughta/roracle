@@ -281,3 +281,18 @@ def principal_for_user(session: Session, user_id: UUID) -> Principal:
     if u is None:
         raise LookupError(f"user {user_id} not found")
     return Principal(u.id, u.sub, u.username, tuple(u.groups), u.is_admin)
+
+
+def agent_marker(p: Principal) -> dict | None:
+    """What an ingest job needs to rebuild an agent uploader's view: its groups (a PAT's snapshot). None for humans."""
+    return {"groups": list(p.groups)} if p.is_agent else None
+
+
+def principal_for_upload(session: Session, user_id: UUID, agent: dict | None) -> Principal:
+    """The uploader's view for ingest-time checks: an agent upload (`agent_marker`) keeps the agent gate, is never
+    admin and never sees more groups than the user holds now."""
+    p = principal_for_user(session, user_id)
+    if not agent:
+        return p
+    groups = tuple(g for g in agent.get("groups", ()) if g in p.groups)
+    return replace(p, groups=groups, is_admin=False, via="mcp", scopes=p.scopes - {MANAGE})

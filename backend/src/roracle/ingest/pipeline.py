@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from roracle import autotag, notify, runtime, search_index
 from roracle.acl_sync import read_acl
-from roracle.auth import principal_for_user
+from roracle.auth import principal_for_upload
 from roracle.config import Settings
 from roracle.ingest.chunking import chunk
 from roracle.ingest.context import notes_for
@@ -135,7 +135,7 @@ def _owner_lock(ls: Session, owner_id) -> None:
 
 
 def _dedupe(
-    session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf, es=None
+    session: Session, v: DocumentVersion, d: Document, text: str, settings: Settings, sf, es=None, agent=None
 ) -> bool:
     """True if the version was parked for a near-dup decision.
 
@@ -147,7 +147,7 @@ def _dedupe(
     Of two simultaneous uploads of one paper the second to take the lock sees the first's bands: exactly one parks."""
     mh = minhash(text)
     settings = runtime.effective(session, settings)
-    principal = principal_for_user(session, d.owner_id)
+    principal = principal_for_upload(session, d.owner_id, agent)  # an agent upload never sees more (F1)
     with sf() as ps:  # phase 1: no lock, no write
         since = ps.scalar(select(func.now())) - timedelta(seconds=1)
         probe = ps.get(DocumentVersion, v.id)
@@ -427,13 +427,15 @@ def handle_ingest(
     if v.stage in TERMINAL or d.deleted_at is not None:
         return
     try:
-        _advance(session, v, d, settings=settings, store=store, es=es, llm=llm, sf=sf)
+        _advance(
+            session, v, d, settings=settings, store=store, es=es, llm=llm, sf=sf, agent=payload.get("agent")
+        )
     except Exception:
         INGEST_STAGE_FAILURES.labels(v.stage).inc()  # stage being advanced (last refreshed value)
         raise
 
 
-def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
+def _advance(session, v, d, *, settings, store, es, llm, sf, agent=None) -> None:
     vid = v.id
     doc: dict | None = None
     if v.stage == "uploaded":
@@ -477,7 +479,7 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
         session.refresh(v)
     if v.stage == "summarized":
         try:
-            parked = _dedupe(session, v, d, document_text(doc), settings, sf, es)
+            parked = _dedupe(session, v, d, document_text(doc), settings, sf, es, agent)
         except (
             DedupeBusy
         ):  # a deferral, not a crash: give back the ingest start it consumed (the job is requeued too)
