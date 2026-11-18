@@ -14,7 +14,7 @@ import { highlight, safeHighlight } from "./highlight";
 import { TagChip } from "./TagChip";
 import { docTitle } from "@/lib/docTitle";
 import { useOwnerOrAdmin } from "./useMe";
-import { useRemoveFromCollection } from "./api";
+import { useRemoveFromCollection, useSubmitTag } from "./api";
 import { AddToCollectionDialog } from "./AddToCollection";
 import { Identifiers } from "@/features/reader/Identifiers";
 import { useLabelById } from "@/features/labels/api";
@@ -72,12 +72,29 @@ export function ResultCard({ hit, terms, onOpen, onTag, collectionId }: ResultCa
           {!!hit.cited_by_count && <Badge kind="cite"><Quote aria-hidden />Cited by {hit.cited_by_count} here</Badge>}
           <OverflowList
             items={hit.tags} max={4} menuLabel="More tags" getLabel={(t) => t} className="ovl-tags"
-            renderItem={(t) => <TagChip key={t} docId={hit.doc_id} tag={t} canRemove={canRemove} onFilter={() => onTag(t)} />}
+            renderItem={(t) => <TagChip key={t} docId={hit.doc_id} tag={t} auto={hit.auto_tags?.includes(t)} canRemove={canRemove} onFilter={() => onTag(t)} />}
           />
+          <AddTag docId={hit.doc_id} />
         </div>
       </div>
       {adding && <AddToCollectionDialog docId={hit.doc_id} open onOpenChange={setAdding} />}
     </li>
+  );
+}
+
+/** Inline "+ tag": a small button that opens an input; Enter adds (same normalisation as the reader TagBar). */
+function AddTag({ docId }: { docId: string }) {
+  const submit = useSubmitTag(docId);
+  const [v, setV] = useState<string | null>(null);
+  if (v === null) return <button className="badge-o add-tag" aria-label="Add tag" onClick={() => setV("")}>+ tag</button>;
+  return (
+    <input
+      className="add-tag" autoFocus placeholder="tag" aria-label="New tag" value={v} onChange={(e) => setV(e.target.value)} onBlur={() => setV(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setV(null);
+        if (e.key === "Enter" && submit(v)) setV(null); // invalid: stays open for editing
+      }}
+    />
   );
 }
 

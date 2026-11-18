@@ -1,7 +1,7 @@
 """onboarding_progress: per-user Get started checklist state
 
 Revision ID: 0022
-Revises: 0020
+Revises: 0021
 """
 
 import sqlalchemy as sa
@@ -9,7 +9,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 revision = "0022"
-down_revision = "0020"  # renumber at merge time if 0021 has landed; keep exactly one head
+down_revision = "0021"
 branch_labels = None
 depends_on = None
 

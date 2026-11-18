@@ -143,6 +143,7 @@ These are the keys of the handler map built in `worker.py`. Details of the stage
 | `reconcile_tags` (bulk) | Maintenance, end of each re-embed pass and at cutover | Drift detection over the corpus, 500 documents per job, chained by an `after` cursor. |
 | `rebuild_units` (bulk) | `roracle rebuild`, `POST /api/admin/retrieval/rebuild` | Re-runs the index step for 25 versions per job. See [Search index lifecycle](search-index-lifecycle.md). |
 | `reparse_refs` (bulk) | `roracle reparse-refs [--limit N]` | Re-runs GROBID on one PDF version to refresh identifiers and references, then relinks citations. See [Ingest](ingest.md). |
+| `auto_tags` (bulk) | `roracle auto-tags [--limit N]` | Asks the summary model for up to 5 topical tags (`source = llm`) from one version's AI summary. Never for `exclude_llm` labels; user tags are kept. |
 | `rebuild_watch` | Rebuild start; re-enqueues itself every 60 s | Waits until the batch's `rebuild_units` jobs are done, then may start the reindex eval. |
 | `reembed` | `POST /api/admin/reindex` and itself | One page or step of an embedding-model switch, per slice. |
 | `maintenance` | Worker start (periodic), `POST /api/admin/maintenance/{op}` | `purge`, `prune_jobs`, `gc`, `reconcile`. |

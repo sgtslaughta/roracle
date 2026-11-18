@@ -15,7 +15,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy import text as text_
 from sqlalchemy.orm import Session, sessionmaker
 
-from roracle import notify, runtime, search_index
+from roracle import autotag, notify, runtime, search_index
 from roracle.acl_sync import read_acl
 from roracle.auth import principal_for_user
 from roracle.config import Settings
@@ -467,9 +467,13 @@ def _advance(session, v, d, *, settings, store, es, llm, sf) -> None:
             if summary.strip()
             else None
         )
-        update_version(
-            sf, vid, summary=summary, summary_embedding=to_bytes(vec) if vec else None, stage="summarized"
+        tagged = llm_ok and autotag.at_ingest(
+            session, sf, llm, settings.summary_model, d, title, summary, v.meta
         )
+        update_version(
+            sf, vid, summary=summary, summary_embedding=to_bytes(vec) if vec else None, stage="summarized",
+            **({"meta": {**(v.meta or {}), "auto_tagged": True}} if tagged else {}),
+        )  # fmt: skip
         session.refresh(v)
     if v.stage == "summarized":
         try:
