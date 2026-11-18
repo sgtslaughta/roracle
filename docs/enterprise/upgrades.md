@@ -88,6 +88,7 @@ Plan for double vector storage during a re-embed. Details: [search index lifecyc
 | 0018 `0018_chat_hidden_at.py` | `chats.hidden_at` (owner's soft remove) | none |
 | 0019 `0019_reparse_refs_bulk.py` | `reparse_refs` becomes a bulk kind (claim indexes recreated) | **drain workers first**: same concurrent swap as 0014b |
 | 0020 `0020_saved_searches.py` | `saved_searches` (owner-only saved library searches, unique name per owner) | none; 0.3.0 also needs the search reindex in section 6 |
+| 0021 `0021_pat_manage_scope.py` | adds the `manage` scope and backfills it onto every token that holds `write` | none; see section 7 |
 
 Concurrent index migrations cannot run inside a transaction, so they use Alembic's autocommit block. If one is interrupted it can leave an invalid index; the migrations drop an invalid leftover and verify validity, so fixing the cause and re-running `roracle migrate` is safe. A migration that waits does so on long-running transactions: drain the workers (step 4 of section 1) and check `pg_stat_activity` for long transactions on the primary.
 
@@ -131,7 +132,23 @@ Until the cutover:
 
 Journal and has-identifier results are only correct for papers written by that reindex or ingested after it. Papers ingested before identifiers were extracted get them from `roracle reparse-refs` (section 4, "After 0019"); run it **before** the reindex, or run another same-model reindex after it, so their journals and identifiers reach the index. The same holds for any later `reparse-refs`: it refreshes citation counts in the index at once, but a paper's journal ISSNs (`issn`), identifier filters (`ids_present`, `has_doi`) and `has_refs` only change in the index after the next same-model reindex.
 
+## 7. 0.3.x to 0.4.0: agent hardening
+
+0.4.0 is the security-hardening release. There is no reindex. Upgrade as in section 1; migration 0021 runs in the `migrate` hook.
+
+- **`manage` scope.** Token scopes are now `read` ⊂ `write` ⊂ `manage`. `manage` gates sharing and ownership: changing a document's visibility, org unit, shares or co-authors, deleting or transferring it, submitting a draft, changing draft co-authors (`PUT /api/drafts/{id}/coauthors`), sharing a chat, and handoffs for anyone but the creator. Without it the API answers 403 `insufficient scope: manage`. Migration 0021 **backfills `manage` onto every existing token that holds `write`**, so nothing breaks on upgrade; tokens minted afterwards with Read and write do not have it. Review your agents' tokens and mint narrower ones where manage is not needed.
+- **Upload default.** An upload (REST or MCP) by a token without `manage` that omits visibility is now `private`; an explicit non-private visibility needs `manage`. Write-only tokens that relied on the old `everyone` default for REST uploads must be re-minted with manage or the papers shared afterwards by their owner.
+- **`/mcp` OAuth clients are agents.** A Keycloak/OAuth token on `/mcp` is now treated as a non-admin agent: `block_agents` and `exclude_llm` apply to it, it never has admin or `manage`, and handoff loads redact for it like a PAT. Admin-only tools stop working through `/mcp`; use the web app or REST with a JWT.
+- **Audit.** Scope denials, rate-limit denials, failed PAT requests and admin 403s now leave durable rows (see [audit](security/audit.md#what-is-and-is-not-audited)). `admin.<endpoint>` rows keep only query parameter names.
+- **Helm values (all off by default).** `observability.podMonitor.enabled` and `observability.prometheusRule.enabled` (both need the prometheus-operator CRDs). The worker is scraped on its `health` port.
+- **ECK 3.3.2.** The ECK operator is pinned to 3.3.2 (its support matrix lists Elasticsearch 9.5). Mirror `docker.elastic.co/eck/eck-operator:3.3.2` and Elasticsearch 9.5.6 before upgrading the Terraform operators module ([mirror manifest](airgap-mirror-manifest.md)).
+
 ## Release notes
+
+### 0.4.0
+
+- Security hardening: one agent principal for PATs and `/mcp`, the `manage` token scope, quoted prompt metadata, durable audit rows for denials and failures, handoff redaction of papers a loader cannot see, a shorter [known limits](security/known-limits.md).
+- Upgrade: migration 0021 (backfills `manage` onto `write` tokens); notes in section 7.
 
 ### 0.3.0
 

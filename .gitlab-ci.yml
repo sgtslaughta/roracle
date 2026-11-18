@@ -15,8 +15,8 @@ variables:
   MINIO_IMAGE: "${REGISTRY_MIRROR}bitnamilegacy/minio:2025.5.24"
   TERRAFORM_IMAGE: "${REGISTRY_MIRROR}hashicorp/terraform:1.15.8"
   KIND_E2E_IMAGE: ""   # REQUIRED for iac-kind-e2e (the job fails fast when empty): bash 4+, docker CLI, terraform, curl, jq, tar, openssl, sha256sum
-  # Supply chain (all optional; placeholders, set as CI/CD variables): SYFT_IMAGE (mirrored anchore/syft, pinned tag) enables the
-  # sbom job; COSIGN_IMAGE (mirrored sigstore/cosign, pinned) + COSIGN_KEY (file variable) + COSIGN_PASSWORD (masked) enable signing on tags.
+  # Supply chain (all optional; placeholders, set as CI/CD variables): SYFT_IMAGE (mirrored anchore/syft, pinned `:debug` tag: needs a shell) enables the
+  # sbom job; COSIGN_IMAGE (mirrored sigstore/cosign, pinned `-dev` tag: needs a shell) + COSIGN_KEY (file variable) + COSIGN_PASSWORD (masked) enable signing on tags.
   SYFT_IMAGE: ""
   COSIGN_IMAGE: ""
   ELASTICSEARCH_IMAGE: "${REGISTRY_MIRROR}docker.elastic.co/elasticsearch/elasticsearch:9.5.6"
@@ -337,6 +337,6 @@ sign:
     name: $COSIGN_IMAGE
     entrypoint: [""]
   script:
-    - cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - printf %s "$CI_REGISTRY_PASSWORD" | cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
     - cosign sign --yes --key "$COSIGN_KEY" --tlog-upload=false "$CI_REGISTRY_IMAGE/backend@$(cat backend.digest)"
     - cosign sign --yes --key "$COSIGN_KEY" --tlog-upload=false "$CI_REGISTRY_IMAGE/web@$(cat web.digest)"

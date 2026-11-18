@@ -20,7 +20,7 @@ Terms: [glossary](../../glossary.md). Decisions: ADR-0002, 0004, 0014, 0015.
   - A PAT is **never admin**, even for an admin owner.
   - `manage` gates sharing and ownership: `PATCH /api/documents/{id}` touching `visibility`, `org_unit`,
     `share_users`, `share_groups` or `coauthors`; `DELETE /api/documents/{id}`; `POST /api/documents/{id}/transfer`;
-    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors`; `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private`; and handoff create or update with an audience other
+    `POST /api/drafts/{id}/submit`; `PUT /api/drafts/{id}/coauthors` (draft co-authors); `PUT /api/chats/{id}/shares`; document upload (REST `POST /api/documents`, whose default visibility is `everyone`, and MCP `upload`) with any visibility other than `private` (a caller without `manage` that omits visibility gets `private`; the owner may widen it later with a manage session); and handoff create or update with an audience other
     than `creator` (REST and MCP). Without it: 403 `insufficient scope: manage`, checked before any document lookup.
     Sessions (JWT) hold it. MCP callers without a PAT never have it. Existing write tokens were backfilled with it by
     migration 0021; new `write` tokens do not get it.
@@ -94,8 +94,8 @@ visibility; labels never grant access.
 
 | Gate | Effect | Applies to |
 |---|---|---|
-| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every PAT principal, admin PATs included; also every handoff loader (human or agent) |
-| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. PATs also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; PATs additionally for text |
+| `block_agents` | Document and its notes behave as **not found** (404, absent from lists, search, facets, counts) | Every agent principal (PAT and every `/mcp` caller), admins included; also every handoff loader (human or agent) |
+| `exclude_llm` | Content never enters an LLM prompt: chat/`ask` retrieval, community-note passages, citation judges, draft style/validate checks, ingest summary. Agent principals also get no passage text of it anywhere (metadata and label stay visible, text is replaced by `[withheld: <label>]` or emptied and flagged `withheld`) | Everyone for LLM context; agent principals additionally for text |
 | `block_export` | 403 `{"detail":"export blocked by label","label":"<name>"}` on download/export routes (below) | Everyone except the document owner (JWT or PAT) and admins on an interactive JWT. Admin PATs are not exempt (a PAT is never admin) |
 | `reason_on_lower` | Lowering this label needs a 3-500 character reason | Admins lowering |
 
@@ -134,7 +134,7 @@ reading an `exclude_llm` document's `file`, `pdf` or `docling` gets 403 `withhel
   job and the Postgres post-filter is authoritative meanwhile (brief over-fetch, never a leak to the caller).
 - **Handoff transcripts of chats carry text verbatim, with limited redaction.** Assistant message text derived from
   `block_agents` sources is withheld (`[withheld: unavailable]`, the label name is not revealed) for **every** loader, humans included; text derived
-  from `exclude_llm` sources is withheld for PAT loaders. Assistant replies that drew on (cited or retrieved) papers the loader cannot see (ACL, not label) are
+  from `exclude_llm` sources is withheld (`[withheld: <label>]`) for agent loaders (PAT and `/mcp`). Assistant replies that drew on (cited or retrieved) papers the loader cannot see (ACL, not label) are
   withheld as `[withheld: unavailable]`, and those citations are reduced to `{n, available: false}`
   (`handoff.py` `get_part`); the creator sees them only if they can still see every paper. Passages that came from notes are always dropped from
   handoff manifests. User messages, the handoff **brief, goal and notes are free text** written by people or

@@ -30,7 +30,7 @@ Audit rows share the request's database transaction, so they follow its fate. Du
 | REST request with a PAT, handler succeeds | Yes: `pat.use` with `METHOD /path` (cut at 200 characters) and the client `pat:<token name>` |
 | REST request with a PAT, handler raises (404, 403, 409, 422, 5xx) | Yes: `pat.use` is replayed after the rollback with `user_id` null, the user in `detail.user_id` and the status in `detail.failed` |
 | REST request rejected for rate limit (429) | Yes: `auth.rate_limited`, at most one per principal per minute, so a flood cannot fill the log |
-| REST request denied for scope (403 `insufficient scope`, `insufficient scope: manage`) | Yes: `auth.scope_denied` with `detail.need` (`write` or `manage`) and `detail.via` |
+| REST or MCP request denied for scope (403 `insufficient scope`, `insufficient scope: manage`) | Yes: `auth.scope_denied` with `detail.need` (`write` or `manage`) and `detail.via` (`pat` or `mcp`); MCP tool errors replay the durable row the same way |
 | Admin route, handler succeeds | Yes: `admin.<handler>` (reads included) plus the action's own row where there is one |
 | Admin route, handler raises | Yes: `admin.<handler>` replayed with `detail.failed`; the query string is never stored, only parameter names |
 | Non-admin or PAT calling an admin route (403) | `admin.denied`, replayed after the rollback like the rows above. If the replay itself fails it is logged, counted in `roracle_audit_write_failures_total` and the original status is still returned |
@@ -43,7 +43,8 @@ MCP never writes `pat.use`; REST never writes `mcp.*`. An MCP request rejected f
 
 Events that are **not** audited, because no code writes them: sign-in (the user row is upserted, no audit row),
 search queries (REST or MCP `search` beyond the `mcp.search` row), document view or download (apart from
-`label.view` on `block_export` documents), chat questions and answers, collection sharing changes, and note creation. Earlier versions of this page listed
+`label.view` on `block_export` documents), chat questions and answers, collection create/edit/membership changes,
+and note creation. Earlier versions of this page listed
 sign-in and search auditing; that was never implemented.
 
 ### Reading and exporting

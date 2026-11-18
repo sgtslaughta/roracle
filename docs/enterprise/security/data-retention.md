@@ -27,8 +27,8 @@ The maintenance job runs every `ROR_MAINTENANCE_INTERVAL_S` (default 86400 secon
    queued and the chunks and summary units are removed from Elasticsearch immediately (`delete_by_query` on the
    document id). If that ES call fails it is logged and the queued `acl_sync` job removes the chunks instead: for a deleted document it runs the same `delete_by_query`, and an ES error makes the queue retry it with backoff. The action is audited as
    `document.delete`.
-2. **Quota.** The per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES`) still counts a soft-deleted document's version
-   sizes until it is purged ([known limits](known-limits.md#quota-and-observability)).
+2. **Quota.** The per-user upload quota (`ROR_UPLOAD_QUOTA_BYTES`) does not count soft-deleted documents,
+   so deleting a paper frees quota at once.
 3. **Purge** (only when `ROR_RETENTION_DELETED_DAYS` > 0): up to 100 documents per run whose `deleted_at` is older
    than the cutoff. Per document, in one savepoint (a failing document is skipped and retried next run):
    - **Elasticsearch:** delete every chunk and summary unit of the document (units are ES documents with the same
