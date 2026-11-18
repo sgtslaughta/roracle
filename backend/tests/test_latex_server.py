@@ -118,6 +118,41 @@ def test_forbidden_features_walk():
     assert feats(a={"/Subtype": "/Link", "/Border": [0, 0, 1]}) == []
 
 
+def test_forbidden_names_as_values_and_more_keys():
+    assert feats(
+        a={"/Subtype": "/FileAttachment", "/FS": {"/Type": "/Filespec", "/EF": {"/F": "9 0 R"}}}
+    ) == [
+        "EF",
+        "FileAttachment",
+    ]
+    assert feats(a={"/Subtype": "/Screen"}) == ["Screen"]
+    assert feats(a={"/A": {"/S": "/Rendition"}, "/X": ["/Movie", "/Sound"]}) == [
+        "Movie",
+        "Rendition",
+        "Sound",
+    ]
+    assert feats(a={"/RichMediaContent": "1 0 R"}) == ["RichMediaContent"]
+    assert feats(a={"/Type": "/Annot", "/Subtype": "/Link", "/H": "/I"}) == []
+
+
+def test_walk_child_killed_by_limit_is_unverified(tmp_path, monkeypatch):
+    real = srv._run
+
+    def fake(cmd, cwd, env, t, stdout=None):
+        if cmd[0] == "qpdf":
+            stdout.write(b'{"qpdf": [{}, {}]}')
+            return 0
+        return real(cmd, cwd, env, t, stdout)
+
+    monkeypatch.setattr(srv, "_run", fake)
+    (tmp_path / "a.pdf").write_bytes(b"%PDF-1.4")
+    srv.verify_pdf(tmp_path / "a.pdf", tmp_path, {}, 20)  # child works under the normal limit
+    monkeypatch.setattr(srv, "MEM_BYTES", 1024 * 1024)  # child cannot even start
+    with pytest.raises(srv.Bad) as e:
+        srv.verify_pdf(tmp_path / "a.pdf", tmp_path, {}, 20)
+    assert (e.value.status, e.value.msg) == (422, "PDF could not be verified")
+
+
 def test_forbidden_features_nested_after_fake_stream_token():
     # a dictionary placed after a literal "stream" string is still just data in the decoded JSON
     deep = {"/Contents": "u:stream\nendstream", "/Next": {"/Kids": [{"/A": {"/S": "/Launch"}}]}}
@@ -181,6 +216,8 @@ def test_e2e_pdf_active_content_never_returned():
         "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /Launch /F (calc.exe) >>}",
         "\\pdfobj{<< /S /JavaScript /JS (x) >>}\\pdfcatalog{/AA << /O \\pdflastobj\\space 0 R >>}",
         "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI (file:///etc/passwd) >>}",
+        "\\pdfannot width 10pt height 10pt{/Subtype /FileAttachment /FS << /Type /Filespec /EF << /F 1 0 R >> >>}",
+        "\\pdfannot width 10pt height 10pt{/Subtype /Screen /A << /S /Rendition >>}",
         "\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI <66696c653a2f2f2f6574632f706173737764> >>}",
         "\\immediate\\pdfobj{(javascript:alert(1))}\\pdfannot width 10pt height 10pt{/Subtype /Link /A << /S /URI /URI \\pdflastobj\\space 0 R >>}",
     ):

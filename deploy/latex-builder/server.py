@@ -9,6 +9,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,13 +33,11 @@ ENV = {
     "MKTEXPK": "0",
     "MKTEXMF": "0",
 }
-# Active content a published paper must not carry (viewers run or fetch it). Checked on qpdf's decoded object JSON.
-BAD_KEYS = frozenset(
-    "/JavaScript /JS /AA /Launch /EmbeddedFile /EmbeddedFiles /RichMedia /SubmitForm /ImportData /GoToR /GoToE "
-    "/Movie /Sound /Rendition /XFA /FileAttachment /3D".split()
-)
-BAD_ACTIONS = frozenset(
-    "/JavaScript /Launch /GoToR /GoToE /ImportData /SubmitForm /Named /Rendition /Movie /Sound".split()
+# Active content a published paper must not carry (viewers run or fetch it). Any dict key OR name/string value in
+# qpdf's decoded object JSON equal to one of these refuses the PDF (names as qpdf emits them, with the slash).
+BAD_NAMES = frozenset(
+    "/JavaScript /JS /AA /Launch /EmbeddedFile /EmbeddedFiles /EF /FileAttachment /RichMedia /RichMediaContent "
+    "/SubmitForm /ImportData /GoToR /GoToE /Movie /Sound /Screen /Rendition /XFA /3D /Named".split()
 )
 WEB = ("http://", "https://", "mailto:")
 JSON_CAP = 64 * 1024 * 1024
@@ -121,22 +120,22 @@ def _uri_ok(v: object) -> bool:
 
 
 def forbidden_features(doc: object) -> list[str]:
-    """Walk qpdf's `--json=2` output iteratively: forbidden keys, bad /S action types, non-web /URI values."""
+    """Walk qpdf's `--json=2` output iteratively: forbidden names (keys or values), non-web /URI values."""
     found: set[str] = set()
     stack = [doc]
     while stack:
         n = stack.pop()
         if isinstance(n, dict):
             for k, v in n.items():
-                if k in BAD_KEYS:
+                if k in BAD_NAMES:
                     found.add(k[1:])
                 elif k == "/URI" and not _uri_ok(v):
                     found.add("URI")
-                elif k == "/S" and v in BAD_ACTIONS:
-                    found.add(v[1:])
                 stack.append(v)
         elif isinstance(n, list):
             stack.extend(n)
+        elif isinstance(n, str) and n in BAD_NAMES:
+            found.add(n[1:])
     return sorted(found)
 
 
@@ -154,19 +153,25 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str], timeout_s: float, stdou
 
 
 def verify_pdf(pdf: Path, root: Path, env: dict[str, str], timeout_s: float) -> None:
-    """qpdf decodes every object; any failure, timeout or oversize output means the PDF cannot be verified."""
+    """qpdf decodes every object; the JSON is parsed and walked in a rlimited child (not in this process).
+    Any failure, timeout, oversize or bad output means the PDF cannot be verified."""
     unverified = Bad(422, "PDF could not be verified")
-    js = root / "check.json"
+    js, res = root / "check.json", root / "check.out"
     try:
         with js.open("wb") as f:
             rc = _run(["qpdf", "--json=2", "--json-stream-data=none", str(pdf)], root, env, timeout_s, f)
         if rc != 0 or js.stat().st_size > JSON_CAP:
             raise unverified
-        with js.open("rb") as f:
-            doc = json.load(f)
+        with res.open("wb") as f:
+            rc = _run([sys.executable, "-I", __file__, "--walk", str(js)], root, env, timeout_s, f)
+        if rc != 0 or res.stat().st_size > 4096:
+            raise unverified
+        bad = json.loads(res.read_bytes())
+        if not isinstance(bad, list) or not all(isinstance(x, str) for x in bad):
+            raise unverified
     except (Bad, OSError, ValueError, RecursionError, MemoryError):
         raise unverified from None
-    if bad := forbidden_features(doc):
+    if bad:
         raise Bad(422, "document uses PDF features that are not allowed: " + ", ".join(bad))
 
 
@@ -258,5 +263,8 @@ class H(BaseHTTPRequestHandler):
         pass
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and sys.argv[1:2] == ["--walk"]:  # child: parse + walk under the caller's rlimits
+    with open(sys.argv[2], "rb") as _f:
+        print(json.dumps(forbidden_features(json.load(_f))))
+elif __name__ == "__main__":
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", 8080))), H).serve_forever()  # noqa: S104
