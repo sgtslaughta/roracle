@@ -43,7 +43,7 @@ What they do:
 - **Community notes.** `chat_note_min_upvotes` and `chat_note_min_ratio` set how well-rated a note must be before it reaches the model as context. A reader's own notes always do.
 - **Rerank depth.** How many candidates the reranker scores for chat and other model-bound callers. The reranker itself is off until an operator configures it.
 - **Near-duplicate thresholds.** How similar a new upload must be to a library paper to be flagged. See the [review queue](README.md#the-admin-area) and [uploads](../user/uploads.md#near-duplicates).
-- **Upload size, quota, rate limit, tokens.** Covered in [quotas and limits](quotas-limits.md). `pats_enabled` switches personal access tokens on or off for everyone.
+- **Upload size, quota, rate limit, tokens.** Covered in [quotas and limits](quotas-limits.md). `pats_enabled` switches personal access tokens on or off for everyone. While off, existing tokens get a plain 401 and creating a token returns `403 personal access tokens are disabled`.
 - **Router and agentic retrieval.** Experimental chat paths that stay off until an evaluation passes. Do not turn them on without a PASS; see [evaluation](eval.md#the-router-and-raptor-preconditions).
 
 Settings that are not here include the reranker URL, the context-notes and RAPTOR switches and `router_llm`. They are environment-only, and the evaluation tools may override some of them for one run only. The reranker URL is kept out on purpose: a URL an admin screen could set would let the server be pointed at any address. The embedding model is not a free setting either: it changes only through a [re-embed](index-maintenance.md#change-the-embedding-model).
